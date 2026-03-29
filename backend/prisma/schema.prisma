@@ -22,6 +22,7 @@ model Organization {
   activityLogs    ActivityLog[]
   dailyStats      DailyMessageStat[]
   settings        AppSetting[]
+  savedReports    SavedReport[]
   integrations    Integration[]
   automationRules AutomationRule[]
   messageTemplates MessageTemplate[]
@@ -289,6 +290,21 @@ model AppSetting {
   @@map("app_settings")
 }
 
+// Saved analytics report configuration
+model SavedReport {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  name      String
+  type      String   // conversion_funnel, team_performance, response_time, custom
+  config    Json     @default("{}")
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("saved_reports")
+}
+
 model AutomationRule {
   id          String   @id @default(uuid())
   orgId       String   @map("org_id")
@@ -359,4 +375,3 @@ model AiSuggestion {
   @@index([orgId, type, createdAt])
   @@map("ai_suggestions")
 }
-
