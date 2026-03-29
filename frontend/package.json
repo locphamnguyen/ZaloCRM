@@ -14,6 +14,7 @@
     "chart.js": "^4.5.1",
     "pinia": "^3.0.4",
     "socket.io-client": "^4.8.3",
+    "vite-plugin-pwa": "^1.2.0",
     "vue": "^3.5.30",
     "vue-chartjs": "^5.3.3",
     "vue-i18n": "^11.3.0",

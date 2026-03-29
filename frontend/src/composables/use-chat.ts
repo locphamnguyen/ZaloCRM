@@ -217,12 +217,20 @@ export function useChat() {
 
   async function sendMessage(content: string) {
     if (!selectedConvId.value || !content.trim()) return;
+    await sendMessageTo(selectedConvId.value, content);
+  }
+
+  async function sendMessageTo(conversationId: string, content: string) {
+    if (!content.trim()) return;
     sendingMsg.value = true;
     try {
-      const res = await api.post(`/conversations/${selectedConvId.value}/messages`, { content });
-      messages.value.push(res.data);
+      const res = await api.post(`/conversations/${conversationId}/messages`, { content });
+      if (conversationId === selectedConvId.value) {
+        messages.value.push(res.data);
+      }
     } catch (err) {
       console.error('Failed to send message:', err);
+      throw err;
     } finally {
       sendingMsg.value = false;
     }
@@ -276,6 +284,7 @@ export function useChat() {
     fetchAiUsage,
     selectConversation,
     sendMessage,
+    sendMessageTo,
     generateAiSuggestion,
     generateAiSummary,
     generateAiSentiment,

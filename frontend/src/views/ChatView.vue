@@ -1,5 +1,6 @@
 <template>
-  <div class="chat-container d-flex" style="height: calc(100vh - 64px);">
+  <MobileChatView v-if="isMobile" />
+  <div v-else class="chat-container d-flex" style="height: calc(100vh - 64px);">
     <!-- Conversation list — resizable -->
     <div class="chat-panel-left" :style="{ width: leftWidth + 'px' }">
       <ConversationList
@@ -55,6 +56,10 @@ import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
 import { useChat } from '@/composables/use-chat';
+import MobileChatView from '@/views/MobileChatView.vue';
+import { useMobile } from '@/composables/use-mobile';
+
+const { isMobile } = useMobile();
 
 const {
   conversations, selectedConvId, selectedConv, messages,
@@ -113,8 +118,12 @@ function stopResize() {
   document.body.style.userSelect = '';
 }
 
-onMounted(() => { fetchConversations(); fetchAiConfig(); initSocket(); });
-onUnmounted(() => { destroySocket(); });
+onMounted(() => {
+  if (!isMobile.value) { fetchConversations(); fetchAiConfig(); initSocket(); }
+});
+onUnmounted(() => {
+  if (!isMobile.value) { destroySocket(); }
+});
 
 let searchTimeout: ReturnType<typeof setTimeout>;
 watch(searchQuery, () => {

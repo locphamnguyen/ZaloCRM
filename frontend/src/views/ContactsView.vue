@@ -1,5 +1,6 @@
 <template>
-  <div>
+  <MobileContactView v-if="isMobile" />
+  <div v-else>
     <!-- Toolbar -->
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
       <h1 class="text-h5 mr-4">Khách hàng</h1>
@@ -92,6 +93,10 @@ import ContactFilters from '@/components/contacts/ContactFilters.vue';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
 import { useContacts, SOURCE_OPTIONS, STATUS_OPTIONS } from '@/composables/use-contacts';
 import type { Contact } from '@/composables/use-contacts';
+import MobileContactView from '@/views/MobileContactView.vue';
+import { useMobile } from '@/composables/use-mobile';
+
+const { isMobile } = useMobile();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
 
