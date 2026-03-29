@@ -2,7 +2,7 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY frontend/ ./
 RUN npm run build
 
@@ -12,7 +12,7 @@ WORKDIR /app/backend
 COPY backend/package.json backend/package-lock.json ./
 RUN npm ci
 COPY backend/ ./
-RUN npx prisma generate
+RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" npx prisma generate
 RUN npm run build
 
 # ── Stage 3: Production image ────────────────────────────────────────────────
