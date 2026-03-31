@@ -226,7 +226,9 @@ export function useChat() {
     try {
       const res = await api.post(`/conversations/${conversationId}/messages`, { content });
       if (conversationId === selectedConvId.value) {
-        messages.value.push(res.data);
+        if (!messages.value.find(m => m.id === res.data.id)) {
+          messages.value.push(res.data);
+        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
