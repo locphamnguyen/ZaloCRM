@@ -15,6 +15,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 import { startMessageSync, stopMessageSync } from './zalo-message-sync.js';
 import { readFile } from 'fs/promises';
 import { imageSize } from 'image-size';
+import { withProxy } from './proxy-util.js';
 
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
@@ -56,12 +57,12 @@ class ZaloAccountPool {
   }
 
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
-  async loginQR(accountId: string): Promise<void> {
+  async loginQR(accountId: string, proxyUrl?: string | null): Promise<void> {
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
     this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date() });
 
     try {
-      const api = await zalo.loginQR({}, (event: any) => {
+      const api: any = await withProxy(proxyUrl, () => zalo.loginQR({}, (event: any) => {
         switch (event.type) {
           case 0: // QRCodeGenerated
             this.io?.to(`account:${accountId}`).emit('zalo:qr', { accountId, qrImage: event.data.image });
@@ -85,7 +86,7 @@ class ZaloAccountPool {
             });
             break;
         }
-      });
+      }));
 
       const instance = this.instances.get(accountId)!;
       instance.api = api;
@@ -129,16 +130,16 @@ class ZaloAccountPool {
   }
 
   // Reconnect using previously saved session credentials
-  async reconnect(accountId: string, credentials: ZaloCredentials): Promise<void> {
+  async reconnect(accountId: string, credentials: ZaloCredentials, proxyUrl?: string | null): Promise<void> {
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
     this.instances.set(accountId, { zalo, api: null, status: 'connecting', lastActivity: new Date() });
 
     try {
-      const api = await zalo.login({
+      const api: any = await withProxy(proxyUrl, () => zalo.login({
         cookie: credentials.cookie,
         imei: credentials.imei,
         userAgent: credentials.userAgent,
-      });
+      }));
 
       const instance = this.instances.get(accountId)!;
       instance.api = api;
@@ -254,12 +255,12 @@ class ZaloAccountPool {
     try {
       const account = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { sessionData: true },
+        select: { sessionData: true, proxyUrl: true },
       });
       const session = account?.sessionData as ZaloCredentials | null;
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);
-        await this.reconnect(accountId, session);
+        await this.reconnect(accountId, session, account?.proxyUrl);
       } else {
         logger.warn(`[zalo:${accountId}] No saved session, cannot auto-reconnect`);
         this.io?.emit('zalo:reconnect-failed', { accountId, error: 'No saved session' });
