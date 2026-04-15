@@ -30,7 +30,7 @@ Tin nhắn bị bỏ lỡ, khách hàng rớt mất?
 ### 🚀 Cài đặt chỉ 3 phút
 
 ```
-git clone https://github.com/vuongnguyenbinh/ZaloCRM.git
+git clone https://github.com/locphamnguyen/ZaloCRM-Fork.git
 cd ZaloCRM && cp .env.example .env
 docker compose up -d --build
 ```
@@ -53,17 +53,17 @@ Quét QR Zalo → Bắt đầu nhận tin nhắn.
 **Gợi ý 3 ảnh cho carousel:**
 
 1. **Ảnh 1 — Dashboard**
-   - Chụp màn hình Dashboard tại https://zalo.ngay.top
+   - Chụp màn hình Dashboard tại https://zalocrm.locnguyendata.com
    - Highlight: 6 KPI cards + biểu đồ
    - Text overlay: "Dashboard thống kê real-time"
 
 2. **Ảnh 2 — Giao diện Chat**
-   - Chụp màn hình Chat tại https://zalo.ngay.top/chat
+   - Chụp màn hình Chat tại https://zalocrm.locnguyendata.com/chat
    - Highlight: 3 cột (list + chat + CRM panel)
    - Text overlay: "Chat tập trung, quản lý khách hàng ngay trong chat"
 
 3. **Ảnh 3 — Quản lý Zalo**
-   - Chụp màn hình Zalo Accounts tại https://zalo.ngay.top/zalo-accounts
+   - Chụp màn hình Zalo Accounts tại https://zalocrm.locnguyendata.com/zalo-accounts
    - Highlight: danh sách accounts + trạng thái connected
    - Text overlay: "Quản lý 20 Zalo cùng lúc, tự kết nối lại"
 
@@ -84,7 +84,7 @@ Quét QR Zalo → Bắt đầu nhận tin nhắn.
 
 ```
 💬 Comment "CRM" để nhận hướng dẫn cài đặt chi tiết
-🔗 Link GitHub: github.com/vuongnguyenbinh/ZaloCRM
+🔗 Link GitHub: github.com/locphamnguyen/ZaloCRM-Fork
 ⭐ Star repo nếu thấy hữu ích nhé!
 ```
 
@@ -97,7 +97,7 @@ Quét QR Zalo → Bắt đầu nhận tin nhắn.
 > 📊 Dashboard + Báo cáo
 > 🆓 100% miễn phí
 >
-> 👉 github.com/vuongnguyenbinh/ZaloCRM
+> 👉 github.com/locphamnguyen/ZaloCRM-Fork
 
 ---
 
@@ -121,6 +121,6 @@ Mình vừa hoàn thành ZaloCRM — công cụ giúp quản lý nhiều tài kh
 
 **Cài đặt:** Docker — 3 phút.
 **Giá:** Miễn phí, open source, MIT license.
-**Link:** github.com/vuongnguyenbinh/ZaloCRM
+**Link:** github.com/locphamnguyen/ZaloCRM-Fork
 
 Mọi người thử xem rồi cho mình feedback nhé! ⭐

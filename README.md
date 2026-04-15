@@ -113,6 +113,7 @@ Header: X-API-Key: your-api-key
 
 ### v1.0 (29/03/2026)
 - MVP: Quản lý nhiều Zalo, chat, CRM, lịch hẹn, dashboard, báo cáo, API, webhook
+- Dự án gốc của tác giả Vuongnguyenbinh các bạn tham khảo tại đây: https://github.com/vuongnguyenbinh/ZaloCRM
 
 ## Giấy phép
 
