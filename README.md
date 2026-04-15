@@ -2,7 +2,7 @@
 
 Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, AI assistant, workflow tự động, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
 
-**GitHub:** [https://github.com/locphamnguyen/ZaloCRM-Fork](https://github.com/locphamnguyen/ZaloCRM-Fork)
+**GitHub:** [https://github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM)
 
 ## Tính năng
 
@@ -48,8 +48,8 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 > Hướng dẫn chi tiết: [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md)
 
 ```bash
-git clone https://github.com/locphamnguyen/ZaloCRM-Fork.git
-cd ZaloCRM-Fork
+git clone https://github.com/locphamnguyen/ZaloCRM.git
+cd ZaloCRM
 cp .env.example .env
 # Sửa file .env — đặt mật khẩu và secret keys
 docker compose up -d --build
