@@ -31,7 +31,7 @@ Tin nhắn bị bỏ lỡ, khách hàng rớt mất?
 
 ```
 git clone https://github.com/locphamnguyen/ZaloCRM-Fork.git
-cd ZaloCRM && cp .env.example .env
+cd ZaloCRM-Fork && cp .env.example .env
 docker compose up -d --build
 ```
 

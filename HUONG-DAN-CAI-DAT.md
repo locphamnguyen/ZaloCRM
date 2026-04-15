@@ -34,7 +34,7 @@ docker compose version
 git clone https://github.com/locphamnguyen/ZaloCRM-Fork.git
 
 # Vào thư mục dự án
-cd ZaloCRM
+cd ZaloCRM-Fork
 ```
 
 ## Bước 3: Cấu hình
@@ -165,7 +165,7 @@ cloudflared tunnel run
 ## Cập nhật phiên bản mới
 
 ```bash
-cd ZaloCRM
+cd ZaloCRM-Fork
 
 # Tải phiên bản mới
 git pull
