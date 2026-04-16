@@ -301,5 +301,6 @@ export function useChat() {
     clearAiState,
     initSocket,
     destroySocket,
+    getSocket: () => socket,
   };
 }

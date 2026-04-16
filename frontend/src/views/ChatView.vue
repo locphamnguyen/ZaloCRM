@@ -26,10 +26,24 @@
       :ai-suggestion="aiSuggestion"
       :ai-suggestion-loading="aiSuggestionLoading"
       :ai-suggestion-error="aiSuggestionError"
+      :all-conversations="conversations"
+      :replying-to="replyingTo"
+      :editing-message="editingMessage"
+      :typing-users="currentTypers"
       @send="sendMessage"
       @ask-ai="generateAiSuggestion"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
       :show-contact-panel="showContactPanel"
+      @add-reaction="onAddReaction"
+      @delete-message="onDeleteMessage"
+      @undo-message="onUndoMessage"
+      @edit-message="onEditMessage"
+      @forward-message="onForwardMessage"
+      @pin-conversation="onPinConversation"
+      @set-reply-to="setReplyTo"
+      @set-editing="setEditing"
+      @cancel-reply-edit="onCancelReplyEdit"
+      @typing="onTyping"
       style="flex: 1; min-width: 300px;"
     />
 
@@ -53,11 +67,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
 import { useChat } from '@/composables/use-chat';
+import { useChatOperations } from '@/composables/use-chat-operations';
 import MobileChatView from '@/views/MobileChatView.vue';
 import { useMobile } from '@/composables/use-mobile';
 
@@ -70,8 +85,62 @@ const {
   aiSummary, aiSummaryLoading, aiSentiment, aiSentimentLoading,
   fetchConversations, fetchAiConfig, selectConversation, sendMessage,
   generateAiSuggestion, generateAiSummary, generateAiSentiment,
-  initSocket, destroySocket,
+  initSocket, destroySocket, getSocket,
 } = useChat();
+
+const {
+  typingUsers, replyingTo, editingMessage,
+  addReaction, sendTypingEvent, deleteMessage, undoMessage,
+  editMessage, forwardMessage, pinConversation, unpinConversation,
+  setReplyTo, clearReplyTo, setEditing, clearEditing,
+  registerSocketListeners,
+} = useChatOperations();
+
+// Typing users for current conversation
+const currentTypers = computed(() =>
+  (selectedConvId.value ? typingUsers.value.get(selectedConvId.value) : null) || [],
+);
+
+// Chat operation handlers
+async function onAddReaction(msgId: string, reaction: string) {
+  if (!selectedConvId.value) return;
+  await addReaction(selectedConvId.value, msgId, reaction);
+}
+
+async function onDeleteMessage(msgId: string) {
+  if (!selectedConvId.value) return;
+  await deleteMessage(selectedConvId.value, msgId);
+}
+
+async function onUndoMessage(msgId: string) {
+  if (!selectedConvId.value) return;
+  await undoMessage(selectedConvId.value, msgId);
+}
+
+async function onEditMessage(msgId: string, content: string) {
+  if (!selectedConvId.value) return;
+  await editMessage(selectedConvId.value, msgId, content);
+  clearEditing();
+}
+
+async function onForwardMessage(msgId: string, targetIds: string[]) {
+  if (!selectedConvId.value) return;
+  await forwardMessage(selectedConvId.value, msgId, targetIds);
+}
+
+async function onPinConversation() {
+  if (!selectedConvId.value) return;
+  await pinConversation(selectedConvId.value);
+}
+
+function onCancelReplyEdit() {
+  clearReplyTo();
+  clearEditing();
+}
+
+function onTyping() {
+  if (selectedConvId.value) sendTypingEvent(selectedConvId.value);
+}
 
 function onFilterAccount(id: string | null) {
   accountFilter.value = id;
@@ -130,7 +199,12 @@ function stopResize() {
 }
 
 onMounted(() => {
-  if (!isMobile.value) { fetchConversations(); fetchAiConfig(); initSocket(); }
+  if (!isMobile.value) {
+    fetchConversations();
+    fetchAiConfig();
+    initSocket();
+    registerSocketListeners(getSocket());
+  }
 });
 onUnmounted(() => {
   if (!isMobile.value) { destroySocket(); }
