@@ -60,13 +60,12 @@
           @apply="applySuggestion"
         />
         <ReplyPreviewBar
-          :message="replyingTo || editingMessage"
+          :message="(replyingTo || editingMessage) ?? null"
           :mode="editingMessage ? 'edit' : 'reply'"
           @cancel="onCancelReplyEdit"
         />
         <div class="d-flex align-end" style="position: relative;">
           <QuickTemplatePopup
-            ref="popupRef"
             :visible="showTemplatePopup"
             :query="templateQuery"
             :templates="templates"
@@ -107,7 +106,7 @@
     <!-- Forward dialog -->
     <ForwardDialog
       v-model="showForwardDialog"
-      :conversations="allConversations"
+      :conversations="allConversations ?? []"
       @forward="onForward"
     />
 
@@ -234,7 +233,6 @@ function onCancelReplyEdit() {
 const showTemplatePopup = ref(false);
 const templateQuery = ref('');
 const templates = ref<TemplateItem[]>([]);
-const popupRef = ref<InstanceType<typeof QuickTemplatePopup> | null>(null);
 
 async function loadTemplates() {
   try {

@@ -91,7 +91,7 @@ const {
 const {
   typingUsers, replyingTo, editingMessage,
   addReaction, sendTypingEvent, deleteMessage, undoMessage,
-  editMessage, forwardMessage, pinConversation, unpinConversation,
+  editMessage, forwardMessage, pinConversation,
   setReplyTo, clearReplyTo, setEditing, clearEditing,
   registerSocketListeners,
 } = useChatOperations();

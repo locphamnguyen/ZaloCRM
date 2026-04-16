@@ -18,7 +18,7 @@
 
         <div class="mb-2 text-body-2 font-weight-medium">Các lựa chọn</div>
         <div
-          v-for="(opt, idx) in form.options"
+          v-for="(_opt, idx) in form.options"
           :key="idx"
           class="d-flex align-center gap-2 mb-2"
         >

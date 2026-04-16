@@ -19,8 +19,8 @@
         <template #item="{ props: itemProps, item }">
           <v-list-item v-bind="itemProps">
             <template #append>
-              <v-chip size="x-small" :color="item.raw.status === 'connected' ? 'success' : 'error'" variant="tonal">
-                {{ item.raw.status === 'connected' ? 'Online' : 'Offline' }}
+              <v-chip size="x-small" :color="(item as any).raw?.status === 'connected' ? 'success' : 'error'" variant="tonal">
+                {{ (item as any).raw?.status === 'connected' ? 'Online' : 'Offline' }}
               </v-chip>
             </template>
           </v-list-item>
@@ -111,7 +111,7 @@ import PollCreateDialog from '@/components/groups/poll-create-dialog.vue';
 const { accounts, selectedAccountId, selectAccount, loading: accountLoading } = useSelectedAccount();
 const {
   groups, selectedGroup, members, blocked, pending,
-  loading, actionLoading,
+  loading,
   fetchGroups, fetchGroup, fetchMembers, fetchBlocked, fetchPending,
   createGroup, renameGroup,
   addMembers, removeMembers, addDeputy, removeDeputy,
