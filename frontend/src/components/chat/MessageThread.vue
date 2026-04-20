@@ -34,65 +34,94 @@
       <!-- Messages -->
       <div ref="messagesContainer" class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area">
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
-        <div v-for="msg in messages" :key="msg.id" class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
-          <div style="max-width: 70%;">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
-              {{ msg.senderName || 'Unknown' }}
+        <template v-for="item in displayItems" :key="item.key">
+          <!-- Album: multiple images from the same Zalo group_layout_id -->
+          <div v-if="item.kind === 'album'" class="mb-2 d-flex" :class="item.senderType === 'self' ? 'justify-end' : 'justify-start'">
+            <div style="max-width: 70%;">
+              <div v-if="conversation.threadType === 'group' && item.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
+                {{ item.senderName || 'Unknown' }}
+              </div>
+              <div class="message-bubble pa-1 rounded-lg" :class="item.senderType === 'self' ? 'bg-primary' : 'bg-white'">
+                <div class="album-grid" :class="albumGridClass(item.messages.length)">
+                  <img
+                    v-for="m in item.messages"
+                    :key="m.id"
+                    :src="getImageUrl(m)!"
+                    alt="Hình ảnh"
+                    class="album-tile"
+                    @click="previewImageUrl = getImageUrl(m)!"
+                  />
+                </div>
+                <div v-if="item.totalExpected && item.totalExpected > item.messages.length" class="text-caption px-2 py-1" style="opacity: 0.7;">
+                  {{ item.messages.length }}/{{ item.totalExpected }} ảnh đã nhận
+                </div>
+                <div class="text-caption px-2 pb-1 msg-time" :class="item.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
+                  {{ formatMessageTime(item.sentAt) }} · 🖼️ {{ item.messages.length }} ảnh
+                </div>
+              </div>
             </div>
-            <div class="message-bubble pa-2 px-3 rounded-lg" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;">
+          </div>
+          <!-- Single message (existing renderer) -->
+          <div v-else class="mb-2 d-flex" :class="item.msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
+          <div style="max-width: 70%;">
+            <div v-if="conversation.threadType === 'group' && item.msg.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
+              {{ item.msg.senderName || 'Unknown' }}
+            </div>
+            <div class="message-bubble pa-2 px-3 rounded-lg" :class="item.msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;">
               <!-- Deleted -->
-              <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
-                {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
+              <div v-if="item.msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
+                {{ item.msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
               </div>
               <!-- Image -->
-              <div v-else-if="getImageUrl(msg)">
-                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="previewImageUrl = getImageUrl(msg)!" />
+              <div v-else-if="getImageUrl(item.msg)">
+                <img :src="getImageUrl(item.msg)!" alt="Hình ảnh" class="chat-image" @click="previewImageUrl = getImageUrl(item.msg)!" />
               </div>
               <!-- File/PDF -->
-              <div v-else-if="getFileInfo(msg)" class="file-card">
+              <div v-else-if="getFileInfo(item.msg)" class="file-card">
                 <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
                 <div class="flex-grow-1">
-                  <div class="text-body-2 font-weight-medium">{{ getFileInfo(msg)!.name }}</div>
-                  <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(msg)!.size }}</div>
+                  <div class="text-body-2 font-weight-medium">{{ getFileInfo(item.msg)!.name }}</div>
+                  <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(item.msg)!.size }}</div>
                 </div>
-                <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(getFileInfo(msg)!.href)">
+                <v-btn v-if="getFileInfo(item.msg)!.href" icon size="x-small" variant="text" @click="openFile(getFileInfo(item.msg)!.href)">
                   <v-icon size="16">mdi-download</v-icon>
                 </v-btn>
               </div>
               <!-- Sticker/Video/Voice/GIF -->
-              <div v-else-if="msg.contentType === 'sticker'">🏷️ Sticker</div>
-              <div v-else-if="msg.contentType === 'video'">🎥 Video</div>
-              <div v-else-if="msg.contentType === 'voice'">🎤 Tin nhắn thoại</div>
-              <div v-else-if="msg.contentType === 'gif'">GIF</div>
+              <div v-else-if="item.msg.contentType === 'sticker'">🏷️ Sticker</div>
+              <div v-else-if="item.msg.contentType === 'video'">🎥 Video</div>
+              <div v-else-if="item.msg.contentType === 'voice'">🎤 Tin nhắn thoại</div>
+              <div v-else-if="item.msg.contentType === 'gif'">GIF</div>
               <!-- Reminder/Calendar (legacy inline renderer kept for backward compat) -->
-              <div v-else-if="isReminderMessage(msg)" class="reminder-card">
+              <div v-else-if="isReminderMessage(item.msg)" class="reminder-card">
                 <div class="d-flex align-center mb-1">
                   <v-icon size="16" color="warning" class="mr-1">mdi-calendar-clock</v-icon>
                   <span class="text-caption font-weight-bold" style="color: #FFB74D;">Nhắc hẹn</span>
                 </div>
-                <div class="text-body-2">{{ getReminderTitle(msg) }}</div>
-                <div v-if="getReminderTime(msg)" class="text-caption mt-1" style="opacity: 0.7;">
-                  <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(msg) }}
+                <div class="text-body-2">{{ getReminderTitle(item.msg) }}</div>
+                <div v-if="getReminderTime(item.msg)" class="text-caption mt-1" style="opacity: 0.7;">
+                  <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(item.msg) }}
                 </div>
-                <v-btn size="x-small" variant="tonal" color="warning" class="mt-2" prepend-icon="mdi-calendar-sync" @click="syncAppointment(msg)">
+                <v-btn size="x-small" variant="tonal" color="warning" class="mt-2" prepend-icon="mdi-calendar-sync" @click="syncAppointment(item.msg)">
                   Đồng bộ lịch
                 </v-btn>
               </div>
               <!-- Special message types (bank_transfer, call, qr_code, poll, note, forwarded, rich) -->
               <SpecialMessageRenderer
-                v-else-if="isSpecialType(msg.contentType)"
-                :type="msg.contentType"
-                :content="parseContent(msg.content)"
+                v-else-if="isSpecialType(item.msg.contentType)"
+                :type="item.msg.contentType"
+                :content="parseContent(item.msg.content)"
               />
               <!-- Default text -->
-              <div v-else>{{ parseDisplayContent(msg.content) }}</div>
+              <div v-else>{{ parseDisplayContent(item.msg.content) }}</div>
               <!-- Timestamp -->
-              <div class="text-caption mt-1 msg-time" :class="msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
-                {{ formatMessageTime(msg.sentAt) }}
+              <div class="text-caption mt-1 msg-time" :class="item.msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
+                {{ formatMessageTime(item.msg.sentAt) }}
               </div>
             </div>
           </div>
-        </div>
+          </div>
+        </template>
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
@@ -191,6 +220,52 @@ const SPECIAL_TYPES = new Set([
 
 function isSpecialType(contentType: string | null | undefined): boolean {
   return !!contentType && SPECIAL_TYPES.has(contentType);
+}
+
+type DisplayItem =
+  | { kind: 'single'; key: string; msg: Message }
+  | { kind: 'album'; key: string; senderType: string; senderName: string | null; sentAt: string; totalExpected: number | null; messages: Message[] };
+
+/** Group consecutive image messages sharing the same Zalo albumKey into an album item. */
+const displayItems = computed<DisplayItem[]>(() => {
+  const out: DisplayItem[] = [];
+  let cur: Extract<DisplayItem, { kind: 'album' }> | null = null;
+  for (const msg of props.messages) {
+    const canGroup = msg.contentType === 'image' && msg.albumKey && !msg.isDeleted && !!getImageUrl(msg);
+    if (canGroup && cur && cur.key === `album:${msg.albumKey}:${msg.senderType}`) {
+      cur.messages.push(msg);
+      continue;
+    }
+    cur = null;
+    if (canGroup) {
+      cur = {
+        kind: 'album',
+        key: `album:${msg.albumKey}:${msg.senderType}`,
+        senderType: msg.senderType,
+        senderName: msg.senderName,
+        sentAt: msg.sentAt,
+        totalExpected: msg.albumTotal ?? null,
+        messages: [msg],
+      };
+      out.push(cur);
+    } else {
+      out.push({ kind: 'single', key: msg.id, msg });
+    }
+  }
+  // Sort images within each album by albumIndex for stable order
+  for (const item of out) {
+    if (item.kind === 'album') {
+      item.messages.sort((a, b) => (a.albumIndex ?? 0) - (b.albumIndex ?? 0));
+    }
+  }
+  return out;
+});
+
+function albumGridClass(count: number): string {
+  if (count <= 1) return 'album-grid-1';
+  if (count === 2) return 'album-grid-2';
+  if (count <= 4) return 'album-grid-2';
+  return 'album-grid-3';
 }
 
 /** Safely parse JSON content for SpecialMessageRenderer; returns raw string on failure. */
@@ -357,4 +432,10 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 .file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
 .chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
 .chat-image:hover { transform: scale(1.02); }
+.album-grid { display: grid; gap: 3px; border-radius: 10px; overflow: hidden; max-width: 420px; }
+.album-grid-1 { grid-template-columns: 1fr; }
+.album-grid-2 { grid-template-columns: 1fr 1fr; }
+.album-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.album-tile { width: 100%; aspect-ratio: 1/1; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
+.album-tile:hover { transform: scale(1.02); }
 </style>

@@ -51,6 +51,9 @@ export interface Message {
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;
+  albumKey: string | null;
+  albumIndex: number | null;
+  albumTotal: number | null;
 }
 
 export function useChat() {
