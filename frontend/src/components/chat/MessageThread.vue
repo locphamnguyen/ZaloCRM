@@ -23,6 +23,9 @@
         <v-btn size="small" variant="tonal" color="primary" class="mr-2" :loading="aiSuggestionLoading" @click="$emit('ask-ai')">
           Ask AI
         </v-btn>
+        <v-btn size="small" variant="tonal" color="info" class="mr-2" @click="onLinkClick">
+          Link
+        </v-btn>
         <v-btn
           :icon="showContactPanel ? 'mdi-account-details' : 'mdi-account-details-outline'"
           size="small" variant="text"
@@ -38,6 +41,8 @@
           v-for="msg in messages"
           :key="msg.id"
           :message="msg"
+          :reply="msg.reply || null"
+          :reactions="msg.reactions || []"
           :is-self="msg.senderType === 'self'"
           :is-group="conversation.threadType === 'group'"
           @contextmenu="onContextMenu($event, msg)"
@@ -93,6 +98,7 @@
       v-model="showContextMenu"
       :message="contextMsg"
       :is-self="contextMsg?.senderType === 'self'"
+      :is-pinned="conversation?.isPinned"
       :position="contextPos"
       @reply="onReply"
       @edit="onEdit"
@@ -153,7 +159,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  send: [content: string];
+  send: [content: string, replyMessageId?: string | null];
   'toggle-contact-panel': [];
   'ask-ai': [];
   'add-reaction': [msgId: string, reaction: string];
@@ -166,6 +172,7 @@ const emit = defineEmits<{
   'set-editing': [msg: Message];
   'cancel-reply-edit': [];
   'typing': [];
+  'refresh-thread': [];
 }>();
 
 const inputText = ref('');
@@ -219,6 +226,17 @@ function onPin() {
   emit('pin-conversation');
 }
 
+async function onLinkClick() {
+  const url = window.prompt('Nhập URL để gửi link');
+  if (!url?.trim() || !props.conversation) return;
+  try {
+    await api.post(`/conversations/${props.conversation.id}/link`, { url: url.trim() });
+    emit('refresh-thread');
+  } catch (err) {
+    console.error('Failed to send link:', err);
+  }
+}
+
 function onForward(targetIds: string[]) {
   if (contextMsg.value) emit('forward-message', contextMsg.value.id, targetIds);
   showForwardDialog.value = false;
@@ -269,7 +287,7 @@ function handleSend() {
   if (props.editingMessage) {
     emit('edit-message', props.editingMessage.id, inputText.value);
   } else {
-    emit('send', inputText.value);
+    emit('send', inputText.value, props.replyingTo?.id ?? null);
   }
   inputText.value = '';
   editorRef.value?.clear();

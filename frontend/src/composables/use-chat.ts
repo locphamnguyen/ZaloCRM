@@ -31,6 +31,22 @@ interface ConversationMessage {
   isDeleted: boolean;
 }
 
+export interface ReplyMessageRef {
+  msgId: string;
+  cliMsgId?: string;
+  content: string;
+  msgType: string;
+  uidFrom: string;
+  ts: string;
+  propertyExt?: Record<string, unknown>;
+  ttl?: number;
+}
+
+interface RawMessage extends Omit<Message, 'reactions' | 'reply'> {
+  quote?: ReplyMessageRef | null;
+  reactions?: Array<{ emoji: string; reactorId: string; count?: number; reacted?: boolean }>;
+}
+
 export interface Conversation {
   id: string;
   threadType: 'user' | 'group';
@@ -39,7 +55,14 @@ export interface Conversation {
   lastMessageAt: string | null;
   unreadCount: number;
   isReplied: boolean;
+  isPinned?: boolean;
   messages?: ConversationMessage[];
+}
+
+export interface MessageReactionView {
+  emoji: string;
+  count: number;
+  reacted: boolean;
 }
 
 export interface Message {
@@ -51,6 +74,8 @@ export interface Message {
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;
+  reply?: ReplyMessageRef | null;
+  reactions?: MessageReactionView[];
 }
 
 export function useChat() {
@@ -105,13 +130,26 @@ export function useChat() {
     }
   }
 
+  function normalizeMessage(message: RawMessage): Message {
+    const counts = new Map<string, number>();
+    for (const reaction of message.reactions || []) {
+      counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
+    }
+    const { reactions, quote, ...base } = message;
+    return {
+      ...base,
+      reply: quote ?? null,
+      reactions: Array.from(counts.entries()).map(([emoji, count]) => ({ emoji, count, reacted: false })),
+    };
+  }
+
   async function fetchMessages(convId: string) {
     loadingMsgs.value = true;
     try {
       const res = await api.get(`/conversations/${convId}/messages`, {
         params: { limit: 100 },
       });
-      messages.value = res.data.messages;
+      messages.value = (res.data.messages as RawMessage[]).map(normalizeMessage);
     } catch (err) {
       console.error('Failed to fetch messages:', err);
     } finally {
@@ -222,16 +260,17 @@ export function useChat() {
     await Promise.allSettled([generateAiSummary(), generateAiSentiment(), fetchAiUsage()]);
   }
 
-  async function sendMessage(content: string) {
+  async function sendMessage(content: string, replyMessageId?: string | null) {
     if (!selectedConvId.value || !content.trim()) return;
-    await sendMessageTo(selectedConvId.value, content);
+    await sendMessageTo(selectedConvId.value, content, replyMessageId);
   }
 
-  async function sendMessageTo(conversationId: string, content: string) {
+  async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null) {
     if (!content.trim()) return;
     sendingMsg.value = true;
     try {
-      const res = await api.post(`/conversations/${conversationId}/messages`, { content });
+      const payload = replyMessageId ? { content, replyMessageId } : { content };
+      const res = await api.post(`/conversations/${conversationId}/messages`, payload);
       if (conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === res.data.id)) {
           messages.value.push(res.data);
@@ -251,15 +290,40 @@ export function useChat() {
     socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
       if (data.conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === data.message.id)) {
-          messages.value.push(data.message);
+          messages.value.push(normalizeMessage(data.message as Message & { reactions?: Array<{ emoji: string; reactorId: string }> }));
         }
       }
       fetchConversations();
     });
 
-    socket.on('chat:deleted', (data: { msgId: string }) => {
-      const msg = messages.value.find(m => m.zaloMsgId === data.msgId);
+    socket.on('chat:deleted', (data: { messageId?: string; zaloMsgId?: string }) => {
+      const msg = messages.value.find(m => m.id === data.messageId || m.zaloMsgId === data.zaloMsgId);
       if (msg) msg.isDeleted = true;
+    });
+
+    socket.on('chat:message-edited', (data: { messageId?: string; zaloMsgId?: string; content: string }) => {
+      const msg = messages.value.find(m => m.id === data.messageId || m.zaloMsgId === data.zaloMsgId);
+      if (msg) msg.content = data.content;
+    });
+
+    socket.on('chat:reactions', (data: { messageId?: string; msgId?: string; zaloMsgId?: string; reactions: { userId: string; userName: string; reaction: string; action: 'add' | 'remove' }[] }) => {
+      const msg = messages.value.find(m => m.id === data.messageId || m.id === data.msgId || m.zaloMsgId === data.zaloMsgId);
+      if (!msg) return;
+      const counts = new Map<string, number>();
+      for (const reaction of data.reactions) {
+        const emoji = reaction.reaction;
+        if (reaction.action === 'add') counts.set(emoji, (counts.get(emoji) || 0) + 1);
+        if (reaction.action === 'remove') counts.delete(emoji);
+      }
+      msg.reactions = Array.from(counts.entries()).map(([emoji, count]) => ({ emoji, count, reacted: false }));
+    });
+
+    socket.on('chat:pinned', () => {
+      fetchConversations();
+    });
+
+    socket.on('chat:unpinned', () => {
+      fetchConversations();
     });
   }
 
@@ -292,6 +356,7 @@ export function useChat() {
     fetchAiConfig,
     saveAiConfig,
     fetchAiUsage,
+    fetchMessages,
     selectConversation,
     sendMessage,
     sendMessageTo,

@@ -131,7 +131,7 @@ async function exec<T>(opts: ExecOptions, fn: (api: any) => Promise<T>): Promise
   }
 
   // 2. Rate limit check
-  const limit = zaloRateLimiter.checkLimits(accountId, category);
+  const limit = await zaloRateLimiter.checkLimits(accountId, category);
   if (!limit.allowed) {
     throw new ZaloOpError(limit.reason || 'Rate limited', 'RATE_LIMITED', 429);
   }

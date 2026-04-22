@@ -36,6 +36,7 @@
     "bcryptjs": "^3.0.3",
     "exceljs": "^4.4.0",
     "fastify": "^5.8.4",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "node-cron": "^4.2.1",
     "pg": "^8.20.0",
@@ -45,6 +46,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/ioredis": "^4.28.10",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.5.0",
     "@types/node-cron": "^3.0.11",

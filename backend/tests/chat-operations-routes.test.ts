@@ -45,10 +45,12 @@ function buildApp(): FastifyInstance {
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.conversation.findFirst.mockResolvedValue(CONV);
-  prismaMock.message.findFirst.mockResolvedValue({ senderUid: 'uid-sender' });
+  prismaMock.message.findFirst.mockResolvedValue({ id: 'msg-1', zaloMsgId: 'zalo-msg-1', senderUid: 'uid-sender', repliedByUserId: 'user-1' });
   prismaMock.message.update.mockResolvedValue({});
   prismaMock.message.create.mockResolvedValue({});
   prismaMock.messageReaction.upsert.mockResolvedValue({});
+  prismaMock.pinnedConversation.upsert.mockResolvedValue({});
+  prismaMock.pinnedConversation.deleteMany.mockResolvedValue({});
 });
 
 // ── Reactions ─────────────────────────────────────────────────────────────────
@@ -62,7 +64,7 @@ describe('POST /api/v1/conversations/:id/reactions', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ success: true });
-    expect(zaloOpsMock.addReaction).toHaveBeenCalledWith('za-1', '❤️', expect.objectContaining({ msgId: 'msg-1', threadId: 'ext-1' }));
+    expect(zaloOpsMock.addReaction).toHaveBeenCalledWith('za-1', '❤️', expect.objectContaining({ msgId: 'zalo-msg-1', threadId: 'ext-1' }));
     expect(eventBufferMock.recordReaction).toHaveBeenCalled();
     expect(prismaMock.messageReaction.upsert).toHaveBeenCalled();
   });
@@ -107,7 +109,7 @@ describe('DELETE /api/v1/conversations/:id/messages/:msgId', () => {
     const app = buildApp();
     const res = await app.inject({ method: 'DELETE', url: '/api/v1/conversations/conv-1/messages/msg-1', payload: {} });
     expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'msg-1', '', 'uid-sender', 'ext-1', 0, false);
+    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'zalo-msg-1', 'uid-sender', 'ext-1', 0, false);
     expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'msg-1' } }));
   });
 
@@ -115,7 +117,7 @@ describe('DELETE /api/v1/conversations/:id/messages/:msgId', () => {
     const app = buildApp();
     const res = await app.inject({ method: 'DELETE', url: '/api/v1/conversations/conv-1/messages/msg-1', payload: { onlyMe: true } });
     expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'msg-1', '', 'uid-sender', 'ext-1', 0, true);
+    expect(zaloOpsMock.deleteMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'zalo-msg-1', 'uid-sender', 'ext-1', 0, true);
     expect(prismaMock.message.update).not.toHaveBeenCalled();
   });
 });
@@ -126,7 +128,7 @@ describe('POST /api/v1/conversations/:id/messages/:msgId/undo', () => {
     const app = buildApp();
     const res = await app.inject({ method: 'POST', url: '/api/v1/conversations/conv-1/messages/msg-1/undo', payload: {} });
     expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.undoMessage).toHaveBeenCalledWith('za-1', 'msg-1', '', 'uid-sender', 'ext-1', 0);
+    expect(zaloOpsMock.undoMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'zalo-msg-1', 'uid-sender', 'ext-1', 0);
     expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isDeleted: true }) }));
   });
 });
@@ -137,7 +139,7 @@ describe('POST /api/v1/conversations/:id/messages/:msgId/edit', () => {
     const app = buildApp();
     const res = await app.inject({ method: 'POST', url: '/api/v1/conversations/conv-1/messages/msg-1/edit', payload: { content: 'hello edited' } });
     expect(res.statusCode).toBe(200);
-    expect(zaloOpsMock.editMessage).toHaveBeenCalledWith('za-1', 'msg-1', '', 'hello edited', 'ext-1', 0);
+    expect(zaloOpsMock.editMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'zalo-msg-1', 'hello edited', 'ext-1', 0);
     expect(prismaMock.message.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ content: 'hello edited' }) }));
   });
 
@@ -153,14 +155,13 @@ describe('POST /api/v1/conversations/:id/messages/:msgId/edit', () => {
 describe('POST /api/v1/conversations/:id/forward', () => {
   it('happy path — forwards to each target conversation', async () => {
     const target = { ...CONV, id: 'conv-2' };
-    prismaMock.conversation.findFirst
-      .mockResolvedValueOnce(CONV)   // source lookup
-      .mockResolvedValueOnce(target); // target lookup
+    prismaMock.conversation.findFirst.mockResolvedValueOnce(CONV);
+    prismaMock.conversation.findMany.mockResolvedValue([target]);
     const app = buildApp();
     const res = await app.inject({ method: 'POST', url: '/api/v1/conversations/conv-1/forward', payload: { msgId: 'msg-1', targetConversationIds: ['conv-2'] } });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({ success: true, forwarded: 1 });
-    expect(zaloOpsMock.forwardMessage).toHaveBeenCalledWith('za-1', 'msg-1', 'ext-1', 0);
+    expect(zaloOpsMock.forwardMessage).toHaveBeenCalledWith('za-1', 'zalo-msg-1', 'ext-1', 0);
   });
 
   it('returns 400 when msgId or targetConversationIds missing', async () => {

@@ -44,6 +44,7 @@
       @set-editing="setEditing"
       @cancel-reply-edit="onCancelReplyEdit"
       @typing="onTyping"
+      @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
       style="flex: 1; min-width: 300px;"
     />
 
@@ -83,7 +84,7 @@ const {
   loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter, extraFilters,
   aiSuggestion, aiSuggestionLoading, aiSuggestionError,
   aiSummary, aiSummaryLoading, aiSentiment, aiSentimentLoading,
-  fetchConversations, fetchAiConfig, selectConversation, sendMessage,
+  fetchConversations, fetchAiConfig, fetchMessages, selectConversation, sendMessage,
   generateAiSuggestion, generateAiSummary, generateAiSentiment,
   initSocket, destroySocket, getSocket,
 } = useChat();
@@ -94,6 +95,7 @@ const {
   editMessage, forwardMessage, pinConversation,
   setReplyTo, clearReplyTo, setEditing, clearEditing,
   registerSocketListeners,
+  unpinConversation,
 } = useChatOperations();
 
 // Typing users for current conversation
@@ -129,8 +131,13 @@ async function onForwardMessage(msgId: string, targetIds: string[]) {
 }
 
 async function onPinConversation() {
-  if (!selectedConvId.value) return;
-  await pinConversation(selectedConvId.value);
+  if (!selectedConvId.value || !selectedConv.value) return;
+  if (selectedConv.value.isPinned) {
+    await unpinConversation(selectedConvId.value);
+  } else {
+    await pinConversation(selectedConvId.value);
+  }
+  await fetchConversations();
 }
 
 function onCancelReplyEdit() {

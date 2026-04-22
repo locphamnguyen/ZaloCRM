@@ -67,6 +67,10 @@ export function mockPrisma() {
     messageReaction: {
       upsert: vi.fn(),
     },
+    pinnedConversation: {
+      upsert: vi.fn(),
+      deleteMany: vi.fn(),
+    },
     zaloAccount: {
       findFirst: vi.fn(),
       findMany: vi.fn(),

@@ -131,6 +131,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
         threadType: isGroup ? 'group' : 'user',
         groupName,
         attachments: [],
+        quote: message.data?.quote,
       });
 
       if (result) {

@@ -44,7 +44,7 @@ import { integrationRoutes } from './modules/integrations/integration-routes.js'
 import { automationRoutes } from './modules/automation/automation-routes.js';
 import { templateRoutes } from './modules/automation/template-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
-import { chatOperationsRoutes } from './modules/chat/chat-operations-routes.js';
+import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js';
 import { friendRoutes } from './modules/zalo/friend-routes.js';
@@ -106,6 +106,9 @@ async function bootstrap() {
 
   // Register Zalo Socket.IO event handlers
   registerZaloSocketHandlers(io);
+
+  // Register chat Socket.IO event handlers
+  registerChatSocketHandlers(io);
 
   // ── Routes ────────────────────────────────────────────────────────────────
 
@@ -181,7 +184,7 @@ async function bootstrap() {
     startAppointmentReminder(io);
     startZaloHealthCheck();
     startContactIntelligence();
-    eventBuffer.start(io);
+    await eventBuffer.start(io);
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

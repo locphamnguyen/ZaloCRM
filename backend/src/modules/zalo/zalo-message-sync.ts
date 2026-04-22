@@ -77,6 +77,7 @@ async function syncGroupMessages(api: any, accountId: string): Promise<number> {
           threadId: conv.externalThreadId!,
           threadType: 'group',
           attachments: [],
+          quote: msg.data?.quote,
           isBackfill: true,
         });
 

@@ -12,6 +12,34 @@ import { zaloOps, ZaloOpError } from '../../shared/zalo-operations.js';
 import { eventBuffer } from '../../shared/event-buffer.js';
 import { logger } from '../../shared/utils/logger.js';
 
+interface ResolvedMessageRefs {
+  messageId: string;
+  zaloMsgId: string;
+  cliMsgId: string;
+  ownerId: string;
+  repliedByUserId: string | null;
+}
+
+async function resolveMessageRefs(conversationId: string, messageId: string, userOrgId: string): Promise<ResolvedMessageRefs | null> {
+  const message = await prisma.message.findFirst({
+    where: {
+      id: messageId,
+      conversationId,
+      conversation: { orgId: userOrgId },
+    },
+    select: { id: true, zaloMsgId: true, senderUid: true, repliedByUserId: true },
+  });
+
+  if (!message?.zaloMsgId) return null;
+  return {
+    messageId: message.id,
+    zaloMsgId: message.zaloMsgId,
+    cliMsgId: message.zaloMsgId,
+    ownerId: message.senderUid || '',
+    repliedByUserId: message.repliedByUserId || null,
+  };
+}
+
 // Emoji aliases for reactions
 const REACTION_MAP: Record<string, string> = {
   heart: '❤️',
@@ -48,31 +76,40 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/reactions', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    const { msgId, cliMsgId, reaction } = request.body as { msgId: string; cliMsgId?: string; reaction: string };
+    const { msgId, reaction } = request.body as { msgId: string; reaction: string };
 
     if (!msgId || !reaction) return reply.status(400).send({ error: 'msgId and reaction required' });
 
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
 
+    const refs = await resolveMessageRefs(id, msgId, user.orgId);
+    if (!refs) return reply.status(404).send({ error: 'Message not found' });
+
     try {
       const threadType = conv.threadType === 'group' ? 1 : 0;
       const result = await zaloOps.addReaction(
         conv.zaloAccountId,
         mapReaction(reaction),
-        { msgId, cliMsgId, threadId: conv.externalThreadId || '', threadType },
+        { msgId: refs.zaloMsgId, cliMsgId: refs.cliMsgId, threadId: conv.externalThreadId || '', threadType },
       );
-      eventBuffer.recordReaction(id, msgId, user.id, user.email, reaction, 'add');
-      // Persist reaction to database so it survives page reload
+      eventBuffer.recordReaction(id, refs.messageId, user.id, user.email, reaction, 'add');
       await prisma.messageReaction.upsert({
-        where: { messageId_reactorId: { messageId: msgId, reactorId: user.id } },
+        where: { messageId_reactorId: { messageId: refs.messageId, reactorId: user.id } },
         update: { emoji: mapReaction(reaction) },
         create: {
           id: randomUUID(),
-          messageId: msgId,
+          messageId: refs.messageId,
           reactorId: user.id,
           emoji: mapReaction(reaction),
         },
+      });
+      const io = (app as any).io as Server;
+      io?.emit('chat:reactions', {
+        conversationId: id,
+        messageId: refs.messageId,
+        msgId: refs.messageId,
+        reactions: [{ userId: user.id, userName: user.email, reaction: mapReaction(reaction), action: 'add' }],
       });
       return { success: true, result };
     } catch (err) { return handleError(err, reply); }
@@ -98,27 +135,24 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
   app.delete('/api/v1/conversations/:id/messages/:msgId', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id, msgId } = request.params as { id: string; msgId: string };
-    const { cliMsgId, ownerId: ownerIdParam, onlyMe = false } = (request.body ?? {}) as { cliMsgId?: string; ownerId?: string; onlyMe?: boolean };
+    const { onlyMe = false } = (request.body ?? {}) as { onlyMe?: boolean };
 
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
 
-    try {
-      let ownerId = ownerIdParam ?? '';
-      if (!ownerId) {
-        const msg = await prisma.message.findFirst({ where: { id: msgId }, select: { senderUid: true } });
-        ownerId = msg?.senderUid || '';
-      }
+    const refs = await resolveMessageRefs(id, msgId, user.orgId);
+    if (!refs) return reply.status(404).send({ error: 'Message not found' });
 
+    try {
       const threadType = conv.threadType === 'group' ? 1 : 0;
-      await zaloOps.deleteMessage(conv.zaloAccountId, msgId, cliMsgId || '', ownerId, conv.externalThreadId || '', threadType, onlyMe);
+      await zaloOps.deleteMessage(conv.zaloAccountId, refs.zaloMsgId, refs.cliMsgId, refs.ownerId, conv.externalThreadId || '', threadType, onlyMe);
 
       if (!onlyMe) {
-        await prisma.message.update({ where: { id: msgId }, data: { isDeleted: true, deletedAt: new Date() } });
+        await prisma.message.update({ where: { id: refs.messageId }, data: { isDeleted: true, deletedAt: new Date() } });
       }
 
       const io = (app as any).io as Server;
-      io?.emit('chat:deleted', { conversationId: id, msgId });
+      io?.emit('chat:deleted', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId });
       return { success: true };
     } catch (err) { return handleError(err, reply); }
   });
@@ -127,21 +161,21 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/messages/:msgId/undo', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id, msgId } = request.params as { id: string; msgId: string };
-    const { cliMsgId } = (request.body ?? {}) as { cliMsgId?: string };
 
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
 
+    const refs = await resolveMessageRefs(id, msgId, user.orgId);
+    if (!refs) return reply.status(404).send({ error: 'Message not found' });
+
     try {
-      const msg = await prisma.message.findFirst({ where: { id: msgId }, select: { senderUid: true } });
-      const ownerId = msg?.senderUid || '';
       const threadType = conv.threadType === 'group' ? 1 : 0;
 
-      await zaloOps.undoMessage(conv.zaloAccountId, msgId, cliMsgId || '', ownerId, conv.externalThreadId || '', threadType);
-      await prisma.message.update({ where: { id: msgId }, data: { isDeleted: true, deletedAt: new Date() } });
+      await zaloOps.undoMessage(conv.zaloAccountId, refs.zaloMsgId, refs.cliMsgId, refs.ownerId, conv.externalThreadId || '', threadType);
+      await prisma.message.update({ where: { id: refs.messageId }, data: { isDeleted: true, deletedAt: new Date() } });
 
       const io = (app as any).io as Server;
-      io?.emit('chat:deleted', { conversationId: id, msgId });
+      io?.emit('chat:deleted', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId });
       return { success: true };
     } catch (err) { return handleError(err, reply); }
   });
@@ -150,25 +184,25 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/messages/:msgId/edit', chatAccess, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id, msgId } = request.params as { id: string; msgId: string };
-    const { content, cliMsgId } = request.body as { content: string; cliMsgId?: string };
+    const { content } = request.body as { content: string };
 
     if (!content?.trim()) return reply.status(400).send({ error: 'content required' });
 
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
 
+    const refs = await resolveMessageRefs(id, msgId, user.orgId);
+    if (!refs) return reply.status(404).send({ error: 'Message not found' });
+
     try {
-      // Verify the message belongs to the requesting user
-      const msg = await prisma.message.findFirst({ where: { id: msgId, conversationId: id }, select: { repliedByUserId: true } });
-      if (!msg) return reply.status(404).send({ error: 'Message not found' });
-      if (msg.repliedByUserId !== user.id) return reply.status(403).send({ error: 'Can only edit your own messages' });
+      if (refs.repliedByUserId !== user.id) return reply.status(403).send({ error: 'Can only edit your own messages' });
 
       const threadType = conv.threadType === 'group' ? 1 : 0;
-      await zaloOps.editMessage(conv.zaloAccountId, msgId, cliMsgId || '', content, conv.externalThreadId || '', threadType);
-      await prisma.message.update({ where: { id: msgId }, data: { content, updatedAt: new Date() } });
+      await zaloOps.editMessage(conv.zaloAccountId, refs.zaloMsgId, refs.cliMsgId, content, conv.externalThreadId || '', threadType);
+      await prisma.message.update({ where: { id: refs.messageId }, data: { content, updatedAt: new Date() } });
 
       const io = (app as any).io as Server;
-      io?.emit('chat:message-edited', { conversationId: id, msgId, content });
+      io?.emit('chat:message-edited', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId, content });
       return { success: true };
     } catch (err) { return handleError(err, reply); }
   });
@@ -186,8 +220,10 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
     const conv = await getConversation(id, user.orgId, reply);
     if (!conv) return;
 
+    const refs = await resolveMessageRefs(id, msgId, user.orgId);
+    if (!refs) return reply.status(404).send({ error: 'Message not found' });
+
     try {
-      // Batch-fetch all targets to avoid N+1 queries
       const targets = await prisma.conversation.findMany({
         where: { id: { in: targetConversationIds }, orgId: user.orgId },
         select: { id: true, threadType: true, externalThreadId: true },
@@ -196,7 +232,7 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
       let forwarded = 0;
       for (const target of targets) {
         const threadType = target.threadType === 'group' ? 1 : 0;
-        await zaloOps.forwardMessage(conv.zaloAccountId, msgId, target.externalThreadId || '', threadType);
+        await zaloOps.forwardMessage(conv.zaloAccountId, refs.zaloMsgId, target.externalThreadId || '', threadType);
         forwarded++;
       }
       return { success: true, forwarded };
@@ -214,8 +250,13 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
     try {
       const threadType = conv.threadType === 'group' ? 1 : 0;
       const result = await zaloOps.pinConversation(conv.zaloAccountId, true, conv.externalThreadId || '', threadType);
+      await prisma.pinnedConversation.upsert({
+        where: { zaloAccountId_conversationId: { zaloAccountId: conv.zaloAccountId, conversationId: id } },
+        update: { pinnedAt: new Date() },
+        create: { id: randomUUID(), orgId: user.orgId, zaloAccountId: conv.zaloAccountId, conversationId: id },
+      });
       const io = (app as any).io as Server;
-      io?.emit('chat:pinned', { conversationId: id });
+      io?.emit('chat:pinned', { conversationId: id, isPinned: true });
       return { success: true, result };
     } catch (err) { return handleError(err, reply); }
   });
@@ -231,8 +272,11 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
     try {
       const threadType = conv.threadType === 'group' ? 1 : 0;
       const result = await zaloOps.pinConversation(conv.zaloAccountId, false, conv.externalThreadId || '', threadType);
+      await prisma.pinnedConversation.deleteMany({
+        where: { zaloAccountId: conv.zaloAccountId, conversationId: id },
+      });
       const io = (app as any).io as Server;
-      io?.emit('chat:unpinned', { conversationId: id });
+      io?.emit('chat:unpinned', { conversationId: id, isPinned: false });
       return { success: true, result };
     } catch (err) { return handleError(err, reply); }
   });
@@ -334,5 +378,18 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
 
       return { success: true, result };
     } catch (err) { return handleError(err, reply); }
+  });
+}
+
+// Socket.IO event handlers for chat operations
+export function registerChatSocketHandlers(io: Server): void {
+  io.on('connection', (socket) => {
+    socket.on('chat:typing', (data: { conversationId: string; userId: string; userName: string }) => {
+      try {
+        eventBuffer.recordTyping(data.conversationId, data.userId, data.userName);
+      } catch (err) {
+        logger.error('[socket] chat:typing error:', err);
+      }
+    });
   });
 }

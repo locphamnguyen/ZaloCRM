@@ -22,61 +22,68 @@
           {{ message.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
         </div>
 
-        <!-- Image -->
-        <div v-else-if="getImageUrl(message)">
-          <img
-            :src="getImageUrl(message)!"
-            alt="Hình ảnh"
-            class="chat-image"
-            @click="emit('preview-image', getImageUrl(message)!)"
+        <template v-else>
+          <div v-if="reply" class="reply-card mb-2">
+            <div class="text-caption font-weight-medium" style="opacity: 0.8;">Trả lời</div>
+            <div class="text-body-2 reply-text">{{ reply.content || '(tin nhắn)' }}</div>
+          </div>
+
+          <!-- Image -->
+          <div v-if="getImageUrl(message)">
+            <img
+              :src="getImageUrl(message)!"
+              alt="Hình ảnh"
+              class="chat-image"
+              @click="emit('preview-image', getImageUrl(message)!)"
+            />
+          </div>
+
+          <!-- File/PDF -->
+          <div v-else-if="getFileInfo(message)" class="file-card">
+            <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
+            <div class="flex-grow-1">
+              <div class="text-body-2 font-weight-medium">{{ getFileInfo(message)!.name }}</div>
+              <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(message)!.size }}</div>
+            </div>
+            <v-btn
+              v-if="getFileInfo(message)!.href"
+              icon
+              size="x-small"
+              variant="text"
+              @click="openFile(getFileInfo(message)!.href)"
+            >
+              <v-icon size="16">mdi-download</v-icon>
+            </v-btn>
+          </div>
+
+          <!-- Sticker / Video / Voice / GIF -->
+          <div v-else-if="message.contentType === 'sticker'">🏷️ Sticker</div>
+          <div v-else-if="message.contentType === 'video'">🎥 Video</div>
+          <div v-else-if="message.contentType === 'voice'">🎤 Tin nhắn thoại</div>
+          <div v-else-if="message.contentType === 'gif'">GIF</div>
+
+          <!-- Reminder -->
+          <div v-else-if="isReminderMessage(message)" class="reminder-card">
+            <div class="d-flex align-center mb-1">
+              <v-icon size="16" color="warning" class="mr-1">mdi-calendar-clock</v-icon>
+              <span class="text-caption font-weight-bold" style="color: #FFB74D;">Nhắc hẹn</span>
+            </div>
+            <div class="text-body-2">{{ getReminderTitle(message) }}</div>
+            <div v-if="getReminderTime(message)" class="text-caption mt-1" style="opacity: 0.7;">
+              <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(message) }}
+            </div>
+          </div>
+
+          <!-- Special types -->
+          <SpecialMessageRenderer
+            v-else-if="isSpecialType(message.contentType)"
+            :type="message.contentType"
+            :content="parseContent(message.content)"
           />
-        </div>
 
-        <!-- File/PDF -->
-        <div v-else-if="getFileInfo(message)" class="file-card">
-          <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
-          <div class="flex-grow-1">
-            <div class="text-body-2 font-weight-medium">{{ getFileInfo(message)!.name }}</div>
-            <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(message)!.size }}</div>
-          </div>
-          <v-btn
-            v-if="getFileInfo(message)!.href"
-            icon
-            size="x-small"
-            variant="text"
-            @click="openFile(getFileInfo(message)!.href)"
-          >
-            <v-icon size="16">mdi-download</v-icon>
-          </v-btn>
-        </div>
-
-        <!-- Sticker / Video / Voice / GIF -->
-        <div v-else-if="message.contentType === 'sticker'">🏷️ Sticker</div>
-        <div v-else-if="message.contentType === 'video'">🎥 Video</div>
-        <div v-else-if="message.contentType === 'voice'">🎤 Tin nhắn thoại</div>
-        <div v-else-if="message.contentType === 'gif'">GIF</div>
-
-        <!-- Reminder -->
-        <div v-else-if="isReminderMessage(message)" class="reminder-card">
-          <div class="d-flex align-center mb-1">
-            <v-icon size="16" color="warning" class="mr-1">mdi-calendar-clock</v-icon>
-            <span class="text-caption font-weight-bold" style="color: #FFB74D;">Nhắc hẹn</span>
-          </div>
-          <div class="text-body-2">{{ getReminderTitle(message) }}</div>
-          <div v-if="getReminderTime(message)" class="text-caption mt-1" style="opacity: 0.7;">
-            <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(message) }}
-          </div>
-        </div>
-
-        <!-- Special types -->
-        <SpecialMessageRenderer
-          v-else-if="isSpecialType(message.contentType)"
-          :type="message.contentType"
-          :content="parseContent(message.content)"
-        />
-
-        <!-- Default text -->
-        <div v-else>{{ parseDisplayContent(message.content) }}</div>
+          <!-- Default text -->
+          <div v-else>{{ parseDisplayContent(message.content) }}</div>
+        </template>
 
         <!-- Timestamp -->
         <div
@@ -123,6 +130,7 @@ const props = defineProps<{
   message: Message;
   isSelf: boolean;
   isGroup: boolean;
+  reply?: Message['reply'];
   reactions?: { emoji: string; count: number; reacted: boolean }[];
 }>();
 
@@ -232,6 +240,15 @@ function openFile(href: string) {
   border-left: 3px solid #FFB74D;
   border-radius: 8px;
   background: rgba(255, 183, 77, 0.08);
+}
+.reply-card {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(0, 242, 255, 0.08);
+  border-left: 3px solid #00F2FF;
+}
+.reply-text {
+  opacity: 0.85;
 }
 .file-card {
   display: flex;

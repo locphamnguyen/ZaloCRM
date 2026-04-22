@@ -21,6 +21,7 @@ export interface IncomingMessage {
   threadType: 'user' | 'group'; // user or group conversation
   groupName?: string;       // group name if group message
   attachments?: any[];
+  quote?: unknown;
   isBackfill?: boolean;     // true for old_messages / sync backfill — skip automations
 }
 
@@ -108,6 +109,7 @@ export async function handleIncomingMessage(
           content: msg.content || '',
           contentType: msg.contentType || 'text',
           attachments: msg.attachments ?? [],
+          quote: msg.quote ?? null,
           sentAt,
         },
       });

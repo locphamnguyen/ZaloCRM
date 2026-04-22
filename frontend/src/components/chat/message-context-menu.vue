@@ -65,11 +65,11 @@
 
         <!-- Pin -->
         <v-list-item
-          prepend-icon="mdi-pin"
+          :prepend-icon="isPinned ? 'mdi-pin-off' : 'mdi-pin'"
           base-color="info"
           @click="emit('pin'); close()"
         >
-          <v-list-item-title>Ghim</v-list-item-title>
+          <v-list-item-title>{{ isPinned ? 'Bỏ ghim' : 'Ghim' }}</v-list-item-title>
         </v-list-item>
       </v-list>
     </v-card>
@@ -82,6 +82,7 @@ import type { Message } from '@/composables/use-chat';
 const props = defineProps<{
   message: Message | null;
   isSelf: boolean;
+  isPinned?: boolean;
   position: { x: number; y: number };
   modelValue: boolean;
 }>();
