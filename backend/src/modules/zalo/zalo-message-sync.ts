@@ -8,7 +8,7 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { handleIncomingMessage } from '../chat/message-handler.js';
-import { detectContentType } from './zalo-message-helpers.js';
+import { detectContentType, extractAlbumInfo } from './zalo-message-helpers.js';
 
 const SYNC_INTERVAL_MS = 5 * 60_000; // 5 minutes
 const MAX_GROUPS_PER_SYNC = 20;
@@ -64,19 +64,24 @@ async function syncGroupMessages(api: any, accountId: string): Promise<number> {
         const rawContent = msg.data?.content;
         const content =
           typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
+        const contentType = detectContentType(msg.data?.msgType, rawContent);
+        const album = extractAlbumInfo(contentType, rawContent);
 
         const result = await handleIncomingMessage({
           accountId,
           senderUid: String(msg.data?.uidFrom || ''),
           senderName: msg.data?.dName || '',
           content,
-          contentType: detectContentType(msg.data?.msgType, rawContent),
+          contentType,
           msgId: zaloMsgId,
           timestamp: parseInt(msg.data?.ts || String(Date.now())),
           isSelf: msg.isSelf || false,
           threadId: conv.externalThreadId!,
           threadType: 'group',
           attachments: [],
+          albumKey: album.albumKey,
+          albumIndex: album.albumIndex,
+          albumTotal: album.albumTotal,
           isBackfill: true,
         });
 
