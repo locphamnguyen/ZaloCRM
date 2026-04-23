@@ -2,7 +2,9 @@
   <div class="conversation-list d-flex flex-column" style="width: 100%; border-right: 1px solid var(--border-glow, rgba(0,242,255,0.1)); height: 100%;">
     <!-- Account filter + Search -->
     <div class="pa-2">
+      <GroupViewSwitcher v-model="activeGroupView" @change="handleViewChange" />
       <v-select
+        v-if="!activeGroupView"
         v-model="selectedAccountId"
         :items="accountOptions"
         item-title="text"
@@ -181,11 +183,25 @@
         :class="{ 'conversation-active': conv.id === selectedId, 'bg-blue-lighten-5': conv.unreadCount > 0 && conv.id !== selectedId }"
       >
         <template #prepend>
-          <v-avatar size="40" color="grey-lighten-2">
-            <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
-            <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
-            <v-icon v-else icon="mdi-account" />
-          </v-avatar>
+          <div class="position-relative" style="width:40px;height:40px;flex-shrink:0;">
+            <v-avatar size="40" color="grey-lighten-2">
+              <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
+              <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
+              <v-icon v-else icon="mdi-account" />
+            </v-avatar>
+            <!-- Account badge when in group-view mode -->
+            <v-avatar
+              v-if="activeGroupView?.kind === 'group-view' && conv.zaloAccount?.displayName"
+              size="14"
+              color="primary"
+              style="position:absolute;bottom:0;right:0;border:1px solid white;"
+              :title="conv.zaloAccount.displayName"
+            >
+              <span style="font-size:7px;color:white;line-height:1;">
+                {{ conv.zaloAccount.displayName.charAt(0).toUpperCase() }}
+              </span>
+            </v-avatar>
+          </div>
         </template>
 
         <v-list-item-title class="d-flex align-center">
@@ -255,6 +271,8 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import type { Conversation, AiSentiment } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
+import GroupViewSwitcher from './GroupViewSwitcher.vue';
+import type { ActiveSelection } from './GroupViewSwitcher.vue';
 
 defineProps<{
   conversations: Conversation[];
@@ -270,7 +288,25 @@ const emit = defineEmits<{
   'update:filters': [params: Record<string, string>];
   'tab-changed': [tab: string];
   'conversation-moved': [id: string, tab: string];
+  'group-view-changed': [selection: ActiveSelection | null];
 }>();
+
+// ── Group view state ────────────────────────────────────────────────────────
+const activeGroupView = ref<ActiveSelection | null>(null);
+
+function handleViewChange(selection: ActiveSelection | null) {
+  activeGroupView.value = selection;
+  emit('group-view-changed', selection);
+  // When switching to a single account via switcher, also emit filter-account
+  if (selection?.kind === 'account') {
+    selectedAccountId.value = selection.id;
+    emit('filter-account', selection.id);
+  } else if (!selection) {
+    selectedAccountId.value = null;
+    emit('filter-account', null);
+  }
+  emit('update:filters', buildFilterParams());
+}
 
 // ── Tab state ──────────────────────────────────────────────────────────────
 const activeTab = ref('main');
@@ -344,6 +380,7 @@ function buildFilterParams(): Record<string, string> {
   if (filters.to) params.to = filters.to;
   if (filters.tags.length > 0) params.tags = filters.tags.join(',');
   params.tab = activeTab.value;
+  if (activeGroupView.value?.kind === 'group-view') params.groupViewId = activeGroupView.value.id;
   return params;
 }
 

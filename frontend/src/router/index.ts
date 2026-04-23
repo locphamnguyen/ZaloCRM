@@ -105,6 +105,18 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/settings/tags',
+    name: 'TagManagement',
+    component: () => import('@/views/settings/tag-management-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/settings/auto-tag-rules',
+    name: 'AutoTagRules',
+    component: () => import('@/views/settings/auto-tag-rules-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/NotFoundView.vue'),

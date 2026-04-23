@@ -13,6 +13,9 @@
     </div>
 
     <div class="pa-3">
+      <!-- Duplicate peer alert -->
+      <DuplicateAlertBanner v-if="props.contactId" :contact-id="props.contactId" />
+
       <!-- Lead score + last activity display -->
       <div v-if="props.contact" class="d-flex align-center mb-3 ga-2">
         <v-chip
@@ -64,6 +67,9 @@
 
       <AiSummaryCard :summary="aiSummary" :loading="aiSummaryLoading" @refresh="$emit('refresh-ai-summary')" />
 
+      <!-- Tag badges (CRM + Zalo) -->
+      <TagBadgeList v-if="props.contactId" :contact-id="props.contactId" />
+
       <v-card variant="outlined" class="mb-3">
         <v-card-title class="d-flex align-center text-body-1">
           <v-icon class="mr-2">mdi-chart-bell-curve-cumulative</v-icon>
@@ -105,6 +111,8 @@ import ChatCardLog from './ChatCardLog.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import CustomAttrsEditor from '@/components/contacts/custom-attrs-editor.vue';
+import DuplicateAlertBanner from './DuplicateAlertBanner.vue';
+import TagBadgeList from './TagBadgeList.vue';
 
 const props = defineProps<{
   contactId: string | null;
