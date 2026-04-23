@@ -89,15 +89,24 @@ export function useChat() {
   async function fetchConversations() {
     loadingConvs.value = true;
     try {
-      const res = await api.get('/conversations', {
-        params: {
-          limit: 100,
-          search: searchQuery.value,
-          accountId: accountFilter.value || undefined,
-          ...extraFilters.value,
-        },
-      });
-      conversations.value = res.data.conversations;
+      // Group view branch: merged listing across multiple accounts
+      const { groupViewId, ...restFilters } = extraFilters.value as Record<string, string>;
+      if (groupViewId) {
+        const res = await api.get(`/group-views/${groupViewId}/conversations`, {
+          params: { limit: 100, tab: restFilters.tab || 'main' },
+        });
+        conversations.value = res.data.items ?? [];
+      } else {
+        const res = await api.get('/conversations', {
+          params: {
+            limit: 100,
+            search: searchQuery.value,
+            accountId: accountFilter.value || undefined,
+            ...restFilters,
+          },
+        });
+        conversations.value = res.data.conversations;
+      }
     } catch (err) {
       console.error('Failed to fetch conversations:', err);
     } finally {
