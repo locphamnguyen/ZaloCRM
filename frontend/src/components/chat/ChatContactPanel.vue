@@ -83,6 +83,8 @@
         :appointments="contactAppointments"
         @refresh="reloadAppointments"
       />
+
+      <ChatCardLog v-if="props.contactId" :contact-id="props.contactId" />
     </div>
   </div>
 </template>
@@ -93,6 +95,7 @@ import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
 import ChatAppointments from './ChatAppointments.vue';
+import ChatCardLog from './ChatCardLog.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 

@@ -3,12 +3,15 @@
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
       <h1 class="text-h5 mr-4">Workflow Automation</h1>
       <v-spacer />
-      <v-btn v-if="canManage" color="primary" prepend-icon="mdi-plus" @click="openCreateRule">Thêm rule</v-btn>
+      <v-btn v-if="canManage && tab === 'rules'" color="primary" prepend-icon="mdi-plus" @click="openCreateRule">Thêm rule</v-btn>
+      <v-btn v-if="canManage && tab === 'drip'" color="primary" prepend-icon="mdi-plus" @click="openCreateCampaign">Chiến dịch mới</v-btn>
     </div>
 
     <v-tabs v-model="tab" class="mb-4">
       <v-tab value="rules">Rules</v-tab>
       <v-tab value="templates">Templates</v-tab>
+      <v-tab value="drip">Chiến dịch nhỏ giọt</v-tab>
+      <v-tab value="running">Đang chạy</v-tab>
     </v-tabs>
 
     <v-window v-model="tab">
@@ -45,6 +48,25 @@
           @delete="deleteTemplate"
         />
       </v-window-item>
+
+      <v-window-item value="drip">
+        <DripCampaignList
+          :campaigns="campaigns"
+          :loading="campaignsLoading"
+          :can-manage="canManage"
+          @edit="openEditCampaign"
+          @delete="handleDeleteCampaign"
+          @toggle="handleToggleCampaign"
+          @enroll="openEnrollDialog"
+        />
+      </v-window-item>
+
+      <v-window-item value="running">
+        <DripEnrollmentTable
+          :campaigns="campaigns"
+          @view-logs="openLogsDialog"
+        />
+      </v-window-item>
     </v-window>
 
     <RuleBuilder
@@ -54,6 +76,39 @@
       :saving="ruleSaving"
       @save="saveRule"
     />
+
+    <DripCampaignEditor
+      v-model="showCampaignEditor"
+      :campaign="selectedCampaign"
+      :templates="templates"
+      :saving="campaignSaving"
+      @save="handleSaveCampaign"
+    />
+
+    <!-- Enroll dialog -->
+    <v-dialog v-model="showEnrollDialog" max-width="480">
+      <v-card>
+        <v-card-title>Enroll khách hàng</v-card-title>
+        <v-card-text>
+          <v-textarea
+            v-model="enrollContactIds"
+            label="Contact IDs (mỗi dòng một ID)"
+            rows="4"
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+          <div class="text-caption mt-1 text-grey">Nhập ID khách hàng, mỗi ID trên một dòng</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showEnrollDialog = false">Hủy</v-btn>
+          <v-btn color="primary" :loading="enrolling" @click="handleEnroll">Enroll</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <DripLogDialog v-model="showLogDialog" :enrollment-id="selectedEnrollmentId" />
   </div>
 </template>
 
@@ -61,13 +116,21 @@
 import { computed, onMounted, ref } from 'vue';
 import RuleBuilder from '@/components/automation/RuleBuilder.vue';
 import TemplateManager from '@/components/automation/TemplateManager.vue';
+import DripCampaignList from '@/components/automation/drip/DripCampaignList.vue';
+import DripCampaignEditor from '@/components/automation/drip/DripCampaignEditor.vue';
+import DripEnrollmentTable from '@/components/automation/drip/DripEnrollmentTable.vue';
+import DripLogDialog from '@/components/automation/drip/DripLogDialog.vue';
 import { useAutomationRules, type AutomationRule } from '@/composables/use-automation-rules';
 import { useMessageTemplates } from '@/composables/use-message-templates';
+import { useDripCampaigns, type DripCampaign, type CreateCampaignPayload } from '@/composables/use-drip-campaigns';
+import { useDripEnrollments } from '@/composables/use-drip-enrollments';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
 const canManage = computed(() => authStore.isAdmin);
 const tab = ref('rules');
+
+// ─── Rules ───────────────────────────────────────────────────────────────────
 const showRuleDialog = ref(false);
 const selectedRule = ref<AutomationRule | null>(null);
 
@@ -141,7 +204,83 @@ async function deleteRule(id: string) {
   await removeRule(id);
 }
 
+// ─── Drip Campaigns ──────────────────────────────────────────────────────────
+const showCampaignEditor = ref(false);
+const selectedCampaign = ref<DripCampaign | null>(null);
+
+const {
+  campaigns,
+  loading: campaignsLoading,
+  saving: campaignSaving,
+  fetchCampaigns,
+  createNewCampaign,
+  updateExistingCampaign,
+  removeCampaign,
+} = useDripCampaigns();
+
+function openCreateCampaign() {
+  selectedCampaign.value = null;
+  showCampaignEditor.value = true;
+}
+
+async function openEditCampaign(campaign: DripCampaign) {
+  // Fetch full campaign with steps
+  const { fetchCampaign } = useDripCampaigns();
+  const full = await fetchCampaign(campaign.id);
+  selectedCampaign.value = full ?? campaign;
+  showCampaignEditor.value = true;
+}
+
+async function handleSaveCampaign(payload: CreateCampaignPayload & { id?: string }) {
+  if (payload.id) {
+    await updateExistingCampaign(payload.id, payload);
+  } else {
+    await createNewCampaign(payload);
+  }
+  showCampaignEditor.value = false;
+}
+
+async function handleDeleteCampaign(id: string) {
+  await removeCampaign(id);
+}
+
+async function handleToggleCampaign(campaign: DripCampaign, enabled: boolean) {
+  await updateExistingCampaign(campaign.id, { enabled });
+}
+
+// ─── Enroll ──────────────────────────────────────────────────────────────────
+const showEnrollDialog = ref(false);
+const enrollTargetCampaign = ref<DripCampaign | null>(null);
+const enrollContactIds = ref('');
+const enrolling = ref(false);
+const { enrollContacts } = useDripEnrollments();
+
+function openEnrollDialog(campaign: DripCampaign) {
+  enrollTargetCampaign.value = campaign;
+  enrollContactIds.value = '';
+  showEnrollDialog.value = true;
+}
+
+async function handleEnroll() {
+  if (!enrollTargetCampaign.value) return;
+  const ids = enrollContactIds.value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!ids.length) return;
+  enrolling.value = true;
+  await enrollContacts(enrollTargetCampaign.value.id, ids);
+  enrolling.value = false;
+  showEnrollDialog.value = false;
+}
+
+// ─── Logs ────────────────────────────────────────────────────────────────────
+const showLogDialog = ref(false);
+const selectedEnrollmentId = ref<string | null>(null);
+
+function openLogsDialog(enrollmentId: string) {
+  selectedEnrollmentId.value = enrollmentId;
+  showLogDialog.value = true;
+}
+
 onMounted(async () => {
-  await Promise.all([fetchRules(), fetchTemplates()]);
+  await Promise.all([fetchRules(), fetchTemplates(), fetchCampaigns()]);
 });
 </script>
