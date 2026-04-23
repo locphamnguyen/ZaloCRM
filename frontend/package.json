@@ -10,6 +10,12 @@
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",
+    "@tiptap/extension-mention": "^3.22.3",
+    "@tiptap/extension-placeholder": "^3.22.3",
+    "@tiptap/extension-underline": "^3.22.3",
+    "@tiptap/pm": "^3.22.3",
+    "@tiptap/starter-kit": "^3.22.3",
+    "@tiptap/vue-3": "^3.22.3",
     "axios": "^1.13.6",
     "chart.js": "^4.5.1",
     "pinia": "^3.0.4",

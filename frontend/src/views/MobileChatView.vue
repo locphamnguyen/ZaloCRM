@@ -34,6 +34,7 @@
         :ai-suggestion-loading="false"
         :ai-suggestion-error="(null as any)"
         @send="handleSend"
+        @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
         style="flex: 1; min-height: 0;"
       />
     </div>
@@ -50,7 +51,7 @@ import { useOfflineQueue } from '@/composables/use-offline-queue';
 const {
   conversations, selectedConvId, selectedConv, messages,
   loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter,
-  fetchConversations, selectConversation, sendMessage, sendMessageTo,
+  fetchConversations, fetchMessages, selectConversation, sendMessage, sendMessageTo,
   initSocket, destroySocket,
 } = useChat();
 
@@ -86,13 +87,13 @@ const allMessages = computed(() => {
   return [...messages.value, ...pending];
 });
 
-async function handleSend(content: string) {
+async function handleSend(content: string, replyMessageId?: string | null) {
   if (!selectedConvId.value) return;
   if (!navigator.onLine) {
     enqueue(selectedConvId.value, content);
     return;
   }
-  await sendMessage(content);
+  await sendMessage(content, replyMessageId);
 }
 
 // Flush queue when coming back online

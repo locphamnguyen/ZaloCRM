@@ -21,6 +21,7 @@ export interface IncomingMessage {
   threadType: 'user' | 'group'; // user or group conversation
   groupName?: string;       // group name if group message
   attachments?: any[];
+  quote?: unknown;
   albumKey?: string | null;
   albumIndex?: number | null;
   albumTotal?: number | null;
@@ -114,6 +115,7 @@ export async function handleIncomingMessage(
           content: msg.content || '',
           contentType: msg.contentType || 'text',
           attachments: msg.attachments ?? [],
+          quote: msg.quote ?? undefined,
           albumKey: msg.albumKey ?? null,
           albumIndex: msg.albumIndex ?? null,
           albumTotal: msg.albumTotal ?? null,

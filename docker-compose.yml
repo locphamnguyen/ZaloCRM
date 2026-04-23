@@ -47,6 +47,23 @@ services:
       -c effective_cache_size=256MB
       -c max_connections=50
 
+  redis:
+    image: redis:7-alpine
+    container_name: zalo-crm-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    profiles:
+      - redis
+
   backup:
     image: prodrigestivill/postgres-backup-local
     container_name: zalo-crm-backup
@@ -68,3 +85,4 @@ services:
 volumes:
   pg_data:
   file_storage:
+  redis_data:

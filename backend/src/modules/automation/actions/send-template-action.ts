@@ -31,7 +31,7 @@ export async function sendTemplateAction(input: {
   const instance = zaloPool.getInstance(input.zaloAccountId);
   if (!instance?.api) return null;
 
-  const limits = zaloRateLimiter.checkLimits(input.zaloAccountId);
+  const limits = await zaloRateLimiter.checkLimits(input.zaloAccountId);
   if (!limits.allowed) return null;
 
   zaloRateLimiter.recordSend(input.zaloAccountId);
