@@ -5,7 +5,7 @@
  * are not confirmed available — all types fall back to sendMessage with text payload.
  * Caller is responsible for actual dispatch.
  */
-import { renderMessageTemplate, type AutomationTemplateContext } from '../automation/template-renderer.js';
+import { renderTemplateWithAttrs, type AutomationTemplateContext } from '../automation/template-renderer.js';
 import { getAbsolutePath } from './block-storage.js';
 import type { AnyBlockContent, BlockType, TextContent, HtmlContent, ImageContent, VideoContent, FileContent, LinkContent, CardContent } from './block-types.js';
 
@@ -47,7 +47,7 @@ function htmlToPlainText(html: string): string {
 /** Render template variables in a string, returning empty string if input is nullish */
 function tpl(text: string | undefined, ctx: AutomationTemplateContext): string {
   if (!text) return '';
-  return renderMessageTemplate(text, ctx);
+  return renderTemplateWithAttrs(text, ctx);
 }
 
 export function renderBlockForSend(

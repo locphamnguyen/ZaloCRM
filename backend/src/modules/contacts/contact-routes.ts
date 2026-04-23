@@ -10,6 +10,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
 import { runContactIntelligence } from './contact-intelligence.js';
 import { runAutomationRules } from '../automation/automation-service.js';
+import { validateCustomAttrs } from './custom-attrs/attr-validator.js';
 
 type QueryParams = Record<string, string>;
 
@@ -146,6 +147,13 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const body = request.body as Record<string, any>;
 
+      if (body.customAttrs && typeof body.customAttrs === 'object') {
+        const validation = await validateCustomAttrs(user.orgId, body.customAttrs as Record<string, unknown>);
+        if (!validation.ok) {
+          return reply.status(400).send({ error: 'Invalid custom attributes', errors: validation.errors });
+        }
+      }
+
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -200,9 +208,20 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.contact.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true, status: true, fullName: true, phone: true, source: true, assignedUserId: true },
+        select: { id: true, status: true, fullName: true, phone: true, source: true, assignedUserId: true, customAttrs: true },
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
+
+      if (body.customAttrs && typeof body.customAttrs === 'object') {
+        const existingAttrs =
+          existing.customAttrs && typeof existing.customAttrs === 'object'
+            ? (existing.customAttrs as Record<string, unknown>)
+            : {};
+        const validation = await validateCustomAttrs(user.orgId, body.customAttrs as Record<string, unknown>, existingAttrs);
+        if (!validation.ok) {
+          return reply.status(400).send({ error: 'Invalid custom attributes', errors: validation.errors });
+        }
+      }
 
       const updateData: any = {
         fullName: body.fullName,

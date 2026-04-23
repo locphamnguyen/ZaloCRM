@@ -48,6 +48,7 @@ import { templateRoutes } from './modules/automation/template-routes.js';
 import { dripRoutes } from './modules/automation/drip-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
 import { blockRoutes } from './modules/blocks/block-routes.js';
+import { attrDefRoutes } from './modules/contacts/custom-attrs/attr-def-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -135,6 +136,7 @@ async function bootstrap() {
   await app.register(dripRoutes);
   await app.register(aiRoutes);
   await app.register(blockRoutes);
+  await app.register(attrDefRoutes);
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {
