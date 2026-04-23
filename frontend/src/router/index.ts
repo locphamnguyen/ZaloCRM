@@ -81,6 +81,30 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/blocks',
+    name: 'BlockLibrary',
+    component: () => import('@/views/blocks/block-library-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/blocks/:id',
+    name: 'BlockEditor',
+    component: () => import('@/views/blocks/block-editor-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/settings/custom-attrs',
+    name: 'CustomAttrs',
+    component: () => import('@/views/settings/custom-attrs-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/settings/api-keys',
+    name: 'ApiKeys',
+    component: () => import('@/views/settings/api-keys-view.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/NotFoundView.vue'),

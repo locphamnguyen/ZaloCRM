@@ -85,6 +85,12 @@
       />
 
       <ChatCardLog v-if="props.contactId" :contact-id="props.contactId" />
+
+      <CustomAttrsEditor
+        v-if="props.contactId"
+        :contact-id="props.contactId"
+        :custom-attrs="props.contact?.customAttrs"
+      />
     </div>
   </div>
 </template>
@@ -98,6 +104,7 @@ import ChatAppointments from './ChatAppointments.vue';
 import ChatCardLog from './ChatCardLog.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
+import CustomAttrsEditor from '@/components/contacts/custom-attrs-editor.vue';
 
 const props = defineProps<{
   contactId: string | null;

@@ -27,6 +27,7 @@ export interface Contact {
   leadScore: number;
   lastActivity: string | null;
   mergedInto: string | null;
+  customAttrs?: Record<string, unknown> | null;
 }
 
 export interface DuplicateGroup {

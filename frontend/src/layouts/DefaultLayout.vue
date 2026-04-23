@@ -113,6 +113,9 @@ const menuItems = [
   { title: 'API & Webhook', icon: 'mdi-api', path: '/api-settings' },
   { title: 'Tích hợp', icon: 'mdi-connection', path: '/integrations' },
   { title: 'Automation', icon: 'mdi-robot-outline', path: '/automation' },
+  { title: 'Khối nội dung', icon: 'mdi-package-variant', path: '/blocks' },
+  { title: 'Thuộc tính tùy chỉnh', icon: 'mdi-tag-multiple-outline', path: '/settings/custom-attrs' },
+  { title: 'Khóa API', icon: 'mdi-key-outline', path: '/settings/api-keys' },
 ];
 
 function toggleTheme() {

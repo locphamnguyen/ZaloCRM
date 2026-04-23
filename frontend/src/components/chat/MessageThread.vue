@@ -115,6 +115,13 @@
             @select="onTemplateSelect"
             @close="showTemplatePopup = false"
           />
+          <BlockPickerPopup
+            :visible="showBlockPicker"
+            :conversation-id="conversation?.id ?? null"
+            :contact-id="conversation?.contact?.id ?? null"
+            @close="showBlockPicker = false"
+            @sent="showBlockPicker = false"
+          />
           <v-textarea
             v-model="inputText"
             placeholder="Nhập tin nhắn... (gõ / để chèn mẫu)"
@@ -129,6 +136,17 @@
             @keydown="onInputKeydown"
             @keydown.enter.exact.prevent="handleSend"
           />
+          <v-btn
+            icon
+            variant="tonal"
+            size="small"
+            class="mr-1 mb-1"
+            :color="showBlockPicker ? 'primary' : undefined"
+            title="Khối nội dung"
+            @click="showBlockPicker = !showBlockPicker"
+          >
+            <v-icon size="18">mdi-package-variant</v-icon>
+          </v-btn>
           <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend">
             <v-icon>mdi-send</v-icon>
           </v-btn>
@@ -156,6 +174,7 @@ import { api } from '@/api/index';
 import AiSuggestionPanel from '@/components/ai/ai-suggestion-panel.vue';
 import SpecialMessageRenderer from '@/components/chat/special-message-renderer.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
+import BlockPickerPopup from '@/components/chat/block-picker-popup.vue';
 
 interface TemplateItem {
   id: string;
@@ -183,6 +202,9 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const previewImageUrl = ref('');
 const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
 const syncSnack = ref({ show: false, text: '', color: 'success' });
+
+// Block picker
+const showBlockPicker = ref(false);
 
 // Content types handled by SpecialMessageRenderer
 const SPECIAL_TYPES = new Set([
