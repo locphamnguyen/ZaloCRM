@@ -51,6 +51,7 @@ import { dripRoutes } from './modules/automation/drip-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
 import { blockRoutes } from './modules/blocks/block-routes.js';
 import { attrDefRoutes } from './modules/contacts/custom-attrs/attr-def-routes.js';
+import { groupViewRoutes } from './modules/zalo/group-view-routes.js';
 import { apiKeyRoutes } from './modules/public-api/api-key-routes.js';
 import { publicApiV1Routes } from './modules/public-api/v1-routes.js';
 
@@ -159,6 +160,7 @@ async function bootstrap() {
   await app.register(aiRoutes);
   await app.register(blockRoutes);
   await app.register(attrDefRoutes);
+  await app.register(groupViewRoutes);
 
   // ── Public API v1 (requires PUBLIC_API_ENABLED=true) ─────────────────────
   if (process.env.PUBLIC_API_ENABLED === 'true') {
