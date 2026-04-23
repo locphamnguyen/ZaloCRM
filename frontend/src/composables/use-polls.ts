@@ -46,7 +46,7 @@ export function usePolls() {
     }
   }
 
-  async function votePoll(accountId: string, groupId: string, pollId: string, optionIds: string[]) {
+  async function votePoll(accountId: string, groupId: string, pollId: string, optionIds: number[]) {
     loading.value = true;
     try {
       const res = await api.post(`${base(accountId, groupId)}/${pollId}/vote`, { optionIds });
@@ -72,5 +72,18 @@ export function usePolls() {
     }
   }
 
-  return { polls, loading, createPoll, getPollDetail, votePoll, lockPoll };
+  async function sharePoll(accountId: string, groupId: string, pollId: string) {
+    loading.value = true;
+    try {
+      const res = await api.post(`${base(accountId, groupId)}/${pollId}/share`);
+      return res.data.result;
+    } catch (err) {
+      console.error('Failed to share poll:', err);
+      return null;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  return { polls, loading, createPoll, getPollDetail, votePoll, lockPoll, sharePoll };
 }

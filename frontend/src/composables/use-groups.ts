@@ -219,6 +219,45 @@ export function useGroups() {
     }
   }
 
+  async function enableInviteLink(accountId: string, groupId: string) {
+    actionLoading.value = true;
+    try {
+      const res = await api.post(`${base(accountId)}/${groupId}/link/enable`);
+      return res.data.result;
+    } catch (err) {
+      console.error('Failed to enable invite link:', err);
+      return null;
+    } finally {
+      actionLoading.value = false;
+    }
+  }
+
+  async function disableInviteLink(accountId: string, groupId: string) {
+    actionLoading.value = true;
+    try {
+      const res = await api.post(`${base(accountId)}/${groupId}/link/disable`);
+      return res.data.result;
+    } catch (err) {
+      console.error('Failed to disable invite link:', err);
+      return null;
+    } finally {
+      actionLoading.value = false;
+    }
+  }
+
+  async function joinByLink(accountId: string, linkId: string) {
+    actionLoading.value = true;
+    try {
+      const res = await api.post(`/zalo-accounts/${accountId}/groups/join-link`, { linkId });
+      return res.data.result;
+    } catch (err) {
+      console.error('Failed to join group by link:', err);
+      return null;
+    } finally {
+      actionLoading.value = false;
+    }
+  }
+
   async function leaveGroup(accountId: string, groupId: string) {
     actionLoading.value = true;
     try {
@@ -256,6 +295,7 @@ export function useGroups() {
     addDeputy, removeDeputy, transferOwnership,
     blockMember, unblockMember,
     fetchBlocked, fetchPending,
-    getInviteLink, leaveGroup, disperseGroup,
+    getInviteLink, enableInviteLink, disableInviteLink, joinByLink,
+    leaveGroup, disperseGroup,
   };
 }

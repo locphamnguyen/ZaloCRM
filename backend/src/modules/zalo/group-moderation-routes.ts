@@ -63,6 +63,35 @@ export async function groupModerationRoutes(app: FastifyInstance) {
     } catch (err) { return handleError(reply, err, 'getGroupLinkDetail'); }
   });
 
+  app.post<{ Params: { accountId: string; groupId: string } }>(`${BASE}/:groupId/link/enable`, async (request, reply) => {
+    const { accountId, groupId } = request.params;
+    try {
+      await resolveAccount(accountId, request.user!.orgId);
+      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      return { result: await zaloOps.enableGroupLink(accountId, groupId) };
+    } catch (err) { return handleError(reply, err, 'enableGroupLink'); }
+  });
+
+  app.post<{ Params: { accountId: string; groupId: string } }>(`${BASE}/:groupId/link/disable`, async (request, reply) => {
+    const { accountId, groupId } = request.params;
+    try {
+      await resolveAccount(accountId, request.user!.orgId);
+      if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
+      return { result: await zaloOps.disableGroupLink(accountId, groupId) };
+    } catch (err) { return handleError(reply, err, 'disableGroupLink'); }
+  });
+
+  app.post<{ Params: { accountId: string }; Body: { linkId: string } }>(`/api/v1/zalo-accounts/:accountId/groups/join-link`, async (request, reply) => {
+    const { accountId } = request.params;
+    const { linkId } = request.body ?? {};
+    if (!linkId) return reply.status(400).send({ error: 'linkId is required' });
+    try {
+      await resolveAccount(accountId, request.user!.orgId);
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
+      return { result: await zaloOps.joinGroupByLink(accountId, linkId) };
+    } catch (err) { return handleError(reply, err, 'joinGroupByLink'); }
+  });
+
   // ── Lifecycle ───────────────────────────────────────────────────────────────
 
   app.post<{ Params: { accountId: string; groupId: string } }>(`${BASE}/:groupId/leave`, async (request, reply) => {
@@ -134,5 +163,14 @@ export async function groupModerationRoutes(app: FastifyInstance) {
       if (!(await checkAccess(request, reply, accountId, 'admin'))) return;
       return { result: await zaloOps.lockPoll(accountId, pollId) };
     } catch (err) { return handleError(reply, err, 'lockPoll'); }
+  });
+
+  app.post<{ Params: { accountId: string; groupId: string; pollId: string } }>(`${BASE}/:groupId/polls/:pollId/share`, async (request, reply) => {
+    const { accountId, pollId } = request.params;
+    try {
+      await resolveAccount(accountId, request.user!.orgId);
+      if (!(await checkAccess(request, reply, accountId, 'chat'))) return;
+      return { result: await zaloOps.sharePoll(accountId, pollId) };
+    } catch (err) { return handleError(reply, err, 'sharePoll'); }
   });
 }

@@ -20,6 +20,12 @@
           {{ group.totalMember }} thành viên
         </div>
       </div>
+      <v-btn
+        icon="mdi-link-variant"
+        variant="text"
+        title="Quản lý link mời"
+        @click="$emit('open-invite-link')"
+      />
       <v-btn icon="mdi-cog-outline" variant="text" @click="$emit('open-settings')" />
     </div>
 
@@ -41,6 +47,7 @@
       <v-tab value="polls">
         <v-icon size="16" class="mr-1">mdi-poll</v-icon>
         Bình chọn
+        <v-badge v-if="polls.length" :content="polls.length" color="primary" inline class="ml-1" />
       </v-tab>
     </v-tabs>
 
@@ -147,23 +154,20 @@
             Tạo bình chọn
           </v-btn>
 
-          <v-list v-if="polls.length" class="pa-0">
-            <v-card
-              v-for="poll in polls"
-              :key="poll.id"
-              variant="outlined"
-              class="mb-2"
-            >
-              <v-card-text class="pa-3">
-                <div class="text-body-2 font-weight-medium mb-1">{{ poll.question }}</div>
-                <div class="text-caption text-grey">{{ poll.options?.length }} lựa chọn</div>
-                <v-chip v-if="poll.locked" size="x-small" color="error" variant="tonal" class="mt-1">
-                  Đã khóa
-                </v-chip>
-              </v-card-text>
-            </v-card>
-          </v-list>
-          <div v-else class="text-center text-grey text-body-2 pt-4">Chưa có bình chọn nào</div>
+          <PollVoter
+            v-for="poll in polls"
+            :key="poll.id || poll.pollId"
+            :poll="poll"
+            :can-lock="true"
+            :can-share="true"
+            @vote="(pollId, optionIds) => $emit('vote-poll', pollId, optionIds)"
+            @lock="p => $emit('lock-poll', p)"
+            @share="p => $emit('share-poll', p)"
+          />
+
+          <div v-if="!polls.length" class="text-center text-grey text-body-2 pt-4">
+            Chưa có bình chọn nào
+          </div>
         </div>
       </v-window-item>
     </v-window>
@@ -173,6 +177,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import GroupMemberActions from './group-member-actions.vue';
+import PollVoter from './poll-voter.vue';
 
 defineProps<{
   group: any;
@@ -185,6 +190,7 @@ defineProps<{
 
 defineEmits<{
   'open-settings': [];
+  'open-invite-link': [];
   'add-deputy': [member: any];
   'remove-deputy': [member: any];
   'remove-member': [member: any];
@@ -194,6 +200,9 @@ defineEmits<{
   'approve-pending': [member: any];
   'reject-pending': [member: any];
   'create-poll': [];
+  'vote-poll': [pollId: string, optionIds: number[]];
+  'lock-poll': [poll: any];
+  'share-poll': [poll: any];
 }>();
 
 const tab = ref('members');

@@ -370,6 +370,22 @@ async function getGroupLinkDetail(accountId: string, groupId: string) {
     (api) => api.getGroupLinkDetail(groupId));
 }
 
+// ─── Group Invite Link Management ───────────────────────────────────────────
+async function enableGroupLink(accountId: string, groupId: string) {
+  return exec({ accountId, category: 'group_admin', operation: 'enableGroupLink' },
+    (api) => api.enableGroupLink(groupId));
+}
+
+async function disableGroupLink(accountId: string, groupId: string) {
+  return exec({ accountId, category: 'group_admin', operation: 'disableGroupLink' },
+    (api) => api.disableGroupLink(groupId));
+}
+
+async function joinGroupByLink(accountId: string, linkId: string) {
+  return exec({ accountId, category: 'group_admin', operation: 'joinGroupByLink' },
+    (api) => api.joinGroupLink(linkId));
+}
+
 // ─── Group Polls ────────────────────────────────────────────────────────────
 async function createPoll(accountId: string, options: any, groupId: string) {
   return exec({ accountId, category: 'group_admin', operation: 'createPoll' },
@@ -558,6 +574,11 @@ export const zaloOps = {
   getGroupBlockedMembers,
   getPendingGroupMembers,
   getGroupLinkDetail,
+
+  // Group invite links
+  enableGroupLink,
+  disableGroupLink,
+  joinGroupByLink,
 
   // Group polls
   createPoll,

@@ -67,6 +67,10 @@
           @approve-pending="m => runAction(() => addMembers(selectedAccountId, selectedGroupId, [m.id || m.uid]))"
           @reject-pending="m => runAction(() => removeMembers(selectedAccountId, selectedGroupId, [m.id || m.uid]))"
           @create-poll="showPollDialog = true"
+          @vote-poll="onVotePoll"
+          @lock-poll="onLockPoll"
+          @share-poll="onSharePoll"
+          @open-invite-link="showInviteLinkDialog = true"
         />
       </v-card>
     </div>
@@ -90,6 +94,33 @@
       @create="onCreatePoll"
     />
 
+    <!-- Invite link dialog -->
+    <v-dialog v-model="showInviteLinkDialog" max-width="480">
+      <v-card>
+        <v-card-title class="d-flex align-center">
+          <v-icon class="mr-2">mdi-link-variant</v-icon>
+          Quản lý link mời
+        </v-card-title>
+        <v-card-text>
+          <InviteLinkManager
+            v-if="selectedGroupId"
+            :account-id="selectedAccountId"
+            :group-id="selectedGroupId"
+            :get-invite-link="getInviteLink"
+            :enable-invite-link="enableInviteLink"
+            :disable-invite-link="disableInviteLink"
+            :join-by-link-fn="joinByLink"
+            @success="msg => notify(msg)"
+            @error="msg => notify(msg, 'error')"
+          />
+        </v-card-text>
+        <v-card-actions class="px-4 pb-4">
+          <v-spacer />
+          <v-btn variant="text" @click="showInviteLinkDialog = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Snackbar feedback -->
     <v-snackbar v-model="snack.show" :color="snack.color" timeout="3000" location="bottom end">
       {{ snack.message }}
@@ -107,6 +138,7 @@ import GroupDetailPanel from '@/components/groups/group-detail-panel.vue';
 import GroupCreateDialog from '@/components/groups/group-create-dialog.vue';
 import GroupSettingsDialog from '@/components/groups/group-settings-dialog.vue';
 import PollCreateDialog from '@/components/groups/poll-create-dialog.vue';
+import InviteLinkManager from '@/components/groups/invite-link-manager.vue';
 
 const { accounts, selectedAccountId, selectAccount, loading: accountLoading } = useSelectedAccount();
 const {
@@ -116,15 +148,17 @@ const {
   createGroup, renameGroup,
   addMembers, removeMembers, addDeputy, removeDeputy,
   transferOwnership, blockMember, unblockMember,
+  getInviteLink, enableInviteLink, disableInviteLink, joinByLink,
   leaveGroup, disperseGroup,
 } = useGroups();
 
-const { polls, createPoll } = usePolls();
+const { polls, createPoll, votePoll, lockPoll, sharePoll } = usePolls();
 
 const selectedGroupId = ref('');
 const showCreateDialog = ref(false);
 const showSettingsDialog = ref(false);
 const showPollDialog = ref(false);
+const showInviteLinkDialog = ref(false);
 
 const snack = reactive({ show: false, message: '', color: 'success' });
 
@@ -207,5 +241,27 @@ async function onCreatePoll(payload: Parameters<typeof createPoll>[2]) {
   const result = await createPoll(selectedAccountId.value, selectedGroupId.value, payload);
   if (result) notify('Tạo bình chọn thành công');
   else notify('Tạo bình chọn thất bại', 'error');
+}
+
+async function onVotePoll(pollId: string, optionIds: number[]) {
+  const result = await votePoll(selectedAccountId.value, selectedGroupId.value, pollId, optionIds);
+  if (result !== null) notify('Đã bình chọn');
+  else notify('Bình chọn thất bại', 'error');
+}
+
+async function onLockPoll(poll: { id?: string; pollId?: string }) {
+  const id = poll.id ?? poll.pollId ?? '';
+  if (!id) return;
+  const result = await lockPoll(selectedAccountId.value, selectedGroupId.value, id);
+  if (result !== null) notify('Đã khóa bình chọn');
+  else notify('Khóa bình chọn thất bại', 'error');
+}
+
+async function onSharePoll(poll: { id?: string; pollId?: string }) {
+  const id = poll.id ?? poll.pollId ?? '';
+  if (!id) return;
+  const result = await sharePoll(selectedAccountId.value, selectedGroupId.value, id);
+  if (result !== null) notify('Đã chia sẻ bình chọn');
+  else notify('Chia sẻ bình chọn thất bại', 'error');
 }
 </script>

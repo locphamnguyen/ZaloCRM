@@ -1,12 +1,14 @@
 /**
  * profile-routes.ts — REST API for Zalo account profile management.
- * Ports openzca `me` commands: info, last-online, avatar, status.
+ * Ports openzca `me` commands: info, last-online, avatar, status, update, avatars CRUD.
  * All routes scoped to /api/v1/zalo-accounts/:accountId/profile and require JWT auth.
  */
 import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.js';
+import { updateProfile, listAvatars, deleteAvatar, reuseAvatar } from './profile-operations.js';
+import type { Gender } from './profile-operations.js';
 
 const BASE = '/api/v1/zalo-accounts/:accountId/profile';
 
@@ -27,6 +29,24 @@ export async function profileRoutes(app: FastifyInstance) {
     }
   });
 
+  // PATCH .../profile — update name / gender / birthday
+  app.patch<{ Params: { accountId: string }; Body: { name?: string; gender?: 0 | 1; dob?: string } }>(
+    BASE,
+    async (request, reply) => {
+      const { accountId } = request.params;
+      const { name, gender, dob } = request.body ?? {};
+      const { orgId } = request.user!;
+      try {
+        await resolveAccount(accountId, orgId);
+        if (!await checkAccess(request, reply, accountId, 'admin')) return;
+        const result = await updateProfile(accountId, { name, gender: gender as Gender | undefined, dob });
+        return result;
+      } catch (err) {
+        return handleError(reply, err, 'updateProfile');
+      }
+    },
+  );
+
   // GET .../profile/last-online/:userId — get last online time for a user
   app.get(`${BASE}/last-online/:userId`, async (request, reply) => {
     const { accountId, userId } = request.params as { accountId: string; userId: string };
@@ -41,7 +61,21 @@ export async function profileRoutes(app: FastifyInstance) {
     }
   });
 
-  // PATCH .../profile/avatar — change Zalo account avatar
+  // GET .../profile/avatars — list all avatars
+  app.get(`${BASE}/avatars`, async (request, reply) => {
+    const { accountId } = request.params as { accountId: string };
+    const { orgId } = request.user!;
+    try {
+      await resolveAccount(accountId, orgId);
+      if (!await checkAccess(request, reply, accountId, 'read')) return;
+      const avatars = await listAvatars(accountId);
+      return { avatars };
+    } catch (err) {
+      return handleError(reply, err, 'listAvatars');
+    }
+  });
+
+  // PATCH .../profile/avatar — change Zalo account avatar (upload by file path)
   app.patch(`${BASE}/avatar`, async (request, reply) => {
     const { accountId } = request.params as { accountId: string };
     const { filePath } = request.body as { filePath: string };
@@ -54,6 +88,34 @@ export async function profileRoutes(app: FastifyInstance) {
       return { success: true, result };
     } catch (err) {
       return handleError(reply, err, 'changeAccountAvatar');
+    }
+  });
+
+  // DELETE .../profile/avatars/:avatarId — delete an avatar
+  app.delete(`${BASE}/avatars/:avatarId`, async (request, reply) => {
+    const { accountId, avatarId } = request.params as { accountId: string; avatarId: string };
+    const { orgId } = request.user!;
+    try {
+      await resolveAccount(accountId, orgId);
+      if (!await checkAccess(request, reply, accountId, 'admin')) return;
+      const result = await deleteAvatar(accountId, avatarId);
+      return result;
+    } catch (err) {
+      return handleError(reply, err, 'deleteAvatar');
+    }
+  });
+
+  // POST .../profile/avatars/:avatarId/reuse — reuse a previous avatar
+  app.post(`${BASE}/avatars/:avatarId/reuse`, async (request, reply) => {
+    const { accountId, avatarId } = request.params as { accountId: string; avatarId: string };
+    const { orgId } = request.user!;
+    try {
+      await resolveAccount(accountId, orgId);
+      if (!await checkAccess(request, reply, accountId, 'admin')) return;
+      const result = await reuseAvatar(accountId, avatarId);
+      return result;
+    } catch (err) {
+      return handleError(reply, err, 'reuseAvatar');
     }
   });
 
