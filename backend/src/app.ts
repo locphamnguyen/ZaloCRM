@@ -9,6 +9,8 @@ import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
 import { Server } from 'socket.io';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +51,8 @@ import { dripRoutes } from './modules/automation/drip-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
 import { blockRoutes } from './modules/blocks/block-routes.js';
 import { attrDefRoutes } from './modules/contacts/custom-attrs/attr-def-routes.js';
+import { apiKeyRoutes } from './modules/public-api/api-key-routes.js';
+import { publicApiV1Routes } from './modules/public-api/v1-routes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -75,6 +79,24 @@ async function bootstrap() {
 
   // Multipart support for file uploads (blocks module)
   await app.register(fastifyMultipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+
+  // ── Public API Swagger (only when PUBLIC_API_ENABLED=true) ───────────────
+  if (process.env.PUBLIC_API_ENABLED === 'true') {
+    await app.register(fastifySwagger, {
+      openapi: {
+        info: { title: 'ZaloCRM Public API', version: '1.0.0' },
+        components: {
+          securitySchemes: {
+            apiKey: { type: 'apiKey', in: 'header', name: 'X-API-Key' },
+          },
+        },
+      },
+    });
+    await app.register(fastifySwaggerUi, {
+      routePrefix: '/api/external/v1/docs/ui',
+      uiConfig: { docExpansion: 'list' },
+    });
+  }
 
   // Serve compiled frontend assets in production
   if (config.isProduction) {
@@ -137,6 +159,13 @@ async function bootstrap() {
   await app.register(aiRoutes);
   await app.register(blockRoutes);
   await app.register(attrDefRoutes);
+
+  // ── Public API v1 (requires PUBLIC_API_ENABLED=true) ─────────────────────
+  if (process.env.PUBLIC_API_ENABLED === 'true') {
+    await app.register(apiKeyRoutes);
+    await app.register(publicApiV1Routes, { prefix: '/api/external/v1' });
+    logger.info('Public API v1 enabled at /api/external/v1');
+  }
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {
