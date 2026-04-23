@@ -34,6 +34,9 @@ model Organization {
   blocks           Block[]
   customAttrDefs   CustomAttributeDefinition[]
   apiKeys          ApiKey[]
+  zaloGroupViews   ZaloGroupView[]
+  crmTags          CrmTag[]
+  autoTagRules     AutoTagRule[]
 
   @@map("organizations")
 }
@@ -76,6 +79,7 @@ model User {
   dripCampaigns    DripCampaign[]      @relation("DripCreatedBy")
   blocks           Block[]             @relation("BlockOwner")
   apiKeys          ApiKey[]            @relation("ApiKeyCreator")
+  zaloGroupViews   ZaloGroupView[]
 
   @@map("users")
 }
@@ -609,4 +613,107 @@ model AutomationLog {
   @@index([enrollmentId, sentAt])
   @@index([orgId, sentAt])
   @@map("automation_logs")
+}
+
+// B3: user-scoped view of a subset of Zalo accounts (grouping / filtering)
+model ZaloGroupView {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  userId     String   @map("user_id")
+  name       String
+  accountIds String[] @map("account_ids")
+  color      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, userId])
+  @@map("zalo_group_views")
+}
+
+// B3: org-scoped CRM tag (source: crm | zalo)
+model CrmTag {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  name      String
+  color     String   @default("#888")
+  icon      String?
+  source    String   @default("crm")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org   Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  links ContactTagLink[]
+  rules AutoTagRule[]
+
+  @@unique([orgId, name, source])
+  @@index([orgId, source])
+  @@map("crm_tags")
+}
+
+// B3: link between a contact and a CrmTag (loose contactId — no FK to contacts)
+model ContactTagLink {
+  id        String   @id @default(uuid())
+  contactId String   @map("contact_id")
+  tagId     String   @map("tag_id")
+  source    String   @default("crm")
+  appliedBy String?  @map("applied_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tag     CrmTag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId])
+  @@index([tagId])
+  @@map("contact_tag_links")
+}
+
+// B3: rule that auto-applies a tag when an event matches conditions
+model AutoTagRule {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  name      String
+  event     String
+  condition Json
+  tagId     String   @map("tag_id")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tag CrmTag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, event, enabled])
+  @@map("auto_tag_rules")
+}
+
+// B3: snapshot of Zalo labels per account+contact pair (no FK — loose coupling)
+model ZaloTagSnapshot {
+  id             String   @id @default(uuid())
+  zaloAccountId  String   @map("zalo_account_id")
+  contactZaloUid String   @map("contact_zalo_uid")
+  labelId        String   @map("label_id")
+  labelName      String   @map("label_name")
+  syncedAt       DateTime @default(now()) @map("synced_at")
+
+  @@unique([zaloAccountId, contactZaloUid, labelId])
+  @@index([zaloAccountId])
+  @@map("zalo_tag_snapshots")
+}
+
+// B3: queue for pending Zalo label add/remove operations (no FK — loose coupling)
+model ZaloTagSyncQueue {
+  id             String    @id @default(uuid())
+  zaloAccountId  String    @map("zalo_account_id")
+  contactZaloUid String    @map("contact_zalo_uid")
+  action         String
+  labelName      String    @map("label_name")
+  status         String    @default("pending")
+  attempts       Int       @default(0)
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@map("zalo_tag_sync_queue")
 }
