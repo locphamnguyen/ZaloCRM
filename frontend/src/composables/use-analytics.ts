@@ -116,42 +116,64 @@ export function useAnalytics() {
   const dateFrom = ref(defaultFrom());
   const dateTo = ref(defaultTo());
 
+  // ── Filter state ────────────────────────────────────────────────────────────
+  // Single-select for v1; backend accepts one UUID per param. Multi-select
+  // deferred — backend signature would need array support.
+  const zaloAccountId = ref<string | null>(null);
+  const assignedUserId = ref<string | null>(null);
+
+  // Export state
+  const exportLoading = ref<string | null>(null); // holds export type being processed
+  const exportError = ref('');
+
+  function buildFilterParams(): Record<string, string> {
+    const p: Record<string, string> = {};
+    if (zaloAccountId.value) p.zaloAccountId = zaloAccountId.value;
+    if (assignedUserId.value) p.assignedUserId = assignedUserId.value;
+    return p;
+  }
+
+  // ── Fetchers ────────────────────────────────────────────────────────────────
+
   async function fetchFunnel() {
     const res = await api.get('/analytics/conversion-funnel', {
-      params: { from: dateFrom.value, to: dateTo.value },
+      params: { from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
     });
     funnel.value = res.data;
   }
 
   async function fetchTeamPerformance() {
     const res = await api.get('/analytics/team-performance', {
-      params: { from: dateFrom.value, to: dateTo.value },
+      params: { from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
     });
     teamPerformance.value = res.data;
   }
 
   async function fetchResponseTime() {
     const res = await api.get('/analytics/response-time', {
-      params: { from: dateFrom.value, to: dateTo.value },
+      params: { from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
     });
     responseTime.value = res.data;
   }
 
   async function fetchHeatmap() {
     const res = await api.get('/analytics/response-heatmap', {
-      params: { from: dateFrom.value, to: dateTo.value },
+      params: { from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
     });
     responseHeatmap.value = res.data;
   }
 
   async function fetchTagDistribution() {
-    const res = await api.get('/analytics/tag-distribution');
+    // zaloAccountId silently ignored by backend for tag-distribution; still pass for consistency
+    const res = await api.get('/analytics/tag-distribution', {
+      params: { ...buildFilterParams() },
+    });
     tagDistribution.value = res.data;
   }
 
   async function fetchDripKpi() {
     const res = await api.get('/analytics/drip-kpi', {
-      params: { from: dateFrom.value, to: dateTo.value },
+      params: { from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
     });
     dripKpi.value = res.data;
   }
@@ -173,6 +195,39 @@ export function useAnalytics() {
       loading.value = false;
     }
   }
+
+  // ── CSV Export ──────────────────────────────────────────────────────────────
+
+  async function exportCsv(type: string): Promise<void> {
+    exportError.value = '';
+    exportLoading.value = type;
+    try {
+      const res = await api.get('/analytics/export', {
+        params: { type, from: dateFrom.value, to: dateTo.value, ...buildFilterParams() },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${type}-${dateFrom.value}-${dateTo.value}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      if (err.response?.status === 413) {
+        exportError.value = 'Dữ liệu quá lớn (>50k dòng). Hãy thu hẹp khoảng thời gian.';
+      } else {
+        exportError.value = 'Xuất CSV thất bại.';
+      }
+      console.error('Export CSV error:', err);
+    } finally {
+      exportLoading.value = null;
+    }
+  }
+
+  // ── Custom report helpers ───────────────────────────────────────────────────
 
   async function runCustomReport(config: ReportConfig) {
     loading.value = true;
@@ -223,8 +278,12 @@ export function useAnalytics() {
     funnel, teamPerformance, responseTime, customResult, savedReports,
     responseHeatmap, tagDistribution, dripKpi,
     loading, dateFrom, dateTo,
+    zaloAccountId, assignedUserId,
+    exportLoading, exportError,
+    buildFilterParams,
     fetchAll, fetchFunnel, fetchTeamPerformance, fetchResponseTime,
     fetchHeatmap, fetchTagDistribution, fetchDripKpi,
+    exportCsv,
     runCustomReport, fetchSavedReports, createSavedReport, deleteSavedReport, runSavedReport,
   };
 }

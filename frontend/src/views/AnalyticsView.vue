@@ -30,6 +30,22 @@
       <v-btn color="primary" prepend-icon="mdi-refresh" :loading="loading" @click="fetchAll">Xem</v-btn>
     </div>
 
+    <!-- Filter bar: account + rep dropdowns -->
+    <AnalyticsFilterBar
+      :zalo-account-id="zaloAccountId"
+      :assigned-user-id="assignedUserId"
+      :accounts="accounts"
+      :users="users"
+      class="mb-4"
+      @update:zalo-account-id="onAccountChange"
+      @update:assigned-user-id="onUserChange"
+    />
+
+    <!-- Export error snackbar -->
+    <v-snackbar v-model="showExportError" color="error" timeout="4000">
+      {{ exportError }}
+    </v-snackbar>
+
     <!-- Tabs -->
     <v-tabs v-model="tab" class="mb-4">
       <v-tab value="overview">Tổng quan</v-tab>
@@ -50,38 +66,35 @@
       </v-window-item>
 
       <v-window-item value="funnel">
+        <ExportStrip type="funnel" :export-loading="exportLoading" @export="exportCsv" />
         <ConversionFunnelChart :data="funnel" />
       </v-window-item>
 
       <v-window-item value="team">
+        <ExportStrip type="team" :export-loading="exportLoading" @export="exportCsv" />
         <TeamLeaderboard :data="teamPerformance" />
       </v-window-item>
 
       <v-window-item value="response">
+        <ExportStrip type="response" :export-loading="exportLoading" @export="exportCsv" />
         <v-row>
           <v-col cols="12"><ResponseTimeChart :data="responseTime" /></v-col>
-          <v-col cols="12" v-if="responseTime?.byUser?.length">
-            <v-card>
-              <v-card-title class="text-body-1">Thời gian trả lời theo nhân viên</v-card-title>
-              <v-card-text>
-                <v-data-table :headers="rtUserHeaders" :items="responseTime.byUser" density="compact" no-data-text="Không có dữ liệu">
-                  <template #item.avgSeconds="{ item }">{{ formatTime(item.avgSeconds) }}</template>
-                </v-data-table>
-              </v-card-text>
-            </v-card>
-          </v-col>
+          <v-col cols="12"><ResponseTimeByUserTable :items="responseTime?.byUser" /></v-col>
         </v-row>
       </v-window-item>
 
       <v-window-item value="heatmap">
+        <ExportStrip type="heatmap" :export-loading="exportLoading" @export="exportCsv" />
         <ResponseHeatmap :data="responseHeatmap" />
       </v-window-item>
 
       <v-window-item value="tags">
+        <ExportStrip type="tags" :export-loading="exportLoading" @export="exportCsv" />
         <TagDistributionChart :data="tagDistribution" />
       </v-window-item>
 
       <v-window-item value="drip">
+        <ExportStrip type="drip" :export-loading="exportLoading" @export="exportCsv" />
         <DripKpiCard :data="dripKpi" />
       </v-window-item>
 
@@ -103,37 +116,53 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { useAnalytics } from '@/composables/use-analytics';
 import type { ReportConfig, SavedReport } from '@/composables/use-analytics';
+import { useZaloAccounts } from '@/composables/use-zalo-accounts';
+import { useUsers } from '@/composables/use-users';
+import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar.vue';
 import OverviewPanel from '@/components/analytics/OverviewPanel.vue';
 import ConversionFunnelChart from '@/components/analytics/ConversionFunnelChart.vue';
 import TeamLeaderboard from '@/components/analytics/TeamLeaderboard.vue';
 import ResponseTimeChart from '@/components/analytics/ResponseTimeChart.vue';
+import ResponseTimeByUserTable from '@/components/analytics/ResponseTimeByUserTable.vue';
 import ReportBuilder from '@/components/analytics/ReportBuilder.vue';
 import ResponseHeatmap from '@/components/analytics/ResponseHeatmap.vue';
 import TagDistributionChart from '@/components/analytics/TagDistributionChart.vue';
 import DripKpiCard from '@/components/analytics/DripKpiCard.vue';
+import ExportStrip from '@/components/analytics/ExportStrip.vue';
+
+// ── Composables ───────────────────────────────────────────────────────────────
 
 const {
   funnel, teamPerformance, responseTime, customResult, savedReports,
   responseHeatmap, tagDistribution, dripKpi,
   loading, dateFrom, dateTo,
-  fetchAll, runCustomReport, fetchSavedReports, createSavedReport, deleteSavedReport, runSavedReport,
+  zaloAccountId, assignedUserId,
+  exportLoading, exportError,
+  fetchAll, exportCsv,
+  runCustomReport, fetchSavedReports, createSavedReport, deleteSavedReport, runSavedReport,
 } = useAnalytics();
 
+const { accounts, fetchAccounts } = useZaloAccounts();
+const { users, fetchUsers } = useUsers();
+
+// ── Local state ───────────────────────────────────────────────────────────────
+
 const tab = ref('overview');
+const showExportError = ref(false);
 
-const rtUserHeaders = [
-  { title: 'Họ tên', key: 'fullName' },
-  { title: 'TG trả lời TB', key: 'avgSeconds', align: 'end' as const },
-];
+watch(exportError, (val) => { if (val) showExportError.value = true; });
 
-function formatTime(seconds: number | null): string {
-  if (seconds == null) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m === 0 ? `${s} giây` : `${m} phút ${s} giây`;
+function onAccountChange(val: string | null) {
+  zaloAccountId.value = val;
+  fetchAll();
+}
+
+function onUserChange(val: string | null) {
+  assignedUserId.value = val;
+  fetchAll();
 }
 
 async function onSaveReport(data: { name: string; type: string; config: ReportConfig }) {
@@ -146,8 +175,9 @@ async function onRunSaved(report: SavedReport) {
   tab.value = 'builder';
 }
 
-onMounted(() => {
-  fetchAll();
-  fetchSavedReports();
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+onMounted(async () => {
+  await Promise.all([fetchAccounts(), fetchUsers(), fetchAll(), fetchSavedReports()]);
 });
 </script>
