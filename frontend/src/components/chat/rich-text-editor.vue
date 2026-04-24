@@ -53,6 +53,7 @@
       >
         <v-icon size="16">mdi-code-braces</v-icon>
       </v-btn>
+      <slot name="toolbar-extra" />
     </div>
 
     <!-- Editor content -->

@@ -43,8 +43,21 @@ function buildReplyQuote(message: {
   sentAt: Date;
 }) {
   if (!message.zaloMsgId || !message.senderUid) return null;
+  // For attachment types, content is a JSON blob with our internal URLs — extract a human-readable
+  // label so the Zalo quote preview doesn't leak localhost URLs to the recipient.
+  let quoteContent = message.content ?? '';
+  if (['image', 'video', 'file'].includes(message.contentType) && quoteContent.startsWith('{')) {
+    try {
+      const p = JSON.parse(quoteContent);
+      if (message.contentType === 'image') quoteContent = '[Hình ảnh]';
+      else if (message.contentType === 'video') quoteContent = '[Video]';
+      else quoteContent = `[Tệp] ${p.name || ''}`.trim();
+    } catch {
+      quoteContent = `[${message.contentType}]`;
+    }
+  }
   return {
-    content: message.content ?? '',
+    content: quoteContent,
     msgType: mapReplyMsgType(message.contentType),
     propertyExt: {},
     uidFrom: message.senderUid,

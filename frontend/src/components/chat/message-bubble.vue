@@ -25,7 +25,7 @@
         <template v-else>
           <div v-if="reply" class="reply-card mb-2">
             <div class="text-caption font-weight-medium" style="opacity: 0.8;">Trả lời</div>
-            <div class="text-body-2 reply-text">{{ reply.content || '(tin nhắn)' }}</div>
+            <div class="text-body-2 reply-text">{{ replyPreview(reply) || '(tin nhắn)' }}</div>
           </div>
 
           <!-- Image -->
@@ -35,6 +35,17 @@
               alt="Hình ảnh"
               class="chat-image"
               @click="emit('preview-image', getImageUrl(message)!)"
+            />
+          </div>
+
+          <!-- Video -->
+          <div v-else-if="getVideoUrl(message)" class="chat-video-wrap">
+            <video
+              :src="getVideoUrl(message)!"
+              class="chat-video"
+              controls
+              preload="metadata"
+              playsinline
             />
           </div>
 
@@ -171,10 +182,27 @@ function getImageUrl(msg: Message): string | null {
   return null;
 }
 
+/** Resolve playable video URL — CRM outgoing format `{href}` or Zalo native video payload. */
+function getVideoUrl(msg: Message): string | null {
+  if (msg.contentType !== 'video' || !msg.content) return null;
+  if (msg.content.startsWith('http')) return msg.content;
+  if (!msg.content.startsWith('{')) return null;
+  try {
+    const p = JSON.parse(msg.content);
+    return p.href || p.fileUrl || p.normalUrl || null;
+  } catch { return null; }
+}
+
 function getFileInfo(msg: Message): { name: string; size: string; href: string } | null {
   if (!msg.content?.startsWith('{')) return null;
   try {
     const p = JSON.parse(msg.content);
+    // CRM outgoing format: { href, name, size: number, mime }
+    if (p.href && p.name && typeof p.size === 'number' && p.mime && !p.mime.startsWith('image/') && !p.mime.startsWith('video/')) {
+      const size = p.size > 1048576 ? `${(p.size / 1048576).toFixed(1)} MB` : `${Math.round(p.size / 1024)} KB`;
+      return { name: p.name, size, href: p.href };
+    }
+    // Zalo-native format: { params.fileExt | params.fType === 1 }
     const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
     if (params?.fileExt || params?.fType === 1) {
       const bytes = parseInt(params.fileSize || '0');
@@ -195,6 +223,22 @@ function parseDisplayContent(content: string | null): string {
     if (p.href) return `🔗 ${p.description || p.href}`;
     return content;
   } catch { return content; }
+}
+
+/** Human-readable label for quoted reply of attachment messages. */
+function replyPreview(r: { content: string | null; contentType?: string | null } | null | undefined): string {
+  if (!r) return '';
+  const t = r.contentType ?? '';
+  const c = r.content ?? '';
+  if (['image', 'video', 'file'].includes(t) && c.startsWith('{')) {
+    try {
+      const p = JSON.parse(c);
+      if (t === 'image') return '[Hình ảnh]';
+      if (t === 'video') return '[Video]';
+      return `[Tệp] ${p.name || ''}`.trim();
+    } catch { /* fall through */ }
+  }
+  return c;
 }
 
 function isReminderMessage(msg: Message): boolean {
@@ -267,6 +311,17 @@ function openFile(href: string) {
 }
 .chat-image:hover {
   transform: scale(1.02);
+}
+.chat-video-wrap {
+  max-width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.chat-video {
+  max-width: 100%;
+  max-height: 320px;
+  display: block;
+  background: #000;
 }
 .bubble-wrapper .reaction-trigger {
   position: absolute;

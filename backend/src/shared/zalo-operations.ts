@@ -232,6 +232,21 @@ async function sendVoice(accountId: string, threadId: string, threadType: 0 | 1,
     (api) => api.sendVoice(voicePath, threadId, threadType, duration));
 }
 
+async function sendVideo(accountId: string, threadId: string, threadType: 0 | 1, videoPayload: any, io?: Server | null) {
+  return exec({ accountId, category: 'message', operation: 'sendVideo', io },
+    (api) => api.sendVideo(videoPayload, threadId, threadType));
+}
+
+async function sendFile(accountId: string, threadId: string, threadType: 0 | 1, filePaths: string[], io?: Server | null, caption: string = '') {
+  return exec({ accountId, category: 'message', operation: 'sendFile', io },
+    (api) => api.sendMessage({ msg: caption, attachments: filePaths }, threadId, threadType));
+}
+
+async function uploadAttachment(accountId: string, threadId: string, threadType: 0 | 1, paths: string[]) {
+  return exec({ accountId, category: 'message', operation: 'uploadAttachment' },
+    (api) => api.uploadAttachment(paths, threadId, threadType) as Promise<unknown[]>);
+}
+
 async function forwardMessage(accountId: string, msgId: string, threadId: string, threadType: 0 | 1) {
   return exec({ accountId, category: 'message', operation: 'forwardMessage' },
     (api) => api.forwardMessage(msgId, threadId, threadType));
@@ -541,6 +556,9 @@ export const zaloOps = {
   sendLink,
   sendCard,
   sendVoice,
+  sendVideo,
+  sendFile,
+  uploadAttachment,
   forwardMessage,
 
   // Chat actions

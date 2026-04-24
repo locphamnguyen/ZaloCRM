@@ -11,11 +11,11 @@
     <div class="flex-grow-1 text-truncate text-body-2">
       <template v-if="mode === 'reply'">
         <span class="font-weight-medium">{{ message.senderName || 'Ẩn danh' }}:&nbsp;</span>
-        <span class="text-grey-darken-1">{{ truncate(message.content) }}</span>
+        <span class="text-grey-darken-1">{{ previewText(message) }}</span>
       </template>
       <template v-else>
         <span class="font-weight-medium">Chỉnh sửa tin nhắn</span>
-        <span v-if="message.content" class="text-grey-darken-1 ml-1">— {{ truncate(message.content) }}</span>
+        <span v-if="message.content" class="text-grey-darken-1 ml-1">— {{ previewText(message) }}</span>
       </template>
     </div>
 
@@ -27,7 +27,7 @@
 
 <script setup lang="ts">
 defineProps<{
-  message: { senderName: string | null; content: string | null } | null;
+  message: { senderName: string | null; content: string | null; contentType?: string | null } | null;
   mode: 'reply' | 'edit';
 }>();
 
@@ -38,6 +38,21 @@ const emit = defineEmits<{
 function truncate(text: string | null, max = 50): string {
   if (!text) return '';
   return text.length > max ? text.slice(0, max) + '…' : text;
+}
+
+/** Render human-readable preview; unwrap JSON content for image/video/file. */
+function previewText(msg: { content: string | null; contentType?: string | null }): string {
+  const t = msg.contentType ?? '';
+  const c = msg.content ?? '';
+  if (['image', 'video', 'file'].includes(t) && c.startsWith('{')) {
+    try {
+      const p = JSON.parse(c);
+      if (t === 'image') return '[Hình ảnh]';
+      if (t === 'video') return '[Video]';
+      return `[Tệp] ${p.name || ''}`.trim();
+    } catch { /* fall through */ }
+  }
+  return truncate(c);
 }
 </script>
 

@@ -11,6 +11,15 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || 'postgresql://crmuser:password@localhost:5432/zalocrm',
   uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
   appUrl: process.env.APP_URL || 'http://localhost:3000',
+
+  /* --- S3/MinIO storage for chat attachments --- */
+  s3Endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
+  s3PublicUrl: process.env.S3_PUBLIC_URL || 'http://localhost:9000',
+  s3Bucket: process.env.S3_BUCKET || 'zalocrm-attachments',
+  s3AccessKey: process.env.S3_ACCESS_KEY || 'minioadmin',
+  s3SecretKey: process.env.S3_SECRET_KEY || 'minioadmin',
+  s3Region: process.env.S3_REGION || 'us-east-1',
+
   aiDefaultProvider: process.env.AI_DEFAULT_PROVIDER || 'anthropic',
   aiDefaultModel: process.env.AI_DEFAULT_MODEL || 'claude-sonnet-4-6',
 
