@@ -10,6 +10,9 @@ import {
   getTeamPerformance,
   getResponseTimeAnalysis,
   executeCustomReport,
+  getResponseHeatmap,
+  getTagDistribution,
+  getDripKpi,
 } from './analytics-service.js';
 import type { ReportConfig } from './analytics-service.js';
 
@@ -79,6 +82,44 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[analytics] Custom report error:', err);
       return reply.status(500).send({ error: 'Failed to execute custom report' });
+    }
+  });
+
+  // GET /api/v1/analytics/response-heatmap?from=&to=
+  app.get('/api/v1/analytics/response-heatmap', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId } = request.user!;
+      const { from, to } = request.query as QueryParams;
+      const result = await getResponseHeatmap(orgId, from, to);
+      return result;
+    } catch (err) {
+      logger.error('[analytics] Response heatmap error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch response heatmap' });
+    }
+  });
+
+  // GET /api/v1/analytics/tag-distribution?from=&to= (date range ignored — whole-org snapshot)
+  app.get('/api/v1/analytics/tag-distribution', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId } = request.user!;
+      const result = await getTagDistribution(orgId);
+      return result;
+    } catch (err) {
+      logger.error('[analytics] Tag distribution error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch tag distribution' });
+    }
+  });
+
+  // GET /api/v1/analytics/drip-kpi?from=&to=
+  app.get('/api/v1/analytics/drip-kpi', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const { orgId } = request.user!;
+      const { from, to } = request.query as QueryParams;
+      const result = await getDripKpi(orgId, from, to);
+      return result;
+    } catch (err) {
+      logger.error('[analytics] Drip KPI error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch drip KPI' });
     }
   });
 }
