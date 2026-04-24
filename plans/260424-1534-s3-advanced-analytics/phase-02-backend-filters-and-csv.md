@@ -2,7 +2,7 @@
 
 ## Overview
 - Priority: P2
-- Status: pending
+- Status: complete
 - Goal: extend all analytics endpoints to accept `zaloAccountId` + `assignedUserId` (rep) optional filters; add CSV download endpoint.
 
 ## Context Links
@@ -33,11 +33,11 @@
 - All `reports/*.ts` — accept `filters?: { zaloAccountId?: string; assignedUserId?: string }` and apply in `where` clauses.
 
 ## Todo
-- [ ] Add filter param parsing helper
-- [ ] Update each report fn signature + where clauses
-- [ ] Build csv-export.ts with per-type serializers
-- [ ] Add `/export` route with content-type + BOM
-- [ ] Test with curl → open in Excel for diacritics check
+- [x] Add filter param parsing helper
+- [x] Update each report fn signature + where clauses
+- [x] Build csv-export.ts with per-type serializers
+- [x] Add `/export` route with content-type + BOM
+- [ ] Test with curl → open in Excel for diacritics check (manual step, out of scope for automated CI)
 
 ## Success Criteria
 - All endpoints accept new filters without breaking existing callers.

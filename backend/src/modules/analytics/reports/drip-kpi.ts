@@ -3,6 +3,7 @@
  * and average days-to-complete. Org-scoped via DripCampaign.orgId.
  */
 import { prisma } from '../../../shared/database/prisma-client.js';
+import type { ReportFilters } from '../csv-export.js';
 
 export interface DripCampaignKpi {
   id: string;
@@ -24,22 +25,36 @@ export async function getDripKpi(
   orgId: string,
   fromParam?: string,
   toParam?: string,
+  filters?: ReportFilters,
 ): Promise<DripKpiResult> {
   const to = toParam ?? new Date().toISOString().split('T')[0];
   const from = fromParam ?? new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
-  // Enrollment counts grouped by campaign + status
-  const enrollmentRows = await prisma.$queryRaw<
-    Array<{ campaign_id: string; status: string; cnt: bigint }>
-  >`
-    SELECT e.campaign_id, e.status, COUNT(*)::bigint AS cnt
-    FROM drip_enrollments e
-    JOIN drip_campaigns dc ON dc.id = e.campaign_id
-    WHERE dc.org_id = ${orgId}
-      AND e.started_at >= ${from}::date
-      AND e.started_at <  (${to}::date + INTERVAL '1 day')
-    GROUP BY e.campaign_id, e.status
-  `;
+  // zaloAccountId is not applicable to drip enrollments — ignored silently.
+  const { assignedUserId } = filters ?? {};
+
+  // Enrollment counts grouped by campaign + status.
+  // assignedUserId: join drip_enrollments.contact_id → contacts.assigned_user_id.
+  const enrollmentRows = await (assignedUserId
+    ? prisma.$queryRaw<Array<{ campaign_id: string; status: string; cnt: bigint }>>`
+        SELECT e.campaign_id, e.status, COUNT(*)::bigint AS cnt
+        FROM drip_enrollments e
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        JOIN contacts c ON c.id = e.contact_id AND c.assigned_user_id = ${assignedUserId}
+        WHERE dc.org_id = ${orgId}
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id, e.status
+      `
+    : prisma.$queryRaw<Array<{ campaign_id: string; status: string; cnt: bigint }>>`
+        SELECT e.campaign_id, e.status, COUNT(*)::bigint AS cnt
+        FROM drip_enrollments e
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        WHERE dc.org_id = ${orgId}
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id, e.status
+      `);
 
   if (enrollmentRows.length === 0) return { campaigns: [] };
 
@@ -54,40 +69,60 @@ export async function getDripKpi(
   `;
 
   // Avg days-to-complete per campaign (only completed enrollments)
-  const daysRows = await prisma.$queryRaw<
-    Array<{ campaign_id: string; avg_days: number | null }>
-  >`
-    SELECT
-      e.campaign_id,
-      AVG(
-        EXTRACT(EPOCH FROM (e.completed_at - e.started_at)) / 86400.0
-      )::float AS avg_days
-    FROM drip_enrollments e
-    JOIN drip_campaigns dc ON dc.id = e.campaign_id
-    WHERE dc.org_id = ${orgId}
-      AND e.status = 'completed'
-      AND e.completed_at IS NOT NULL
-      AND e.started_at >= ${from}::date
-      AND e.started_at <  (${to}::date + INTERVAL '1 day')
-    GROUP BY e.campaign_id
-  `;
+  const daysRows = await (assignedUserId
+    ? prisma.$queryRaw<Array<{ campaign_id: string; avg_days: number | null }>>`
+        SELECT e.campaign_id,
+          AVG(EXTRACT(EPOCH FROM (e.completed_at - e.started_at)) / 86400.0)::float AS avg_days
+        FROM drip_enrollments e
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        JOIN contacts c ON c.id = e.contact_id AND c.assigned_user_id = ${assignedUserId}
+        WHERE dc.org_id = ${orgId}
+          AND e.status = 'completed'
+          AND e.completed_at IS NOT NULL
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id
+      `
+    : prisma.$queryRaw<Array<{ campaign_id: string; avg_days: number | null }>>`
+        SELECT e.campaign_id,
+          AVG(EXTRACT(EPOCH FROM (e.completed_at - e.started_at)) / 86400.0)::float AS avg_days
+        FROM drip_enrollments e
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        WHERE dc.org_id = ${orgId}
+          AND e.status = 'completed'
+          AND e.completed_at IS NOT NULL
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id
+      `);
 
   // AutomationLog send success rate per campaign
-  const logRows = await prisma.$queryRaw<
-    Array<{ campaign_id: string; total: bigint; sent: bigint }>
-  >`
-    SELECT
-      e.campaign_id,
-      COUNT(*)::bigint          AS total,
-      SUM(CASE WHEN al.status = 'sent' THEN 1 ELSE 0 END)::bigint AS sent
-    FROM automation_logs al
-    JOIN drip_enrollments e ON e.id = al.enrollment_id
-    JOIN drip_campaigns dc ON dc.id = e.campaign_id
-    WHERE dc.org_id = ${orgId}
-      AND e.started_at >= ${from}::date
-      AND e.started_at <  (${to}::date + INTERVAL '1 day')
-    GROUP BY e.campaign_id
-  `;
+  const logRows = await (assignedUserId
+    ? prisma.$queryRaw<Array<{ campaign_id: string; total: bigint; sent: bigint }>>`
+        SELECT e.campaign_id,
+          COUNT(*)::bigint AS total,
+          SUM(CASE WHEN al.status = 'sent' THEN 1 ELSE 0 END)::bigint AS sent
+        FROM automation_logs al
+        JOIN drip_enrollments e ON e.id = al.enrollment_id
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        JOIN contacts c ON c.id = e.contact_id AND c.assigned_user_id = ${assignedUserId}
+        WHERE dc.org_id = ${orgId}
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id
+      `
+    : prisma.$queryRaw<Array<{ campaign_id: string; total: bigint; sent: bigint }>>`
+        SELECT e.campaign_id,
+          COUNT(*)::bigint AS total,
+          SUM(CASE WHEN al.status = 'sent' THEN 1 ELSE 0 END)::bigint AS sent
+        FROM automation_logs al
+        JOIN drip_enrollments e ON e.id = al.enrollment_id
+        JOIN drip_campaigns dc ON dc.id = e.campaign_id
+        WHERE dc.org_id = ${orgId}
+          AND e.started_at >= ${from}::date
+          AND e.started_at <  (${to}::date + INTERVAL '1 day')
+        GROUP BY e.campaign_id
+      `);
 
   // Index lookups
   const nameMap = new Map(campaignRows.map((r) => [r.id, r.name]));

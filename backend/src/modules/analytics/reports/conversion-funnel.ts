@@ -2,6 +2,7 @@
  * conversion-funnel.ts — Pipeline conversion rates: count per stage + conversion %.
  */
 import { prisma } from '../../../shared/database/prisma-client.js';
+import type { ReportFilters } from '../csv-export.js';
 
 export interface FunnelStage {
   status: string;
@@ -21,14 +22,23 @@ export async function getConversionFunnel(
   orgId: string,
   from: string,
   to: string,
+  filters?: ReportFilters,
 ): Promise<ConversionFunnelResult> {
   const gte = new Date(from);
   const lt = new Date(to);
   lt.setDate(lt.getDate() + 1);
 
+  // zaloAccountId is not applicable to contacts — ignored silently.
+  const assignedUserId = filters?.assignedUserId;
+
   const groups = await prisma.contact.groupBy({
     by: ['status'],
-    where: { orgId, createdAt: { gte, lt }, status: { not: null } },
+    where: {
+      orgId,
+      createdAt: { gte, lt },
+      status: { not: null },
+      ...(assignedUserId ? { assignedUserId } : {}),
+    },
     _count: true,
   });
 
@@ -47,14 +57,24 @@ export async function getConversionFunnel(
   }));
 
   // Avg days from createdAt to updatedAt for converted contacts
-  const avgResult = await prisma.$queryRaw<[{ avg_days: number | null }]>`
-    SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400)::float AS avg_days
-    FROM contacts
-    WHERE org_id = ${orgId}
-      AND status = 'converted'
-      AND created_at >= ${gte}
-      AND created_at < ${lt}
-  `;
+  const avgResult = assignedUserId
+    ? await prisma.$queryRaw<[{ avg_days: number | null }]>`
+        SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400)::float AS avg_days
+        FROM contacts
+        WHERE org_id = ${orgId}
+          AND status = 'converted'
+          AND assigned_user_id = ${assignedUserId}
+          AND created_at >= ${gte}
+          AND created_at < ${lt}
+      `
+    : await prisma.$queryRaw<[{ avg_days: number | null }]>`
+        SELECT AVG(EXTRACT(EPOCH FROM (updated_at - created_at)) / 86400)::float AS avg_days
+        FROM contacts
+        WHERE org_id = ${orgId}
+          AND status = 'converted'
+          AND created_at >= ${gte}
+          AND created_at < ${lt}
+      `;
 
   const avgDays = avgResult[0]?.avg_days;
 

@@ -3,6 +3,7 @@
  * appointments completed, avg response time.
  */
 import { prisma } from '../../../shared/database/prisma-client.js';
+import type { ReportFilters } from '../csv-export.js';
 
 export interface TeamMember {
   userId: string;
@@ -21,14 +22,21 @@ export async function getTeamPerformance(
   orgId: string,
   from: string,
   to: string,
+  filters?: ReportFilters,
 ): Promise<TeamPerformanceResult> {
   const gte = new Date(from);
   const lt = new Date(to);
   lt.setDate(lt.getDate() + 1);
 
-  // Get all active users in org
+  const { zaloAccountId, assignedUserId } = filters ?? {};
+
+  // If assignedUserId filter set, restrict to that single user only
   const orgUsers = await prisma.user.findMany({
-    where: { orgId, isActive: true },
+    where: {
+      orgId,
+      isActive: true,
+      ...(assignedUserId ? { id: assignedUserId } : {}),
+    },
     select: { id: true, fullName: true },
   });
 
@@ -38,17 +46,29 @@ export async function getTeamPerformance(
 
   // Parallel queries
   const [msgRows, convertedRows, aptRows, rtRows] = await Promise.all([
-    // Messages sent per user (replied_by_user_id)
-    prisma.$queryRaw<Array<{ user_id: string; cnt: bigint }>>`
-      SELECT m.replied_by_user_id AS user_id, COUNT(*)::bigint AS cnt
-      FROM messages m
-      JOIN conversations c ON c.id = m.conversation_id
-      WHERE c.org_id = ${orgId}
-        AND m.sender_type = 'self'
-        AND m.replied_by_user_id = ANY(${userIds})
-        AND m.sent_at >= ${gte} AND m.sent_at < ${lt}
-      GROUP BY m.replied_by_user_id
-    `,
+    // Messages sent per user (replied_by_user_id); filter by zaloAccountId if set
+    zaloAccountId
+      ? prisma.$queryRaw<Array<{ user_id: string; cnt: bigint }>>`
+          SELECT m.replied_by_user_id AS user_id, COUNT(*)::bigint AS cnt
+          FROM messages m
+          JOIN conversations c ON c.id = m.conversation_id
+          WHERE c.org_id = ${orgId}
+            AND c.zalo_account_id = ${zaloAccountId}
+            AND m.sender_type = 'self'
+            AND m.replied_by_user_id = ANY(${userIds})
+            AND m.sent_at >= ${gte} AND m.sent_at < ${lt}
+          GROUP BY m.replied_by_user_id
+        `
+      : prisma.$queryRaw<Array<{ user_id: string; cnt: bigint }>>`
+          SELECT m.replied_by_user_id AS user_id, COUNT(*)::bigint AS cnt
+          FROM messages m
+          JOIN conversations c ON c.id = m.conversation_id
+          WHERE c.org_id = ${orgId}
+            AND m.sender_type = 'self'
+            AND m.replied_by_user_id = ANY(${userIds})
+            AND m.sent_at >= ${gte} AND m.sent_at < ${lt}
+          GROUP BY m.replied_by_user_id
+        `,
     // Contacts converted per user
     prisma.contact.groupBy({
       by: ['assignedUserId'],
@@ -71,16 +91,27 @@ export async function getTeamPerformance(
       },
       _count: true,
     }),
-    // Avg response time from DailyMessageStat
-    prisma.$queryRaw<Array<{ user_id: string; avg_rt: number | null }>>`
-      SELECT user_id, AVG(avg_response_time_seconds)::float AS avg_rt
-      FROM daily_message_stats
-      WHERE org_id = ${orgId}
-        AND user_id = ANY(${userIds})
-        AND stat_date >= ${gte}::date AND stat_date < ${lt}::date
-        AND avg_response_time_seconds IS NOT NULL
-      GROUP BY user_id
-    `,
+    // Avg response time from DailyMessageStat; filter by zaloAccountId if set
+    zaloAccountId
+      ? prisma.$queryRaw<Array<{ user_id: string; avg_rt: number | null }>>`
+          SELECT user_id, AVG(avg_response_time_seconds)::float AS avg_rt
+          FROM daily_message_stats
+          WHERE org_id = ${orgId}
+            AND zalo_account_id = ${zaloAccountId}
+            AND user_id = ANY(${userIds})
+            AND stat_date >= ${gte}::date AND stat_date < ${lt}::date
+            AND avg_response_time_seconds IS NOT NULL
+          GROUP BY user_id
+        `
+      : prisma.$queryRaw<Array<{ user_id: string; avg_rt: number | null }>>`
+          SELECT user_id, AVG(avg_response_time_seconds)::float AS avg_rt
+          FROM daily_message_stats
+          WHERE org_id = ${orgId}
+            AND user_id = ANY(${userIds})
+            AND stat_date >= ${gte}::date AND stat_date < ${lt}::date
+            AND avg_response_time_seconds IS NOT NULL
+          GROUP BY user_id
+        `,
   ]);
 
   // Build lookup maps
