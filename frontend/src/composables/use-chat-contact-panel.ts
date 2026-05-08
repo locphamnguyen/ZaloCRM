@@ -25,7 +25,13 @@ export function useChatContactPanel(
     fullName: '',
     crmName: '',
     phone: '',
+    phone2: '',
+    phone3: '',
     email: '',
+    gender: null as string | null,
+    birthDate: '',
+    addressLine: '',
+    occupation: '',
     source: null as string | null,
     status: null as string | null,
     nextAppointmentDate: '',
@@ -38,7 +44,13 @@ export function useChatContactPanel(
     form.fullName = c.fullName ?? '';
     form.crmName = c.crmName ?? '';
     form.phone = c.phone ?? '';
+    form.phone2 = c.phone2 ?? '';
+    form.phone3 = c.phone3 ?? '';
     form.email = c.email ?? '';
+    form.gender = c.gender ?? null;
+    form.birthDate = c.birthDate ? c.birthDate.slice(0, 10) : '';
+    form.addressLine = c.addressLine ?? '';
+    form.occupation = c.occupation ?? '';
     form.source = c.source ?? null;
     form.status = c.status ?? null;
     form.nextAppointmentDate = c.nextAppointment
@@ -88,7 +100,15 @@ export function useChatContactPanel(
       fullName: form.fullName || null,
       crmName: form.crmName || null,
       phone: form.phone || null,
+      phone2: form.phone2 || null,
+      phone3: form.phone3 || null,
       email: form.email || null,
+      gender: form.gender || null,
+      birthDate: form.birthDate
+        ? new Date(form.birthDate + 'T00:00:00').toISOString()
+        : null,
+      addressLine: form.addressLine || null,
+      occupation: form.occupation || null,
       source: form.source || null,
       status: form.status || null,
       nextAppointment: form.nextAppointmentDate
