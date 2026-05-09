@@ -107,6 +107,103 @@
       </div>
     </section>
 
+    <!-- Per-nick state (Trạng thái nick × KH) -->
+    <section v-if="props.contact" class="ip-section pernick-state">
+      <div class="ip-section-title">
+        <span class="accent" style="background: var(--smax-warning)" />
+        🤝 Trạng thái nick × KH
+        <span class="scope-tag pernick">per-nick</span>
+      </div>
+      <div class="kv-list">
+        <div class="kv-row">
+          <span class="k">Nick:</span>
+          <span class="v">{{ activeNickName || '—' }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="k">Sale:</span>
+          <span class="v">{{ activeSaleName || '—' }}</span>
+        </div>
+        <div class="kv-row">
+          <span class="k">Trạng thái KB:</span>
+          <span class="status-pill pill-success">✓ Đã KB</span>
+          <span class="muted">(MOCK — chờ field <code>friend.relationshipKind</code>)</span>
+        </div>
+        <div class="kv-row">
+          <span class="k">Tin (in/out):</span>
+          <strong>{{ props.contact.totalInbound ?? 0 }} / {{ props.contact.totalOutbound ?? 0 }}</strong>
+        </div>
+        <div v-if="props.contact.lastInteractionAt" class="kv-row">
+          <span class="k">Tương tác cuối:</span>
+          <span class="v">{{ relativeTime(props.contact.lastInteractionAt) }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Label Zalo native (per-nick) -->
+    <section class="ip-section">
+      <div class="ip-section-title">
+        <span class="accent" style="background: var(--smax-warning)" />
+        🔖 Label Zalo (native)
+        <span class="scope-tag pernick">per-nick</span>
+      </div>
+      <TagChipList
+        :model-value="zaloLabels"
+        chip-class="chip-zalo"
+        add-label="Sync từ Zalo"
+        :readonly="true"
+      />
+      <div v-if="!zaloLabels.length" class="empty-section">
+        Chưa có label nào — sync từ Zalo SDK
+      </div>
+    </section>
+
+    <!-- Tag riêng nick × KH (per-pair) -->
+    <section class="ip-section">
+      <div class="ip-section-title">
+        <span class="accent" style="background: var(--smax-warning)" />
+        🏷 Tag riêng nick × KH
+        <span class="scope-tag pernick">per-nick</span>
+      </div>
+      <TagChipList
+        v-model="perPairTags"
+        chip-class="chip-info"
+        add-label="Thêm"
+        @update:model-value="onPerPairTagsChange"
+      />
+    </section>
+
+    <!-- 3 nick khác cũng chăm -->
+    <section v-if="otherNicks.length" class="ip-section">
+      <div class="ip-section-title">
+        <span class="accent" style="background: var(--smax-info)" />
+        ⚠ {{ otherNicks.length }} nick khác cũng chăm
+        <span class="scope-tag global">cấp KH</span>
+      </div>
+      <div class="nick-rows">
+        <div v-for="n in otherNicks" :key="n.id" class="nick-row">
+          <div class="ni-avatar">{{ n.short }}</div>
+          <div class="ni-name">{{ n.name }}</div>
+          <span :class="['status-pill', n.pillClass]">{{ n.pillLabel }}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Ghi chú (Ctrl+Enter to save) -->
+    <section class="ip-section">
+      <div class="ip-section-title">
+        <span class="accent" style="background: #9c27b0" />
+        📝 Ghi chú
+      </div>
+      <textarea
+        v-model="noteDraft"
+        class="note-input"
+        placeholder="Thêm ghi chú… (Ctrl+Enter để lưu)"
+        @keydown.ctrl.enter.prevent="saveNote"
+        @keydown.meta.enter.prevent="saveNote"
+        @blur="saveNote"
+      />
+    </section>
+
     <!-- Tag CRM hệ thống (cấp KH) -->
     <section class="ip-section">
       <div class="ip-section-title">
@@ -166,7 +263,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
@@ -174,6 +271,8 @@ import ChatAppointments from './ChatAppointments.vue';
 import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList, { type AutomationCard } from './AutomationCardList.vue';
+import TagChipList from '@/components/ui/TagChipList.vue';
+import { useToast } from '@/composables/use-toast';
 
 const props = defineProps<{
   contactId: string | null;
@@ -270,6 +369,50 @@ const automationCards = computed<AutomationCard[]>(() => {
 });
 function onAutomationAction(_id: string, _kind: string) { /* TODO wire to API */ }
 function onAttachAutomation() { /* TODO open dialog chọn template automation */ }
+
+// ════════ Per-nick state ════════
+// MOCK: cần backend expose zaloAccount + sale + relationshipKind cho cặp đang xem
+const activeNickName = computed(() => null as string | null); // TODO: từ conversation.zaloAccount
+const activeSaleName = computed(() => null as string | null); // TODO: từ zaloAccount.owner
+
+// MOCK: zaloLabels (per-pair native labels) chưa expose qua API
+const zaloLabels = ref<string[]>([]);
+
+// MOCK: per-pair CRM tags (Friend.crmTagsPerNick) — chờ schema delta
+const perPairTags = ref<string[]>([]);
+function onPerPairTagsChange(tags: string[]) {
+  perPairTags.value = tags;
+  toast.warning('Per-pair tag chưa wire — chờ backend');
+}
+
+// MOCK: 3 nick khác cũng chăm — chờ /contacts/:id/friendships
+interface OtherNick { id: string; short: string; name: string; pillClass: string; pillLabel: string }
+const otherNicks = computed<OtherNick[]>(() => [] as OtherNick[]);
+
+// ════════ Note (Ctrl+Enter to save) ════════
+const noteDraft = ref('');
+const lastSavedNote = ref('');
+const toast = useToast();
+function saveNote() {
+  if (noteDraft.value === lastSavedNote.value) return;
+  // form.notes là phần mở rộng của useChatContactPanel — gán qua callback save
+  // Tạm: dùng saveContact qua form.notes (đã có trong composable)
+  // Xử lý đơn giản: re-use existing note in form
+  // Note: form.notes do composable quản lý qua populateForm(c)
+  toast.success('Đã lưu ghi chú');
+  lastSavedNote.value = noteDraft.value;
+  // Trigger save (form.notes update + saveContact)
+  // We sync to form.notes for next save call:
+  (form as Record<string, unknown>).notes = noteDraft.value;
+  saveContact();
+}
+
+watch(() => props.contact?.notes, (n) => {
+  if (n != null) {
+    noteDraft.value = n;
+    lastSavedNote.value = n;
+  }
+}, { immediate: true });
 
 function relativeTime(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -473,4 +616,66 @@ function relativeTime(dateStr: string) {
 .metric-num { font-size: 24px; font-weight: 700; color: var(--smax-success); }
 .metric-label { color: var(--smax-grey-700); }
 .metric-aux  { color: var(--smax-grey-700); font-size: 12px; }
+
+/* ════════ Per-nick state section ════════ */
+.scope-tag.pernick {
+  background: rgba(255,145,0,0.18);
+  color: #ef6c00;
+}
+.kv-list { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.55; }
+.kv-row { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.kv-row .k { color: var(--smax-grey-700); min-width: 100px; }
+.kv-row .v { color: var(--smax-text); font-weight: 500; }
+.kv-row .muted { color: var(--smax-grey-300); font-size: 10.5px; font-style: italic; }
+.kv-row code {
+  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+  background: var(--smax-grey-100);
+  padding: 0 4px; border-radius: 3px;
+  font-size: 10px;
+}
+.status-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 9px;
+  font-size: 10px; font-weight: 500;
+}
+.pill-success { background: rgba(0,200,83,0.12); color: #00897b; }
+.pill-warning { background: rgba(255,145,0,0.12); color: #ef6c00; }
+.pill-info    { background: rgba(33,150,243,0.12); color: #1565c0; }
+
+.empty-section {
+  font-size: 11px; color: var(--smax-grey-700);
+  font-style: italic;
+  padding: 4px 0;
+}
+
+/* ════════ Other nicks list ════════ */
+.nick-rows { display: flex; flex-direction: column; gap: 5px; }
+.nick-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 0;
+}
+.ni-avatar {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ffb74d, #f57c00);
+  color: white; font-weight: 600; font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.ni-name { flex: 1; font-size: 12px; color: var(--smax-text); }
+
+/* ════════ Note textarea ════════ */
+.note-input {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid var(--smax-grey-200);
+  border-radius: 7px;
+  padding: 7px 9px;
+  font-size: 12.5px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  color: var(--smax-text);
+  background: var(--smax-bg);
+}
+.note-input:focus { border-color: var(--smax-primary); box-shadow: 0 0 0 3px rgba(33,150,243,0.10); }
 </style>
