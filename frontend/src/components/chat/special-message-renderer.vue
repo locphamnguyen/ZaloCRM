@@ -12,16 +12,17 @@
       </div>
     </v-card>
 
-    <!-- Call (voice or video) -->
-    <v-chip
-      v-else-if="type === 'call'"
-      variant="tonal"
-      :color="isMissed ? 'error' : 'primary'"
-      label
-    >
-      <v-icon :icon="isVideo ? 'mdi-video' : 'mdi-phone'" class="mr-1" />
-      {{ callLabel }}
-    </v-chip>
+    <!-- Call (voice/video, incoming/outgoing, missed) — proper card -->
+    <div v-else-if="type === 'call'" class="call-card" :class="{ missed: isMissed, video: isVideo }">
+      <div class="call-icon">
+        <v-icon :size="22">{{ callIconName }}</v-icon>
+      </div>
+      <div class="call-meta">
+        <div class="call-title">{{ callLabel }}</div>
+        <div v-if="!isMissed && callDuration > 0" class="call-duration">{{ formatDuration(callDuration) }}</div>
+        <div v-else-if="isMissed" class="call-subtitle">{{ isCaller ? 'Bạn đã gọi nhỡ' : 'Cuộc gọi nhỡ' }}</div>
+      </div>
+    </div>
 
     <!-- QR Code -->
     <v-card v-else-if="type === 'qr_code'" variant="outlined" class="pa-3 text-center" rounded="lg" style="max-width: 140px;">
@@ -114,24 +115,41 @@ function formatAmount(value: number): string {
 
 // ── Call ─────────────────────────────────────────────────────────────────
 const isMissed = computed<boolean>(() => {
+  if (typeof props.content?.isMissed === 'boolean') return props.content.isMissed;
+  const action = (props.content?.action || '').toLowerCase();
+  if (action.includes('misscall')) return true;
   const t = (props.content?.callType || '').toLowerCase();
   return t.includes('miss') || props.content?.duration === 0;
 });
 const isVideo = computed<boolean>(() => {
-  const t = (props.content?.callType || '').toLowerCase();
-  return t.includes('video');
+  const t = (props.content?.callType || '').toString().toLowerCase();
+  return t === 'video' || t.includes('video');
 });
+const isCaller = computed<boolean>(() => !!props.content?.isCaller);
+const callDuration = computed<number>(() =>
+  Number(props.content?.callDuration ?? props.content?.duration ?? 0),
+);
 const callLabel = computed<string>(() => {
-  if (isMissed.value) return isVideo.value ? 'Cuộc gọi video nhỡ' : 'Cuộc gọi nhỡ';
-  const dur = props.content?.callDuration ?? props.content?.duration;
-  if (dur) {
-    const mins = Math.floor(dur / 60);
-    const secs = dur % 60;
-    const label = mins > 0 ? `${mins}p${secs}s` : `${secs}s`;
-    return isVideo.value ? `Gọi video (${label})` : `Cuộc gọi (${label})`;
+  if (isMissed.value) {
+    if (isCaller.value) return isVideo.value ? 'Cuộc gọi video không trả lời' : 'Cuộc gọi không trả lời';
+    return isVideo.value ? 'Cuộc gọi video nhỡ' : 'Cuộc gọi nhỡ';
   }
-  return isVideo.value ? 'Cuộc gọi video' : 'Cuộc gọi';
+  if (isCaller.value) return isVideo.value ? 'Cuộc gọi video đi' : 'Cuộc gọi đi';
+  return isVideo.value ? 'Cuộc gọi video đến' : 'Cuộc gọi đến';
 });
+const callIconName = computed<string>(() => {
+  if (isVideo.value) return isMissed.value ? 'mdi-video-off' : 'mdi-video';
+  if (isMissed.value) return 'mdi-phone-missed';
+  return isCaller.value ? 'mdi-phone-outgoing' : 'mdi-phone-incoming';
+});
+function formatDuration(seconds: number): string {
+  if (!seconds || seconds <= 0) return '';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m === 0) return `${s} giây`;
+  if (s === 0) return `${m} phút`;
+  return `${m} phút ${s} giây`;
+}
 
 // ── Generic title (reminder/poll) ────────────────────────────────────────
 const title = computed<string>(() => props.content?.title || props.content?.name || '');
@@ -405,6 +423,50 @@ const forwardedText = computed<string>(() => {
   font-size: 13px;
 }
 .poll-options li { padding: 2px 0; }
+
+/* ════════ Call card ════════ */
+.call-card {
+  display: inline-flex; align-items: center; gap: 11px;
+  padding: 9px 13px;
+  border-radius: 9px;
+  background: rgba(33, 150, 243, 0.08);
+  border: 1px solid rgba(33, 150, 243, 0.25);
+  min-width: 200px;
+}
+.call-card.missed {
+  background: rgba(255, 82, 82, 0.07);
+  border-color: rgba(255, 82, 82, 0.30);
+}
+.call-card.video:not(.missed) {
+  background: rgba(156, 39, 176, 0.07);
+  border-color: rgba(156, 39, 176, 0.25);
+}
+.call-icon {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--smax-primary, #2962ff);
+  color: white;
+  flex-shrink: 0;
+}
+.call-card.missed .call-icon { background: var(--smax-error, #ff3d00); }
+.call-card.video:not(.missed) .call-icon { background: #9c27b0; }
+
+.call-meta { display: flex; flex-direction: column; gap: 2px; }
+.call-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--smax-text);
+}
+.call-duration {
+  font-size: 12px;
+  color: var(--smax-grey-700);
+}
+.call-subtitle {
+  font-size: 11.5px;
+  color: var(--smax-grey-700);
+  font-style: italic;
+}
 
 /* Rich styling — preserve normal-weight inside body, only emphasize via tags */
 :deep(.rich-title strong),
