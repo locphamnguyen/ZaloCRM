@@ -704,9 +704,29 @@ function getImageUrl(msg: Message): string | null {
   return null;
 }
 
+/** Scroll xuống đáy (tin nhắn mới nhất). Retry sau khi images load. */
+function scrollToBottom(immediate = false) {
+  if (!messagesContainer.value) return;
+  const el = messagesContainer.value;
+  el.scrollTop = el.scrollHeight;
+  if (!immediate) {
+    // Retry vài lần vì image load async — đảm bảo cuộn xuống tận cùng sau khi hình rendered
+    setTimeout(() => { if (el) el.scrollTop = el.scrollHeight; }, 100);
+    setTimeout(() => { if (el) el.scrollTop = el.scrollHeight; }, 400);
+    setTimeout(() => { if (el) el.scrollTop = el.scrollHeight; }, 1000);
+  }
+}
+
+// Khi messages thêm (tin mới đến) → scroll mượt
 watch(() => props.messages.length, async () => {
   await nextTick();
-  if (messagesContainer.value) messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+  scrollToBottom();
+});
+
+// Khi đổi sang conv khác → reset scroll xuống đáy ngay khi messages load
+watch(() => props.conversation?.id, async () => {
+  await nextTick();
+  scrollToBottom();
 });
 </script>
 
