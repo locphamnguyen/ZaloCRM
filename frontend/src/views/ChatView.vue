@@ -1,17 +1,8 @@
 <template>
   <MobileChatView v-if="isMobile" />
-  <div v-else class="smax-chat-grid">
-    <!-- COL 1: filter rail -->
-    <FilterRail
-      :accounts="accountList"
-      :selected-account-ids="selectedAccountIds"
-      :counts="threadCounts"
-      @update:accounts="onAccountsChanged"
-      @update:filters="onRailFiltersUpdate"
-    />
-
-    <!-- COL 2: conversation list -->
-    <div class="smax-conv-col">
+  <div v-else class="chat-container d-flex" style="height: calc(100vh - 64px);">
+    <!-- Conversation list — resizable -->
+    <div class="chat-panel-left" :style="{ width: leftWidth + 'px' }">
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -22,9 +13,11 @@
         @update:filters="onFiltersUpdate"
         @conversation-moved="onConversationMoved"
       />
+      <!-- Resize handle -->
+      <div class="resize-handle" @mousedown="startResize('left', $event)" />
     </div>
 
-    <!-- COL 3: message thread (giữ nguyên — handles header/messages/input bên trong) -->
+    <!-- Message thread — flexible center -->
     <MessageThread
       :conversation="selectedConv"
       :messages="messages"
@@ -37,11 +30,10 @@
       :replying-to="replyingTo"
       :editing-message="editingMessage"
       :typing-users="currentTypers"
-      :show-contact-panel="showContactPanel"
-      class="smax-msg-col"
       @send="sendMessage"
       @ask-ai="generateAiSuggestion"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
+      :show-contact-panel="showContactPanel"
       @add-reaction="onAddReaction"
       @delete-message="onDeleteMessage"
       @undo-message="onUndoMessage"
@@ -53,23 +45,25 @@
       @cancel-reply-edit="onCancelReplyEdit"
       @typing="onTyping"
       @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
+      style="flex: 1; min-width: 300px;"
     />
 
-    <!-- COL 4: contact info panel (chỉ hiện khi có contact) -->
-    <ChatContactPanel
-      v-if="showContactPanel && selectedConv?.contact"
-      :contact-id="selectedConv.contact.id"
-      :contact="selectedConv.contact"
-      :ai-summary="aiSummary"
-      :ai-summary-loading="aiSummaryLoading"
-      :ai-sentiment="aiSentiment"
-      :ai-sentiment-loading="aiSentimentLoading"
-      class="smax-info-col"
-      @refresh-ai-summary="generateAiSummary"
-      @refresh-ai-sentiment="generateAiSentiment"
-      @close="showContactPanel = false"
-      @saved="fetchConversations()"
-    />
+    <!-- Contact panel — resizable -->
+    <div v-if="showContactPanel && selectedConv?.contact" class="chat-panel-right" :style="{ width: rightWidth + 'px' }">
+      <div class="resize-handle resize-handle-left" @mousedown="startResize('right', $event)" />
+      <ChatContactPanel
+        :contact-id="selectedConv.contact.id"
+        :contact="selectedConv.contact"
+        :ai-summary="aiSummary"
+        :ai-summary-loading="aiSummaryLoading"
+        :ai-sentiment="aiSentiment"
+        :ai-sentiment-loading="aiSentimentLoading"
+        @refresh-ai-summary="generateAiSummary"
+        @refresh-ai-sentiment="generateAiSentiment"
+        @close="showContactPanel = false"
+        @saved="fetchConversations()"
+      />
+    </div>
   </div>
 </template>
 
@@ -78,10 +72,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
-import FilterRail from '@/components/chat/FilterRail.vue';
 import { useChat } from '@/composables/use-chat';
 import { useChatOperations } from '@/composables/use-chat-operations';
-import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 import MobileChatView from '@/views/MobileChatView.vue';
 import { useMobile } from '@/composables/use-mobile';
 
@@ -106,60 +98,38 @@ const {
   unpinConversation,
 } = useChatOperations();
 
-// ════════ Zalo accounts (for FilterRail nick picker) ════════
-const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
-const selectedAccountIds = ref<string[]>([]);
-const accountList = computed(() =>
-  (zaloAccounts.value || []).map(a => ({ id: a.id, displayName: a.displayName })),
-);
-const threadCounts = computed(() => {
-  const groups = conversations.value.filter(c => c.threadType === 'group').length;
-  const users = conversations.value.filter(c => c.threadType === 'user').length;
-  return { groups, users };
-});
-
-function onAccountsChanged(ids: string[]) {
-  selectedAccountIds.value = ids;
-  // Backend hiện chỉ chấp nhận accountId single → dùng first ID; sẽ extend multi sau.
-  accountFilter.value = ids[0] || null;
-  fetchConversations();
-}
-function onRailFiltersUpdate(filters: Record<string, string>) {
-  // Merge filters từ FilterRail với extraFilters hiện có (không đè filter từ ConversationList).
-  const reserved = ['unread', 'unreplied', 'unreadOnTop', 'threadType', 'groupInbox'];
-  const next = { ...extraFilters.value };
-  for (const k of reserved) delete next[k];
-  Object.assign(next, filters);
-  extraFilters.value = next;
-  fetchConversations();
-}
-
-// ════════ Existing handlers ════════
+// Typing users for current conversation
 const currentTypers = computed(() =>
   (selectedConvId.value ? typingUsers.value.get(selectedConvId.value) : null) || [],
 );
 
+// Chat operation handlers
 async function onAddReaction(msgId: string, reaction: string) {
   if (!selectedConvId.value) return;
   await addReaction(selectedConvId.value, msgId, reaction);
 }
+
 async function onDeleteMessage(msgId: string) {
   if (!selectedConvId.value) return;
   await deleteMessage(selectedConvId.value, msgId);
 }
+
 async function onUndoMessage(msgId: string) {
   if (!selectedConvId.value) return;
   await undoMessage(selectedConvId.value, msgId);
 }
+
 async function onEditMessage(msgId: string, content: string) {
   if (!selectedConvId.value) return;
   await editMessage(selectedConvId.value, msgId, content);
   clearEditing();
 }
+
 async function onForwardMessage(msgId: string, targetIds: string[]) {
   if (!selectedConvId.value) return;
   await forwardMessage(selectedConvId.value, msgId, targetIds);
 }
+
 async function onPinConversation() {
   if (!selectedConvId.value || !selectedConv.value) return;
   if (selectedConv.value.isPinned) {
@@ -169,31 +139,74 @@ async function onPinConversation() {
   }
   await fetchConversations();
 }
+
 function onCancelReplyEdit() {
   clearReplyTo();
   clearEditing();
 }
+
 function onTyping() {
   if (selectedConvId.value) sendTypingEvent(selectedConvId.value);
 }
+
 function onFilterAccount(id: string | null) {
   accountFilter.value = id;
   fetchConversations();
 }
+
 function onFiltersUpdate(params: Record<string, string>) {
-  extraFilters.value = { ...extraFilters.value, ...params };
+  extraFilters.value = params;
   fetchConversations();
 }
+
 function onConversationMoved(_id: string, _tab: string) {
   fetchConversations();
 }
 
-// Auto-show panel khi chọn conv có contact
-const showContactPanel = ref(true);
+const showContactPanel = ref(false);
 
-onMounted(async () => {
+// Resizable panel widths (restored from localStorage)
+const leftWidth = ref(parseInt(localStorage.getItem('chat-left-width') || '320'));
+const rightWidth = ref(parseInt(localStorage.getItem('chat-right-width') || '320'));
+
+let resizing: 'left' | 'right' | null = null;
+let startX = 0;
+let startWidth = 0;
+
+function startResize(panel: 'left' | 'right', e: MouseEvent) {
+  resizing = panel;
+  startX = e.clientX;
+  startWidth = panel === 'left' ? leftWidth.value : rightWidth.value;
+  document.addEventListener('mousemove', onResize);
+  document.addEventListener('mouseup', stopResize);
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+}
+
+function onResize(e: MouseEvent) {
+  if (!resizing) return;
+  const diff = e.clientX - startX;
+  if (resizing === 'left') {
+    leftWidth.value = Math.max(200, Math.min(500, startWidth + diff));
+  } else {
+    rightWidth.value = Math.max(250, Math.min(500, startWidth - diff));
+  }
+}
+
+function stopResize() {
+  if (resizing) {
+    localStorage.setItem('chat-left-width', String(leftWidth.value));
+    localStorage.setItem('chat-right-width', String(rightWidth.value));
+  }
+  resizing = null;
+  document.removeEventListener('mousemove', onResize);
+  document.removeEventListener('mouseup', stopResize);
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+}
+
+onMounted(() => {
   if (!isMobile.value) {
-    await fetchZaloAccounts();
     fetchConversations();
     fetchAiConfig();
     initSocket();
@@ -201,7 +214,7 @@ onMounted(async () => {
   }
 });
 onUnmounted(() => {
-  if (!isMobile.value) destroySocket();
+  if (!isMobile.value) { destroySocket(); }
 });
 
 let searchTimeout: ReturnType<typeof setTimeout>;
@@ -212,45 +225,44 @@ watch(searchQuery, () => {
 </script>
 
 <style scoped>
-.smax-chat-grid {
-  display: grid;
-  grid-template-columns: 290px 380px 1fr 350px;
-  height: calc(100vh - var(--smax-topnav-h, 52px));
-  overflow: hidden;
-  background: var(--smax-grey-100);
+.chat-container {
+  margin: -12px;
 }
 
-/* Khi info-panel đóng, col 4 collapse → grid auto-adjust */
-.smax-chat-grid:has(.smax-info-col:not(:empty)) { /* presence query placeholder */ }
-.smax-chat-grid:not(:has(.smax-info-col)) {
-  grid-template-columns: 290px 380px 1fr;
+.chat-panel-left {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 200px;
+  max-width: 500px;
 }
 
-.smax-conv-col,
-.smax-msg-col,
-.smax-info-col {
-  min-width: 0; min-height: 0;
+.chat-panel-right {
+  position: relative;
+  flex-shrink: 0;
+  min-width: 250px;
+  max-width: 500px;
+}
+
+/* Resize handle — thin vertical line on the edge */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 5px;
   height: 100%;
-  overflow: hidden;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background 0.2s;
 }
 
-.smax-conv-col {
-  border-right: 1px solid var(--smax-grey-200);
-  background: var(--smax-bg);
+.resize-handle:hover,
+.resize-handle:active {
+  background: rgba(0, 242, 255, 0.3);
 }
 
-.smax-msg-col {
-  background: var(--smax-grey-100);
-}
-
-/* Responsive: collapse filter rail < 1280px, then conv list < 1024px */
-@media (max-width: 1280px) {
-  .smax-chat-grid { grid-template-columns: 0 380px 1fr 350px; }
-  .smax-chat-grid > :first-child { display: none; }
-}
-@media (max-width: 1024px) {
-  .smax-chat-grid { grid-template-columns: 320px 1fr; }
-  .smax-chat-grid > :first-child,
-  .smax-chat-grid > :nth-child(4) { display: none; }
+.resize-handle-left {
+  right: auto;
+  left: -2px;
 }
 </style>

@@ -1,88 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
 
-/* ════════════════════════════════════════════════════════════
-   Global app styles — Smax design language (mockup chat-smax-v3).
-   Theme-specific tokens live in tokens.css.
-   Legacy navy/cyan glass effects retained only behind .v-theme--legacy-dark.
-   ════════════════════════════════════════════════════════════ */
-
-html, body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Plus Jakarta Sans", Roboto, sans-serif;
-  scroll-behavior: smooth;
-  background: var(--smax-grey-100);
-  color: var(--smax-text);
-  font-size: var(--smax-font-base);
-  line-height: var(--smax-line-height);
-}
-
-#app { height: 100%; }
-
-/* ════════ Smax light theme — defaults for v-* components ════════ */
-.v-theme--smax-light .v-card {
-  background: var(--smax-bg) !important;
-  border: 1px solid var(--smax-grey-200) !important;
-  backdrop-filter: none;
-}
-
-.v-theme--smax-light ::-webkit-scrollbar { width: 8px; height: 8px; }
-.v-theme--smax-light ::-webkit-scrollbar-track { background: transparent; }
-.v-theme--smax-light ::-webkit-scrollbar-thumb {
-  background: var(--smax-grey-300);
-  border-radius: 4px;
-}
-.v-theme--smax-light ::-webkit-scrollbar-thumb:hover { background: var(--smax-grey-700); }
-
-.v-theme--smax-light .v-list-item:hover {
-  background: var(--smax-grey-50) !important;
-}
-.v-theme--smax-light .v-list-item--active {
-  background: var(--smax-primary-soft) !important;
-  color: var(--smax-primary);
-}
-
-/* Form fields — light, square corners (mockup uses 7-9px radius) */
-.v-theme--smax-light .v-field { border-radius: 7px !important; }
-.v-theme--smax-light .v-field--focused {
-  border-color: var(--smax-primary) !important;
-  box-shadow: 0 0 0 3px rgba(33,150,243,0.10);
-}
-
-/* Buttons — flat, no animation */
-.v-theme--smax-light .v-btn--variant-flat {
-  border-radius: 7px !important;
-  text-transform: none;
-  letter-spacing: normal;
-}
-
-/* Chips — pill */
-.v-theme--smax-light .v-chip {
-  border-radius: 12px !important;
-  font-weight: 500;
-}
-
-/* Data table — flat surface */
-.v-theme--smax-light .v-data-table { background: transparent !important; }
-.v-theme--smax-light .v-data-table .v-table__wrapper {
-  background: var(--smax-bg);
-  border-radius: 7px;
-  border: 1px solid var(--smax-grey-200);
-}
-
-/* Status dot animation */
-.status-dot { box-shadow: 0 0 8px currentColor; }
-
-/* Fade slide for messages (carry-over from old, applies to both themes) */
-@keyframes fade-slide-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.message-bubble { animation: fade-slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-
-/* ════════ Legacy dark theme (kept for fallback) ════════ */
-.v-theme--legacy-dark {
+:root {
   --navy-deep: #0A192F;
   --navy-light: #112240;
   --cyan-electric: #00F2FF;
@@ -91,46 +9,311 @@ html, body {
   --border-glow: rgba(0, 242, 255, 0.1);
 }
 
-.v-theme--legacy-dark.liquid-bg {
-  background: linear-gradient(-45deg, #0A192F, #112240, #004d7a, #008fb3) !important;
-  background-size: 400% 400% !important;
-  animation: flow-bg 15s ease infinite;
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'Plus Jakarta Sans', 'Roboto', sans-serif;
+  scroll-behavior: smooth;
 }
+
+#app {
+  height: 100%;
+}
+
+/* Liquid animated background */
 @keyframes flow-bg {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
+
 @keyframes liquid-morph {
   0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
   50% { border-radius: 30% 60% 70% 30% / 50% 60% 30% 50%; }
 }
-.v-theme--legacy-dark .ai-core-orb {
+
+@keyframes fade-slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.liquid-bg {
+  background: linear-gradient(-45deg, #0A192F, #112240, #004d7a, #008fb3) !important;
+  background-size: 400% 400% !important;
+  animation: flow-bg 15s ease infinite;
+}
+
+.ai-core-orb {
   animation: liquid-morph 8s infinite var(--liquid-ease);
   box-shadow: 0 0 30px rgba(0, 242, 255, 0.2);
 }
 
-.v-theme--legacy-dark .v-card {
+/* Glass card effect */
+.v-card {
   background: var(--card-glass) !important;
   border: 1px solid var(--border-glow) !important;
   backdrop-filter: blur(12px);
 }
-.v-theme--legacy-dark ::-webkit-scrollbar { width: 4px; }
-.v-theme--legacy-dark ::-webkit-scrollbar-thumb {
-  background: rgba(0, 242, 255, 0.2); border-radius: 10px;
+
+/* In light theme, override glass effect */
+.v-theme--light .v-card {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  backdrop-filter: none;
 }
-.v-theme--legacy-dark ::-webkit-scrollbar-thumb:hover { background: rgba(0, 242, 255, 0.4); }
-.v-theme--legacy-dark .v-list-item:hover { background: rgba(0, 242, 255, 0.05) !important; }
-.v-theme--legacy-dark .v-list-item--active {
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0, 242, 255, 0.2); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 242, 255, 0.4); }
+
+.v-theme--light ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); }
+
+/* Sidebar navigation */
+.v-navigation-drawer {
+  background: rgba(17, 34, 64, 0.5) !important;
+  backdrop-filter: blur(16px) !important;
+  border-right: 1px solid var(--border-glow) !important;
+}
+
+.v-theme--light .v-navigation-drawer {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-right: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+/* App bar */
+.v-app-bar {
+  background: rgba(10, 25, 47, 0.6) !important;
+  backdrop-filter: blur(16px) !important;
+  border-bottom: 1px solid var(--border-glow) !important;
+}
+
+.v-theme--light .v-app-bar {
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
+}
+
+/* List items hover - cyan glow */
+.v-list-item:hover {
+  background: rgba(0, 242, 255, 0.05) !important;
+}
+
+.v-list-item--active {
   background: rgba(0, 242, 255, 0.08) !important;
   border-left: 3px solid var(--cyan-electric);
 }
-.v-theme--legacy-dark .v-field { border-radius: 16px !important; }
-.v-theme--legacy-dark .v-field--focused {
+
+.v-theme--light .v-list-item:hover {
+  background: rgba(10, 25, 47, 0.04) !important;
+}
+
+/* Input fields - pill/rounded style */
+.v-field {
+  border-radius: 16px !important;
+}
+
+.v-field--focused {
   border-color: var(--cyan-electric) !important;
   box-shadow: 0 0 12px rgba(0, 242, 255, 0.15);
 }
-.v-theme--legacy-dark .v-btn--variant-flat:hover {
+
+/* Chat bubbles */
+.message-bubble {
+  animation: fade-slide-up 0.3s var(--liquid-ease);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Sent messages (self) - right aligned */
+.message-bubble.bg-primary {
+  background: linear-gradient(135deg, #0077B6, #005f8a) !important;
+  color: #FFFFFF !important;
+  border-radius: 24px 24px 4px 24px !important;
+}
+
+.v-theme--light .message-bubble.bg-primary {
+  background: linear-gradient(135deg, #0077B6, #005f8a) !important;
+  color: #FFFFFF !important;
+}
+
+/* Timestamp inside self bubble — high contrast */
+.msg-time-self {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
+/* Received messages - left aligned */
+.message-bubble:not(.bg-primary) {
+  background: linear-gradient(135deg, rgba(0, 242, 255, 0.08), rgba(0, 242, 255, 0.03)) !important;
+  border: 1px solid rgba(0, 242, 255, 0.15) !important;
+  border-radius: 4px 24px 24px 24px !important;
+  color: #E6F1FF !important;
+}
+
+/* Timestamp inside received bubble — high contrast */
+.msg-time-contact {
+  color: #6a7ea0 !important;
+}
+
+.v-theme--light .message-bubble:not(.bg-primary) {
+  background: #EAECF0 !important;
+  border: 1px solid rgba(0, 0, 0, 0.06) !important;
+  color: #1a1a1a !important;
+}
+
+.v-theme--light .msg-time-contact {
+  color: #666 !important;
+}
+
+.v-theme--light .msg-time-self {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+/* Chat input area */
+.chat-input-area {
+  border-top: 1px solid var(--border-glow, rgba(0,242,255,0.1));
+  background: rgba(17, 34, 64, 0.5);
+  backdrop-filter: blur(8px);
+}
+
+.v-theme--light .chat-input-area {
+  background: rgba(255, 255, 255, 0.9) !important;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  backdrop-filter: none;
+}
+
+/* Chat messages area background */
+.chat-messages-area {
+  background: rgba(10, 25, 47, 0.3);
+}
+
+.v-theme--light .chat-messages-area {
+  background: #F5F7FA !important;
+}
+
+/* Buttons */
+.v-btn--variant-flat {
+  transition: all 0.3s var(--liquid-ease) !important;
+}
+
+.v-btn--variant-flat:hover {
   box-shadow: 0 0 16px rgba(0, 242, 255, 0.2);
   transform: translateY(-1px);
+}
+
+/* Chips */
+.v-chip {
+  border-radius: 12px !important;
+  font-weight: 500;
+}
+
+/* Data table */
+.v-data-table {
+  background: transparent !important;
+}
+
+.v-data-table .v-table__wrapper {
+  background: var(--card-glass);
+  border-radius: 16px;
+  border: 1px solid var(--border-glow);
+}
+
+.v-theme--light .v-data-table .v-table__wrapper {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Dialog */
+.v-overlay__content > .v-card {
+  backdrop-filter: blur(20px);
+}
+
+/* Tabs */
+.v-tab--selected {
+  color: var(--cyan-electric) !important;
+}
+
+/* Status dot animation */
+.status-dot {
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.8);
+}
+
+/* Progress linear */
+.v-progress-linear {
+  background: rgba(0, 242, 255, 0.1) !important;
+}
+
+/* Smooth transitions for everything */
+.v-card, .v-list-item, .v-btn, .v-chip, .v-tab {
+  transition: all 0.3s var(--liquid-ease) !important;
+}
+
+/* Chat container borders */
+.chat-container > * {
+  border-color: var(--border-glow);
+}
+
+.v-theme--light .chat-container > * {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Conversation list active item */
+.conversation-active {
+  background: rgba(0, 242, 255, 0.05);
+  border: 1px solid rgba(0, 242, 255, 0.2) !important;
+}
+
+.v-theme--light .conversation-active {
+  background: rgba(0, 119, 182, 0.06);
+  border: 1px solid rgba(0, 119, 182, 0.2) !important;
+}
+
+/* Conversation list sidebar */
+.conversation-list {
+  background: rgba(17, 34, 64, 0.3);
+}
+
+.v-theme--light .conversation-list {
+  background: #FFFFFF !important;
+}
+
+/* Chat header area */
+.chat-header {
+  border-bottom: 1px solid var(--border-glow);
+  background: rgba(17, 34, 64, 0.3);
+}
+
+.v-theme--light .chat-header {
+  background: #FFFFFF !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Light mode text contrast fixes */
+.v-theme--light .text-grey {
+  color: #666 !important;
+}
+
+.v-theme--light .v-list-item-subtitle {
+  color: #555 !important;
+}
+
+/* Ensure dialog cards have proper bg in light mode */
+.v-theme--light .v-overlay__content > .v-card {
+  background: #FFFFFF !important;
+  backdrop-filter: none;
+}
+
+/* Light mode tabs */
+.v-theme--light .v-tab--selected {
+  color: #0077B6 !important;
+}
+
+/* Alert styling */
+.v-alert {
+  border-radius: 16px !important;
+}
+
+/* Empty state text */
+.v-theme--light .text-grey-lighten-2 {
+  color: #bbb !important;
 }
