@@ -64,11 +64,42 @@
             </v-btn>
           </div>
 
-          <!-- Sticker / Video / Voice / GIF -->
-          <div v-else-if="message.contentType === 'sticker'">🏷️ Sticker</div>
-          <div v-else-if="message.contentType === 'video'">🎥 Video</div>
-          <div v-else-if="message.contentType === 'voice'">🎤 Tin nhắn thoại</div>
-          <div v-else-if="message.contentType === 'gif'">GIF</div>
+          <!-- Sticker -->
+          <div v-else-if="message.contentType === 'sticker'" class="sticker-msg">
+            <img v-if="stickerUrl" :src="stickerUrl" alt="sticker" class="sticker-img" />
+            <span v-else>🎴 Sticker</span>
+          </div>
+
+          <!-- Video — thumbnail with play overlay -->
+          <div v-else-if="message.contentType === 'video'" class="video-msg">
+            <div v-if="videoThumb" class="video-thumb-wrap" @click="openVideo">
+              <img :src="videoThumb" alt="video thumbnail" class="video-thumb" />
+              <div class="video-play-overlay">
+                <v-icon size="36" color="white">mdi-play-circle</v-icon>
+              </div>
+              <div v-if="videoDuration" class="video-duration">{{ videoDuration }}</div>
+            </div>
+            <div v-else class="video-card" @click="openVideo">
+              <v-icon size="20" color="info" class="mr-2">mdi-video-outline</v-icon>
+              <div>
+                <div class="text-body-2 font-weight-medium">{{ videoTitle || 'Video' }}</div>
+                <div v-if="videoSize" class="text-caption">{{ videoSize }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Voice -->
+          <div v-else-if="message.contentType === 'voice'" class="voice-msg">
+            <v-icon size="18">mdi-microphone</v-icon>
+            <span class="ml-1">Tin nhắn thoại</span>
+            <a v-if="voiceUrl" :href="voiceUrl" target="_blank" class="ml-2 voice-link">▶ Nghe</a>
+          </div>
+
+          <!-- GIF -->
+          <div v-else-if="message.contentType === 'gif'" class="gif-msg">
+            <img v-if="gifUrl" :src="gifUrl" alt="gif" class="gif-img" />
+            <span v-else>🎞 GIF</span>
+          </div>
 
           <!-- Reminder -->
           <div v-else-if="isReminderMessage(message)" class="reminder-card">
@@ -89,8 +120,9 @@
             :content="parseContent(message.content)"
           />
 
-          <!-- Default text -->
-          <div v-else>{{ parseDisplayContent(message.content) }}</div>
+          <!-- Default text — parse @mention + bullets + linebreaks -->
+          <div v-else class="text-content" v-html="formattedText" />
+
         </template>
 
         <!-- Timestamp -->
@@ -168,17 +200,29 @@ function parseContent(content: string | null): unknown {
 function getImageUrl(msg: Message): string | null {
   if (msg.contentType === 'image' && msg.content) {
     if (msg.content.startsWith('http')) return msg.content;
-    try { const p = JSON.parse(msg.content); return p.href || p.thumb || p.hdUrl || null; } catch {}
+    try {
+      const p = JSON.parse(msg.content);
+      return p.hdUrl || p.href || p.normalUrl || p.thumbUrl || p.thumb || null;
+    } catch {}
   }
   if (msg.content?.startsWith('{')) {
     try {
       const p = JSON.parse(msg.content);
-      const href = p.href || p.thumb || '';
+      const href = p.hdUrl || p.href || p.normalUrl || p.thumb || '';
       if (href && /\.(jpg|jpeg|png|webp|gif)/i.test(href)) return href;
-      if (href && href.includes('zdn.vn') && !p.params?.includes('fileExt')) return href;
+      // Zalo CDN host — usually image even without ext
+      if (href && (href.includes('zdn.vn') || href.includes('zaloapp.com') || href.includes('zalocontent.com'))) {
+        const fileExt = (typeof p.params === 'string' ? safeParse(p.params) : p.params)?.fileExt;
+        if (!fileExt || /^(jpg|jpeg|png|webp|gif)$/i.test(fileExt)) return href;
+      }
     } catch {}
   }
   return null;
+}
+
+function safeParse(s: unknown): Record<string, unknown> | null {
+  if (typeof s !== 'string') return null;
+  try { return JSON.parse(s); } catch { return null; }
 }
 
 function getFileInfo(msg: Message): { name: string; size: string; href: string } | null {
@@ -200,11 +244,85 @@ function parseDisplayContent(content: string | null): string {
   if (!content.startsWith('{')) return content;
   try {
     const p = JSON.parse(content);
-    if (p.title && p.href) return `🔗 ${p.title}`;
+    if (p.title && p.href) return `${p.title}\n🔗 ${p.href}`;
     if (p.title) return p.title;
-    if (p.href) return `🔗 ${p.description || p.href}`;
+    if (p.text) return p.text;
+    if (p.description) return p.description;
+    if (p.href) return `🔗 ${p.href}`;
     return content;
   } catch { return content; }
+}
+
+// HTML-safe formatter for text content: escape + @mention highlight + linebreaks
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const formattedText = computed(() => {
+  const raw = parseDisplayContent(props.message.content);
+  if (!raw) return '';
+  let s = escapeHtml(raw);
+  // @mention — Vietnamese-aware names
+  s = s.replace(/@([\p{L}][\p{L}0-9._-]+(?:\s[\p{L}][\p{L}0-9._-]+){0,2})/gu, '<span class="mention">@$1</span>');
+  // URLs → clickable
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" class="link">$1</a>');
+  // Linebreaks
+  s = s.replace(/\r?\n/g, '<br>');
+  return s;
+});
+
+// ── Sticker / Video / Voice / GIF helpers ───────────────────────────────────
+const stickerUrl = computed(() => extractMediaUrl('sticker', props.message.content));
+const gifUrl = computed(() => extractMediaUrl('gif', props.message.content));
+const voiceUrl = computed(() => extractMediaUrl('voice', props.message.content));
+
+const videoThumb = computed(() => {
+  const p = safeParse(props.message.content);
+  if (!p) return null;
+  const thumb = (p.thumbUrl as string) || (p.thumb as string) || (p.thumbnail as string);
+  return typeof thumb === 'string' && thumb.startsWith('http') ? thumb : null;
+});
+const videoTitle = computed(() => {
+  const p = safeParse(props.message.content);
+  return (p?.title as string) || '';
+});
+const videoDuration = computed(() => {
+  const p = safeParse(props.message.content);
+  const ms = (p?.duration as number) || 0;
+  if (!ms) return '';
+  const total = ms > 1000 ? Math.floor(ms / 1000) : ms;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+});
+const videoSize = computed(() => {
+  const p = safeParse(props.message.content);
+  const params = typeof p?.params === 'string' ? safeParse(p.params) : (p?.params as Record<string, unknown> | undefined);
+  const bytes = parseInt(params?.fileSize as string || '0');
+  if (!bytes) return '';
+  return bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+});
+
+function extractMediaUrl(_kind: string, content: string | null): string | null {
+  if (!content) return null;
+  if (content.startsWith('http')) return content;
+  const p = safeParse(content);
+  if (!p) return null;
+  const url = (p.hdUrl as string) || (p.href as string) || (p.url as string) || (p.normalUrl as string) || '';
+  return typeof url === 'string' && url.startsWith('http') ? url : null;
+}
+
+function openVideo() {
+  const p = safeParse(props.message.content);
+  const url = (p?.href as string) || (p?.hdUrl as string) || (p?.normalUrl as string);
+  if (typeof url === 'string' && url.startsWith('http')) {
+    window.open(url, '_blank');
+  }
 }
 
 function isReminderMessage(msg: Message): boolean {
@@ -372,6 +490,96 @@ function openFile(href: string) {
 .chat-image:hover {
   transform: scale(1.02);
 }
+
+/* Text content with @mention + links */
+.text-content {
+  word-break: break-word;
+}
+:deep(.mention) {
+  color: var(--smax-primary, #2962ff);
+  font-weight: 500;
+  background: var(--smax-primary-soft, #e3f2fd);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+:deep(.link) {
+  color: var(--smax-primary, #2962ff);
+  text-decoration: underline;
+}
+
+/* Sticker */
+.sticker-msg { display: inline-block; }
+.sticker-img {
+  max-width: 120px;
+  max-height: 120px;
+  display: block;
+}
+
+/* GIF */
+.gif-msg { display: inline-block; }
+.gif-img {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 10px;
+  display: block;
+}
+
+/* Video */
+.video-msg { display: block; }
+.video-thumb-wrap {
+  position: relative;
+  display: inline-block;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  max-width: 300px;
+}
+.video-thumb {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  object-fit: cover;
+}
+.video-play-overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+  transition: background 0.15s;
+}
+.video-thumb-wrap:hover .video-play-overlay { background: rgba(0, 0, 0, 0.32); }
+.video-duration {
+  position: absolute;
+  bottom: 6px; right: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.video-card {
+  display: flex; align-items: center;
+  padding: 8px 12px;
+  border-radius: 7px;
+  background: rgba(33, 150, 243, 0.06);
+  border: 1px solid var(--smax-grey-200, #ebedf0);
+  cursor: pointer;
+}
+
+/* Voice */
+.voice-msg {
+  display: inline-flex; align-items: center;
+  padding: 6px 10px;
+  background: var(--smax-grey-100, #f5f6fa);
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--smax-text);
+}
+.voice-link {
+  color: var(--smax-primary, #2962ff);
+  text-decoration: none;
+  font-weight: 500;
+}
+.voice-link:hover { text-decoration: underline; }
 
 .bubble-wrapper .reaction-trigger {
   position: absolute;
