@@ -15,22 +15,15 @@
     />
     <span v-else class="av-initials" :style="initialsStyle">{{ initials }}</span>
 
-    <!-- Group sticker (góc phải trên) — 3-people silhouette theo Flaticon 1769041 -->
+    <!-- Group sticker (góc phải trên) — Material Design "group" icon, clean ở size nhỏ -->
     <span
       v-if="isGroup"
       class="av-group-sticker"
       :style="stickerStyle"
+      aria-label="Nhóm hội thoại"
     >
-      <svg viewBox="0 0 32 32" fill="white" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <!-- Center person (taller, behind) -->
-        <circle cx="16" cy="9" r="4" />
-        <path d="M9 26 c0-4 3-7 7-7 s7 3 7 7 v4 H9 z" />
-        <!-- Left person (shorter, in front) -->
-        <circle cx="6" cy="13" r="3.2" />
-        <path d="M0.5 28 c0-3.2 2.4-5.5 5.5-5.5 c1.4 0 2.6 0.4 3.5 1.2 v6.3 H0.5 z" />
-        <!-- Right person (shorter, in front) -->
-        <circle cx="26" cy="13" r="3.2" />
-        <path d="M22.5 23.7 c0.9-0.8 2.1-1.2 3.5-1.2 c3.1 0 5.5 2.3 5.5 5.5 v2.3 H22.5 z" />
+      <svg viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
       </svg>
     </span>
 
@@ -198,21 +191,22 @@ const platformBadgeStyle = computed(() => {
   box-shadow: 0 0 0 1px var(--smax-bg, white);
 }
 
-/* Group sticker (góc phải trên) — 3-people silhouette nền xanh đậm.
+/* Group sticker (góc phải trên) — Material group icon, nền xanh đậm.
    Position: 2/3 outside avatar circle, 1/3 overlapping — set inline qua stickerStyle. */
 .av-group-sticker {
   position: absolute;
   background: #0D47A1;
   border-radius: 50%;
-  padding: 14%;
-  border: 2px solid var(--smax-bg, white);
+  border: 1.5px solid var(--smax-bg, white);
   box-sizing: border-box;
   z-index: 2;
   pointer-events: none;
   display: inline-flex; align-items: center; justify-content: center;
+  overflow: hidden;
+  padding: 0;
 }
 .av-group-sticker svg {
-  width: 100%; height: 100%;
+  width: 78%; height: 78%;
   display: block;
 }
 
