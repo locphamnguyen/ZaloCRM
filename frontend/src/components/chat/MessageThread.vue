@@ -84,7 +84,11 @@
       <TypingIndicator :typers="currentTypers" />
 
       <!-- Input area -->
-      <div class="pa-2 chat-input-area">
+      <div class="pa-2 chat-input-area" @dragenter.prevent="dragActive = true" @dragover.prevent @dragleave="onDragLeave" @drop.prevent="onDrop">
+        <div v-if="dragActive" class="drop-overlay">
+          <v-icon size="64" color="primary">mdi-cloud-upload</v-icon>
+          <div class="text-h6 mt-2">Thả file vào đây</div>
+        </div>
         <AiSuggestionPanel
           :suggestion="aiSuggestion"
           :loading="aiSuggestionLoading"
@@ -97,6 +101,22 @@
           :mode="editingMessage ? 'edit' : 'reply'"
           @cancel="onCancelReplyEdit"
         />
+        <!-- Attachment preview strip -->
+        <div v-if="pendingFiles.length > 0" class="d-flex flex-wrap ga-2 mb-2">
+          <div v-for="(f, i) in pendingFiles" :key="f.id" class="attachment-chip">
+            <img v-if="f.kind === 'image'" :src="f.previewUrl" class="attachment-thumb" alt="preview" />
+            <div v-else-if="f.kind === 'video'" class="attachment-thumb attachment-video">
+              <v-icon size="32" color="white">mdi-video</v-icon>
+            </div>
+            <div v-else class="attachment-thumb attachment-video" :title="f.file.name">
+              <v-icon size="32" color="white">mdi-file-document</v-icon>
+            </div>
+            <v-btn icon size="x-small" class="attachment-remove" @click="removeFile(i)">
+              <v-icon size="16">mdi-close</v-icon>
+            </v-btn>
+          </div>
+        </div>
+        <input ref="fileInputRef" type="file" multiple class="d-none" @change="onFileInputChange" />
         <div class="d-flex align-end" style="position: relative;">
           <QuickTemplatePopup
             :visible="showTemplatePopup"
@@ -109,12 +129,29 @@
           <RichTextEditor
             ref="editorRef"
             v-model="inputText"
-            placeholder="Nhập tin nhắn... (gõ / để chèn mẫu)"
+            placeholder="Nhập tin nhắn... (gõ / để chèn mẫu, dán ảnh trực tiếp)"
             class="flex-grow-1 mr-2"
             @submit="handleSend"
             @typing="onTypingEvent"
-          />
-          <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend">
+            @paste.native="onPaste"
+          >
+            <template #toolbar-extra>
+              <v-divider vertical class="mx-1" />
+              <v-btn
+                icon size="x-small" variant="text" :disabled="uploading"
+                title="Đính kèm ảnh/video" @click="pickFiles('image/*,video/*')"
+              >
+                <v-icon size="16">mdi-image-multiple-outline</v-icon>
+              </v-btn>
+              <v-btn
+                icon size="x-small" variant="text" :disabled="uploading"
+                title="Đính kèm tệp" @click="pickFiles(FILE_ACCEPT)"
+              >
+                <v-icon size="16">mdi-paperclip</v-icon>
+              </v-btn>
+            </template>
+          </RichTextEditor>
+          <v-btn icon color="primary" :loading="sending || uploading" :disabled="!canSend" @click="handleSend">
             <v-icon>mdi-send</v-icon>
           </v-btn>
         </div>
@@ -217,6 +254,110 @@ const contextPos = ref({ x: 0, y: 0 });
 // Forward dialog
 const showForwardDialog = ref(false);
 const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
+
+// ── Attachment state ────────────────────────────────────────────────────────
+
+interface PendingFile { id: string; file: File; kind: 'image' | 'video' | 'file'; previewUrl: string; }
+const pendingFiles = ref<PendingFile[]>([]);
+const fileInputRef = ref<HTMLInputElement | null>(null);
+const dragActive = ref(false);
+const uploading = ref(false);
+
+const IMAGE_MAX = 100 * 1024 * 1024;
+const VIDEO_MAX = 500 * 1024 * 1024;
+
+// MIME whitelist for "Upload file" picker — accept attribute string
+const FILE_ACCEPT = [
+  'image/*', 'video/*',
+  'application/pdf',
+  '.xlsx', '.xls', '.csv',
+  '.docx', '.doc',
+  '.pptx', '.ppt',
+  '.zip', '.gz', '.rar', '.tar', '.tar.gz', '.tgz',
+].join(',');
+const FILE_MAX = 1024 * 1024 * 1024;
+
+function fileKind(f: File): 'image' | 'video' | 'file' {
+  if (f.type.startsWith('image/')) return 'image';
+  if (f.type.startsWith('video/')) return 'video';
+  return 'file';
+}
+
+function addFiles(list: FileList | File[]) {
+  for (const file of Array.from(list)) {
+    const kind = fileKind(file);
+    const max = kind === 'image' ? IMAGE_MAX : kind === 'video' ? VIDEO_MAX : FILE_MAX;
+    if (file.size > max) {
+      syncSnack.value = { show: true, text: `${file.name} vượt ${max / 1024 / 1024}MB`, color: 'error' };
+      continue;
+    }
+    pendingFiles.value.push({ id: `${Date.now()}-${Math.random()}`, file, kind, previewUrl: kind === 'image' ? URL.createObjectURL(file) : '' });
+  }
+}
+
+function pickFiles(accept: string) {
+  if (fileInputRef.value) {
+    fileInputRef.value.accept = accept;
+    fileInputRef.value.value = '';
+    fileInputRef.value.click();
+  }
+}
+
+function onFileInputChange(e: Event) {
+  const target = e.target as HTMLInputElement;
+  if (target.files) addFiles(target.files);
+}
+
+function removeFile(index: number) {
+  const removed = pendingFiles.value.splice(index, 1);
+  removed.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+}
+
+function onDragLeave(e: DragEvent) {
+  const rt = e.relatedTarget as Node | null;
+  if (!rt || !(e.currentTarget as HTMLElement).contains(rt)) dragActive.value = false;
+}
+
+function onDrop(e: DragEvent) {
+  dragActive.value = false;
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+}
+
+function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  const files: File[] = [];
+  for (const item of Array.from(items)) {
+    if (item.kind === 'file') {
+      const f = item.getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  if (files.length) addFiles(files);
+}
+
+const canSend = computed(() => (inputText.value.trim() || pendingFiles.value.length > 0) && !uploading.value);
+
+async function uploadAttachments() {
+  if (!props.conversation) return;
+  uploading.value = true;
+  try {
+    const form = new FormData();
+    form.append('caption', inputText.value);
+    for (const p of pendingFiles.value) form.append('files', p.file, p.file.name);
+    await api.post(`/conversations/${props.conversation.id}/attachments`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    pendingFiles.value.forEach((f) => URL.revokeObjectURL(f.previewUrl));
+    pendingFiles.value = [];
+    emit('refresh-thread');
+  } catch (err: any) {
+    syncSnack.value = { show: true, text: err?.response?.data?.error ?? 'Upload thất bại', color: 'error' };
+    throw err;
+  } finally {
+    uploading.value = false;
+  }
+}
 
 // Typing indicator — computed from prop
 const currentTypers = computed(() => props.typingUsers || []);
@@ -363,6 +504,13 @@ function onTemplateSelect(rendered: string) {
 
 function handleSend() {
   if (showTemplatePopup.value) { showTemplatePopup.value = false; return; }
+  if (pendingFiles.value.length > 0) {
+    uploadAttachments().then(() => {
+      inputText.value = '';
+      editorRef.value?.clear();
+    }).catch(() => { /* error already displayed */ });
+    return;
+  }
   if (!inputText.value.trim()) return;
   if (props.editingMessage) {
     emit('edit-message', props.editingMessage.id, inputText.value);
@@ -415,4 +563,10 @@ watch(() => props.messages.length, async () => {
 .album-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
 .album-tile { width: 100%; aspect-ratio: 1/1; object-fit: cover; cursor: pointer; transition: transform 0.2s; }
 .album-tile:hover { transform: scale(1.02); }
+.attachment-chip { position: relative; width: 60px; height: 60px; }
+.attachment-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 8px; display: block; }
+.attachment-video { background: #333; display: flex; align-items: center; justify-content: center; }
+.attachment-remove { position: absolute; top: -6px; right: -6px; background: rgba(0,0,0,0.7) !important; min-width: 20px !important; width: 20px !important; height: 20px !important; }
+.chat-input-area { position: relative; }
+.drop-overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 242, 255, 0.15); border: 2px dashed var(--border-glow, rgba(0,242,255,0.6)); border-radius: 12px; z-index: 10; pointer-events: none; backdrop-filter: blur(4px); }
 </style>

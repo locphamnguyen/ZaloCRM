@@ -8,6 +8,7 @@ import cors from '@fastify/cors';
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import fastifyMultipart from '@fastify/multipart';
 import { Server } from 'socket.io';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +20,7 @@ import { logger } from './shared/utils/logger.js';
 import { authRoutes } from './modules/auth/auth-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
+import { chatAttachmentRoutes } from './modules/chat/chat-attachment-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
 import { appointmentRoutes } from './modules/contacts/appointment-routes.js';
@@ -75,6 +77,13 @@ async function bootstrap() {
     allowList: (request: { url: string }) => !request.url.startsWith('/api/'),
   });
 
+  await app.register(fastifyMultipart, {
+    limits: {
+      fileSize: 500 * 1024 * 1024, // 500 MB — video cap; per-kind size enforced in route
+      files: 10,
+    },
+  });
+
   // Serve compiled frontend assets in production
   if (config.isProduction) {
     await app.register(fastifyStatic, {
@@ -116,6 +125,7 @@ async function bootstrap() {
   await app.register(authRoutes);
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
+  await app.register(chatAttachmentRoutes);
   await app.register(contactRoutes);
   await app.register(contactSubResourceRoutes);
   await app.register(appointmentRoutes);
