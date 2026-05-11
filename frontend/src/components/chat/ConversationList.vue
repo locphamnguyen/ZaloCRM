@@ -307,34 +307,73 @@ function lastMessagePreview(conv: Conversation): string {
   if (!msg) return '';
   if (msg.isDeleted) return '(đã thu hồi)';
   const prefix = msg.senderType === 'self' ? 'Bạn: ' : '';
+
+  // Parse JSON content (nếu có) để extract title / action
+  let parsed: Record<string, unknown> | null = null;
+  if (msg.content?.startsWith('{')) {
+    try { parsed = JSON.parse(msg.content); } catch { /* not JSON */ }
+  }
+  const action = typeof parsed?.action === 'string' ? parsed.action : '';
+  const titleText = typeof parsed?.title === 'string' ? parsed.title.trim() : '';
+
+  // Call message (stored as contact_card + action recommened.calltime/misscall)
+  if (action.includes('calltime') || action.includes('misscall')) {
+    const params = typeof parsed?.params === 'string'
+      ? safeParseLocal(parsed.params as string)
+      : (parsed?.params as Record<string, unknown> | undefined);
+    const isVideo = params?.calltype === 1;
+    const isMissed = action.includes('misscall');
+    const icon = isVideo ? '📹' : '📞';
+    if (isMissed) return prefix + `${icon} Cuộc gọi nhỡ`;
+    const dur = Number(params?.duration ?? 0);
+    if (dur > 0) {
+      const m = Math.floor(dur / 60);
+      const s = dur % 60;
+      return prefix + `${icon} Cuộc gọi ${m}:${s.toString().padStart(2, '0')}`;
+    }
+    return prefix + `${icon} Cuộc gọi`;
+  }
+
+  // Reminder (action-based)
+  if (action === 'msginfo.actionlist' && titleText) {
+    return prefix + '📅 ' + truncate(titleText, 50);
+  }
+
+  // Rich content có title → preview bằng title thật, không phải "Tin đặc biệt"
+  if (msg.contentType === 'rich' && titleText) {
+    return prefix + truncate(titleText.replace(/\n/g, ' · '), 60);
+  }
+
+  // Per content-type
   switch (msg.contentType) {
     case 'image': return prefix + '📷 Hình ảnh';
     case 'sticker': return prefix + '🎴 Sticker';
     case 'video': return prefix + '🎥 Video';
     case 'voice': return prefix + '🎤 Voice';
     case 'gif': return prefix + '🎞️ GIF';
-    case 'file': return prefix + '📎 Tệp đính kèm';
-    case 'link': return prefix + '🔗 Liên kết';
+    case 'file': return prefix + '📎 ' + (titleText ? truncate(titleText, 40) : 'Tệp đính kèm');
+    case 'link': return prefix + '🔗 ' + (titleText ? truncate(titleText, 40) : 'Liên kết');
     case 'bank_transfer': return prefix + '🏦 Chuyển khoản';
     case 'call': return prefix + '📞 Cuộc gọi';
     case 'qr_code': return prefix + '📱 Mã QR';
-    case 'reminder': return prefix + '📅 Nhắc hẹn';
-    case 'poll': return prefix + '📊 Bình chọn';
-    case 'note': return prefix + '📝 Ghi chú';
-    case 'forwarded': return prefix + '↩️ Chuyển tiếp';
-    case 'contact_card': return prefix + '👤 Danh thiếp';
+    case 'reminder': return prefix + '📅 ' + (titleText ? truncate(titleText, 40) : 'Nhắc hẹn');
+    case 'poll': return prefix + '📊 ' + (titleText ? truncate(titleText, 40) : 'Bình chọn');
+    case 'note': return prefix + '📝 ' + (titleText ? truncate(titleText, 40) : 'Ghi chú');
+    case 'forwarded': return prefix + '↩️ ' + (titleText ? truncate(titleText, 40) : 'Chuyển tiếp');
+    case 'contact_card': return prefix + (titleText ? truncate(titleText, 40) : '👤 Danh thiếp');
     case 'rich': return prefix + '📋 Tin đặc biệt';
   }
-  if (msg.content) {
-    try {
-      const p = JSON.parse(msg.content);
-      if (p.action === 'msginfo.actionlist' && p.title) {
-        return prefix + '📅 ' + p.title.slice(0, 50);
-      }
-    } catch { /* not JSON */ }
-  }
+
+  // Plain text
   const text = msg.content || '';
-  return prefix + (text.length > 50 ? text.slice(0, 50) + '…' : text);
+  return prefix + truncate(text, 50);
+}
+
+function safeParseLocal(s: string): Record<string, unknown> | null {
+  try { return JSON.parse(s); } catch { return null; }
+}
+function truncate(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
 function parseSentiment(conv: Conversation): AiSentiment | null {

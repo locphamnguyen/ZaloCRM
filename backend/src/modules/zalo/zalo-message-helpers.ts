@@ -41,13 +41,20 @@ export function detectContentType(msgType: string | undefined, content: any): st
 
   // Check content object shape for action-based messages
   if (typeof content === 'object' && content !== null) {
-    if (content.action === 'msginfo.actionlist') return 'reminder';
+    const action = typeof content.action === 'string' ? content.action : '';
+    // Zalo dùng action "recommened.calltime" (gọi thành công) / "recommened.misscall" (nhỡ)
+    // Lưu ý typo "recommened" thay vì "recommended" — match cả 2.
+    if (action.includes('calltime') || action.includes('misscall')) return 'call';
+    if (action === 'msginfo.actionlist' || action === 'rtf') {
+      // rtf = rich-text-format (bot Smax/Zalo gửi) — vẫn rich
+      if (action === 'msginfo.actionlist') return 'reminder';
+    }
     if (content.bankCode || content.bankName) return 'bank_transfer';
     if (content.callDuration !== undefined || content.callType) return 'call';
 
     // Log unknown types for analysis before returning rich
     if (!KNOWN_MSG_TYPE_PATTERNS.some((p) => msgType.includes(p))) {
-      logger.info(`[zalo:msgType] Unknown object type: "${msgType}"`, {
+      logger.info(`[zalo:msgType] Unknown object type: "${msgType}" action="${action}"`, {
         contentKeys: Object.keys(content),
       });
     }

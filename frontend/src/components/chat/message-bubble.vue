@@ -129,6 +129,13 @@
             </div>
           </div>
 
+          <!-- Call message (action recommened.calltime/misscall — thường stored as contact_card) -->
+          <SpecialMessageRenderer
+            v-else-if="isCallMessage"
+            type="call"
+            :content="callContent"
+          />
+
           <!-- Special types -->
           <SpecialMessageRenderer
             v-else-if="isSpecialType(message.contentType)"
@@ -374,6 +381,28 @@ function isReminderMessage(msg: Message): boolean {
   if (!msg.content) return false;
   try { const p = JSON.parse(msg.content); return p.action === 'msginfo.actionlist'; } catch { return false; }
 }
+
+// ── Call message detection (Zalo lưu dưới content_type contact_card với action recommened.*) ─
+const isCallMessage = computed(() => {
+  const p = safeParse(props.message.content);
+  if (!p) return false;
+  const action = typeof p.action === 'string' ? p.action : '';
+  return action.includes('calltime') || action.includes('misscall');
+});
+
+const callContent = computed(() => {
+  const p = safeParse(props.message.content);
+  if (!p) return {};
+  const params = typeof p.params === 'string' ? safeParse(p.params) : (p.params as Record<string, unknown> || {});
+  const action = typeof p.action === 'string' ? p.action : '';
+  return {
+    action,
+    isMissed: action.includes('misscall'),
+    isCaller: params?.isCaller === 1, // 1 = self gọi đi, 0 = nhận
+    callType: params?.calltype === 1 ? 'video' : 'voice',
+    callDuration: typeof params?.duration === 'number' ? params.duration : 0,
+  };
+});
 
 // ── Reply preview helpers ───────────────────────────────────────────────────
 const replySenderLabel = computed(() => {
