@@ -6,7 +6,6 @@ import type { Contact } from '@/composables/use-contacts';
 interface ZaloAccount {
   id: string;
   displayName: string | null;
-  avatarUrl?: string | null;
 }
 
 export interface AiSentiment {
@@ -35,12 +34,9 @@ interface ConversationMessage {
 export interface ReplyMessageRef {
   msgId: string;
   cliMsgId?: string;
-  /** Nội dung tin nhắn gốc — Zalo lưu trong field 'msg'; FE map thành 'content' */
   content: string;
   msgType: string;
   uidFrom: string;
-  /** Tên người gửi gốc — Zalo lưu trong 'fromD'; FE map thành 'senderName' */
-  senderName: string;
   ts: string;
   propertyExt?: Record<string, unknown>;
   ttl?: number;
@@ -51,30 +47,11 @@ interface RawMessage extends Omit<Message, 'reactions' | 'reply'> {
   reactions?: Array<{ emoji: string; reactorId: string; count?: number; reacted?: boolean }>;
 }
 
-export interface FriendshipInfo {
-  /** friend | pending_friend | chatting_stranger | ghost | none */
-  relationshipKind: string;
-  /** none | pending_sent | pending_received | accepted | rejected | removed | blocked */
-  friendshipStatus: string;
-  becameFriendAt: string | null;
-  firstMessageAt: string | null;
-}
-
 export interface Conversation {
   id: string;
   threadType: 'user' | 'group';
   contact: Contact | null;
   zaloAccount: ZaloAccount | null;
-  /** Tên nhóm Zalo (chỉ có khi threadType=group) — backend resolve qua getGroupInfo */
-  groupName?: string | null;
-  /** Avatar nhóm Zalo URL (chỉ có khi threadType=group) */
-  groupAvatarUrl?: string | null;
-  /** Số thành viên nhóm */
-  groupMembersCount?: number | null;
-  /** External thread ID (group id từ Zalo, hoặc UID per-nick cho user thread) */
-  externalThreadId?: string | null;
-  /** Friend record per-pair (chỉ user thread) — backend join từ Friend table */
-  friendship?: FriendshipInfo | null;
   lastMessageAt: string | null;
   unreadCount: number;
   isReplied: boolean;
@@ -94,7 +71,6 @@ export interface Message {
   contentType: string;
   senderType: string;
   senderName: string | null;
-  senderUid?: string | null;
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;
@@ -163,29 +139,9 @@ export function useChat() {
       counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
     }
     const { reactions, quote, ...base } = message;
-
-    // Normalize quote: Zalo lưu với field 'msg' + 'fromD' thay vì 'content' + 'senderName'.
-    // Map sang ReplyMessageRef chuẩn để MessageBubble render đúng.
-    let reply: ReplyMessageRef | null = null;
-    if (quote) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const q = quote as any;
-      reply = {
-        msgId: String(q.msgId || q.msg_id || q.globalMsgId || ''),
-        cliMsgId: q.cliMsgId,
-        content: String(q.msg ?? q.content ?? ''),
-        senderName: String(q.fromD ?? q.senderName ?? q.fromName ?? ''),
-        msgType: String(q.msgType ?? ''),
-        uidFrom: String(q.uidFrom ?? q.uid_from ?? ''),
-        ts: String(q.ts ?? ''),
-        propertyExt: q.propertyExt,
-        ttl: q.ttl,
-      };
-    }
-
     return {
       ...base,
-      reply,
+      reply: quote ?? null,
       reactions: Array.from(counts.entries()).map(([emoji, count]) => ({ emoji, count, reacted: false })),
     };
   }
@@ -304,29 +260,7 @@ export function useChat() {
     } catch {
       // Ignore mark-read errors
     }
-    // Auto-sync Zalo profile (gender/birth/phone/avatar) khi contact thiếu data.
-    // Chỉ fire-and-forget; user không phải đợi.
-    void autoSyncZaloProfile(convId);
     await Promise.allSettled([generateAiSummary(), generateAiSentiment(), fetchAiUsage()]);
-  }
-
-  /** Fetch Zalo profile để fill các field còn null (gender/birthDate/phone/avatar). */
-  async function autoSyncZaloProfile(convId: string) {
-    const conv = conversations.value.find(c => c.id === convId);
-    const c = conv?.contact;
-    if (!c?.zaloUid) return;
-    // Chỉ sync khi missing 1 trong 4 field. Tránh gọi API thừa.
-    const needSync = !c.gender || !c.birthDate || !c.phone || !c.avatarUrl;
-    if (!needSync) return;
-    try {
-      const res = await api.post(`/contacts/${c.id}/sync-zalo-profile`);
-      if (res.data?.updated && res.data?.contact && conv) {
-        conv.contact = res.data.contact;
-      }
-    } catch (err) {
-      // Silent fail: KH không phải friend của nick nào, hoặc profile riêng tư
-      console.debug('[zalo-profile-sync]', (err as Error)?.message);
-    }
   }
 
   async function sendMessage(content: string, replyMessageId?: string | null) {
@@ -360,25 +294,6 @@ export function useChat() {
       if (data.conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === data.message.id)) {
           messages.value.push(normalizeMessage(data.message as RawMessage));
-        }
-      }
-      // Live bump số tin in/out + lastMessageAt cho conv tương ứng (optimistic
-      // update — fetchConversations chạy parallel sẽ correct lại từ DB sau).
-      const conv = conversations.value.find(c => c.id === data.conversationId);
-      if (conv) {
-        if (conv.contact) {
-          if (data.message.senderType === 'self') {
-            conv.contact.totalOutbound = (conv.contact.totalOutbound ?? 0) + 1;
-            conv.contact.lastOutboundAt = data.message.sentAt;
-          } else {
-            conv.contact.totalInbound = (conv.contact.totalInbound ?? 0) + 1;
-            conv.contact.lastInboundAt = data.message.sentAt;
-          }
-          conv.contact.lastActivity = data.message.sentAt;
-        }
-        conv.lastMessageAt = data.message.sentAt;
-        if (data.message.senderType !== 'self' && conv.id !== selectedConvId.value) {
-          conv.unreadCount = (conv.unreadCount ?? 0) + 1;
         }
       }
       fetchConversations();

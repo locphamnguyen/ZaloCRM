@@ -22,13 +22,7 @@
 
         <button class="nick-single" @click="cycleNick" :disabled="!accounts.length" title="Click để đổi nick">
           <span class="ns-label">NICK</span>
-          <Avatar
-            :src="activeAccount?.avatarUrl"
-            :name="activeAccount?.displayName || 'Nick'"
-            :size="24"
-            :gradient-seed="activeAccount?.id"
-            platform="zalo"
-          />
+          <span class="ns-avatar">{{ nickAvatar }}</span>
           <span class="ns-name">{{ activeAccount?.displayName || 'Chọn nick' }}</span>
           <span v-if="friendsDbTotal" class="ns-count">{{ friendsDbTotal }} bạn</span>
           <span class="ns-arrow">▾</span>
@@ -110,7 +104,6 @@
         <thead>
           <tr>
             <th>Khách hàng</th>
-            <th class="w-110" title="Số nick zalo có log nhật ký nhắn tin với KH này">Nick có log</th>
             <th>Nick Zalo (Sale)</th>
             <th>Tên CRM / Nick (KH)</th>
             <th>Tên Zalo + UID</th>
@@ -122,7 +115,6 @@
             <th>Sale nhắn cuối</th>
             <th>Tin (in/out)</th>
             <th>Là bạn từ</th>
-            <th class="w-90">Auto</th>
             <th class="w-180">Action</th>
           </tr>
         </thead>
@@ -131,13 +123,9 @@
             <!-- KH cell -->
             <td>
               <div class="kh-cell">
-                <Avatar
-                  :src="f.contact?.avatarUrl"
-                  :name="f.contact?.crmName || f.contact?.fullName || '?'"
-                  :size="32"
-                  :gender="f.contact?.gender"
-                  :gradient-seed="f.contact?.id"
-                />
+                <div class="avatar avatar-customer" :class="{ 'is-female': f.contact?.gender === 'female' }">
+                  {{ initials(f.contact) }}
+                </div>
                 <div class="three-line">
                   <span class="line1">{{ f.contact?.crmName || f.contact?.fullName || '—' }}</span>
                   <span class="line2">
@@ -150,27 +138,10 @@
               </div>
             </td>
 
-            <!-- Nick có log (số nick zalo đã từng log với KH này) -->
-            <td>
-              <div class="nick-count-cell">
-                <span
-                  :class="['nick-count-badge', `lvl-${nickLogLevel(f)}`]"
-                  :title="`${nickLogCount(f)} nick đã log nhật ký với KH này`"
-                  @click="onShowNickLog(f)"
-                >{{ nickLogCount(f) }}</span>
-                <span class="nick-count-label">nick chăm</span>
-              </div>
-            </td>
-
             <!-- Nick cell -->
             <td>
               <div class="nick-cell">
-                <Avatar
-                  :name="f.zaloAccount?.displayName || 'Nick'"
-                  :size="28"
-                  :gradient-seed="f.zaloAccount?.id"
-                  platform="zalo"
-                />
+                <div class="avatar avatar-nick">{{ nickShort(f.zaloAccount?.displayName) }}</div>
                 <div class="two-line">
                   <span class="line1">{{ f.zaloAccount?.displayName || '—' }}</span>
                   <span class="line2">{{ f.zaloAccount?.phone || '—' }}</span>
@@ -204,12 +175,12 @@
               </span>
             </td>
 
-            <!-- Trạng thái KH (per-nick care status, 9 enum) -->
+            <!-- Trạng thái KH -->
             <td>
-              <CareStatusBadge
-                :model-value="careStatusOf(f)"
-                @update:model-value="(v) => onUpdateCareStatus(f, v)"
-              />
+              <span v-if="f.contact?.status" :class="['chip', statusChipClass(f.contact.status)]">
+                {{ statusLabel(f.contact.status) }}
+              </span>
+              <span v-else class="empty">—</span>
             </td>
 
             <!-- Nhãn CRM -->
@@ -258,12 +229,6 @@
               <span v-else class="empty">—</span>
             </td>
 
-            <!-- Auto (automation đang chạy) -->
-            <td>
-              <span v-if="autoLabelOf(f)" class="chip chip-info">{{ autoLabelOf(f) }}</span>
-              <span v-else class="empty">—</span>
-            </td>
-
             <!-- Action -->
             <td>
               <div class="action-cell">
@@ -286,7 +251,7 @@
           </tr>
 
           <tr v-if="!loadingDb && !friendsDb.length">
-            <td colspan="15" class="empty-state">
+            <td colspan="13" class="empty-state">
               {{ activeAccount ? 'Chưa có pair nào.' : 'Chọn 1 nick Zalo để xem.' }}
             </td>
           </tr>
@@ -309,13 +274,9 @@ import { useRouter } from 'vue-router';
 import { useFriends, type DbFriend } from '@/composables/use-friends';
 import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 import {
-  GENDER_OPTIONS,
+  STATUS_OPTIONS, GENDER_OPTIONS,
   formatRecentDateTime,
 } from '@/composables/use-contacts';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
-import type { CareStatusValue } from '@/constants/care-status';
-import Avatar from '@/components/ui/Avatar.vue';
-import { useToast } from '@/composables/use-toast';
 
 const router = useRouter();
 const { accounts, fetchAccounts } = useZaloAccounts();
@@ -355,6 +316,10 @@ const CRM_LABEL_CHIPS = [
 const activeAccount = computed(() =>
   accounts.value.find(a => a.id === selectedAccountId.value) || null,
 );
+const nickAvatar = computed(() => {
+  const i = accounts.value.findIndex(a => a.id === selectedAccountId.value);
+  return i >= 0 ? `N${i + 1}` : '?';
+});
 const totalPages = computed(() => Math.max(1, Math.ceil(friendsDbTotal.value / pagination.limit)));
 
 function kindCount(kind: string): number {
@@ -407,50 +372,24 @@ async function onSync() {
 function goChat(f: DbFriend) {
   if (f.contact?.id) router.push({ path: '/chat', query: { contactId: f.contact.id } });
 }
-const toast = useToast();
-function onSendInvite(f: DbFriend) {
-  toast.warning(`Gửi mời KB qua nick ${f.zaloAccount?.displayName}: chưa wire endpoint`);
-}
-function onCancelInvite(f: DbFriend) {
-  toast.warning(`Hủy mời KB qua nick ${f.zaloAccount?.displayName}: chưa wire endpoint`);
-}
-function onAutomation(_f: DbFriend) {
-  toast.warning('Automation per-pair: chưa implement');
-}
-
-// ════════ Per-pair care status (9 enum) ════════
-// MOCK: backend chưa có Friend.customerCareStatus. Map tạm vào contact.status
-// (đã có trong DbFriend.contact). User đổi → toast cảnh báo chờ schema delta.
-function careStatusOf(f: DbFriend): CareStatusValue {
-  return ((f.contact?.status as CareStatusValue) || 'new') as CareStatusValue;
-}
-function onUpdateCareStatus(f: DbFriend, value: CareStatusValue) {
-  toast.warning(`Đổi care status → ${value}: chờ field Friend.customerCareStatus`);
-  void f;
-}
-
-// ════════ Nick có log (số nick đã log với KH này) ════════
-// MOCK: hiện friendsDb là per-pair, mỗi row 1 cặp. Số nick log với contactId
-// cần aggregate. Tạm trả 1 — chờ backend bổ sung field hoặc query separate.
-function nickLogCount(_f: DbFriend): number { return 1; }
-function nickLogLevel(f: DbFriend): number {
-  const n = nickLogCount(f);
-  if (n >= 4) return 4;
-  if (n >= 3) return 3;
-  if (n >= 2) return 2;
-  return 1;
-}
-function onShowNickLog(f: DbFriend) {
-  toast.push(`Detail ${nickLogCount(f)} nick log với ${f.contact?.crmName || 'KH'}: chưa implement`);
-}
-
-// ════════ Auto (automation đang chạy per-pair) ════════
-// MOCK: chờ Friend.automations relation
-function autoLabelOf(_f: DbFriend): string | null { return null; }
+function onSendInvite(_f: DbFriend) { /* TODO: call /friends/requests endpoint */ }
+function onCancelInvite(_f: DbFriend) { /* TODO: call DELETE /friends/requests/:userId */ }
+function onAutomation(_f: DbFriend) { /* TODO: open automation dialog */ }
 
 // Formatters
+function initials(c?: { fullName: string | null; crmName: string | null } | null) {
+  const name = c?.crmName || c?.fullName || '?';
+  return (name.trim().split(/\s+/).pop()?.[0] || '?').toUpperCase();
+}
+function nickShort(name: string | null | undefined) {
+  if (!name) return 'N';
+  return name.split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase();
+}
 function genderLabel(value: string) {
   return GENDER_OPTIONS.find(o => o.value === value)?.text ?? value;
+}
+function statusLabel(value: string) {
+  return STATUS_OPTIONS.find(o => o.value === value)?.text ?? value;
 }
 function kindLabel(kind: DbFriend['relationshipKind']): string {
   const map: Record<DbFriend['relationshipKind'], string> = {
@@ -481,6 +420,16 @@ function kindChipClass(kind: DbFriend['relationshipKind']): string {
     none: 'chip-grey',
   };
   return map[kind];
+}
+function statusChipClass(status: string): string {
+  const map: Record<string, string> = {
+    new: 'chip-grey',
+    contacted: 'chip-info',
+    interested: 'chip-warning',
+    converted: 'chip-success',
+    lost: 'chip-error',
+  };
+  return map[status] || 'chip-grey';
 }
 function ageOf(c?: { birthYear: number | null } | null): number | null {
   if (!c?.birthYear) return null;
@@ -778,34 +727,6 @@ onMounted(async () => {
   color: var(--smax-grey-700);
   font-style: italic;
 }
-
-/* Nick có log badge */
-.nick-count-cell {
-  display: flex; align-items: center; gap: 5px;
-}
-.nick-count-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  font-weight: 700; font-size: 12px;
-  color: white;
-  cursor: pointer;
-  user-select: none;
-  flex-shrink: 0;
-  background: var(--smax-grey-300);
-}
-.nick-count-badge.lvl-1 { background: var(--smax-grey-300); color: var(--smax-grey-700); }
-.nick-count-badge.lvl-2 { background: linear-gradient(135deg, #66bb6a, #2e7d32); }
-.nick-count-badge.lvl-3 { background: linear-gradient(135deg, #ffa726, #ef6c00); }
-.nick-count-badge.lvl-4 { background: linear-gradient(135deg, #ef5350, #c62828); }
-.nick-count-badge:hover { transform: scale(1.08); transition: transform 0.15s; }
-.nick-count-label {
-  font-size: 10.5px; color: var(--smax-grey-700);
-  white-space: nowrap;
-}
-
-.w-90 { width: 90px; }
-.w-110 { width: 110px; }
 
 .pagination {
   display: flex; align-items: center; justify-content: center; gap: 11px;

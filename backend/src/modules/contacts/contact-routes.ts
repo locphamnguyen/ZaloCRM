@@ -10,71 +10,8 @@ import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
 import { runContactIntelligence } from './contact-intelligence.js';
 import { runAutomationRules } from '../automation/automation-service.js';
-import { backfillContactAggregates, backfillFriendsFromHistory } from './contact-aggregate.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
 
 type QueryParams = Record<string, string>;
-
-/**
- * Pick only fields the user is allowed to write on a Contact.
- * Excludes system-managed aggregates (last*, total*, hasZalo,
- * zaloLookup*, importBatchId, consentRevokedAt) which are set by
- * background services, never the user.
- *
- * Uses `in` check so a key explicitly set to null updates to null,
- * but missing keys are left untouched (Prisma `undefined` semantic).
- */
-function pickWritableContactFields(body: Record<string, any>): Record<string, any> {
-  const d: Record<string, any> = {};
-
-  // Identification
-  if ('fullName' in body) d.fullName = body.fullName;
-  if ('crmName' in body) d.crmName = body.crmName;
-  if ('phone' in body) d.phone = body.phone;
-  if ('phone2' in body) d.phone2 = body.phone2;
-  if ('phone3' in body) d.phone3 = body.phone3;
-  if ('phonesExtra' in body) d.phonesExtra = body.phonesExtra;
-  if ('email' in body) d.email = body.email;
-  if ('avatarUrl' in body) d.avatarUrl = body.avatarUrl;
-  if ('zaloUid' in body) d.zaloUid = body.zaloUid;
-
-  // CRM workflow
-  if ('source' in body) d.source = body.source;
-  if ('sourceDate' in body) d.sourceDate = body.sourceDate ? new Date(body.sourceDate) : null;
-  if ('firstContactDate' in body) d.firstContactDate = body.firstContactDate ? new Date(body.firstContactDate) : null;
-  if ('status' in body) d.status = body.status;
-  if ('nextAppointment' in body) d.nextAppointment = body.nextAppointment ? new Date(body.nextAppointment) : null;
-  if ('assignedUserId' in body) d.assignedUserId = body.assignedUserId;
-  if ('notes' in body) d.notes = body.notes;
-  if ('tags' in body) d.tags = body.tags;
-  if ('metadata' in body) d.metadata = body.metadata;
-
-  // Demographic / personal
-  if ('gender' in body) d.gender = body.gender;
-  if ('birthYear' in body) {
-    d.birthYear = body.birthYear === null || body.birthYear === ''
-      ? null
-      : parseInt(String(body.birthYear), 10);
-  }
-  if ('birthDate' in body) d.birthDate = body.birthDate ? new Date(body.birthDate) : null;
-  if ('occupation' in body) d.occupation = body.occupation;
-  if ('incomeRange' in body) d.incomeRange = body.incomeRange;
-  if ('socialFacebook' in body) d.socialFacebook = body.socialFacebook;
-  if ('socialTiktok' in body) d.socialTiktok = body.socialTiktok;
-  if ('preferredLang' in body) d.preferredLang = body.preferredLang;
-
-  // Address
-  if ('province' in body) d.province = body.province;
-  if ('district' in body) d.district = body.district;
-  if ('ward' in body) d.ward = body.ward;
-  if ('addressLine' in body) d.addressLine = body.addressLine;
-
-  // Consent (revoke/restore is allowed; revokedAt is system-set)
-  if ('consentStatus' in body) d.consentStatus = body.consentStatus;
-  if ('consentSource' in body) d.consentSource = body.consentSource;
-
-  return d;
-}
 
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -180,88 +117,6 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── GET /api/v1/contacts/:id/account-activity ─────────────────────────────
-  // Per-Zalo-account activity summary for a contact: last inbound/outbound
-  // message + counters. Only accounts with at least one message are returned,
-  // sorted by most recent activity desc.
-  app.get('/api/v1/contacts/:id/account-activity', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const user = request.user!;
-      const { id } = request.params as { id: string };
-
-      const contact = await prisma.contact.findFirst({
-        where: { id, orgId: user.orgId },
-        select: { id: true },
-      });
-      if (!contact) return reply.status(404).send({ error: 'Contact not found' });
-
-      const conversations = await prisma.conversation.findMany({
-        where: { contactId: id, threadType: 'user' },
-        select: {
-          id: true,
-          zaloAccountId: true,
-          zaloAccount: { select: { id: true, displayName: true, phone: true, avatarUrl: true } },
-        },
-      });
-
-      const items = await Promise.all(
-        conversations.map(async (conv) => {
-          const [counts, lastIn, lastOut] = await Promise.all([
-            prisma.message.groupBy({
-              by: ['senderType'],
-              where: { conversationId: conv.id, isDeleted: false },
-              _count: true,
-            }),
-            prisma.message.findFirst({
-              where: { conversationId: conv.id, senderType: 'contact', isDeleted: false },
-              orderBy: { sentAt: 'desc' },
-              select: { id: true, content: true, contentType: true, sentAt: true },
-            }),
-            prisma.message.findFirst({
-              where: { conversationId: conv.id, senderType: 'self', isDeleted: false },
-              orderBy: { sentAt: 'desc' },
-              select: {
-                id: true, content: true, contentType: true, sentAt: true,
-                repliedByUserId: true,
-                repliedBy: { select: { id: true, fullName: true } },
-              },
-            }),
-          ]);
-
-          if (!lastIn && !lastOut) return null;
-
-          return {
-            zaloAccountId: conv.zaloAccountId,
-            zaloAccount: conv.zaloAccount,
-            conversationId: conv.id,
-            totalInbound: counts.find((c) => c.senderType === 'contact')?._count ?? 0,
-            totalOutbound: counts.find((c) => c.senderType === 'self')?._count ?? 0,
-            lastInbound: lastIn,
-            lastOutbound: lastOut,
-          };
-        }),
-      );
-
-      const filtered = items.filter((x): x is NonNullable<typeof x> => x !== null);
-      filtered.sort((a, b) => {
-        const ta = Math.max(
-          a.lastInbound?.sentAt.getTime() ?? 0,
-          a.lastOutbound?.sentAt.getTime() ?? 0,
-        );
-        const tb = Math.max(
-          b.lastInbound?.sentAt.getTime() ?? 0,
-          b.lastOutbound?.sentAt.getTime() ?? 0,
-        );
-        return tb - ta;
-      });
-
-      return { items: filtered };
-    } catch (err) {
-      logger.error('[contacts] Account activity error:', err);
-      return reply.status(500).send({ error: 'Failed to fetch account activity' });
-    }
-  });
-
   // ── GET /api/v1/contacts/:id — detail with appointments + conversation count
   app.get('/api/v1/contacts/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -285,75 +140,6 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── POST /api/v1/contacts/:id/sync-zalo-profile ────────────────────────────
-  // Pull profile (gender/birthDate/phone/avatar) from Zalo SDK via getUserInfo
-  // và cập nhật Contact những field đang null. Tận dụng bất kỳ nick Zalo nào
-  // đang connected trong org.
-  app.post('/api/v1/contacts/:id/sync-zalo-profile', async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = request.user!;
-    const { id } = request.params as { id: string };
-    const contact = await prisma.contact.findFirst({ where: { id, orgId: user.orgId } });
-    if (!contact) return reply.status(404).send({ error: 'Contact not found' });
-    if (!contact.zaloUid) return reply.status(400).send({ error: 'Contact missing zaloUid' });
-
-    // Tìm nick Zalo đang connected để dùng API
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId, status: 'connected' },
-      select: { id: true },
-    });
-    let profile: Record<string, unknown> | null = null;
-    for (const acc of accounts) {
-      const instance = zaloPool.getInstance(acc.id);
-      if (!instance?.api?.getUserInfo) continue;
-      try {
-        const result = await instance.api.getUserInfo(contact.zaloUid);
-        const profiles = result?.changed_profiles || {};
-        profile = profiles[contact.zaloUid] || profiles[`${contact.zaloUid}_0`] || null;
-        if (profile) break;
-      } catch (err) {
-        logger.warn(`[sync-profile] account ${acc.id} getUserInfo failed:`, err);
-      }
-    }
-    if (!profile) return reply.status(404).send({ error: 'Profile not found on Zalo' });
-
-    // Extract + map fields. Chỉ update nếu field hiện đang null/empty.
-    const updates: Record<string, unknown> = {};
-    const gender = profile.gender;
-    if (contact.gender == null && gender != null) {
-      updates.gender = Number(gender) === 1 ? 'female' : 'male';
-    }
-    const phoneNumber = String(profile.phoneNumber || '').trim();
-    if (!contact.phone && phoneNumber) {
-      updates.phone = phoneNumber;
-    }
-    const sdob = String(profile.sdob || '');
-    const dobTs = Number(profile.dob || 0);
-    if (!contact.birthDate) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(sdob) && !sdob.startsWith('0000')) {
-        updates.birthDate = new Date(sdob + 'T00:00:00Z');
-      } else if (dobTs && Number.isFinite(dobTs) && dobTs > 0) {
-        const ms = dobTs > 10_000_000_000 ? dobTs : dobTs * 1000;
-        updates.birthDate = new Date(ms);
-      }
-    }
-    const avatar = String(profile.avatar || '');
-    if (!contact.avatarUrl && avatar) updates.avatarUrl = avatar;
-    const zaloName = String(profile.zaloName || profile.zalo_name || profile.displayName || '');
-    if ((!contact.fullName || contact.fullName === 'Unknown') && zaloName) {
-      updates.fullName = zaloName;
-    }
-
-    if (Object.keys(updates).length === 0) {
-      return { success: true, updated: false, profile, contact };
-    }
-
-    const updatedContact = await prisma.contact.update({
-      where: { id },
-      data: updates,
-    });
-    return { success: true, updated: true, updates: Object.keys(updates), contact: updatedContact };
-  });
-
   // ── POST /api/v1/contacts — create new contact ────────────────────────────
   app.post('/api/v1/contacts', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -363,7 +149,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
-          ...pickWritableContactFields(body),
+          fullName: body.fullName,
+          crmName: body.crmName,
+          phone: body.phone,
+          email: body.email,
+          zaloUid: body.zaloUid,
+          avatarUrl: body.avatarUrl,
+          source: body.source,
+          sourceDate: body.sourceDate ? new Date(body.sourceDate) : undefined,
+          status: body.status ?? 'new',
+          nextAppointment: body.nextAppointment ? new Date(body.nextAppointment) : undefined,
+          assignedUserId: body.assignedUserId,
+          notes: body.notes,
           tags: body.tags ?? [],
           metadata: body.metadata ?? {},
         },
@@ -407,7 +204,24 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
-      const updateData = pickWritableContactFields(body);
+      const updateData: any = {
+        fullName: body.fullName,
+        crmName: body.crmName,
+        phone: body.phone,
+        email: body.email,
+        avatarUrl: body.avatarUrl,
+        source: body.source,
+        sourceDate: body.sourceDate ? new Date(body.sourceDate) : undefined,
+        status: body.status,
+        nextAppointment: body.nextAppointment ? new Date(body.nextAppointment) : undefined,
+        assignedUserId: body.assignedUserId,
+        notes: body.notes,
+        tags: body.tags,
+        metadata: body.metadata,
+      };
+      if (body.firstContactDate !== undefined) {
+        updateData.firstContactDate = body.firstContactDate ? new Date(body.firstContactDate) : null;
+      }
 
       const updated = await prisma.contact.update({
         where: { id },
@@ -463,23 +277,6 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[contacts] Update tags error:', err);
       return reply.status(500).send({ error: 'Failed to update tags' });
-    }
-  });
-
-  // ── POST /api/v1/contacts/admin/backfill-aggregates — recompute lastInbound/Outbound + counters ──
-  app.post('/api/v1/contacts/admin/backfill-aggregates', async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = request.user!;
-    if (user.role !== 'owner' && user.role !== 'admin') {
-      return reply.status(403).send({ error: 'Owner/admin only' });
-    }
-    try {
-      const messages = await backfillContactAggregates(user.orgId);
-      const friends  = await backfillFriendsFromHistory(user.orgId);
-      logger.info(`[contacts] Backfill done for org=${user.orgId}: msgs=${JSON.stringify(messages)} friends=${JSON.stringify(friends)}`);
-      return { messages, friends };
-    } catch (err) {
-      logger.error('[contacts] Backfill error:', err);
-      return reply.status(500).send({ error: 'Backfill failed' });
     }
   });
 

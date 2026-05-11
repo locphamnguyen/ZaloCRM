@@ -31,8 +31,6 @@ model Organization {
   aiSuggestions AiSuggestion[]
   pinnedConversations PinnedConversation[]
   groupPolls          GroupPoll[]
-  friendshipAttempts     FriendshipAttempt[]
-  friends                Friend[]
 
   @@map("organizations")
 }
@@ -95,8 +93,6 @@ model ZaloAccount {
   access        ZaloAccountAccess[]
   conversations Conversation[]
   dailyStats    DailyMessageStat[]
-  friendshipAttempts FriendshipAttempt[]
-  friends            Friend[]
 
   @@map("zalo_accounts")
 }
@@ -126,14 +122,14 @@ model Contact {
   fullName         String?   @map("full_name")
   crmName          String?   @map("crm_name")
   avatarUrl        String?   @map("avatar_url")
-  source           String?   // FB, TT, GT, CN, phone_import, etc.
+  source           String?   // FB, TT, GT, CN, etc.
   sourceDate       DateTime? @map("source_date")
   firstContactDate DateTime? @map("first_contact_date")
   status           String?   @default("new") // new/contacted/interested/converted/lost
   nextAppointment  DateTime? @map("next_appointment")
   assignedUserId   String?   @map("assigned_user_id")
   notes            String?
-  tags             Json      @default("[]")     // CRM tags do sale gắn ("vip","quan_tam_3pn",...). Auto tag prefix "auto:"
+  tags             Json      @default("[]")
   metadata         Json      @default("{}")
   leadScore        Int       @default(0) @map("lead_score")
   lastActivity     DateTime? @map("last_activity")
@@ -141,87 +137,16 @@ model Contact {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  // ── Discovery via friend-request attempt ─────────────────────────────────
-  hasZalo            Boolean?  @map("has_zalo")             // null=unknown, true=verified yes, false=verified no
-  zaloLookupAt       DateTime? @map("zalo_lookup_at")
-  zaloLookupAttempts Int       @default(0) @map("zalo_lookup_attempts")
-  importBatchId      String?   @map("import_batch_id")      // soft FK -> phone_list_imports.id (model later)
-
-  // ── Compliance ─────────────────────────────────────────────────────────────
-  consentStatus      String    @default("implicit") @map("consent_status") // implicit/granted/revoked
-  consentRevokedAt   DateTime? @map("consent_revoked_at")
-  consentSource      String?   @map("consent_source")       // form_landing, opt_in_msg, manual, ...
-
-  // ── Multi-phone ────────────────────────────────────────────────────────────
-  phone2             String?   @map("phone_2")
-  phone3             String?   @map("phone_3")
-  phonesExtra        Json      @default("[]") @map("phones_extra")  // [{phone,label},...]
-
-  // ── Demographic / BĐS profile ──────────────────────────────────────────────
-  province           String?
-  district           String?
-  ward               String?
-  addressLine        String?   @map("address_line")
-  gender             String?    // male/female/other/unknown
-  birthYear          Int?       @map("birth_year")
-  birthDate          DateTime? @map("birth_date") @db.Date
-  occupation         String?
-  incomeRange        String?   @map("income_range")
-  socialFacebook     String?   @map("social_facebook")
-  socialTiktok       String?   @map("social_tiktok")
-  preferredLang      String?   @default("vi") @map("preferred_lang")
-
-  // ── Aggregate: tin nhắn cuối từ KHÁCH (inbound) ───────────────────────────
-  lastInboundAt        DateTime? @map("last_inbound_at")
-  lastInboundMessageId String?   @map("last_inbound_message_id")
-  lastInboundPreview   String?   @map("last_inbound_preview")
-  lastInboundType      String?   @map("last_inbound_type")
-
-  // ── Aggregate: tin nhắn cuối từ SALE (outbound) ───────────────────────────
-  lastOutboundAt              DateTime? @map("last_outbound_at")
-  lastOutboundMessageId       String?   @map("last_outbound_message_id")
-  lastOutboundPreview         String?   @map("last_outbound_preview")
-  lastOutboundType            String?   @map("last_outbound_type")
-  lastOutboundByUserId        String?   @map("last_outbound_by_user_id")        // soft FK
-  lastOutboundByZaloAccountId String?   @map("last_outbound_by_zalo_account_id") // soft FK
-
-  // ── Aggregate: tương tác cuối (reaction/recall/edit/...) ──────────────────
-  lastInteractionAt      DateTime? @map("last_interaction_at")
-  lastInteractionType    String?   @map("last_interaction_type")
-  lastInteractionPayload Json?     @map("last_interaction_payload")
-
-  // ── Counters (cache) ───────────────────────────────────────────────────────
-  totalInbound       Int       @default(0) @map("total_inbound")
-  totalOutbound      Int       @default(0) @map("total_outbound")
-  totalAppointments  Int       @default(0) @map("total_appointments")
-
   org               Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   assignedUser      User?        @relation("AssignedContacts", fields: [assignedUserId], references: [id])
   mergedIntoContact Contact?     @relation("ContactMerge", fields: [mergedInto], references: [id])
   mergedFrom        Contact[]    @relation("ContactMerge")
   conversations     Conversation[]
   appointments      Appointment[]
-  attempts          FriendshipAttempt[]
-  friends           Friend[]
-
-  // Per-Contact counters (cache from Friend rows; updated by friend-aggregate hooks)
-  acceptedNicksCount Int @default(0) @map("accepted_nicks_count")
-  pendingNicksCount  Int @default(0) @map("pending_nicks_count")
-  chattingNicksCount Int @default(0) @map("chatting_nicks_count")
 
   @@index([orgId, phone])
   @@index([orgId, zaloUid])
   @@index([orgId, mergedInto])
-  @@index([orgId, hasZalo])
-  @@index([orgId, importBatchId])
-  @@index([orgId, consentStatus])
-  @@index([orgId, province, district])
-  @@index([orgId, lastInboundAt])
-  @@index([orgId, lastOutboundAt])
-  @@index([orgId, status, lastInboundAt])
-  @@index([phone2])
-  @@index([phone3])
-  @@index([orgId, acceptedNicksCount])
   @@map("contacts")
 }
 
@@ -233,10 +158,6 @@ model Conversation {
   contactId        String?   @map("contact_id")
   threadType       String    @default("user") // user, group
   externalThreadId String?   @map("external_thread_id")
-  // Group-specific (chỉ set khi threadType=group; resolve qua getGroupInfo từ zca-js)
-  groupName        String?   @map("group_name")
-  groupAvatarUrl   String?   @map("group_avatar_url")
-  groupMembersCount Int?     @map("group_members_count")
   lastMessageAt    DateTime? @map("last_message_at")
   unreadCount      Int       @default(0) @map("unread_count")
   isReplied        Boolean   @default(true) @map("is_replied")
@@ -550,85 +471,4 @@ model GroupPoll {
   @@unique([zaloAccountId, zaloPollId])
   @@index([orgId, groupExternalId])
   @@map("group_polls")
-}
-
-// State machine for outreach: 1 nick × 1 contact = 1 attempt
-// state: queued | looking_up | no_zalo | sent | accepted | rejected | cancelled | expired | error
-model FriendshipAttempt {
-  id            String    @id @default(uuid())
-  orgId         String    @map("org_id")
-  zaloAccountId String    @map("zalo_account_id")
-  contactId     String    @map("contact_id")
-  state         String    @default("queued")
-  zaloUidFound  String?   @map("zalo_uid_found")
-  requestMsg    String?   @map("request_msg")
-  errorCode     String?   @map("error_code")
-  errorDetail   String?   @map("error_detail")
-  queuedAt      DateTime  @default(now()) @map("queued_at")
-  lookedUpAt    DateTime? @map("looked_up_at")
-  sentAt        DateTime? @map("sent_at")
-  decidedAt     DateTime? @map("decided_at")
-
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  zaloAccount ZaloAccount  @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-  contact     Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
-
-  @@unique([zaloAccountId, contactId])
-  @@index([orgId, state])
-  @@index([contactId, state])
-  @@index([zaloAccountId, state, queuedAt])
-  @@map("friendship_attempts")
-}
-
-// Per-(nick × KH) relationship row. Created when ANY of these occur:
-//   - friend request accepted (zca-js friend_event ADD) → friendshipStatus=accepted
-//   - friend request sent successfully → friendshipStatus=pending_sent
-//   - friend request received (zca-js friend_event REQUEST, isSelf=false) → pending_received
-//   - first message exchanged with KH not yet friend → hasConversation=true, friendshipStatus=none
-// Drives both /friends UI (per-nick view) and Contact aggregate counters.
-model Friend {
-  id                 String    @id @default(uuid())
-  orgId              String    @map("org_id")
-  contactId          String    @map("contact_id")
-  zaloAccountId      String    @map("zalo_account_id")
-  zaloUidInNick      String    @map("zalo_uid_in_nick")
-
-  // ── State (2 dimensions + 1 derived) ────────────────────────────────────
-  friendshipStatus   String    @default("none") @map("friendship_status")
-                     // none | pending_sent | pending_received | accepted | rejected | removed | blocked
-  hasConversation    Boolean   @default(false) @map("has_conversation")
-  relationshipKind   String    @default("none") @map("relationship_kind")
-                     // friend | pending_friend | chatting_stranger | ghost | none
-
-  // ── Zalo-side metadata ──────────────────────────────────────────────────
-  aliasInNick        String?   @map("alias_in_nick")
-  zaloLabels         Json      @default("[]") @map("zalo_labels")          // [{id,name,color}]
-  zaloLabelsSyncedAt DateTime? @map("zalo_labels_synced_at")
-
-  // ── Lifecycle timestamps ────────────────────────────────────────────────
-  becameFriendAt     DateTime? @map("became_friend_at")
-  removedAt          DateTime? @map("removed_at")
-  firstMessageAt     DateTime? @map("first_message_at")  // first message exchanged across this pair
-
-  // ── Per-pair aggregates (set-if-newer / increment from message hooks) ──
-  lastInboundAt      DateTime? @map("last_inbound_at")
-  lastOutboundAt     DateTime? @map("last_outbound_at")
-  lastInteractionAt  DateTime? @map("last_interaction_at")
-  totalInbound       Int       @default(0) @map("total_inbound")
-  totalOutbound      Int       @default(0) @map("total_outbound")
-
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt      @map("updated_at")
-
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  contact     Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  zaloAccount ZaloAccount  @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-
-  @@unique([zaloAccountId, contactId])
-  @@unique([zaloAccountId, zaloUidInNick])
-  @@index([orgId, contactId])
-  @@index([zaloAccountId, relationshipKind])              // /friends tab filtering
-  @@index([zaloAccountId, friendshipStatus])
-  @@index([orgId, relationshipKind])
-  @@map("friends")
 }

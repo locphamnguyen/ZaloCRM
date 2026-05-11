@@ -17,7 +17,7 @@
         :selected-id="selectedConvId"
         :loading="loadingConvs"
         v-model:search="searchQuery"
-        @select="onSelectConv"
+        @select="selectConversation"
         @filter-account="onFilterAccount"
         @update:filters="onFiltersUpdate"
         @conversation-moved="onConversationMoved"
@@ -75,7 +75,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
@@ -87,8 +86,6 @@ import MobileChatView from '@/views/MobileChatView.vue';
 import { useMobile } from '@/composables/use-mobile';
 
 const { isMobile } = useMobile();
-const route = useRoute();
-const router = useRouter();
 
 const {
   conversations, selectedConvId, selectedConv, messages,
@@ -194,43 +191,6 @@ function onConversationMoved(_id: string, _tab: string) {
 // Auto-show panel khi chọn conv có contact
 const showContactPanel = ref(true);
 
-// ════════ URL routing: /chat/:convId — deep-link hội thoại ════════
-/** Khi user click 1 conv → push URL /chat/:id (watcher bên dưới sẽ trigger selectConversation) */
-function onSelectConv(convId: string) {
-  if (route.params.convId === convId) {
-    // Click lại conv đang mở → vẫn refresh messages
-    selectConversation(convId);
-    return;
-  }
-  router.push({ name: 'Chat', params: { convId } });
-}
-
-// Watch route → select conv khi convId thay đổi (deep-link, back/forward, mới click)
-watch(
-  () => route.params.convId,
-  (id) => {
-    if (typeof id === 'string' && id && id !== selectedConvId.value) {
-      selectConversation(id);
-    }
-  },
-  { immediate: false },
-);
-
-// Watch query.contactId — khi nav từ Contacts/Friends qua /chat?contactId=xxx
-// Resolve sang convId qua conversations list, rồi redirect /chat/:convId.
-watch(
-  [() => route.query.contactId, conversations],
-  ([contactId, convs]) => {
-    if (!contactId || typeof contactId !== 'string') return;
-    if (!Array.isArray(convs) || !convs.length) return;
-    const match = convs.find(c => c.contact?.id === contactId && c.threadType === 'user');
-    if (match) {
-      router.replace({ name: 'Chat', params: { convId: match.id } });
-    }
-  },
-  { deep: false, immediate: false },
-);
-
 onMounted(async () => {
   if (!isMobile.value) {
     await fetchZaloAccounts();
@@ -238,11 +198,6 @@ onMounted(async () => {
     fetchAiConfig();
     initSocket();
     registerSocketListeners(getSocket());
-    // Nếu URL đã có /chat/:convId → select luôn (deep-link)
-    const initId = route.params.convId;
-    if (typeof initId === 'string' && initId) {
-      selectConversation(initId);
-    }
   }
 });
 onUnmounted(() => {

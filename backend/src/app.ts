@@ -50,7 +50,6 @@ import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js
 import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
 import { credentialRoutes } from './modules/zalo/credential-routes.js';
-import { campaignRoutes } from './modules/campaign/campaign-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -74,15 +73,6 @@ async function bootstrap() {
     timeWindow: '1 minute',
     // Skip rate limiting for static assets — only limit API routes
     allowList: (request: { url: string }) => !request.url.startsWith('/api/'),
-  });
-
-  // Multipart upload (image/file paste vào chat)
-  const fastifyMultipart = (await import('@fastify/multipart')).default;
-  await app.register(fastifyMultipart, {
-    limits: {
-      fileSize: 25 * 1024 * 1024, // 25MB
-      files: 10,                  // tối đa 10 file mỗi message
-    },
   });
 
   // Serve compiled frontend assets in production
@@ -152,7 +142,6 @@ async function bootstrap() {
   await app.register(friendRoutes);
   await app.register(profileRoutes);
   await app.register(credentialRoutes);
-  await app.register(campaignRoutes);
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {

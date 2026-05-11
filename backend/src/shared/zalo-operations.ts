@@ -238,13 +238,9 @@ async function forwardMessage(accountId: string, msgId: string, threadId: string
 }
 
 // ─── Chat Actions ───────────────────────────────────────────────────────────
-async function addReaction(
-  accountId: string,
-  reaction: string,
-  dest: { data: { msgId: string; cliMsgId: string }; threadId: string; type: 0 | 1 },
-) {
+async function addReaction(accountId: string, reaction: any, msgData: { msgId: string; cliMsgId?: string; threadId: string; threadType: 0 | 1 }) {
   return exec({ accountId, category: 'reaction', operation: 'addReaction' },
-    (api) => api.addReaction(reaction, dest));
+    (api) => api.addReaction(reaction, msgData));
 }
 
 async function sendTypingEvent(accountId: string, threadId: string, threadType: 0 | 1) {

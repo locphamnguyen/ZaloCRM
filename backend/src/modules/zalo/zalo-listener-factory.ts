@@ -7,7 +7,6 @@ import type { Server } from 'socket.io';
 import { logger } from '../../shared/utils/logger.js';
 import { handleIncomingMessage, handleMessageUndo } from '../chat/message-handler.js';
 import { detectContentType, extractAlbumInfo, updateContactAvatar } from './zalo-message-helpers.js';
-import { handleFriendEvent } from './friend-event-handler.js';
 
 // Cached user info entry with 5-minute TTL
 export interface UserInfoCacheEntry {
@@ -55,26 +54,15 @@ async function resolveZaloName(
   return { zaloName: '', avatar: '' };
 }
 
-interface ResolvedGroup {
-  name: string;
-  avatar: string;
-  membersCount: number | null;
-}
-
-// Fetch group display name + avatar + member count from the zca-js API
-async function resolveGroupInfo(api: any, groupId: string): Promise<ResolvedGroup> {
+// Fetch group display name from the zca-js API
+async function resolveGroupName(api: any, groupId: string): Promise<string> {
   try {
     const result = await api.getGroupInfo(groupId);
     const info = result?.gridInfoMap?.[groupId];
-    const members = info?.memVerList || info?.memList || info?.members;
-    return {
-      name: info?.name || '',
-      avatar: info?.avt || info?.fullAvt || info?.avatar || '',
-      membersCount: Array.isArray(members) ? members.length : (info?.totalMember || null),
-    };
+    return info?.name || '';
   } catch (err) {
     logger.warn(`[zalo] getGroupInfo failed for ${groupId}:`, err);
-    return { name: '', avatar: '', membersCount: null };
+    return '';
   }
 }
 
@@ -119,15 +107,10 @@ export function attachZaloListener(ctx: ListenerContext): void {
         }
       }
 
-      // Resolve group info for group threads (name + avatar + members count)
+      // Resolve group name for group threads
       let groupName: string | undefined;
-      let groupAvatarUrl: string | undefined;
-      let groupMembersCount: number | undefined;
       if (isGroup && message.threadId) {
-        const groupInfo = await resolveGroupInfo(api, message.threadId);
-        groupName = groupInfo.name || undefined;
-        groupAvatarUrl = groupInfo.avatar || undefined;
-        groupMembersCount = groupInfo.membersCount ?? undefined;
+        groupName = await resolveGroupName(api, message.threadId);
       }
 
       const rawContent = message.data?.content;
@@ -148,8 +131,6 @@ export function attachZaloListener(ctx: ListenerContext): void {
         threadId: message.threadId || '',
         threadType: isGroup ? 'group' : 'user',
         groupName,
-        groupAvatarUrl,
-        groupMembersCount,
         attachments: [],
         quote: message.data?.quote,
         albumKey: album.albumKey,
@@ -177,15 +158,6 @@ export function attachZaloListener(ctx: ListenerContext): void {
     }
   });
 
-  listener.on('friend_event', async (event: any) => {
-    try {
-      await handleFriendEvent(accountId, event);
-      io?.emit('friend:event', { accountId, type: event.type, threadId: event.threadId });
-    } catch (err) {
-      logger.error(`[zalo:${accountId}] friend_event handler error:`, err);
-    }
-  });
-
   // Backfill messages delivered on reconnect (missed while disconnected)
   listener.on('old_messages', async (messages: any[], type: number) => {
     const threadType = type === 1 ? 'group' : 'user';
@@ -203,13 +175,8 @@ export function attachZaloListener(ctx: ListenerContext): void {
         }
 
         let groupName: string | undefined;
-        let groupAvatarUrl: string | undefined;
-        let groupMembersCount: number | undefined;
         if (threadType === 'group' && message.threadId) {
-          const groupInfo = await resolveGroupInfo(api, message.threadId);
-          groupName = groupInfo.name || undefined;
-          groupAvatarUrl = groupInfo.avatar || undefined;
-          groupMembersCount = groupInfo.membersCount ?? undefined;
+          groupName = await resolveGroupName(api, message.threadId);
         }
 
         const rawContent = message.data?.content;
@@ -230,8 +197,6 @@ export function attachZaloListener(ctx: ListenerContext): void {
           threadId: message.threadId || '',
           threadType,
           groupName,
-          groupAvatarUrl,
-          groupMembersCount,
           attachments: [],
           quote: message.data?.quote,
           albumKey: album.albumKey,

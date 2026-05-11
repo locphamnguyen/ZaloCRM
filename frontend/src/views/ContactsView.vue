@@ -71,7 +71,6 @@
             <th>Nguồn</th>
             <th>Trạng thái KH</th>
             <th class="w-78">Score</th>
-            <th class="w-220">Nick chăm</th>
             <th>Sale chính</th>
             <th>KH nhắn cuối</th>
             <th>Sale nhắn cuối</th>
@@ -90,13 +89,9 @@
                 </button>
               </td>
               <td>
-                <Avatar
-                  :src="contact.avatarUrl"
-                  :name="contact.crmName || contact.fullName || '?'"
-                  :size="32"
-                  :gender="contact.gender"
-                  :gradient-seed="contact.id"
-                />
+                <div class="avatar avatar-customer" :class="{ 'is-female': contact.gender === 'female' }">
+                  {{ initials(contact) }}
+                </div>
               </td>
               <td>
                 <div class="name-text">{{ contact.crmName || contact.fullName || '—' }}</div>
@@ -132,14 +127,6 @@
                 <span :class="['chip', scoreChipClass(contact.leadScore)]">
                   {{ contact.leadScore ?? 0 }}
                 </span>
-              </td>
-              <td>
-                <!-- Nick chăm: 4 chip count theo trạng thái KB -->
-                <div class="nick-count-row">
-                  <span v-for="b in nickCountChips(contact)" :key="b.kind" :class="['chip', b.cls]" :title="b.title">
-                    {{ b.icon }} {{ b.count }}
-                  </span>
-                </div>
               </td>
               <td>{{ contact.assignedUser?.fullName || '—' }}</td>
               <td>
@@ -185,114 +172,19 @@
               </td>
             </tr>
 
-            <!-- Child row: 13 cột nick chăm (MOCK data — chờ /contacts/:id/friendships) -->
+            <!-- Child row (placeholder cho Phase 3 — sẽ render danh sách nick chăm khi backend có endpoint per-contact friendships) -->
             <tr v-if="expandedId === contact.id" class="child-wrap">
-              <td colspan="17">
-                <div class="child-table-wrap">
-                  <div class="child-mock-banner">
-                    🚧 MOCK: chờ endpoint <code>GET /contacts/{id}/friendships</code> — đang dùng aggregate data
-                  </div>
-                  <table v-if="childRows(contact).length" class="child-table">
-                    <thead>
-                      <tr>
-                        <th>Nick Zalo (Sale)</th>
-                        <th>Tên CRM/Nick KH</th>
-                        <th>Tên Zalo + UID</th>
-                        <th>Trạng thái KB</th>
-                        <th>Trạng thái KH</th>
-                        <th>Nhãn CRM</th>
-                        <th>Label Zalo</th>
-                        <th>KH nhắn cuối</th>
-                        <th>Sale nhắn cuối</th>
-                        <th>In/Out</th>
-                        <th>Là bạn từ</th>
-                        <th>Auto</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(row, idx) in childRows(contact)" :key="row.id" :class="{ winner: idx === 0 }">
-                        <td>
-                          <div class="nick-cell">
-                            <Avatar :name="row.nickName" :size="26" :gradient-seed="row.id" platform="zalo" />
-                            <div class="two-line">
-                              <span class="line1">
-                                {{ row.nickName }}
-                                <span v-if="idx === 0" class="winner-badge">🏆</span>
-                              </span>
-                              <span class="line2">{{ row.salePhone }} · {{ row.saleName }}</span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span :class="['line1', { empty: !row.aliasInNick }]">
-                            {{ row.aliasInNick || '— chưa đặt —' }}
-                          </span>
-                        </td>
-                        <td>
-                          <div class="two-line">
-                            <span class="line1">{{ row.zaloName || '—' }}</span>
-                            <span class="uid">{{ row.zaloUid || 'chưa lấy' }}</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span :class="['chip', kindChipClass(row.relationshipKind)]">
-                            {{ kindLabel(row.relationshipKind) }}
-                          </span>
-                        </td>
-                        <td>
-                          <CareStatusBadge :model-value="row.careStatus" />
-                        </td>
-                        <td>
-                          <div class="tag-cell">
-                            <span v-for="t in row.crmTagsPerNick" :key="t" class="chip chip-info">{{ t }}</span>
-                            <span v-if="!row.crmTagsPerNick.length" class="empty">—</span>
-                          </div>
-                        </td>
-                        <td>
-                          <div class="tag-cell">
-                            <span v-for="lbl in row.zaloLabels" :key="lbl" class="chip chip-orange-soft">{{ lbl }}</span>
-                            <span v-if="!row.zaloLabels.length" class="empty">—</span>
-                          </div>
-                        </td>
-                        <td>
-                          <span v-if="row.lastInboundAt" class="cell-strong">{{ formatRecentDateTime(row.lastInboundAt) }}</span>
-                          <span v-else class="empty">—</span>
-                        </td>
-                        <td>
-                          <span v-if="row.lastOutboundAt" class="cell-strong">{{ formatRecentDateTime(row.lastOutboundAt) }}</span>
-                          <span v-else class="empty">—</span>
-                        </td>
-                        <td><strong>{{ row.totalInbound }}</strong> / {{ row.totalOutbound }}</td>
-                        <td>{{ row.becameFriendAt || '—' }}</td>
-                        <td>
-                          <span v-if="row.autoLabel" class="chip chip-info">{{ row.autoLabel }}</span>
-                          <span v-else class="empty">—</span>
-                        </td>
-                        <td>
-                          <div class="action-cell">
-                            <button class="row-action-btn" @click="onChildAction('chat', row)">💬</button>
-                            <button class="row-action-btn" @click="onChildAction('auto', row)">⚡</button>
-                          </div>
-                        </td>
-                      </tr>
-                      <tr v-if="hiddenChildCount(contact) > 0" class="more-row">
-                        <td colspan="13">
-                          + {{ hiddenChildCount(contact) }} nick khác đã KB (collapsed)
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  <div v-else class="child-empty">
-                    KH này chưa có nick nào chăm.
-                  </div>
+              <td colspan="16">
+                <div class="child-empty">
+                  Chi tiết các nick chăm KH này sẽ hiển thị tại đây.
+                  <span class="text-grey">(chờ endpoint <code>/contacts/{id}/friendships</code> bên backend)</span>
                 </div>
               </td>
             </tr>
           </template>
 
           <tr v-if="!loading && !contacts.length">
-            <td colspan="17" class="empty-state">Không tìm thấy KH nào khớp bộ lọc.</td>
+            <td colspan="16" class="empty-state">Không tìm thấy KH nào khớp bộ lọc.</td>
           </tr>
         </tbody>
       </table>
@@ -316,10 +208,6 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
 import DuplicateReviewDialog from '@/components/contacts/DuplicateReviewDialog.vue';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
-import type { CareStatusValue } from '@/constants/care-status';
-import Avatar from '@/components/ui/Avatar.vue';
-import { useToast } from '@/composables/use-toast';
 import {
   useContacts, useContactIntelligence,
   SOURCE_OPTIONS, STATUS_OPTIONS, GENDER_OPTIONS,
@@ -334,7 +222,6 @@ const router = useRouter();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
 const { duplicateTotal, fetchDuplicateGroups } = useContactIntelligence();
-const toast = useToast();
 
 const showDialog = ref(false);
 const showDuplicateDialog = ref(false);
@@ -362,6 +249,11 @@ function toggleExpand(id: string) {
   expandedId.value = expandedId.value === id ? null : id;
 }
 
+function initials(c: Contact): string {
+  const name = c.crmName || c.fullName || '?';
+  const parts = name.trim().split(/\s+/);
+  return (parts[parts.length - 1]?.[0] || '').toUpperCase();
+}
 function genderLabel(value: string) {
   return GENDER_OPTIONS.find(o => o.value === value)?.text ?? value;
 }
@@ -414,100 +306,7 @@ function openDetail(c: Contact) {
 function goChat(c: Contact) {
   router.push({ path: '/chat', query: { contactId: c.id } });
 }
-function onAutomation(_c: Contact) { toast.warning('Automation dialog: chưa implement'); }
-
-// ════════ Child rows (MOCK — chờ /contacts/:id/friendships) ════════
-interface ChildRow {
-  id: string;
-  nickShort: string;
-  nickName: string;
-  salePhone: string;
-  saleName: string;
-  aliasInNick: string | null;
-  zaloName: string | null;
-  zaloUid: string | null;
-  relationshipKind: 'friend' | 'pending_friend' | 'chatting_stranger' | 'ghost';
-  careStatus: CareStatusValue;
-  crmTagsPerNick: string[];
-  zaloLabels: string[];
-  lastInboundAt: string | null;
-  lastOutboundAt: string | null;
-  totalInbound: number;
-  totalOutbound: number;
-  becameFriendAt: string | null;
-  autoLabel: string | null;
-}
-
-/** MOCK — generate 1-3 child rows từ contact data có sẵn để demo accordion. */
-function childRows(contact: Contact): ChildRow[] {
-  if (!contact.zaloUid && contact.hasZalo === false) return [];
-  const baseRow: ChildRow = {
-    id: `${contact.id}-winner`,
-    nickShort: 'N1',
-    nickName: 'Thành Hs Holding',
-    salePhone: '+84 938 555 111',
-    saleName: contact.assignedUser?.fullName || 'P.C.Thành',
-    aliasInNick: contact.crmName ?? null,
-    zaloName: contact.fullName,
-    zaloUid: contact.zaloUid ?? null,
-    relationshipKind: 'friend',
-    careStatus: (contact.status as CareStatusValue) || 'interested',
-    crmTagsPerNick: contact.tags?.slice(0, 2) || [],
-    zaloLabels: [],
-    lastInboundAt: contact.lastInboundAt ?? null,
-    lastOutboundAt: contact.lastOutboundAt ?? null,
-    totalInbound: contact.totalInbound ?? 0,
-    totalOutbound: contact.totalOutbound ?? 0,
-    becameFriendAt: contact.lastActivity ? '14d trước' : null,
-    autoLabel: null,
-  };
-  return [baseRow];
-}
-
-function hiddenChildCount(_contact: Contact): number {
-  // MOCK: số nick đã KB nhưng không hiển thị (collapsed)
-  return 0;
-}
-
-function kindLabel(kind: ChildRow['relationshipKind']): string {
-  const map: Record<ChildRow['relationshipKind'], string> = {
-    friend: 'Đã KB',
-    pending_friend: 'Đã gửi mời',
-    chatting_stranger: 'Đang nhắn (lạ)',
-    ghost: 'Đã ngắt',
-  };
-  return map[kind];
-}
-function kindChipClass(kind: ChildRow['relationshipKind']): string {
-  const map: Record<ChildRow['relationshipKind'], string> = {
-    friend: 'chip-success',
-    pending_friend: 'chip-warning',
-    chatting_stranger: 'chip-info',
-    ghost: 'chip-grey',
-  };
-  return map[kind];
-}
-
-function onChildAction(action: string, row: ChildRow) {
-  if (action === 'chat') {
-    toast.success(`Mở chat qua nick ${row.nickName}`);
-  } else if (action === 'auto') {
-    toast.warning(`Automation cho cặp ${row.nickName} × KH: chưa implement`);
-  }
-}
-
-// ════════ Master row "Nick chăm" — 4 chip count ════════
-interface NickCountChip { kind: string; icon: string; count: number; cls: string; title: string }
-function nickCountChips(contact: Contact): NickCountChip[] {
-  // MOCK aggregate — chờ field nick_count_by_kind backend
-  const total = contact.hasZalo === true ? 1 : 0;
-  return [
-    { kind: 'friend', icon: '🟢', count: total, cls: 'chip-success', title: 'Đã KB' },
-    { kind: 'pending', icon: '🟡', count: 0, cls: 'chip-warning', title: 'Đã gửi mời' },
-    { kind: 'stranger', icon: '🔵', count: 0, cls: 'chip-info', title: 'Đang nhắn lạ' },
-    { kind: 'ghost', icon: '⚪', count: 0, cls: 'chip-grey', title: 'Đã ngắt' },
-  ];
-}
+function onAutomation(_c: Contact) { /* TODO: open automation dialog for contact */ }
 function onSaved() { fetchContacts(); }
 function onDeleted() { fetchContacts(); }
 function onDuplicateMerged() {
@@ -726,101 +525,12 @@ onMounted(() => {
   font-size: 12px;
   color: var(--smax-grey-700);
   font-style: italic;
-  padding: 9px;
 }
-.child-mock-banner {
-  font-size: 11px;
-  background: rgba(255,145,0,0.10);
-  color: #ef6c00;
-  padding: 5px 9px;
-  border-radius: 5px;
-  margin-bottom: 9px;
-}
-.child-mock-banner code {
+.child-empty code {
   background: white;
   padding: 1px 5px; border-radius: 4px;
-  font-size: 10.5px;
-}
-.child-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--smax-bg);
-  border-radius: 7px;
-  overflow: hidden;
-}
-.child-table thead th {
-  background: rgba(33,150,243,0.06);
-  font-size: 10.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  padding: 7px 9px;
-  color: var(--smax-grey-700);
-  font-weight: 600;
-  text-align: left;
-  border-bottom: 1px solid var(--smax-grey-200);
-}
-.child-table tbody td {
-  padding: 7px 9px;
-  font-size: 12px;
-  border-bottom: 1px solid var(--smax-grey-100);
-  vertical-align: top;
-}
-.child-table tbody tr.winner {
-  background: rgba(76,175,80,0.06);
-}
-.child-table tbody tr.more-row td {
-  text-align: center;
-  font-size: 11px;
-  color: var(--smax-grey-700);
-  font-style: italic;
-  background: var(--smax-grey-50);
-}
-
-.winner-badge {
-  display: inline-block;
-  margin-left: 4px;
   font-size: 11px;
 }
-
-.nick-cell {
-  display: flex; align-items: center; gap: 6px;
-}
-.avatar-nick {
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ffb74d, #f57c00);
-  display: flex; align-items: center; justify-content: center;
-  color: white; font-weight: 600; font-size: 10px;
-  flex-shrink: 0;
-}
-.two-line {
-  display: flex; flex-direction: column; gap: 1px;
-  min-width: 0;
-}
-.line1 { font-weight: 500; color: var(--smax-text); font-size: 12px; }
-.line2 { font-size: 10.5px; color: var(--smax-grey-700); }
-.line1.empty { color: var(--smax-grey-300); font-style: italic; font-weight: 400; }
-.uid {
-  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
-  font-size: 10px;
-  color: var(--smax-grey-700);
-  word-break: break-all;
-}
-
-.nick-count-row {
-  display: flex; gap: 3px; flex-wrap: wrap;
-}
-.nick-count-row .chip {
-  font-size: 10px;
-  padding: 2px 6px;
-}
-
-.chip-orange-soft {
-  background: rgba(255,167,38,0.18);
-  color: #ef6c00;
-}
-
-.w-220 { width: 220px; }
 
 .empty-state {
   text-align: center;

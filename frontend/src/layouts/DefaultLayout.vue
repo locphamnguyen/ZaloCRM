@@ -96,9 +96,6 @@
     <v-main class="smax-main">
       <slot />
     </v-main>
-
-    <!-- Global toast queue -->
-    <ToastContainer />
   </v-app>
 </template>
 
@@ -110,7 +107,6 @@ import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
-import ToastContainer from '@/components/ui/ToastContainer.vue';
 
 const theme = useTheme();
 const route = useRoute();
