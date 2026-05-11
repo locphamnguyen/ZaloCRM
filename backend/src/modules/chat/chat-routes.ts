@@ -168,7 +168,9 @@ export async function chatRoutes(app: FastifyInstance) {
       prisma.conversation.findMany({
         where,
         include: {
-          contact: { select: { id: true, fullName: true, crmName: true, phone: true, avatarUrl: true, zaloUid: true } },
+          // Contact: full include thay vì select hẹp — tránh race khi list refresh
+          // overwrite mất gender/totals/birthDate/... đã load ở /conversations/:id detail.
+          contact: true,
           zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true } },
           pins: { select: { id: true } },
           messages: {
