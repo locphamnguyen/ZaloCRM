@@ -243,7 +243,6 @@ function applyRichFormat(text: string, sList: StyleMark[], mList: MentionMark[])
       for (let i = start; i < end; i++) set.add(i);
       return set;
     });
-  const isMentionChar = (i: number) => mentionRanges.some(s => s.has(i));
   const isMentionStart = (i: number) => mentionRanges.some(s => s.has(i) && !s.has(i - 1));
   const isMentionEnd = (i: number) => mentionRanges.some(s => s.has(i) && !s.has(i + 1));
 
