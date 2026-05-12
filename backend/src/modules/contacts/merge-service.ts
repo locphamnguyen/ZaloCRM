@@ -67,6 +67,43 @@ export async function mergeContacts(
       data: { contactId: primaryId },
     });
 
+    // Reassign Friend rows (per-pair contact × zaloAccount).
+    // Conflict edge: nếu primary đã có Friend với cùng zaloAccountId → giữ primary's Friend,
+    // delete secondary's (vì Friend.id @@unique nên không gộp được nhiều row 1 cặp).
+    const secondaryFriends = await tx.friend.findMany({
+      where: { contactId: { in: secondaryIds } },
+      select: { id: true, zaloAccountId: true, contactId: true },
+    });
+    if (secondaryFriends.length > 0) {
+      const primaryFriendAccountIds = new Set(
+        (await tx.friend.findMany({
+          where: { contactId: primaryId },
+          select: { zaloAccountId: true },
+        })).map((f) => f.zaloAccountId),
+      );
+      const friendIdsToMove: string[] = [];
+      const friendIdsToDelete: string[] = [];
+      for (const f of secondaryFriends) {
+        if (primaryFriendAccountIds.has(f.zaloAccountId)) {
+          friendIdsToDelete.push(f.id);
+        } else {
+          friendIdsToMove.push(f.id);
+          primaryFriendAccountIds.add(f.zaloAccountId); // tránh trùng trong cùng batch
+        }
+      }
+      if (friendIdsToMove.length > 0) {
+        await tx.friend.updateMany({
+          where: { id: { in: friendIdsToMove } },
+          data: { contactId: primaryId },
+        });
+      }
+      if (friendIdsToDelete.length > 0) {
+        await tx.friend.deleteMany({
+          where: { id: { in: friendIdsToDelete } },
+        });
+      }
+    }
+
     // Update primary with merged data
     const updatedPrimary = await tx.contact.update({
       where: { id: primaryId },

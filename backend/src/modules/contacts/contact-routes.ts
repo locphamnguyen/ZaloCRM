@@ -9,7 +9,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
 import { runContactIntelligence } from './contact-intelligence.js';
-import { backfillGlobalId } from './backfill-global-id.js';
+import { backfillGlobalId, backfillOrphanFriends } from './backfill-global-id.js';
 import { runAutomationRules } from '../automation/automation-service.js';
 
 type QueryParams = Record<string, string>;
@@ -383,6 +383,40 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── GET /api/v1/contacts/:id/friendships — list Friend rows (per CRM nick chăm KH) ─
+  app.get('/api/v1/contacts/:id/friendships', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const contact = await prisma.contact.findFirst({
+        where: { id, orgId: user.orgId },
+        select: { id: true },
+      });
+      if (!contact) return reply.status(404).send({ error: 'Contact not found' });
+
+      const friendships = await prisma.friend.findMany({
+        where: { contactId: id, orgId: user.orgId },
+        include: {
+          zaloAccount: {
+            select: {
+              id: true,
+              displayName: true,
+              phone: true,
+              zaloUid: true,
+              avatarUrl: true,
+              owner: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+        orderBy: { lastInboundAt: { sort: 'desc', nulls: 'last' } },
+      });
+      return { friendships };
+    } catch (err) {
+      logger.error('[contacts] List friendships error:', err);
+      return reply.status(500).send({ error: 'Failed to list friendships' });
+    }
+  });
+
   // ── POST /api/v1/contacts/backfill-global-id — one-off Zalo globalId backfill ──
   // Resolve zaloGlobalId + zaloUsername cho contact đã có zaloUid, sau đó auto-merge
   // những contact có cùng globalId (cross-account dedup). Sync (block) để admin
@@ -393,6 +427,17 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(result);
     } catch (err) {
       logger.error('[contacts] Backfill globalId error:', err);
+      return reply.status(500).send({ error: 'Backfill failed', detail: String(err) });
+    }
+  });
+
+  // ── POST /api/v1/contacts/backfill-orphan-friends — fix Friend rows trỏ vào contact đã merged ──
+  app.post('/api/v1/contacts/backfill-orphan-friends', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const result = await backfillOrphanFriends();
+      return reply.send(result);
+    } catch (err) {
+      logger.error('[contacts] Backfill orphan friends error:', err);
       return reply.status(500).send({ error: 'Backfill failed', detail: String(err) });
     }
   });

@@ -158,3 +158,51 @@ export async function backfillGlobalId(batchSize: number = 50): Promise<Backfill
   logger.info(`[backfill] Complete: scanned=${contacts.length} resolved=${resolved} failed=${failed} merged=${merged}`);
   return { totalScanned: contacts.length, resolved, failed, autoMergedGroups: merged };
 }
+
+/**
+ * Backfill orphan Friend rows: Friend.contactId trỏ vào Contact đã merged
+ * → reassign sang primary (mergedInto). Cần chạy 1 lần sau khi cập nhật
+ * merge-service biết handle Friend, vì các merge trước đó để lại Friend orphan.
+ */
+export interface FriendBackfillResult {
+  orphanFound: number;
+  reassigned: number;
+  deletedDup: number;
+}
+
+export async function backfillOrphanFriends(): Promise<FriendBackfillResult> {
+  const result: FriendBackfillResult = { orphanFound: 0, reassigned: 0, deletedDup: 0 };
+
+  const orphans = await prisma.friend.findMany({
+    where: { contact: { mergedInto: { not: null } } },
+    select: { id: true, contactId: true, zaloAccountId: true, contact: { select: { mergedInto: true } } },
+  });
+  result.orphanFound = orphans.length;
+  if (orphans.length === 0) {
+    logger.info('[backfill-friends] No orphan Friend rows found.');
+    return result;
+  }
+  logger.info(`[backfill-friends] Found ${orphans.length} orphan Friend row(s)`);
+
+  for (const f of orphans) {
+    const primaryId = f.contact.mergedInto!;
+    // Conflict check: primary đã có Friend cho cùng zaloAccount?
+    const existing = await prisma.friend.findFirst({
+      where: { contactId: primaryId, zaloAccountId: f.zaloAccountId },
+      select: { id: true },
+    });
+    try {
+      if (existing) {
+        await prisma.friend.delete({ where: { id: f.id } });
+        result.deletedDup++;
+      } else {
+        await prisma.friend.update({ where: { id: f.id }, data: { contactId: primaryId } });
+        result.reassigned++;
+      }
+    } catch (err) {
+      logger.warn(`[backfill-friends] failed to handle Friend ${f.id}:`, err);
+    }
+  }
+  logger.info(`[backfill-friends] Complete: reassigned=${result.reassigned} deletedDup=${result.deletedDup}`);
+  return result;
+}

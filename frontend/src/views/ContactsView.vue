@@ -194,14 +194,12 @@
               </td>
             </tr>
 
-            <!-- Child row: 13 cột nick chăm (MOCK data — chờ /contacts/:id/friendships) -->
+            <!-- Child row: nick chăm (real data từ /contacts/:id/friendships) -->
             <tr v-if="expandedId === contact.id" class="child-wrap">
               <td colspan="17">
                 <div class="child-table-wrap">
-                  <div class="child-mock-banner">
-                    🚧 MOCK: chờ endpoint <code>GET /contacts/{id}/friendships</code> — đang dùng aggregate data
-                  </div>
-                  <table v-if="childRows(contact).length" class="child-table">
+                  <div v-if="friendshipLoading[contact.id]" class="child-empty">Đang tải nick chăm…</div>
+                  <table v-else-if="childRows(contact).length" class="child-table">
                     <thead>
                       <tr>
                         <th>Nick Zalo (Sale)</th>
@@ -329,6 +327,7 @@ import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
 import type { CareStatusValue } from '@/constants/care-status';
 import Avatar from '@/components/ui/Avatar.vue';
 import { useToast } from '@/composables/use-toast';
+import { api } from '@/api';
 import {
   useContacts, useContactIntelligence,
   SOURCE_OPTIONS, STATUS_OPTIONS, GENDER_OPTIONS,
@@ -349,6 +348,9 @@ const showDialog = ref(false);
 const showDuplicateDialog = ref(false);
 const selectedContact = ref<Contact | null>(null);
 const expandedId = ref<string | null>(null);
+// Real friendship data per contact (key: contactId → ChildRow[]). Fetched on first expand.
+const friendshipCache = ref<Record<string, ChildRow[]>>({});
+const friendshipLoading = ref<Record<string, boolean>>({});
 const dateFrom = ref('');
 const dateTo = ref('');
 
@@ -369,6 +371,72 @@ function changePage(p: number) {
 
 function toggleExpand(id: string) {
   expandedId.value = expandedId.value === id ? null : id;
+  if (expandedId.value === id && !friendshipCache.value[id]) {
+    void fetchFriendships(id);
+  }
+}
+
+async function fetchFriendships(contactId: string) {
+  friendshipLoading.value[contactId] = true;
+  try {
+    const res = await api.get<{ friendships: ApiFriendship[] }>(`/contacts/${contactId}/friendships`);
+    friendshipCache.value[contactId] = (res.data.friendships || []).map(mapFriendshipToChildRow);
+  } catch (err) {
+    console.error('[friendships] fetch error:', err);
+    friendshipCache.value[contactId] = [];
+  } finally {
+    friendshipLoading.value[contactId] = false;
+  }
+}
+
+interface ApiFriendship {
+  id: string;
+  zaloUidInNick: string;
+  relationshipKind: string;
+  friendshipStatus: string;
+  aliasInNick: string | null;
+  zaloLabels: unknown;
+  becameFriendAt: string | null;
+  lastInboundAt: string | null;
+  lastOutboundAt: string | null;
+  zaloAccount: {
+    id: string;
+    displayName: string | null;
+    phone: string | null;
+    zaloUid: string | null;
+    avatarUrl: string | null;
+    owner: { id: string; fullName: string } | null;
+  };
+}
+
+function mapFriendshipToChildRow(f: ApiFriendship): ChildRow {
+  const validKinds: ChildRow['relationshipKind'][] = ['friend', 'pending_friend', 'chatting_stranger', 'ghost'];
+  const kind = (validKinds.includes(f.relationshipKind as ChildRow['relationshipKind'])
+    ? f.relationshipKind
+    : 'chatting_stranger') as ChildRow['relationshipKind'];
+  const labels = Array.isArray(f.zaloLabels)
+    ? (f.zaloLabels as Array<{ name?: string }>).map(l => l.name || '').filter(Boolean)
+    : [];
+  return {
+    id: f.id,
+    nickShort: '',
+    nickName: f.zaloAccount.displayName || 'Nick',
+    salePhone: f.zaloAccount.phone || '',
+    saleName: f.zaloAccount.owner?.fullName || '—',
+    aliasInNick: f.aliasInNick,
+    zaloName: null,
+    zaloUid: f.zaloUidInNick,
+    relationshipKind: kind,
+    careStatus: 'interested' as CareStatusValue,
+    crmTagsPerNick: [],
+    zaloLabels: labels,
+    lastInboundAt: f.lastInboundAt,
+    lastOutboundAt: f.lastOutboundAt,
+    totalInbound: 0,
+    totalOutbound: 0,
+    becameFriendAt: f.becameFriendAt,
+    autoLabel: null,
+  };
 }
 
 function genderLabel(value: string) {
@@ -447,30 +515,9 @@ interface ChildRow {
   autoLabel: string | null;
 }
 
-/** MOCK — generate 1-3 child rows từ contact data có sẵn để demo accordion. */
+/** Child rows từ cache thật (load qua /contacts/:id/friendships khi expand) */
 function childRows(contact: Contact): ChildRow[] {
-  if (!contact.zaloUid && contact.hasZalo === false) return [];
-  const baseRow: ChildRow = {
-    id: `${contact.id}-winner`,
-    nickShort: 'N1',
-    nickName: 'Thành Hs Holding',
-    salePhone: '+84 938 555 111',
-    saleName: contact.assignedUser?.fullName || 'P.C.Thành',
-    aliasInNick: contact.crmName ?? null,
-    zaloName: contact.fullName,
-    zaloUid: contact.zaloUid ?? null,
-    relationshipKind: 'friend',
-    careStatus: (contact.status as CareStatusValue) || 'interested',
-    crmTagsPerNick: contact.tags?.slice(0, 2) || [],
-    zaloLabels: [],
-    lastInboundAt: contact.lastInboundAt ?? null,
-    lastOutboundAt: contact.lastOutboundAt ?? null,
-    totalInbound: contact.totalInbound ?? 0,
-    totalOutbound: contact.totalOutbound ?? 0,
-    becameFriendAt: contact.lastActivity ? '14d trước' : null,
-    autoLabel: null,
-  };
-  return [baseRow];
+  return friendshipCache.value[contact.id] || [];
 }
 
 function hiddenChildCount(_contact: Contact): number {
