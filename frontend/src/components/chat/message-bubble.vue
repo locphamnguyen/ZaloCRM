@@ -198,7 +198,7 @@ const emit = defineEmits<{
 }>();
 
 const SPECIAL_TYPES = new Set([
-  'bank_transfer', 'call', 'qr_code', 'reminder', 'poll', 'note', 'forwarded', 'rich',
+  'bank_transfer', 'call', 'qr_code', 'reminder', 'poll', 'note', 'forwarded', 'rich', 'location',
 ]);
 
 function isSpecialType(contentType: string | null | undefined): boolean {
@@ -369,7 +369,21 @@ function openVideo() {
 
 function isReminderMessage(msg: Message): boolean {
   if (!msg.content) return false;
-  try { const p = JSON.parse(msg.content); return p.action === 'msginfo.actionlist'; } catch { return false; }
+  try {
+    const p = JSON.parse(msg.content);
+    // Loại 1: notice "msginfo.actionlist" — system message thông báo tạo reminder
+    if (p.action === 'msginfo.actionlist') return true;
+    // Loại 2: reminder card (stored as contact_card, action show.profile, params.actions contains create_reminder*)
+    if (p.action === 'show.profile') {
+      const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
+      const actions = Array.isArray(params?.actions) ? params.actions : [];
+      const hasReminderAction = actions.some((a: { data?: string }) => typeof a.data === 'string' && a.data.includes('create_reminder'));
+      if (hasReminderAction) return true;
+      // Fallback: title bắt đầu bằng ⏰
+      if (typeof p.title === 'string' && p.title.trim().startsWith('⏰')) return true;
+    }
+    return false;
+  } catch { return false; }
 }
 
 // ── Call message detection (Zalo lưu dưới content_type contact_card với action recommened.*) ─
@@ -420,16 +434,25 @@ const replyPreviewText = computed(() => {
 });
 
 function getReminderTitle(msg: Message): string {
-  try { return JSON.parse(msg.content!).title || ''; } catch { return msg.content || ''; }
+  try {
+    const p = JSON.parse(msg.content!);
+    const title = String(p.title || '');
+    // Bỏ leading ⏰/emoji cho reminder card variant ("⏰ Okkk" → "Okkk")
+    return title.replace(/^[⏰🔔📅]\s*/u, '').trim() || msg.content || '';
+  } catch { return msg.content || ''; }
 }
 
 function getReminderTime(msg: Message): string | null {
   try {
     const p = JSON.parse(msg.content!);
     const params = typeof p.params === 'string' ? JSON.parse(p.params) : p.params;
+    // 1. highLightsV2 (notice variant) — có ts ms
     for (const h of (params?.highLightsV2 || [])) {
       if (h.ts > 1e12) return new Date(h.ts).toLocaleString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
+    // 2. Reminder card variant — description có sẵn time string ("Thứ Ba, 12 tháng 5 lúc 09:55")
+    const desc = String(p.description || '').trim();
+    if (desc) return desc;
   } catch {}
   return null;
 }

@@ -365,6 +365,11 @@ function lastMessagePreview(conv: Conversation): string {
     case 'poll': return prefix + '📊 ' + (titleText ? truncate(titleText, 40) : 'Bình chọn');
     case 'note': return prefix + '📝 ' + (titleText ? truncate(titleText, 40) : 'Ghi chú');
     case 'forwarded': return prefix + '↩️ ' + (titleText ? truncate(titleText, 40) : 'Chuyển tiếp');
+    case 'location': {
+      const desc = typeof parsed?.description === 'string' ? parsed.description.trim() : '';
+      const label = titleText || desc || 'Vị trí';
+      return prefix + '📍 ' + truncate(label, 50);
+    }
     case 'contact_card': return prefix + (titleText ? truncate(titleText, 40) : '👤 Danh thiếp');
     case 'rich': return prefix + '📋 Tin đặc biệt';
   }

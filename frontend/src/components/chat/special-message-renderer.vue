@@ -67,6 +67,37 @@
       <div v-if="forwardedText" class="forwarded-body" v-html="forwardedText" />
     </div>
 
+    <!-- Location / Map share — pinned or live location -->
+    <div v-else-if="type === 'location' && locationCoords" class="location-card">
+      <!-- Google Maps embed: no API key, reliable, works VN. iframe pointer-events disabled
+           để click bất kì đâu trong card → mở map full ở tab mới qua overlay <a>. -->
+      <div class="location-map-wrap">
+        <iframe
+          :src="`https://maps.google.com/maps?q=${locationCoords.lat},${locationCoords.lng}&z=16&output=embed`"
+          class="location-map"
+          loading="lazy"
+          referrerpolicy="no-referrer-when-downgrade"
+          allowfullscreen
+        ></iframe>
+        <a
+          :href="`https://www.google.com/maps?q=${locationCoords.lat},${locationCoords.lng}`"
+          target="_blank"
+          rel="noopener"
+          class="location-map-overlay"
+          :aria-label="locationTitle || 'Mở bản đồ'"
+        ></a>
+      </div>
+      <div class="location-body">
+        <div class="location-title">
+          <v-icon size="16" class="mr-1" color="error">mdi-map-marker</v-icon>
+          <strong>{{ locationTitle || 'Vị trí được chia sẻ' }}</strong>
+          <span v-if="locationIsLive" class="location-live-chip">🟢 LIVE</span>
+        </div>
+        <div v-if="locationAddress" class="location-address">{{ locationAddress }}</div>
+        <div class="location-coords">{{ locationCoords.lat.toFixed(5) }}, {{ locationCoords.lng.toFixed(5) }}</div>
+      </div>
+    </div>
+
     <!-- Generic rich content — best-effort render -->
     <div v-else class="rich-card">
       <!-- Title (multi-line + Zalo params.styles bold/italic/color applied) -->
@@ -338,6 +369,23 @@ const forwardedText = computed<string>(() => {
   const raw = props.content?.content || props.content?.text || props.content?.title || '';
   return plainFormat(typeof raw === 'string' ? raw : '');
 });
+
+// ── Location / Map share ─────────────────────────────────────────────────
+// Zalo content shape: { title, description, params: "{latitude,longitude,isUserLocation?}" }
+const locationCoords = computed<{ lat: number; lng: number } | null>(() => {
+  const p = paramsObj.value;
+  if (!p) return null;
+  const lat = Number(p.latitude ?? p.lat);
+  const lng = Number(p.longitude ?? p.lng ?? p.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+});
+const locationTitle = computed<string>(() => String(props.content?.title || '').trim());
+const locationAddress = computed<string>(() => String(props.content?.description || '').trim());
+const locationIsLive = computed<boolean>(() => {
+  const p = paramsObj.value;
+  return Number(p?.isUserLocation || 0) === 1;
+});
 </script>
 
 <style scoped>
@@ -486,5 +534,68 @@ const forwardedText = computed<string>(() => {
   background: var(--smax-primary-soft, #e3f2fd);
   padding: 0 4px;
   border-radius: 3px;
+}
+
+/* Location / Map share card */
+.location-card {
+  display: block;
+  border: 1px solid var(--smax-grey-200, #e0e0e0);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--smax-bg, #fff);
+  max-width: 300px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.location-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+/* iframe map + click overlay để không bị "kẹt" tương tác trong iframe */
+.location-map-wrap {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  background: #e9eef3;
+}
+.location-map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.location-map-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+}
+.location-body {
+  padding: 10px 12px;
+}
+.location-title {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+.location-live-chip {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #2e7d32;
+  background: rgba(46, 125, 50, 0.12);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+.location-address {
+  font-size: 12px;
+  color: var(--smax-grey-700, #5a6478);
+  line-height: 1.4;
+}
+.location-coords {
+  font-size: 10px;
+  color: var(--smax-grey-500, #9e9e9e);
+  font-family: monospace;
+  margin-top: 4px;
 }
 </style>
