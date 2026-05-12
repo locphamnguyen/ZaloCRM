@@ -33,8 +33,11 @@ export interface AppointmentFilters {
   source: 'all' | 'manual' | 'zalo'; // filter chip
 }
 
+// 5 trạng thái: 'scheduled' (chưa đến giờ) → cron auto-flip → 'overdue' khi quá hạn.
+// Sale mark thủ công sang completed/cancelled/no_show.
 export const APPOINTMENT_STATUS_OPTIONS = [
   { text: 'Đã lên lịch', value: 'scheduled' },
+  { text: 'Quá hạn', value: 'overdue' },
   { text: 'Hoàn thành', value: 'completed' },
   { text: 'Đã huỷ', value: 'cancelled' },
   { text: 'Vắng mặt', value: 'no_show' },
@@ -50,6 +53,7 @@ export const APPOINTMENT_TYPE_OPTIONS = [
 export function statusChipColor(status: string): string {
   switch (status) {
     case 'scheduled': return 'blue';
+    case 'overdue': return 'orange'; // cam để cảnh báo sale cần action
     case 'completed': return 'green';
     case 'cancelled': return 'grey';
     case 'no_show': return 'red';

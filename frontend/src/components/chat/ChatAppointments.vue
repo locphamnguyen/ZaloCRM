@@ -290,7 +290,8 @@ watch(showForm, (open) => {
 });
 
 const statusOptions = [
-  { title: 'Sắp tới', value: 'scheduled' },
+  { title: 'Đã lên lịch', value: 'scheduled' },
+  { title: 'Quá hạn', value: 'overdue' },
   { title: 'Hoàn thành', value: 'completed' },
   { title: 'Huỷ', value: 'cancelled' },
   { title: 'Không đến', value: 'no_show' },
@@ -353,9 +354,10 @@ function isPast(apt: Appointment): boolean {
 function statusColor(s: string): string {
   switch (s) {
     case 'scheduled': return 'blue';
+    case 'overdue': return 'orange'; // cảnh báo sale cần action
     case 'completed': return 'green';
     case 'cancelled': return 'grey';
-    case 'no_show': return 'orange';
+    case 'no_show': return 'red';
     default: return 'grey';
   }
 }
