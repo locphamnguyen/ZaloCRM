@@ -1,22 +1,52 @@
 <template>
   <div class="special-message" :data-type="type">
-    <!-- Bank Account card (Zalo zinstant.bankcard) — iframe render qua proxy
-         backend đổi Content-Type. Click footer mở fullsize. -->
-    <div v-if="type === 'bank_transfer' && bankCardUrl" class="bank-card">
-      <iframe
-        :src="bankCardProxyUrl"
-        class="bank-card-frame"
+    <!-- Bank Account card (Zalo zinstant.bankcard) — render UI riêng dùng VietQR API
+         Backend parse VietQR EMVCo string từ Zalo HTML → trả {bankCode, accountNumber, color, ...} -->
+    <div
+      v-if="type === 'bank_transfer' && bankCardData"
+      class="bank-card-v2"
+      :style="`background: linear-gradient(135deg, ${bankCardData.color} 0%, ${bankCardData.color}dd 100%);`"
+    >
+      <div class="bank-card-left">
+        <div class="bank-card-header">
+          <img v-if="bankCardData.logoUrl" :src="bankCardData.logoUrl" alt="bank" class="bank-card-logo" />
+          <span class="bank-card-bank-name">{{ bankCardData.bankName }}</span>
+        </div>
+        <div class="bank-card-account">{{ bankCardData.accountNumber }}</div>
+        <div class="bank-card-tagline">Quét để chuyển khoản nhanh</div>
+        <div class="bank-card-actions">
+          <button class="bank-card-btn" @click.prevent="copyAccount(bankCardData.accountNumber)">
+            <v-icon size="11">mdi-content-copy</v-icon> Sao chép STK
+          </button>
+        </div>
+      </div>
+      <img
+        v-if="bankCardData.qrImageUrl"
+        :src="bankCardData.qrImageUrl"
+        alt="QR"
+        class="bank-card-qr"
         loading="lazy"
-        referrerpolicy="no-referrer"
-        sandbox="allow-same-origin allow-scripts"
-      ></iframe>
-      <a :href="bankCardUrl" target="_blank" rel="noopener" class="bank-card-footer">
-        <v-icon size="14" color="success" class="mr-1">mdi-bank-transfer</v-icon>
-        <span>{{ bankCardLabel || 'Tài khoản ngân hàng' }}</span>
-        <v-spacer />
-        <span class="bank-card-open">Mở <v-icon size="11">mdi-open-in-new</v-icon></span>
-      </a>
+      />
     </div>
+
+    <!-- Loading state khi đang fetch data -->
+    <div v-else-if="type === 'bank_transfer' && bankCardUrl && bankCardLoading" class="bank-card-loading">
+      <v-progress-circular indeterminate size="20" width="2" />
+      <span class="ml-2">Đang tải card ngân hàng...</span>
+    </div>
+
+    <!-- Fallback nếu không parse được — click để mở Zalo URL -->
+    <a
+      v-else-if="type === 'bank_transfer' && bankCardUrl"
+      :href="bankCardUrl"
+      target="_blank"
+      rel="noopener"
+      class="bank-card-fallback"
+    >
+      <v-icon size="20" color="success">mdi-bank-transfer</v-icon>
+      <span>{{ bankCardLabel || 'Tài khoản ngân hàng' }}</span>
+      <v-icon size="14" color="grey">mdi-open-in-new</v-icon>
+    </a>
 
     <!-- Bank Transfer (legacy: có bankCode/amount inline) -->
     <v-card v-else-if="type === 'bank_transfer'" variant="tonal" color="success" class="pa-3" rounded="lg">
@@ -172,7 +202,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = defineProps<{
   type: string;
@@ -458,13 +488,46 @@ const bankCardUrl = computed<string>(() => {
   if (typeof itemUrl === 'string' && itemUrl) return itemUrl;
   return '';
 });
-// Proxy qua backend để override Content-Type application/octet-stream → text/html
-// (Zalo CDN không set X-Frame-Options nhưng sai Content-Type → iframe không render)
-const bankCardProxyUrl = computed<string>(() => {
-  const url = bankCardUrl.value;
-  if (!url) return '';
-  return `/api/v1/zalo-bankcard?url=${encodeURIComponent(url)}`;
-});
+// Backend parse VietQR EMVCo từ Zalo HTML → trả structured bank data
+interface BankCardData {
+  bankBin: string;
+  bankCode: string;
+  bankName: string;
+  accountNumber: string;
+  color: string;
+  logoUrl: string;
+  qrImageUrl: string;
+}
+const bankCardData = ref<BankCardData | null>(null);
+const bankCardLoading = ref(false);
+
+async function fetchBankCardData(url: string) {
+  bankCardLoading.value = true;
+  bankCardData.value = null;
+  try {
+    const res = await fetch(`/api/v1/zalo-bankcard?url=${encodeURIComponent(url)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.accountNumber && data?.bankCode) {
+      bankCardData.value = data as BankCardData;
+    }
+  } catch (err) {
+    console.error('[bank-card] fetch error:', err);
+  } finally {
+    bankCardLoading.value = false;
+  }
+}
+
+watch(bankCardUrl, (url) => {
+  if (url) void fetchBankCardData(url);
+  else bankCardData.value = null;
+}, { immediate: true });
+
+function copyAccount(account: string) {
+  navigator.clipboard?.writeText(account).catch(() => {
+    /* clipboard API có thể fail trên non-HTTPS — bỏ qua */
+  });
+}
 const bankCardLabel = computed<string>(() => {
   const params = paramsObj.value;
   const customMsg = params?.customMsg as Record<string, unknown> | undefined;
@@ -696,40 +759,100 @@ const linkDescription = computed<string>(() => {
   margin-top: 4px;
 }
 
-/* Bank card — iframe Zalo zinstant HTML render qua backend proxy */
-.bank-card {
-  border: 1px solid #c8e6c9;
-  border-radius: 12px;
-  overflow: hidden;
-  background: white;
-  max-width: 320px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-}
-.bank-card-frame {
-  display: block;
-  width: 100%;
-  height: 220px;
-  border: 0;
-  background: linear-gradient(135deg, #f1f8e9 0%, #e8f5e9 100%);
-}
-.bank-card-footer {
+/* Bank card v2 — render UI riêng với data từ backend (parse VietQR EMVCo) */
+.bank-card-v2 {
   display: flex;
   align-items: center;
-  padding: 7px 12px;
-  background: rgba(76, 175, 80, 0.08);
-  border-top: 1px solid #c8e6c9;
-  font-size: 11px;
-  color: #2e7d32;
-  text-decoration: none;
-  transition: background 0.15s ease;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  max-width: 360px;
+  color: white;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
 }
-.bank-card-footer:hover { background: rgba(76, 175, 80, 0.14); }
-.bank-card-open {
+.bank-card-left {
+  flex: 1;
+  min-width: 0;
+}
+.bank-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.bank-card-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: white;
+  padding: 3px;
+  object-fit: contain;
+}
+.bank-card-bank-name {
+  font-size: 13px;
   font-weight: 600;
+  opacity: 0.95;
+}
+.bank-card-account {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+  word-break: break-all;
+}
+.bank-card-tagline {
+  font-size: 11px;
+  margin-top: 4px;
+  opacity: 0.85;
+}
+.bank-card-actions {
+  margin-top: 8px;
+}
+.bank-card-btn {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
 }
+.bank-card-btn:hover { background: rgba(255, 255, 255, 0.32); }
+.bank-card-qr {
+  width: 100px;
+  height: 100px;
+  border-radius: 8px;
+  background: white;
+  padding: 4px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+.bank-card-loading {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  background: #f5f5f5;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--smax-grey-700);
+}
+.bank-card-fallback {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid #c8e6c9;
+  border-radius: 10px;
+  background: rgba(76, 175, 80, 0.06);
+  text-decoration: none;
+  color: #2e7d32;
+  font-size: 13px;
+}
+.bank-card-fallback:hover { background: rgba(76, 175, 80, 0.12); }
 
 /* QR Code card */
 .qr-card {
