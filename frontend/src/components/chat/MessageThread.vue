@@ -189,6 +189,7 @@
             @contextmenu="onContextMenu($event, item.msg)"
             @preview-image="previewImageUrl = $event"
             @toggle-reaction="onToggleReaction(item.msg, $event)"
+            @sender-click="onSenderClick(item.msg)"
           />
         </template>
 
@@ -332,6 +333,9 @@
         <div class="text-caption mt-2" style="color: #aaa;">Nhấn để đóng</div>
       </div>
     </v-dialog>
+
+    <!-- Zalo user info dialog — click avatar/sender trong group → mở -->
+    <ZaloUserInfoDialog v-model="userInfoDialog" :uid="userInfoUid" />
   </div>
 </template>
 
@@ -346,6 +350,7 @@ import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
 import MessageBubble from '@/components/chat/message-bubble.vue';
 import StickerPicker from '@/components/chat/StickerPicker.vue';
+import ZaloUserInfoDialog from '@/components/chat/ZaloUserInfoDialog.vue';
 import MessageContextMenu from '@/components/chat/message-context-menu.vue';
 import TypingIndicator from '@/components/chat/typing-indicator.vue';
 import ReplyPreviewBar from '@/components/chat/reply-preview-bar.vue';
@@ -470,13 +475,42 @@ const lastOnlineLabel = computed(() => {
 
 // ── Resolve sender avatar cho MessageBubble ─────────────────────────────────
 // User thread: incoming msgs → conversation.contact.avatarUrl
-// Group: per-sender avatar chờ backend bổ sung (tạm null, Avatar fallback initials)
+// Group: lookup per-sender qua backend cache via /api/v1/zalo-user-info/:uid
+const groupAvatarCache = ref<Record<string, string>>({}); // uid → avatar URL
+
+async function fetchGroupSenderAvatar(uid: string) {
+  if (!uid || groupAvatarCache.value[uid] !== undefined) return;
+  groupAvatarCache.value[uid] = ''; // mark fetching để tránh duplicate calls
+  try {
+    const res = await api.get(`/zalo-user-info/${uid}`);
+    groupAvatarCache.value[uid] = res.data?.avatar || '';
+  } catch {
+    groupAvatarCache.value[uid] = '';
+  }
+}
+
 function resolveSenderAvatar(msg: Message): string | null {
   if (msg.senderType === 'self') return null;
   if (props.conversation?.threadType === 'user') {
     return props.conversation?.contact?.avatarUrl || null;
   }
+  // Group: fetch async + return cached URL nếu có
+  if (msg.senderUid) {
+    if (groupAvatarCache.value[msg.senderUid] === undefined) {
+      void fetchGroupSenderAvatar(msg.senderUid);
+    }
+    return groupAvatarCache.value[msg.senderUid] || null;
+  }
   return null;
+}
+
+// ── Click avatar / sender → open Zalo profile dialog ────────────────────────
+const userInfoDialog = ref(false);
+const userInfoUid = ref('');
+function onSenderClick(msg: Message) {
+  if (!msg.senderUid || msg.senderType === 'self') return;
+  userInfoUid.value = msg.senderUid;
+  userInfoDialog.value = true;
 }
 
 // ── Reminder notice (inline timeline event) ─────────────────────────────────

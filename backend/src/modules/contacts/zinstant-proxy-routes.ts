@@ -255,4 +255,62 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(502).send({ error: 'upstream Zalo API failed' });
     }
   });
+
+  // ── GET /api/v1/zalo-user-info/:uid — lookup Zalo user info bằng UID
+  // Dùng cho: avatar member group + popup info user khi click tên/mention
+  // Cache 10 phút theo UID
+  const userInfoCache = new Map<string, { data: Record<string, unknown>; expiresAt: number }>();
+  const USER_INFO_TTL_MS = 10 * 60 * 1000;
+
+  app.get('/api/v1/zalo-user-info/:uid', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { uid } = request.params as { uid: string };
+    if (!uid) return reply.status(400).send({ error: 'uid required' });
+
+    const cached = userInfoCache.get(uid);
+    if (cached && cached.expiresAt > Date.now()) {
+      return reply.header('Cache-Control', 'private, max-age=600').send(cached.data);
+    }
+
+    const account = await prisma.zaloAccount.findFirst({
+      where: { status: 'connected' },
+      select: { id: true },
+    });
+    if (!account) return reply.status(503).send({ error: 'no connected Zalo account' });
+
+    const instance = zaloPool.getInstance(account.id);
+    const userApi = instance?.api as {
+      getUserInfo?: (uid: string) => Promise<{ changed_profiles?: Record<string, Record<string, unknown>> }>;
+    } | undefined;
+    if (!userApi?.getUserInfo) return reply.status(503).send({ error: 'Zalo API not available' });
+
+    try {
+      const result = await userApi.getUserInfo(uid);
+      const profiles = result?.changed_profiles || {};
+      const profile = profiles[uid] || profiles[`${uid}_0`];
+      if (!profile) return reply.status(404).send({ error: 'user not found' });
+
+      // Normalize fields cho frontend dễ dùng
+      const data = {
+        uid: String(uid),
+        zaloName: String(profile.zaloName || profile.zalo_name || profile.displayName || profile.display_name || ''),
+        avatar: String(profile.avatar || ''),
+        avatarBig: String(profile.avatarBig || profile.avatar || ''),
+        gender: Number(profile.gender ?? -1),
+        dob: profile.dob || profile.sdob || null,
+        sdob: profile.sdob || null,
+        phoneNumber: String(profile.phoneNumber || ''),
+        bizPkg: profile.bizPkg || null,
+        coverPhoto: String(profile.cover || profile.coverPhoto || ''),
+        status: String(profile.status || ''),
+        isFr: profile.isFr ?? 0, // 1 = friend
+        type: profile.type ?? 0,
+        userId: String(profile.userId || uid),
+      };
+      userInfoCache.set(uid, { data, expiresAt: Date.now() + USER_INFO_TTL_MS });
+      return reply.header('Cache-Control', 'private, max-age=600').send(data);
+    } catch (err) {
+      logger.warn(`[user-info] fetch error for ${uid}:`, err);
+      return reply.status(502).send({ error: 'upstream Zalo API failed' });
+    }
+  });
 }

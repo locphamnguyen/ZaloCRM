@@ -1,18 +1,23 @@
 <template>
   <div class="msg-row" :class="{ self: isSelf }">
-    <!-- Avatar bên trái cho tin nhắn đến (cả group + 1-1) -->
+    <!-- Avatar bên trái cho tin nhắn đến (cả group + 1-1) — click → mở Zalo user info -->
     <Avatar
       v-if="!isSelf"
       :src="senderAvatarUrl"
       :name="message.senderName || '?'"
       :size="32"
       :gradient-seed="message.senderUid || message.senderName || ''"
-      class="msg-avatar"
+      class="msg-avatar msg-avatar-clickable"
+      @click="emit('sender-click')"
     />
 
     <div class="bubble-wrapper">
-      <!-- Tên người gửi: hiện cho group + non-self -->
-      <div v-if="isGroup && !isSelf" class="sender-name">
+      <!-- Tên người gửi: hiện cho group + non-self, click → mở Zalo user info -->
+      <div
+        v-if="isGroup && !isSelf"
+        class="sender-name sender-name-clickable"
+        @click="emit('sender-click')"
+      >
         {{ message.senderName || 'Unknown' }}
       </div>
 
@@ -215,6 +220,7 @@ const emit = defineEmits<{
   contextmenu: [event: MouseEvent];
   'preview-image': [url: string];
   'toggle-reaction': [emoji: string];
+  'sender-click': [];
 }>();
 
 const SPECIAL_TYPES = new Set([
@@ -556,6 +562,8 @@ function openFile(href: string) {
   flex-shrink: 0;
   margin-bottom: 16px;  /* align với bubble (offset bởi sender name + time) */
 }
+.msg-avatar-clickable { cursor: pointer; transition: transform 0.1s ease; }
+.msg-avatar-clickable:hover { transform: scale(1.06); }
 .bubble-wrapper {
   max-width: 65%;
   position: relative;
@@ -567,6 +575,8 @@ function openFile(href: string) {
   margin-bottom: 3px;
   padding: 0 4px;
 }
+.sender-name-clickable { cursor: pointer; }
+.sender-name-clickable:hover { text-decoration: underline; }
 
 .message-bubble {
   padding: 8px 13px;
