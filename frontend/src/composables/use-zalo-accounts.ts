@@ -18,6 +18,8 @@ export interface ZaloAccount {
   sessionData: any;
   ownerUserId: string;
   createdAt: string;
+  proxyUrl?: string | null; // masked by backend
+  hasProxy?: boolean;
 }
 
 export function useZaloAccounts() {
@@ -65,10 +67,13 @@ export function useZaloAccounts() {
     }
   }
 
-  async function addAccount(displayName: string) {
+  async function addAccount(displayName: string, proxyUrl?: string) {
     adding.value = true;
     try {
-      await api.post('/zalo-accounts', { displayName: displayName || undefined });
+      await api.post('/zalo-accounts', {
+        displayName: displayName || undefined,
+        proxyUrl: proxyUrl?.trim() || undefined,
+      });
       await fetchAccounts();
       return true;
     } catch (err: any) {
@@ -76,6 +81,17 @@ export function useZaloAccounts() {
       return false;
     } finally {
       adding.value = false;
+    }
+  }
+
+  async function updateProxy(accountId: string, proxyUrl: string | null) {
+    try {
+      await api.put(`/zalo-accounts/${accountId}/proxy`, { proxyUrl: proxyUrl?.trim() || null });
+      await fetchAccounts();
+      return true;
+    } catch (err: any) {
+      console.error('Update proxy failed:', err);
+      return false;
     }
   }
 
@@ -166,6 +182,6 @@ export function useZaloAccounts() {
     showQRDialog, qrImage, qrScanned, scannedName, qrError,
     statusColor, statusText,
     fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
-    cancelQR, setupSocket,
+    updateProxy, cancelQR, setupSocket,
   };
 }
