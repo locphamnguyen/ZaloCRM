@@ -472,28 +472,44 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── PATCH /api/v1/friends/:id — update per-pair status + leadScore ─────
+  // ── PATCH /api/v1/friends/:id — update per-pair status / leadScore / tags ──
   app.patch('/api/v1/friends/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
-      const body = (request.body || {}) as { statusId?: string | null; leadScore?: number };
+      const body = (request.body || {}) as {
+        statusId?: string | null;
+        leadScore?: number;
+        crmTagsPerNick?: string[];
+        aliasInNick?: string | null;
+      };
       const friend = await prisma.friend.findFirst({
         where: { id, orgId: user.orgId },
         select: { id: true },
       });
       if (!friend) return reply.status(404).send({ error: 'Friend not found' });
 
-      // Validate statusId nếu set
       if (body.statusId !== undefined && body.statusId !== null) {
         const s = await prisma.status.findFirst({ where: { id: body.statusId, orgId: user.orgId } });
         if (!s) return reply.status(400).send({ error: 'Invalid statusId' });
+      }
+      // Tags: chỉ accept array string, dedup, trim, max 20 tags để tránh abuse.
+      let cleanTags: string[] | undefined;
+      if (body.crmTagsPerNick !== undefined) {
+        if (!Array.isArray(body.crmTagsPerNick)) {
+          return reply.status(400).send({ error: 'crmTagsPerNick must be array of strings' });
+        }
+        cleanTags = [...new Set(
+          body.crmTagsPerNick.map(t => String(t).trim()).filter(Boolean),
+        )].slice(0, 20);
       }
       const updated = await prisma.friend.update({
         where: { id },
         data: {
           ...(body.statusId !== undefined ? { statusId: body.statusId } : {}),
           ...(body.leadScore !== undefined ? { leadScore: Math.max(0, Math.min(100, body.leadScore)) } : {}),
+          ...(cleanTags !== undefined ? { crmTagsPerNick: cleanTags } : {}),
+          ...(body.aliasInNick !== undefined ? { aliasInNick: body.aliasInNick } : {}),
         },
       });
       return reply.send(updated);

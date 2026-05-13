@@ -376,6 +376,8 @@ import { api } from '@/api';
 const props = defineProps<{
   contactId: string | null;
   contact: Contact | null;
+  // Nick CRM đang xem KH này — dùng để xác định Friend row "active" cho per-pair tag.
+  activeZaloAccountId?: string | null;
   aiSummary: string;
   aiSummaryLoading: boolean;
   aiSentiment: AiSentiment | null;
@@ -415,6 +417,7 @@ interface FriendItem {
   leadScore: number;
   zaloDisplayName: string | null;
   zaloAvatarUrl: string | null;
+  crmTagsPerNick: string[];
   statusRef: { id: string; name: string; order: number; color: string | null } | null;
   zaloAccount: { id: string; displayName: string | null; owner: { id: string; fullName: string } | null };
 }
@@ -553,11 +556,29 @@ function onAttachAutomation() { toast.warning('Gắn automation: chờ backend s
 // MOCK: zaloLabels (per-pair native labels) chưa expose qua API
 const zaloLabels = ref<string[]>([]);
 
-// MOCK: per-pair CRM tags (Friend.crmTagsPerNick) — chờ schema delta
-const perPairTags = ref<string[]>([]);
-function onPerPairTagsChange(tags: string[]) {
-  perPairTags.value = tags;
-  toast.warning('Per-pair tag chưa wire — chờ backend');
+// Per-pair CRM tags: tags RIÊNG cho cặp (nick active × KH). KHÁC contact.tags
+// (cấp KH chung). Trigger PATCH /friends/:id để persist.
+const activeFriend = computed<FriendItem | null>(() => {
+  if (!props.activeZaloAccountId) return null;
+  return relations.value.friends.find(f => f.zaloAccount.id === props.activeZaloAccountId) || null;
+});
+const perPairTags = computed<string[]>({
+  get: () => activeFriend.value?.crmTagsPerNick || [],
+  set: (v) => {
+    if (activeFriend.value) activeFriend.value.crmTagsPerNick = v;
+  },
+});
+async function onPerPairTagsChange(tags: string[]) {
+  if (!activeFriend.value) {
+    toast.warning('Chưa xác định nick CRM nào đang chăm KH này');
+    return;
+  }
+  try {
+    await api.patch(`/friends/${activeFriend.value.id}`, { crmTagsPerNick: tags });
+  } catch (err) {
+    console.error('[ChatContactPanel] save per-pair tags failed:', err);
+    toast.error('Lưu tag thất bại');
+  }
 }
 
 // MOCK: 3 nick khác cũng chăm — chờ /contacts/:id/friendships

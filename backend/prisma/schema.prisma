@@ -710,6 +710,11 @@ model Friend {
   zaloUsername       String?   @map("zalo_username")
   zaloLabels         Json      @default("[]") @map("zalo_labels")          // [{id,name,color}]
   zaloLabelsSyncedAt DateTime? @map("zalo_labels_synced_at")
+  // Tag CRM per-pair — sale gắn tag RIÊNG cho cặp (nick này × KH này), KHÁC với
+  // Contact.tags (cấp KH chung). Vd "ưu tiên với nick này", "đã follow-up từ
+  // nick này". Format: ["tag1", "tag2", ...]. Tag Cha aggregate hiện ở
+  // ChatContactPanel section "Tag CRM hệ thống cấp KH".
+  crmTagsPerNick     Json      @default("[]") @map("crm_tags_per_nick")
 
   // ── Lifecycle timestamps ────────────────────────────────────────────────
   becameFriendAt     DateTime? @map("became_friend_at")

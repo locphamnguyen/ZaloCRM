@@ -204,12 +204,34 @@
               </span>
             </td>
 
-            <!-- Trạng thái KH (per-nick care status, 9 enum) -->
+            <!-- Trạng thái KH per-pair (dynamic từ Status table, đồng nhất với ContactsView) -->
             <td>
-              <CareStatusBadge
-                :model-value="careStatusOf(f)"
-                @update:model-value="(v) => onUpdateCareStatus(f, v)"
-              />
+              <v-menu :close-on-content-click="true">
+                <template #activator="{ props: act }">
+                  <span
+                    v-if="f.statusRef"
+                    v-bind="act"
+                    class="chip status-edit-chip"
+                    :style="{ background: chipBg(f.statusRef.color), color: chipFg(f.statusRef.color) }"
+                    :title="`Status per-pair (Cha = MAX order các con). Click đổi.`"
+                  >{{ f.statusRef.name }}</span>
+                  <span v-else v-bind="act" class="empty status-edit-chip" style="cursor:pointer">— đặt —</span>
+                </template>
+                <v-list density="compact" min-width="220" max-height="320">
+                  <v-list-item
+                    v-for="s in allStatuses"
+                    :key="s.id"
+                    :title="s.name"
+                    @click="applyFriendStatus(f, s.id)"
+                  >
+                    <template #prepend>
+                      <span class="status-dot" :style="{ background: s.color || '#9e9e9e' }"></span>
+                    </template>
+                  </v-list-item>
+                  <v-divider />
+                  <v-list-item title="— Bỏ status —" @click="applyFriendStatus(f, null)" />
+                </v-list>
+              </v-menu>
             </td>
 
             <!-- Nhãn CRM -->
@@ -312,8 +334,6 @@ import {
   GENDER_OPTIONS,
   formatRecentDateTime,
 } from '@/composables/use-contacts';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
-import type { CareStatusValue } from '@/constants/care-status';
 import Avatar from '@/components/ui/Avatar.vue';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
@@ -420,26 +440,69 @@ async function goChat(f: DbFriend) {
   }
 }
 const toast = useToast();
-function onSendInvite(f: DbFriend) {
-  toast.warning(`Gửi mời KB qua nick ${f.zaloAccount?.displayName}: chưa wire endpoint`);
+const DEFAULT_INVITE_MSG = 'Xin chào, tôi muốn kết bạn với bạn.';
+async function onSendInvite(f: DbFriend) {
+  if (!f.zaloAccountId || !f.zaloUidInNick) return;
+  if (!confirm(`Gửi mời KB tới ${f.contact?.fullName || 'KH'} qua nick ${f.zaloAccount?.displayName}?`)) return;
+  try {
+    await api.post(`/zalo-accounts/${f.zaloAccountId}/friends/requests`, {
+      userId: f.zaloUidInNick,
+      message: DEFAULT_INVITE_MSG,
+    });
+    toast.success(`Đã gửi mời KB ${f.contact?.fullName || ''}`);
+    await fetch();
+  } catch (err) {
+    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Gửi mời KB thất bại';
+    toast.error(msg);
+  }
 }
-function onCancelInvite(f: DbFriend) {
-  toast.warning(`Hủy mời KB qua nick ${f.zaloAccount?.displayName}: chưa wire endpoint`);
+async function onCancelInvite(f: DbFriend) {
+  if (!f.zaloAccountId || !f.zaloUidInNick) return;
+  if (!confirm(`Hủy mời KB ${f.contact?.fullName || 'KH'}?`)) return;
+  try {
+    await api.delete(`/zalo-accounts/${f.zaloAccountId}/friends/requests/${f.zaloUidInNick}`);
+    toast.success('Đã hủy mời KB');
+    await fetch();
+  } catch (err) {
+    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Hủy mời KB thất bại';
+    toast.error(msg);
+  }
 }
 function onAutomation(_f: DbFriend) {
   toast.warning('Automation per-pair: chưa implement');
 }
 
-// ════════ Per-pair care status (9 enum) ════════
-// MOCK: backend chưa có Friend.customerCareStatus. Map tạm vào contact.status
-// (đã có trong DbFriend.contact). User đổi → toast cảnh báo chờ schema delta.
-function careStatusOf(f: DbFriend): CareStatusValue {
-  return ((f.contact?.status as CareStatusValue) || 'new') as CareStatusValue;
+// ════════ Per-pair status (dynamic từ Status table) ════════
+interface StatusLite { id: string; name: string; order: number; color: string | null }
+const allStatuses = ref<StatusLite[]>([]);
+async function loadStatuses() {
+  if (allStatuses.value.length > 0) return;
+  try {
+    const res = await api.get<{ statuses: StatusLite[] }>('/settings/statuses');
+    allStatuses.value = res.data.statuses || [];
+  } catch { /* non-critical */ }
 }
-function onUpdateCareStatus(f: DbFriend, value: CareStatusValue) {
-  toast.warning(`Đổi care status → ${value}: chờ field Friend.customerCareStatus`);
-  void f;
+onMounted(() => { void loadStatuses(); });
+
+async function applyFriendStatus(f: DbFriend, statusId: string | null) {
+  try {
+    await api.patch(`/friends/${f.id}`, { statusId });
+    const next = statusId ? allStatuses.value.find(s => s.id === statusId) || null : null;
+    f.statusRef = next;
+    f.statusId = statusId;
+  } catch (err) {
+    toast.error('Cập nhật status thất bại');
+  }
 }
+
+function chipBg(hex: string | null | undefined): string {
+  if (!hex) return 'rgba(90,100,120,0.10)';
+  const m = hex.match(/^#([0-9a-f]{6})$/i);
+  if (!m) return 'rgba(90,100,120,0.10)';
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},0.15)`;
+}
+function chipFg(hex: string | null | undefined): string { return hex || 'var(--smax-grey-700)'; }
 
 // ════════ Nick có log (số nick đã log với KH này) ════════
 // MOCK: hiện friendsDb là per-pair, mỗi row 1 cặp. Số nick log với contactId

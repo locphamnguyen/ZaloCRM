@@ -19,6 +19,15 @@ export interface DbFriend {
   lastInteractionAt: string | null;
   totalInbound: number;
   totalOutbound: number;
+  // Per-pair CRM state
+  statusId?: string | null;
+  statusRef?: { id: string; name: string; color: string | null; order: number; isTerminal?: boolean } | null;
+  leadScore?: number;
+  crmTagsPerNick?: string[];
+  zaloDisplayName?: string | null;
+  zaloAvatarUrl?: string | null;
+  zaloGlobalId?: string | null;
+  zaloUsername?: string | null;
   contact?: {
     id: string;
     fullName: string | null;

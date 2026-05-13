@@ -110,6 +110,7 @@ export const AGGREGATE_INCLUDE = {
       zaloAvatarUrl: true,
       zaloGlobalId: true,
       zaloUsername: true,
+      crmTagsPerNick: true,
       becameFriendAt: true,
       lastInboundAt: true,
       lastOutboundAt: true,
