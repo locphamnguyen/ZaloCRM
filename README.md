@@ -204,6 +204,19 @@ Header: X-API-Key: your-api-key
 | `zalo.connected` | Zalo kết nối |
 | `zalo.disconnected` | Zalo mất kết nối |
 
+## Cộng đồng
+
+Tham gia nhóm Telegram để trao đổi, hỏi đáp, nhận thông báo bản phát hành mới:
+
+<p align="left">
+  <a href="https://t.me/+KKJ3SJSx6PA3NDE1">
+    <img src="docs/user-guide-images/qr-group-telegram.png" alt="Telegram Group QR" width="200" />
+  </a>
+</p>
+
+- 📲 **Quét QR** ở trên bằng app Telegram, hoặc
+- 🔗 **Click link:** [https://t.me/+KKJ3SJSx6PA3NDE1](https://t.me/+KKJ3SJSx6PA3NDE1)
+
 ## Dịch vụ & Hỗ trợ
 
 Bạn cần triển khai ZaloCRM cho doanh nghiệp, custom thêm tính năng riêng, hoặc tích hợp với hệ thống có sẵn? Liên hệ trực tiếp tôi để được tư vấn:
@@ -211,6 +224,7 @@ Bạn cần triển khai ZaloCRM cho doanh nghiệp, custom thêm tính năng ri
 - 🌐 **Website:** [https://locnguyendata.com](https://locnguyendata.com)
 - 📧 **Email:** [locnt@locnguyendata.com](mailto:locnt@locnguyendata.com)
 - 📱 **Điện thoại / Zalo:** [0945031039](tel:0945031039)
+- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
 
 ### Dịch vụ cung cấp
 - **Setup & deploy** ZaloCRM trên server riêng (VPS / dedicated / cloud)
