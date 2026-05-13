@@ -130,6 +130,11 @@ model Contact {
   zaloGlobalId     String?   @map("zalo_global_id")
   zaloUsername     String?   @map("zalo_username")
   phone            String?
+  // Canonical SĐT (84xxx no +/space) — auto-derive từ `phone` qua normalizePhone()
+  // trên mọi write path. Index để search exact O(log n), dedup chính xác cross-format
+  // (0xxx ↔ 84xxx ↔ +84xxx cùng map về 84xxx). Hiện chỉ index phone chính; phone2/3
+  // vẫn search via contains variants vì ít dùng.
+  phoneNormalized  String?   @map("phone_normalized")
   email            String?   @map("email")
   fullName         String?   @map("full_name")
   crmName          String?   @map("crm_name")
@@ -227,6 +232,7 @@ model Contact {
   chattingNicksCount Int @default(0) @map("chatting_nicks_count")
 
   @@index([orgId, phone])
+  @@index([orgId, phoneNormalized])
   @@index([orgId, zaloUid])
   @@unique([orgId, zaloGlobalId])
   @@index([orgId, zaloUsername])

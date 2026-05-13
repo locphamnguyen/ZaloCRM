@@ -467,18 +467,35 @@ async function runZaloLookup() {
       `/zalo-accounts/${selectedAccountId.value}/friends/lookup-by-phone`,
       { phone: query.value },
     );
-    if (res.data?.found) {
-      lookupResult.value = res.data;
-      pickedKind.value = 'lookup';
-      // Default commit mode: nếu có Contact match qua key globally-unique (globalId/username) → gợi ý attach
-      const matchByKey = contactRows.value.find(c =>
-        (res.data.globalId && c.zaloGlobalId === res.data.globalId)
-        || (res.data.username && c.zaloUsername === res.data.username)
-        || (res.data.phone && c.phone === res.data.phone),
-      );
-      lookupCommitMode.value = matchByKey ? `attach:${matchByKey.id}` : 'create';
-    } else {
+    if (!res.data?.found) {
       lookupNotFound.value = res.data?.detail || 'Không tra được trên Zalo';
+      return;
+    }
+    lookupResult.value = res.data;
+    pickedKind.value = 'lookup';
+
+    // Server-side exhaustive resolve: globalId → username → uid → phone (canonical).
+    // Trước đây check trong contactRows (top 10) — có thể miss. Giờ check toàn bộ DB.
+    try {
+      const resolveRes = await api.post<{ matched: boolean; by?: string; contact?: ContactRow }>(
+        '/contacts/resolve-by-keys',
+        {
+          zaloGlobalId: res.data.globalId,
+          zaloUsername: res.data.username,
+          zaloUid: res.data.uid,
+          phone: res.data.phone,
+        },
+      );
+      if (resolveRes.data?.matched && resolveRes.data.contact) {
+        const c = resolveRes.data.contact;
+        // Inject Contact vào contactRows nếu chưa có (để radio option hiển thị)
+        if (!contactRows.value.some(x => x.id === c.id)) contactRows.value = [c, ...contactRows.value];
+        lookupCommitMode.value = `attach:${c.id}`;
+      } else {
+        lookupCommitMode.value = 'create';
+      }
+    } catch {
+      lookupCommitMode.value = 'create';
     }
   } catch (err) {
     const msg = (err as { response?: { data?: { detail?: string } } })

@@ -262,7 +262,7 @@ export async function chatOperationsRoutes(app: FastifyInstance) {
 
       const threadType = conv.threadType === 'group' ? 1 : 0;
       await zaloOps.editMessage(conv.zaloAccountId, refs.zaloMsgId, refs.cliMsgId, content, conv.externalThreadId || '', threadType);
-      await prisma.message.update({ where: { id: refs.messageId }, data: { content, updatedAt: new Date() } });
+      await prisma.message.update({ where: { id: refs.messageId }, data: { content } });
 
       const io = (app as any).io as Server;
       io?.emit('chat:message-edited', { conversationId: id, messageId: refs.messageId, zaloMsgId: refs.zaloMsgId, content });

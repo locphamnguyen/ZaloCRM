@@ -15,6 +15,7 @@ import { backfillFriendDisplayName } from './backfill-friend-display-name.js';
 import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { runAutomationRules } from '../automation/automation-service.js';
+import { normalizePhone } from '../../shared/utils/phone.js';
 
 type QueryParams = Record<string, string>;
 
@@ -40,25 +41,25 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (status) where.status = status;
       if (assignedUserId) where.assignedUserId = assignedUserId;
       if (search) {
-        // Phone variants: VN có thể nhập 0xxx, 84xxx, +84xxx — DB phổ biến lưu 84xxx.
-        // Match cả 2 chiều: nếu user gõ 0xxx → cũng tìm 84xxx (drop 0, add 84) và ngược lại.
+        // Fast path: phone chính match phoneNormalized indexed exact (normalize input
+        // canonical về 84xxx). phone2/phone3 vẫn dùng contains variants (ít dùng).
+        const canonicalPhone = normalizePhone(search);
         const digits = search.replace(/[^\d]/g, '');
-        const phoneVariants: string[] = [];
+        const phone2_3Variants: string[] = [];
         if (digits.length >= 9) {
-          phoneVariants.push(digits);
-          if (digits.startsWith('0')) phoneVariants.push('84' + digits.slice(1));
-          else if (digits.startsWith('84')) phoneVariants.push('0' + digits.slice(2));
-          else phoneVariants.push('0' + digits, '84' + digits);
+          phone2_3Variants.push(digits);
+          if (digits.startsWith('0')) phone2_3Variants.push('84' + digits.slice(1));
+          else if (digits.startsWith('84')) phone2_3Variants.push('0' + digits.slice(2));
         }
-        const phoneClauses = phoneVariants.flatMap(p => [
-          { phone:  { contains: p } },
+        const phone23Clauses = phone2_3Variants.flatMap(p => [
           { phone2: { contains: p } },
           { phone3: { contains: p } },
         ]);
         where.OR = [
           { fullName: { contains: search, mode: 'insensitive' } },
           { crmName: { contains: search, mode: 'insensitive' } },
-          ...phoneClauses,
+          ...(canonicalPhone ? [{ phoneNormalized: { equals: canonicalPhone } }] : []),
+          ...phone23Clauses,
           { email: { contains: search, mode: 'insensitive' } },
           { zaloUid: { equals: search } },
           { zaloGlobalId: { equals: search } },
@@ -547,6 +548,63 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── POST /api/v1/contacts/resolve-by-keys — server exhaustive lookup ────────
+  // Tìm Contact theo thứ tự độ tin cậy: globalId > username > zaloUid > phone.
+  // Dùng cho NewMessageDialog sau Zalo lookup: tra đúng Contact đã có trong CRM
+  // (không bị giới hạn bởi search results frontend).
+  app.post('/api/v1/contacts/resolve-by-keys', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const body = (request.body || {}) as {
+        zaloGlobalId?: string;
+        zaloUsername?: string;
+        zaloUid?: string;
+        phone?: string;
+      };
+      const baseWhere = { orgId: user.orgId, mergedInto: null };
+      const include = {
+        assignedUser: { select: { id: true, fullName: true, email: true } },
+        statusRef: { select: { id: true, name: true, color: true, order: true, isTerminal: true } },
+        _count: { select: { conversations: true, appointments: true } },
+      };
+
+      // Order: globally-unique trước, phone sau cùng (vì có thể trùng/đổi chủ).
+      if (body.zaloGlobalId) {
+        const c = await prisma.contact.findFirst({
+          where: { ...baseWhere, zaloGlobalId: body.zaloGlobalId },
+          include,
+        });
+        if (c) return reply.send({ matched: true, by: 'zaloGlobalId', contact: c });
+      }
+      if (body.zaloUsername) {
+        const c = await prisma.contact.findFirst({
+          where: { ...baseWhere, zaloUsername: body.zaloUsername },
+          include,
+        });
+        if (c) return reply.send({ matched: true, by: 'zaloUsername', contact: c });
+      }
+      if (body.zaloUid) {
+        const c = await prisma.contact.findFirst({
+          where: { ...baseWhere, zaloUid: body.zaloUid },
+          include,
+        });
+        if (c) return reply.send({ matched: true, by: 'zaloUid', contact: c });
+      }
+      const canonicalPhone = normalizePhone(body.phone);
+      if (canonicalPhone) {
+        const c = await prisma.contact.findFirst({
+          where: { ...baseWhere, phoneNormalized: canonicalPhone },
+          include,
+        });
+        if (c) return reply.send({ matched: true, by: 'phone', contact: c });
+      }
+      return reply.send({ matched: false });
+    } catch (err) {
+      logger.error('[contacts] resolve-by-keys error:', err);
+      return reply.status(500).send({ error: 'Resolve failed', detail: String(err) });
+    }
+  });
+
   // ── POST /api/v1/conversations/ensure-by-uid — find-or-create Conv (account, uid) ─
   // Use case: user click "Nhắn tin" trong ZaloUserInfoDialog HOẶC sau khi
   // lookup-by-phone discover UID per-nick. UID phải là **UID per-viewer của nick này**
@@ -616,11 +674,14 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         if (c) linkedContactId = c.id;
       }
       if (!linkedContactId && body.phone) {
-        const c = await prisma.contact.findFirst({
-          where: { orgId: user.orgId, phone: body.phone, mergedInto: null },
-          select: { id: true },
-        });
-        if (c) linkedContactId = c.id;
+        const canonical = normalizePhone(body.phone);
+        if (canonical) {
+          const c = await prisma.contact.findFirst({
+            where: { orgId: user.orgId, phoneNormalized: canonical, mergedInto: null },
+            select: { id: true },
+          });
+          if (c) linkedContactId = c.id;
+        }
       }
 
       // commit=true → explicit commitment (NewMessageDialog "Bắt đầu chat")

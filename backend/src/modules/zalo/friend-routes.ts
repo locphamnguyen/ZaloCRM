@@ -10,6 +10,7 @@ import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.j
 import { markFriendRequestSent, applyFriendTransition } from './friend-event-handler.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { randomUUID } from 'node:crypto';
+import { normalizePhone } from '../../shared/utils/phone.js';
 
 const BASE = '/api/v1/zalo-accounts/:accountId/friends';
 
@@ -39,27 +40,18 @@ export async function friendRoutes(app: FastifyInstance) {
       if (kind && kind !== 'all') where.relationshipKind = kind;
       if (search.trim()) {
         const q = search.trim();
-        // Phone variants: VN 0xxx ↔ 84xxx — DB phổ biến lưu 84xxx, user gõ 0xxx.
-        const digits = q.replace(/[^\d]/g, '');
-        const phoneVariants: string[] = [];
-        if (digits.length >= 9) {
-          phoneVariants.push(digits);
-          if (digits.startsWith('0')) phoneVariants.push('84' + digits.slice(1));
-          else if (digits.startsWith('84')) phoneVariants.push('0' + digits.slice(2));
-          else phoneVariants.push('0' + digits, '84' + digits);
-        }
-        const phoneClauses = phoneVariants.map(p => ({ phone: { contains: p } }));
-        where.contact = {
-          OR: [
-            { fullName: { contains: q, mode: 'insensitive' } },
-            { crmName:  { contains: q, mode: 'insensitive' } },
-            ...phoneClauses,
-          ],
-        };
-        // Cũng search Friend per-identity (zaloUidInNick, zaloGlobalId, zaloUsername) ở wrapper OR
+        // Phone fast path: normalize input canonical → exact match phoneNormalized
+        // (indexed). Tránh OR contains nhiều variants chậm.
+        const canonicalPhone = normalizePhone(q);
+        const contactOr: Record<string, unknown>[] = [
+          { fullName: { contains: q, mode: 'insensitive' } },
+          { crmName:  { contains: q, mode: 'insensitive' } },
+        ];
+        if (canonicalPhone) contactOr.push({ phoneNormalized: { equals: canonicalPhone } });
+        // Search Friend per-identity + Contact OR ở 1 wrapper.
         where.AND = [
           { OR: [
-            { contact: where.contact },
+            { contact: { OR: contactOr } },
             { zaloUidInNick:   { equals: q } },
             { zaloGlobalId:    { equals: q } },
             { zaloUsername:    { equals: q } },
@@ -67,7 +59,6 @@ export async function friendRoutes(app: FastifyInstance) {
             { aliasInNick:     { contains: q, mode: 'insensitive' } },
           ] },
         ];
-        delete where.contact;
       }
 
       const [friends, total, countsRaw] = await Promise.all([
