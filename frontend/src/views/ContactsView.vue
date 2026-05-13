@@ -159,24 +159,24 @@
           <tr>
             <th class="w-32"></th>
             <th class="w-40"></th>
-            <th>Tên CRM / Zalo (KH)</th>
-            <th>SĐT</th>
-            <th>Giới tính</th>
-            <th>Tỉnh/Quận</th>
-            <th>Nguồn</th>
-            <th>Trạng thái KH</th>
+            <th class="w-200">Tên CRM / Zalo (KH)</th>
+            <th class="w-110">SĐT</th>
+            <th class="w-80">Giới tính</th>
+            <th class="w-110">Tỉnh/Quận</th>
+            <th class="w-90">Nguồn</th>
+            <th class="w-110">Trạng thái KH</th>
             <th class="w-78">Score</th>
             <th class="w-220">Nick chăm</th>
-            <th>Sale chính</th>
-            <th>KH nhắn cuối</th>
-            <th>Sale nhắn cuối</th>
-            <th>Tin (in/out)</th>
-            <th>Tags CRM</th>
-            <th>Có Zalo?</th>
-            <th v-if="visibleCols.zaloUid" title="Zalo UID per-account chính (cũ nhất)">Zalo UID</th>
-            <th v-if="visibleCols.zaloGlobalId" title="Zalo globalId toàn cục (dedup cross-account)">Global ID</th>
-            <th v-if="visibleCols.zaloUsername" title="Zalo username (handle t_xxx)">Username</th>
-            <th v-if="visibleCols.lookupState" title="Trạng thái tra Zalo qua SĐT">Lookup</th>
+            <th class="w-120">Sale chính</th>
+            <th class="w-170">KH nhắn cuối</th>
+            <th class="w-170">Sale nhắn cuối</th>
+            <th class="w-90">Tin (in/out)</th>
+            <th class="w-130">Tags CRM</th>
+            <th class="w-80">Có Zalo?</th>
+            <th v-if="visibleCols.zaloUid" class="w-130" title="Zalo UID per-account chính (cũ nhất)">Zalo UID</th>
+            <th v-if="visibleCols.zaloGlobalId" class="w-130" title="Zalo globalId toàn cục (dedup cross-account)">Global ID</th>
+            <th v-if="visibleCols.zaloUsername" class="w-130" title="Zalo username (handle t_xxx)">Username</th>
+            <th v-if="visibleCols.lookupState" class="w-110" title="Trạng thái tra Zalo qua SĐT">Lookup</th>
             <th class="w-180">Action</th>
           </tr>
         </thead>
@@ -1237,8 +1237,21 @@ onMounted(() => {
   width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
-  min-width: 1500px;
+  min-width: 1700px;
+  /* table-layout: fixed → column width tính từ <th> + width class, KHÔNG recalc
+     theo content tbody. Tránh nhảy layout khi expand row con (child-table có content
+     rộng/hẹp khác). Cells overflow ellipsis nếu nội dung dài. */
+  table-layout: fixed;
 }
+.smax-table > thead > tr > th,
+.smax-table > tbody > tr.master-row > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* white-space: nowrap ở thead đã set bên trên; td cho phép wrap nếu cần */
+}
+/* Child table inside expanded row dùng layout auto của riêng nó — KHÔNG bị
+   table-layout: fixed của bảng cha kế thừa vì là table riêng. */
+.child-table { table-layout: auto; }
 /* Sticky header: pin thead Cha khi scroll. CHỈ direct descendant > > > —
    tránh leak sticky xuống .child-table thead (nested inside expanded row → đè lên nhau). */
 .smax-table > thead > tr > th {
@@ -1283,7 +1296,14 @@ onMounted(() => {
 .w-32 { width: 32px; }
 .w-40 { width: 40px; }
 .w-78 { width: 78px; }
+.w-80 { width: 80px; }
+.w-90 { width: 90px; }
+.w-110 { width: 110px; }
+.w-120 { width: 120px; }
+.w-130 { width: 130px; }
+.w-170 { width: 170px; }
 .w-180 { width: 180px; }
+.w-200 { width: 200px; }
 
 .expand-btn {
   background: transparent; border: none;
