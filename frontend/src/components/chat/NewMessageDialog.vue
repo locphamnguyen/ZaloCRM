@@ -66,12 +66,12 @@
             no-data-text="Không tìm thấy nick nào"
             @update:model-value="onPickNick"
           >
-            <template #item="{ props: itemProps, item }">
-              <v-list-item v-bind="itemProps" :title="undefined">
+            <template #item="slotProps">
+              <v-list-item v-bind="slotProps.props" :title="undefined">
                 <div class="nick-option">
-                  <Avatar :name="(item.raw as AccountLite).displayName || 'Nick'" :size="28" :gradient-seed="(item.raw as AccountLite).id" platform="zalo" />
+                  <Avatar :name="rawAcc(slotProps).displayName || 'Nick'" :size="28" :gradient-seed="rawAcc(slotProps).id" platform="zalo" />
                   <div class="nick-option-body">
-                    <div class="nick-option-name">{{ (item.raw as AccountLite).displayName || 'Nick chưa đặt tên' }}</div>
+                    <div class="nick-option-name">{{ rawAcc(slotProps).displayName || 'Nick chưa đặt tên' }}</div>
                   </div>
                 </div>
               </v-list-item>
@@ -333,6 +333,14 @@ const toast = useToast();
 const selectedAccount = computed(() =>
   props.accounts.find(a => a.id === selectedAccountId.value) || null,
 );
+
+// Vuetify v-autocomplete slot #item: type của item là { raw, value, title }
+// nhưng version khác nhau giữa local/docker. Cast 'any' rồi pull raw cho an toàn.
+function rawAcc(slotProps: { item: { raw?: AccountLite } | AccountLite }): AccountLite {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const item = slotProps.item as any;
+  return (item?.raw ?? item) as AccountLite;
+}
 const accountTitle = computed(() => selectedAccount.value?.displayName || 'nick');
 
 const selectedAccountId = ref<string | null>(props.defaultAccountId ?? null);
