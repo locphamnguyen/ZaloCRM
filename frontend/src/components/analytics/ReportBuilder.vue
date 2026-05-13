@@ -48,8 +48,8 @@
       </v-row>
 
       <!-- Results chart -->
-      <div v-if="result" class="mt-4">
-        <Bar :data="resultChartData!" :options="chartOptions" style="height: 300px;" />
+      <div v-if="result" class="mt-4 chart-wrap">
+        <Bar :data="resultChartData!" :options="chartOptions" />
       </div>
 
       <!-- Saved reports -->
@@ -187,3 +187,7 @@ const chartOptions = {
   scales: { y: { beginAtZero: true } },
 };
 </script>
+
+<style scoped>
+.chart-wrap { position: relative; height: 320px; width: 100%; }
+</style>

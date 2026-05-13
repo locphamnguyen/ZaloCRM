@@ -2,7 +2,9 @@
   <v-card>
     <v-card-title class="text-body-1">Phễu chuyển đổi</v-card-title>
     <v-card-text>
-      <Bar v-if="chartData" :data="chartData" :options="chartOptions" style="height: 280px;" />
+      <div v-if="chartData" class="chart-wrap">
+        <Bar :data="chartData" :options="chartOptions" />
+      </div>
       <div v-else class="text-center pa-8 text-grey">Không có dữ liệu</div>
       <div v-if="data?.avgConversionDays" class="text-caption text-grey mt-2 text-center">
         Thời gian chuyển đổi trung bình: {{ data.avgConversionDays }} ngày
@@ -63,6 +65,7 @@ const chartOptions = {
   indexAxis: 'y' as const,
   responsive: true,
   maintainAspectRatio: false,
+  resizeDelay: 50,
   plugins: {
     legend: { display: false },
     tooltip: {
@@ -79,3 +82,11 @@ const chartOptions = {
   },
 };
 </script>
+
+<style scoped>
+.chart-wrap {
+  position: relative;
+  height: 320px;
+  width: 100%;
+}
+</style>
