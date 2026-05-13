@@ -185,50 +185,7 @@
 
       <!-- ══════ TAB 2: QUAN HỆ (per-nick) ══════ -->
       <div v-show="activeTab === 'relations'" class="tab-pane">
-        <!-- Parent block: hiện khi contact là Con -->
-        <section v-if="relations.parent" class="ip-section">
-          <div class="ip-section-title">
-            <span class="accent" style="background: var(--smax-primary)" />
-            🔗 KH Cha của khách này
-            <span class="scope-tag global">link mềm</span>
-          </div>
-          <div class="parent-card">
-            <Avatar :src="relations.parent.avatarUrl" :name="relations.parent.fullName || '?'" :size="40" :gradient-seed="relations.parent.id" />
-            <div class="parent-info">
-              <div class="parent-name">{{ relations.parent.fullName || '—' }}</div>
-              <div class="parent-meta">
-                <span v-if="relations.parent.phone">📞 {{ relations.parent.phone }}</span>
-                <span v-if="relations.parent.statusRef" class="chip" :style="{ background: chipBg(relations.parent.statusRef.color), color: chipFg(relations.parent.statusRef.color) }">{{ relations.parent.statusRef.name }}</span>
-                <span class="chip chip-grey">{{ relations.parent.leadScore ?? 0 }}đ</span>
-              </div>
-            </div>
-            <button class="btn-sm" @click="onUnlinkSelf">✂ Tách</button>
-          </div>
-        </section>
-
-        <!-- Children block: hiện khi contact là Cha -->
-        <section v-if="relations.children.length" class="ip-section">
-          <div class="ip-section-title">
-            <span class="accent" style="background: var(--smax-success)" />
-            👶 KH Con ({{ relations.children.length }})
-            <span class="scope-tag global">Cha của nhiều con</span>
-          </div>
-          <div class="children-list">
-            <div v-for="kid in relations.children" :key="kid.id" class="children-row">
-              <Avatar :src="kid.avatarUrl" :name="kid.fullName || '?'" :size="32" :gradient-seed="kid.id" />
-              <div class="children-info">
-                <div class="children-name">{{ kid.fullName || '—' }}</div>
-                <div class="children-meta">
-                  <span class="uid">{{ kid.zaloUid || '—' }}</span>
-                  <span v-if="kid.statusRef" class="chip" :style="{ background: chipBg(kid.statusRef.color), color: chipFg(kid.statusRef.color) }">{{ kid.statusRef.name }}</span>
-                  <span class="chip chip-grey">{{ kid.leadScore ?? 0 }}đ</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- Friends (nick CRM chăm) — real data từ /contacts/:id -->
+        <!-- Nick CRM chăm (= KH Con per nick) — real data từ /contacts/:id -->
         <section v-if="relations.friends.length" class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: var(--smax-info)" />
@@ -248,6 +205,14 @@
                   <span class="uid">UID:{{ f.zaloUidInNick }}</span>
                 </div>
                 <div class="friend-meta">
+                  <span
+                    v-if="f.statusRef"
+                    class="chip"
+                    :style="{ background: chipBg(f.statusRef.color), color: chipFg(f.statusRef.color) }"
+                  >{{ f.statusRef.name }}</span>
+                  <span class="chip chip-grey">{{ f.leadScore ?? 0 }}đ</span>
+                </div>
+                <div class="friend-meta">
                   <span>📥 {{ f.totalInbound }}</span>
                   <span>📤 {{ f.totalOutbound }}</span>
                   <span v-if="f.becameFriendAt">KB: {{ relativeTime(f.becameFriendAt) }}</span>
@@ -259,12 +224,8 @@
         </section>
 
         <!-- Empty state -->
-        <div v-if="!relations.parent && !relations.children.length && !relations.friends.length" class="tab-empty">
-          <p>KH này chưa có quan hệ nào:</p>
-          <ul>
-            <li>Chưa được gắn vào KH Cha</li>
-            <li>Chưa có nick CRM nào kết bạn</li>
-          </ul>
+        <div v-if="!relations.friends.length" class="tab-empty">
+          <p>KH này chưa có nick CRM nào chăm.</p>
         </div>
 
         <!-- Label Zalo native (per-nick) -->
@@ -409,47 +370,31 @@ const {
 // ════════ Tab state (persist sang tab khác KH khác) ════════
 const activeTab = ref<'profile' | 'relations' | 'activity'>('profile');
 
-// ════════ Relations data (parent/children/friends) — fetch khi đổi contact ═══
-interface RelationsState {
-  parent: Contact | null;
-  children: Contact[];
-  friends: Array<{
-    id: string;
-    zaloUidInNick: string;
-    relationshipKind: string;
-    totalInbound: number;
-    totalOutbound: number;
-    becameFriendAt: string | null;
-    lastInboundAt: string | null;
-    zaloAccount: { id: string; displayName: string | null; owner: { id: string; fullName: string } | null };
-  }>;
+// ════════ Relations data (friends per nick = KH Con) — fetch khi đổi contact ═══
+interface FriendItem {
+  id: string;
+  zaloUidInNick: string;
+  relationshipKind: string;
+  totalInbound: number;
+  totalOutbound: number;
+  becameFriendAt: string | null;
+  lastInboundAt: string | null;
+  leadScore: number;
+  statusRef: { id: string; name: string; order: number; color: string | null } | null;
+  zaloAccount: { id: string; displayName: string | null; owner: { id: string; fullName: string } | null };
 }
-const relations = ref<RelationsState>({ parent: null, children: [], friends: [] });
+interface RelationsState {
+  friends: FriendItem[];
+}
+const relations = ref<RelationsState>({ friends: [] });
 
 async function fetchRelations(contactId: string) {
   try {
-    const res = await api.get<Contact & RelationsState>(`/contacts/${contactId}`);
-    relations.value = {
-      parent: res.data.parent || null,
-      children: res.data.children || [],
-      friends: res.data.friends || [],
-    };
+    const res = await api.get<{ friends?: FriendItem[] }>(`/contacts/${contactId}`);
+    relations.value = { friends: res.data.friends || [] };
   } catch (err) {
     console.error('[ChatContactPanel] fetchRelations error:', err);
-    relations.value = { parent: null, children: [], friends: [] };
-  }
-}
-
-async function onUnlinkSelf() {
-  if (!props.contactId) return;
-  if (!confirm('Tách KH này khỏi KH Cha?')) return;
-  try {
-    await api.post(`/contacts/${props.contactId}/unlink-parent`);
-    toast.success('Đã tách');
-    await fetchRelations(props.contactId);
-    emit('saved');
-  } catch (err) {
-    toast.error('Tách thất bại');
+    relations.value = { friends: [] };
   }
 }
 
@@ -606,7 +551,7 @@ watch(() => props.contactId, (id) => {
   activeTab.value = 'profile';
   noteExpanded.value = false;
   if (id) void fetchRelations(id);
-  else relations.value = { parent: null, children: [], friends: [] };
+  else relations.value = { friends: [] };
 }, { immediate: true });
 
 function relativeTime(dateStr: string) {

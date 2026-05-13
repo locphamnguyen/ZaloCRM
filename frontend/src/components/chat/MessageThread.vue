@@ -43,19 +43,6 @@
               :model-value="(conversation.contact.status as string | null) || 'new'"
               @update:model-value="onCareStatusChange"
             />
-            <!-- Parent-child relationship badge -->
-            <span
-              v-if="conversation.contact?.parentContactId"
-              class="relation-badge relation-child"
-              title="KH này là KH Con. Click để xem KH Cha trong tab Quan hệ."
-              @click="$emit('toggle-contact-panel')"
-            >🔗 KH Con</span>
-            <span
-              v-else-if="(conversation.contact?.childrenCount || 0) > 0"
-              class="relation-badge relation-parent"
-              :title="`Cha của ${conversation.contact?.childrenCount} KH Con`"
-              @click="$emit('toggle-contact-panel')"
-            >📂 Cha của {{ conversation.contact?.childrenCount }}</span>
           </div>
 
           <!-- Row 2: nick avatar + nick name | in/out | last online -->
@@ -134,18 +121,12 @@
               <v-list-item prepend-icon="mdi-magnify" title="Tìm trong hội thoại" @click="toast.push('Tìm: chưa implement')" />
               <v-list-item prepend-icon="mdi-note-edit-outline" title="Ghi chú nhanh" @click="onOpenNote" />
               <v-divider />
-              <!-- Parent-Child link/unlink -->
+              <!-- Merge KH này vào KH khác (transfer Friends + delete source Contact) -->
               <v-list-item
-                v-if="conversation.contact && !conversation.contact.parentContactId"
-                prepend-icon="mdi-link-variant-plus"
-                title="🔗 Gắn vào KH Cha"
+                v-if="conversation.contact"
+                prepend-icon="mdi-merge"
+                title="🔗 Gắn vào KH Cha (merge)"
                 @click="showLinkParentDialog = true"
-              />
-              <v-list-item
-                v-if="conversation.contact?.parentContactId"
-                prepend-icon="mdi-link-variant-off"
-                title="✂ Tách khỏi KH Cha"
-                @click="onUnlinkParent"
               />
               <v-divider />
               <v-list-item prepend-icon="mdi-bell-off-outline" title="Tắt thông báo" @click="toast.push('Mute: chưa implement')" />
@@ -449,21 +430,8 @@ const showForwardDialog = ref(false);
 const showLinkParentDialog = ref(false);
 
 async function onLinkedParent() {
-  toast.success('Đã gắn vào KH Cha');
+  toast.success('Đã merge KH này vào KH Cha — conversations + friends đã chuyển');
   emit('refresh-thread');
-}
-
-async function onUnlinkParent() {
-  const contactId = props.conversation?.contact?.id;
-  if (!contactId) return;
-  try {
-    await api.post(`/contacts/${contactId}/unlink-parent`);
-    toast.success('Đã tách thành KH Cha riêng');
-    emit('refresh-thread');
-  } catch (err) {
-    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Tách thất bại';
-    toast.error(msg);
-  }
 }
 const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const currentTypers = computed(() => props.typingUsers || []);
@@ -1010,18 +978,6 @@ watch(() => props.conversation?.id, async (newId) => {
 }
 
 /* ════════ Chat header (2-row layout) ════════ */
-.relation-badge {
-  display: inline-flex; align-items: center;
-  padding: 2px 8px; border-radius: 9px;
-  font-size: 10.5px; font-weight: 600;
-  margin-left: 6px; cursor: pointer;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-}
-.relation-child { background: rgba(33,150,243,0.12); color: #1565c0; }
-.relation-child:hover { background: rgba(33,150,243,0.20); }
-.relation-parent { background: rgba(124,77,255,0.14); color: #4527a0; }
-.relation-parent:hover { background: rgba(124,77,255,0.22); }
 .chat-header {
   background: var(--smax-bg);
   padding: 10px 17px;

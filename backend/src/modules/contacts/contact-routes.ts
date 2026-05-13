@@ -30,12 +30,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         source = '',
         status = '',
         assignedUserId = '',
-        showChildren = '',  // 'true' → bỏ filter cha-only, show flat (cha + con)
       } = request.query as QueryParams;
 
       const where: any = { orgId: user.orgId, mergedInto: null };
-      // Default: chỉ hiện KH Cha (parentContactId IS NULL). Toggle showChildren=true để show cả con.
-      if (showChildren !== 'true') where.parentContactId = null;
+      // Model B: mỗi Contact tự nó là "KH Cha"; con = Friend rows. KHÔNG filter parentContactId.
       if (source) where.source = source;
       if (status) where.status = status;
       if (assignedUserId) where.assignedUserId = assignedUserId;
@@ -56,7 +54,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           where,
           include: {
             assignedUser: { select: { id: true, fullName: true, email: true } },
-            _count: { select: { conversations: true, appointments: true, children: true } },
+            _count: { select: { conversations: true, appointments: true } },
             ...AGGREGATE_INCLUDE,
           },
           orderBy: { updatedAt: 'desc' },
@@ -66,37 +64,15 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         prisma.contact.count({ where }),
       ]);
 
-      // Aggregate Friend rows theo relationshipKind cho từng contact (gồm CON nếu là Cha).
-      // Hiển thị 4 chip nick chăm (friend / pending_friend / chatting_stranger / ghost).
-      const allContactIds = new Set<string>();
-      const childrenByParent = new Map<string, string[]>();
-      for (const c of contacts) {
-        allContactIds.add(c.id);
-        const kidIds = (c.children ?? []).map((k) => k.id);
-        childrenByParent.set(c.id, kidIds);
-        kidIds.forEach((id) => allContactIds.add(id));
-      }
-      const friendCounts = allContactIds.size === 0 ? [] : await prisma.friend.groupBy({
-        by: ['contactId', 'relationshipKind'],
-        where: { contactId: { in: Array.from(allContactIds) } },
-        _count: { _all: true },
-      });
-      const perContactKind = new Map<string, Record<string, number>>();
-      for (const row of friendCounts) {
-        const map = perContactKind.get(row.contactId) || {};
-        map[row.relationshipKind] = row._count._all;
-        perContactKind.set(row.contactId, map);
-      }
-      // Aggregate: cha gom counts từ chính cha + tất cả con
+      // Aggregate counts per relationshipKind từ friends đã include sẵn.
+      // Model B: friends = "KH Con". Hiển thị 4 chip nick chăm trên master row.
       const enriched = contacts.map((c) => {
-        const ids = [c.id, ...(childrenByParent.get(c.id) || [])];
-        const merged: Record<string, number> = {};
-        for (const id of ids) {
-          const m = perContactKind.get(id) || {};
-          for (const [k, v] of Object.entries(m)) merged[k] = (merged[k] || 0) + v;
+        const nicksByKind: Record<string, number> = {};
+        for (const f of c.friends ?? []) {
+          nicksByKind[f.relationshipKind] = (nicksByKind[f.relationshipKind] || 0) + 1;
         }
         const display = computeAggregateDisplay(c);
-        return { ...c, nicksByKind: merged, ...display };
+        return { ...c, nicksByKind, ...display };
       });
 
       return { contacts: enriched, total, page: pageNum, limit: limitNum };
@@ -157,7 +133,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── GET /api/v1/contacts/:id — detail + parent + children + friends + appointments ──
+  // ── GET /api/v1/contacts/:id — detail + friends (per nick) + appointments ──
+  // Model B: KH Con = Friend row. Cha aggregate displayStatus/displayLeadScore/
+  // displayHasZalo từ friends (xem contact-aggregate-display.ts).
   app.get('/api/v1/contacts/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -168,28 +146,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         include: {
           assignedUser: { select: { id: true, fullName: true, email: true } },
           appointments: { orderBy: { appointmentDate: 'desc' }, take: 10 },
-          _count: { select: { conversations: true, children: true } },
+          _count: { select: { conversations: true } },
           ...AGGREGATE_INCLUDE,
-          // Parent (if this contact is a child)
-          parent: {
-            select: {
-              id: true, fullName: true, crmName: true, avatarUrl: true, phone: true,
-              zaloUid: true, leadScore: true, hasZalo: true,
-              statusRef: { select: { id: true, name: true, order: true, color: true, isTerminal: true } },
-            },
-          },
-          // Friends (per CRM nick chăm). Include zaloAccount + owner user for display.
-          friends: {
-            include: {
-              zaloAccount: {
-                select: {
-                  id: true, displayName: true, phone: true, zaloUid: true, avatarUrl: true,
-                  owner: { select: { id: true, fullName: true } },
-                },
-              },
-            },
-            orderBy: { lastInboundAt: { sort: 'desc', nulls: 'last' } },
-          },
         },
       });
 
@@ -490,6 +448,65 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[contacts] Backfill globalId error:', err);
       return reply.status(500).send({ error: 'Backfill failed', detail: String(err) });
+    }
+  });
+
+  // ── PATCH /api/v1/friends/:id — update per-pair status + leadScore ─────
+  app.patch('/api/v1/friends/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const body = (request.body || {}) as { statusId?: string | null; leadScore?: number };
+      const friend = await prisma.friend.findFirst({
+        where: { id, orgId: user.orgId },
+        select: { id: true },
+      });
+      if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+
+      // Validate statusId nếu set
+      if (body.statusId !== undefined && body.statusId !== null) {
+        const s = await prisma.status.findFirst({ where: { id: body.statusId, orgId: user.orgId } });
+        if (!s) return reply.status(400).send({ error: 'Invalid statusId' });
+      }
+      const updated = await prisma.friend.update({
+        where: { id },
+        data: {
+          ...(body.statusId !== undefined ? { statusId: body.statusId } : {}),
+          ...(body.leadScore !== undefined ? { leadScore: Math.max(0, Math.min(100, body.leadScore)) } : {}),
+        },
+      });
+      return reply.send(updated);
+    } catch (err) {
+      logger.error('[friends] update error:', err);
+      return reply.status(500).send({ error: 'Failed to update friend' });
+    }
+  });
+
+  // ── POST /api/v1/contacts/:id/merge-into — gắn Contact này làm Friends của Contact Cha ──
+  // Move all Friends + Conversations + Appointments từ source → target, mark source mergedInto.
+  // Use case: sale realize 2 Contact thực ra là cùng person (vd 2 Zalo account khác globalId).
+  app.post('/api/v1/contacts/:id/merge-into', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id: sourceId } = request.params as { id: string };
+      const { parentContactId: targetId } = (request.body || {}) as { parentContactId?: string };
+      if (!targetId) return reply.status(400).send({ error: 'parentContactId (target) required' });
+      if (targetId === sourceId) return reply.status(400).send({ error: 'Cannot merge into itself' });
+
+      // Validate both contacts cùng org + chưa merged
+      const [source, target] = await Promise.all([
+        prisma.contact.findFirst({ where: { id: sourceId, orgId: user.orgId, mergedInto: null } }),
+        prisma.contact.findFirst({ where: { id: targetId, orgId: user.orgId, mergedInto: null } }),
+      ]);
+      if (!source) return reply.status(404).send({ error: 'Source contact not found' });
+      if (!target) return reply.status(404).send({ error: 'Target contact not found' });
+
+      // Reuse mergeContacts helper (handles Friend conflict via unique constraint).
+      await mergeContacts(user.orgId, user.id, targetId, [sourceId]);
+      return reply.send({ merged: true, sourceId, targetId });
+    } catch (err) {
+      logger.error('[contacts] merge-into error:', err);
+      return reply.status(500).send({ error: 'Merge failed', detail: String(err) });
     }
   });
 

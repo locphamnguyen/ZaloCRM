@@ -195,7 +195,6 @@ export interface ContactFilters {
   search: string;
   source: string;
   status: string;
-  showChildren?: boolean;  // false = chỉ Cha; true = flat (Cha + Con)
 }
 
 export const SOURCE_OPTIONS = [
@@ -238,7 +237,6 @@ export function useContacts() {
           search: filters.search || undefined,
           source: filters.source || undefined,
           status: filters.status || undefined,
-          showChildren: filters.showChildren ? 'true' : undefined,
         },
       });
       contacts.value = res.data.contacts ?? res.data;

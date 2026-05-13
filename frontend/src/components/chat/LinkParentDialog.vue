@@ -1,7 +1,7 @@
 <template>
   <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="500">
     <v-card>
-      <v-card-title>🔗 Gắn KH này vào KH Cha</v-card-title>
+      <v-card-title>🔗 Gắn KH này vào KH Cha (merge: KH hiện tại sẽ trở thành Friend của Cha)</v-card-title>
       <v-card-text>
         <v-text-field
           v-model="search"
@@ -95,7 +95,7 @@ async function submit() {
   submitting.value = true;
   error.value = '';
   try {
-    await api.post(`/contacts/${props.childContactId}/link-parent`, { parentContactId: selectedId.value });
+    await api.post(`/contacts/${props.childContactId}/merge-into`, { parentContactId: selectedId.value });
     emit('linked', selectedId.value);
     close();
   } catch (err) {

@@ -264,6 +264,7 @@ model Status {
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   contacts Contact[]
+  friends  Friend[]
 
   @@unique([orgId, name])
   @@index([orgId, order])
@@ -705,6 +706,13 @@ model Friend {
   totalInbound       Int       @default(0) @map("total_inbound")
   totalOutbound      Int       @default(0) @map("total_outbound")
 
+  // ── Per-pair CRM state (mỗi nick chăm có status + score RIÊNG) ────────
+  // Contact (KH Cha) aggregate: displayStatus = MAX(friends.statusRef.order),
+  // displayLeadScore = AVG(friends.leadScore), displayHasZalo = friends.length > 0.
+  statusId           String?   @map("status_id")
+  statusRef          Status?   @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  leadScore          Int       @default(0) @map("lead_score")
+
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt      @map("updated_at")
 
@@ -718,5 +726,6 @@ model Friend {
   @@index([zaloAccountId, relationshipKind])              // /friends tab filtering
   @@index([zaloAccountId, friendshipStatus])
   @@index([orgId, relationshipKind])
+  @@index([orgId, statusId])
   @@map("friends")
 }

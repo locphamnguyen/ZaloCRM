@@ -1,11 +1,10 @@
 /**
  * contact-aggregate-display.ts — On-demand aggregation cho KH Cha.
  *
- * Cha không store displayStatus / displayLeadScore / displayHasZalo —
- * compute tại query time từ self + tất cả children.
- *   displayStatus    = status có order CAO NHẤT trong nhóm (cha + con)
- *   displayLeadScore = AVG(leadScore) của nhóm
- *   displayHasZalo   = ANY true → true; ALL false → false; còn lại null
+ * Model B: mỗi Friend row = 1 "KH Con" (per nick CRM chăm).
+ *   displayStatus    = status có order CAO NHẤT trong friends (fallback Contact.statusRef)
+ *   displayLeadScore = AVG(friends.leadScore) — fallback Contact.leadScore khi 0 friend
+ *   displayHasZalo   = friends.length > 0 ? true : Contact.hasZalo (giữ giá trị cũ)
  */
 
 interface StatusLite {
@@ -16,75 +15,85 @@ interface StatusLite {
   isTerminal: boolean;
 }
 
-interface ContactLite {
+interface FriendLite {
   id: string;
   leadScore: number;
-  hasZalo: boolean | null;
   statusRef?: StatusLite | null;
 }
 
-interface ContactWithChildren extends ContactLite {
-  children?: ContactLite[];
+interface ContactWithFriends {
+  statusRef?: StatusLite | null;
+  leadScore: number;
+  hasZalo: boolean | null;
+  friends?: FriendLite[];
 }
 
 export interface AggregateDisplay {
   displayStatus: StatusLite | null;
   displayLeadScore: number;
   displayHasZalo: boolean | null;
-  childrenCount: number;
+  childrenCount: number; // = friends.length (per-pair = "con")
 }
 
-export function computeAggregateDisplay<T extends ContactWithChildren>(contact: T): AggregateDisplay {
-  const children = contact.children ?? [];
-  // Tính trên self + children. Cha không có children = aggregate = self values.
-  const all: ContactLite[] = [contact, ...children];
+export function computeAggregateDisplay<T extends ContactWithFriends>(contact: T): AggregateDisplay {
+  const friends = contact.friends ?? [];
 
-  // Status cao nhất theo order
-  const statuses = all
-    .map((c) => c.statusRef)
+  // Status cao nhất theo order — ưu tiên friends; fallback Contact.statusRef khi 0 friend.
+  const friendStatuses = friends
+    .map((f) => f.statusRef)
     .filter((s): s is StatusLite => s != null)
     .sort((a, b) => b.order - a.order);
-  const displayStatus = statuses[0] ?? null;
+  const displayStatus = friendStatuses[0] ?? contact.statusRef ?? null;
 
-  // LeadScore AVG (ignore null treated as 0)
-  const scores = all.map((c) => c.leadScore ?? 0);
-  const displayLeadScore = scores.length > 0
-    ? Math.round((scores.reduce((s, n) => s + n, 0) / scores.length) * 10) / 10
-    : 0;
+  // AVG leadScore của friends; fallback Contact.leadScore khi 0 friend.
+  const displayLeadScore = friends.length > 0
+    ? Math.round((friends.reduce((s, f) => s + (f.leadScore ?? 0), 0) / friends.length) * 10) / 10
+    : (contact.leadScore ?? 0);
 
-  // hasZalo: ANY true → true; ALL false → false; else null
-  const flags = all.map((c) => c.hasZalo);
-  const displayHasZalo = flags.some((f) => f === true) ? true
-                       : flags.every((f) => f === false) ? false
-                       : null;
+  // hasZalo: any friend tồn tại → KH có Zalo. Else giữ Contact.hasZalo.
+  const displayHasZalo = friends.length > 0 ? true : contact.hasZalo;
 
   return {
     displayStatus,
     displayLeadScore,
     displayHasZalo,
-    childrenCount: children.length,
+    childrenCount: friends.length,
   };
 }
 
 /** Standard include shape cho Prisma query để feed computeAggregateDisplay.
- *  Children select đủ trường cho UI: display info + status + score + Zalo IDs. */
+ *  Friends include statusRef per-pair + zaloAccount (cho UI hiển thị nick CRM). */
 export const AGGREGATE_INCLUDE = {
   statusRef: { select: { id: true, name: true, order: true, color: true, isTerminal: true } },
-  children: {
-    where: { mergedInto: null },
+  friends: {
     select: {
       id: true,
-      fullName: true,
-      crmName: true,
-      avatarUrl: true,
-      phone: true,
-      zaloUid: true,
-      zaloGlobalId: true,
-      zaloUsername: true,
+      zaloAccountId: true,
+      zaloUidInNick: true,
+      relationshipKind: true,
+      friendshipStatus: true,
+      hasConversation: true,
+      aliasInNick: true,
+      zaloLabels: true,
+      becameFriendAt: true,
+      lastInboundAt: true,
+      lastOutboundAt: true,
+      totalInbound: true,
+      totalOutbound: true,
       leadScore: true,
-      hasZalo: true,
-      parentContactId: true,
+      statusId: true,
       statusRef: { select: { id: true, name: true, order: true, color: true, isTerminal: true } },
+      zaloAccount: {
+        select: {
+          id: true,
+          displayName: true,
+          phone: true,
+          zaloUid: true,
+          avatarUrl: true,
+          owner: { select: { id: true, fullName: true } },
+        },
+      },
     },
+    orderBy: { lastInboundAt: { sort: 'desc', nulls: 'last' } },
   },
 } as const;

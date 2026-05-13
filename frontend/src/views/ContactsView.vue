@@ -48,10 +48,6 @@
         💡 Gợi ý KH Cha
         <span v-if="candidateCount > 0" class="btn-badge">{{ candidateCount }}</span>
       </button>
-      <label class="toggle-inline">
-        <input type="checkbox" v-model="showChildrenFlag" @change="onToggleShowChildren" />
-        Hiện cả KH con
-      </label>
       <button class="btn">⬇ Xuất</button>
       <button class="btn btn-primary" @click="openCreate">+ Thêm KH</button>
     </div>
@@ -214,74 +210,22 @@
               <td colspan="17">
                 <div class="child-table-wrap">
                   <div v-if="friendshipLoading[contact.id]" class="child-empty">Đang tải…</div>
-                  <template v-else>
-                    <!-- Section 1: KH Con (hiện khi cha có con) -->
-                    <div v-if="childrenOf(contact).length > 0" class="children-section">
-                      <div class="section-header">
-                        👶 KH Con ({{ childrenOf(contact).length }}) — gom cùng người thật
-                      </div>
-                      <table class="child-table">
-                        <thead>
-                          <tr>
-                            <th>Avatar</th>
-                            <th>Tên KH Con</th>
-                            <th>Zalo UID</th>
-                            <th>Trạng thái KH</th>
-                            <th>Score</th>
-                            <th>Có Zalo</th>
-                            <th>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr v-for="kid in childrenOf(contact)" :key="kid.id">
-                            <td><Avatar :src="kid.avatarUrl" :name="kid.fullName || '?'" :size="26" :gradient-seed="kid.id" /></td>
-                            <td><strong>{{ kid.fullName || '—' }}</strong></td>
-                            <td><span class="uid">{{ kid.zaloUid || '—' }}</span></td>
-                            <td>
-                              <span
-                                v-if="kid.statusRef"
-                                class="chip"
-                                :style="{ background: chipBg(kid.statusRef.color), color: chipFg(kid.statusRef.color) }"
-                              >{{ kid.statusRef.name }}</span>
-                              <span v-else class="empty">—</span>
-                            </td>
-                            <td><span :class="['chip', scoreChipClass(kid.leadScore)]">{{ kid.leadScore ?? 0 }}</span></td>
-                            <td>
-                              <span v-if="kid.hasZalo === true" class="chip chip-success">✓</span>
-                              <span v-else-if="kid.hasZalo === false" class="chip chip-grey">✗</span>
-                              <span v-else class="empty">—</span>
-                            </td>
-                            <td>
-                              <div class="action-cell">
-                                <button class="row-action-btn" :title="'Tách KH con này'" @click="onUnlinkChild(kid)">✂</button>
-                                <button class="row-action-btn" :title="'Mở KH Con'" @click="openDetail(kid)">→</button>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-
-                    <!-- Section 2: Nick CRM chăm trực tiếp -->
-                    <div v-if="childRows(contact).length > 0" class="section-header friends-header">
-                      💬 Nick CRM chăm trực tiếp ({{ childRows(contact).length }})
-                    </div>
-                  </template>
-                  <table v-if="!friendshipLoading[contact.id] && childRows(contact).length" class="child-table">
+                  <table v-else-if="childRows(contact).length" class="child-table">
                     <thead>
                       <tr>
                         <th>Nick Zalo (Sale)</th>
                         <th>Tên CRM/Nick KH</th>
+                        <th>Ảnh KH</th>
                         <th>Tên Zalo + UID</th>
                         <th>Trạng thái KB</th>
                         <th>Trạng thái KH</th>
+                        <th>Score</th>
                         <th>Nhãn CRM</th>
                         <th>Label Zalo</th>
                         <th>KH nhắn cuối</th>
                         <th>Sale nhắn cuối</th>
                         <th>In/Out</th>
                         <th>Là bạn từ</th>
-                        <th>Auto</th>
                         <th>Action</th>
                       </tr>
                     </thead>
@@ -305,6 +249,9 @@
                           </span>
                         </td>
                         <td>
+                          <Avatar :src="contact.avatarUrl" :name="contact.fullName || '?'" :size="32" :gradient-seed="contact.id" />
+                        </td>
+                        <td>
                           <div class="two-line">
                             <span class="line1">{{ row.zaloName || '—' }}</span>
                             <span class="uid">{{ row.zaloUid || 'chưa lấy' }}</span>
@@ -316,7 +263,24 @@
                           </span>
                         </td>
                         <td>
-                          <CareStatusBadge :model-value="row.careStatus" />
+                          <span
+                            v-if="row.statusRef"
+                            class="chip status-edit-chip"
+                            :style="{ background: chipBg(row.statusRef.color), color: chipFg(row.statusRef.color) }"
+                            :title="'Click đổi status'"
+                            @click="openFriendStatusEdit(row)"
+                          >{{ row.statusRef.name }}</span>
+                          <span v-else class="empty" @click="openFriendStatusEdit(row)" style="cursor:pointer">— đặt —</span>
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            class="score-input"
+                            :value="row.leadScore"
+                            min="0" max="100"
+                            @change="onFriendScoreChange(row, ($event.target as HTMLInputElement).value)"
+                            :title="'Score per-nick này. Cha = AVG.'"
+                          />
                         </td>
                         <td>
                           <div class="tag-cell">
@@ -341,10 +305,6 @@
                         <td><strong>{{ row.totalInbound }}</strong> / {{ row.totalOutbound }}</td>
                         <td>{{ row.becameFriendAt || '—' }}</td>
                         <td>
-                          <span v-if="row.autoLabel" class="chip chip-info">{{ row.autoLabel }}</span>
-                          <span v-else class="empty">—</span>
-                        </td>
-                        <td>
                           <div class="action-cell">
                             <button class="row-action-btn" @click="onChildAction('chat', row)">💬</button>
                             <button class="row-action-btn" @click="onChildAction('auto', row)">⚡</button>
@@ -353,8 +313,8 @@
                       </tr>
                     </tbody>
                   </table>
-                  <div v-if="!friendshipLoading[contact.id] && !childRows(contact).length && !childrenOf(contact).length" class="child-empty">
-                    KH này chưa có nick nào chăm, chưa có KH con nào.
+                  <div v-else class="child-empty">
+                    KH này chưa có nick CRM nào chăm.
                   </div>
                 </div>
               </td>
@@ -378,6 +338,27 @@
     <!-- Dialogs (giữ nguyên) -->
     <ContactDetailDialog v-model="showDialog" :contact="selectedContact" @saved="onSaved" @deleted="onDeleted" />
     <ParentCandidateDialog v-model="showCandidateDialog" @resolved="onCandidateResolved" />
+
+    <!-- Friend status picker dialog (per-pair status) -->
+    <div v-if="statusEditTarget" class="status-picker-overlay" @click.self="statusEditTarget = null">
+      <div class="status-picker">
+        <h4>Chọn trạng thái cho nick này</h4>
+        <div class="status-picker-list">
+          <button
+            v-for="s in allStatuses"
+            :key="s.id"
+            class="status-picker-item"
+            :class="{ active: statusEditTarget?.statusRef?.id === s.id }"
+            :style="{ background: chipBg(s.color), color: chipFg(s.color) }"
+            @click="applyFriendStatus(s.id)"
+          >
+            {{ s.name }}
+            <span class="order-num">#{{ s.order }}</span>
+          </button>
+        </div>
+        <button class="btn-close" @click="statusEditTarget = null">Đóng</button>
+      </div>
+    </div>
     <DuplicateReviewDialog v-model="showDuplicateDialog" @merged="onDuplicateMerged" />
   </div>
 </template>
@@ -388,7 +369,6 @@ import { useRouter } from 'vue-router';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
 import ParentCandidateDialog from '@/components/contacts/ParentCandidateDialog.vue';
 import DuplicateReviewDialog from '@/components/contacts/DuplicateReviewDialog.vue';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
 import type { CareStatusValue } from '@/constants/care-status';
 import Avatar from '@/components/ui/Avatar.vue';
 import { useToast } from '@/composables/use-toast';
@@ -412,7 +392,6 @@ const toast = useToast();
 const showDialog = ref(false);
 const showDuplicateDialog = ref(false);
 const showCandidateDialog = ref(false);
-const showChildrenFlag = ref(false);
 const candidateCount = ref(0);
 async function fetchCandidateCount() {
   try {
@@ -421,11 +400,6 @@ async function fetchCandidateCount() {
   } catch { candidateCount.value = 0; }
 }
 function onCandidateResolved() { fetchCandidateCount(); fetchContacts(); }
-function onToggleShowChildren() {
-  filters.showChildren = showChildrenFlag.value;
-  pagination.page = 1;
-  fetchContacts();
-}
 const selectedContact = ref<Contact | null>(null);
 const expandedId = ref<string | null>(null);
 // Real friendship data per contact (key: contactId → ChildRow[]). Fetched on first expand.
@@ -457,40 +431,17 @@ function toggleExpand(id: string) {
   }
 }
 
-// Cache children contact metadata (per parent) — populated từ /contacts/:id detail.
-const childrenCache = ref<Record<string, Contact[]>>({});
-
 async function fetchFriendships(contact: Contact) {
   friendshipLoading.value[contact.id] = true;
   try {
-    // GET /contacts/:id giờ trả include friends + children + parent (PR 2c).
-    const res = await api.get<Contact & { friends?: ApiFriendship[]; children?: Contact[] }>(`/contacts/${contact.id}`);
+    // GET /contacts/:id trả friends include statusRef per-pair (model B).
+    const res = await api.get<Contact & { friends?: ApiFriendship[] }>(`/contacts/${contact.id}`);
     friendshipCache.value[contact.id] = (res.data.friends || []).map(f => mapFriendshipToChildRow(f, contact));
-    childrenCache.value[contact.id] = res.data.children || [];
   } catch (err) {
     console.error('[contact-detail] fetch error:', err);
     friendshipCache.value[contact.id] = [];
-    childrenCache.value[contact.id] = [];
   } finally {
     friendshipLoading.value[contact.id] = false;
-  }
-}
-
-function childrenOf(contact: Contact): Contact[] {
-  return childrenCache.value[contact.id] || [];
-}
-
-async function onUnlinkChild(kid: Contact) {
-  if (!confirm(`Tách "${kid.fullName || 'KH'}" khỏi KH Cha hiện tại?`)) return;
-  try {
-    await api.post(`/contacts/${kid.id}/unlink-parent`);
-    toast.success('Đã tách');
-    // Invalidate cache + refetch list
-    Object.keys(childrenCache.value).forEach(k => delete childrenCache.value[k]);
-    Object.keys(friendshipCache.value).forEach(k => delete friendshipCache.value[k]);
-    fetchContacts();
-  } catch (err) {
-    toast.error('Tách thất bại');
   }
 }
 
@@ -507,6 +458,9 @@ interface ApiFriendship {
   lastOutboundAt: string | null;
   totalInbound: number;
   totalOutbound: number;
+  leadScore: number;
+  statusId: string | null;
+  statusRef: StatusLite | null;
   zaloAccount: {
     id: string;
     displayName: string | null;
@@ -549,6 +503,8 @@ function mapFriendshipToChildRow(f: ApiFriendship, contact: Contact): ChildRow {
     zaloUid: f.zaloUidInNick,
     relationshipKind: kind,
     careStatus: (contact.status as CareStatusValue) || 'interested',
+    statusRef: f.statusRef,
+    leadScore: f.leadScore ?? 0,
     crmTagsPerNick: contact.tags?.slice(0, 3) || [],
     zaloLabels: labels,
     lastInboundAt: f.lastInboundAt,
@@ -558,6 +514,51 @@ function mapFriendshipToChildRow(f: ApiFriendship, contact: Contact): ChildRow {
     becameFriendAt: relativeTime(f.becameFriendAt),
     autoLabel: null,
   };
+}
+
+// ── Friend per-pair: edit status + score ─────────────────────────────────
+async function onFriendScoreChange(row: ChildRow, value: string) {
+  const score = Math.max(0, Math.min(100, parseInt(value) || 0));
+  try {
+    await api.patch(`/friends/${row.id}`, { leadScore: score });
+    row.leadScore = score;
+    // Invalidate cache để refetch aggregate Cha
+    Object.keys(friendshipCache.value).forEach(k => delete friendshipCache.value[k]);
+    fetchContacts();
+  } catch (err) {
+    toast.error('Cập nhật score thất bại');
+  }
+}
+
+const statusEditTarget = ref<ChildRow | null>(null);
+const allStatuses = ref<StatusLite[]>([]);
+
+async function fetchAllStatuses() {
+  if (allStatuses.value.length > 0) return;
+  try {
+    const res = await api.get<{ statuses: StatusLite[] }>('/settings/statuses');
+    allStatuses.value = res.data.statuses || [];
+  } catch {}
+}
+
+function openFriendStatusEdit(row: ChildRow) {
+  fetchAllStatuses();
+  statusEditTarget.value = row;
+}
+
+async function applyFriendStatus(statusId: string) {
+  if (!statusEditTarget.value) return;
+  const row = statusEditTarget.value;
+  try {
+    await api.patch(`/friends/${row.id}`, { statusId });
+    const newStatus = allStatuses.value.find(s => s.id === statusId);
+    if (newStatus) row.statusRef = newStatus;
+    statusEditTarget.value = null;
+    Object.keys(friendshipCache.value).forEach(k => delete friendshipCache.value[k]);
+    fetchContacts();
+  } catch (err) {
+    toast.error('Cập nhật status thất bại');
+  }
 }
 
 function genderLabel(value: string) {
@@ -627,9 +628,12 @@ function goChat(c: Contact) {
 function onAutomation(_c: Contact) { toast.warning('Automation dialog: chưa implement'); }
 
 // ════════ Child rows (MOCK — chờ /contacts/:id/friendships) ════════
+interface StatusLite { id: string; name: string; order: number; color: string | null }
 interface ChildRow {
   id: string;
   nickName: string;
+  statusRef: StatusLite | null;
+  leadScore: number;
   salePhone: string;
   saleName: string;
   aliasInNick: string | null;
@@ -768,9 +772,19 @@ onMounted(() => {
 .toggle-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--smax-grey-700); cursor: pointer; padding: 6px 10px; border-radius: 6px; }
 .toggle-inline:hover { background: rgba(0,0,0,0.04); }
 .toggle-inline input { cursor: pointer; }
-.section-header { padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--smax-grey-700); background: rgba(0,0,0,0.025); border-bottom: 1px solid var(--smax-grey-200); }
-.friends-header { margin-top: 8px; }
-.children-section { margin-bottom: 4px; }
+.status-edit-chip { cursor: pointer; }
+.status-edit-chip:hover { filter: brightness(1.1); }
+.score-input { width: 50px; padding: 2px 4px; font-size: 11.5px; text-align: center; border: 1px solid var(--smax-grey-300); border-radius: 4px; }
+.score-input:focus { outline: 2px solid var(--smax-primary, #00f2ff); }
+.status-picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1100; display: flex; align-items: center; justify-content: center; }
+.status-picker { background: var(--smax-bg); border-radius: 10px; padding: 16px 20px; min-width: 320px; max-width: 480px; }
+.status-picker h4 { margin: 0 0 12px; font-size: 14px; }
+.status-picker-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.status-picker-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font-weight: 500; text-align: left; }
+.status-picker-item.active { border-color: var(--smax-primary, #00f2ff); }
+.status-picker-item:hover { filter: brightness(1.05); }
+.order-num { font-size: 10px; opacity: 0.5; font-family: monospace; }
+.btn-close { width: 100%; padding: 8px; background: var(--smax-grey-100); border: 1px solid var(--smax-grey-200); border-radius: 6px; cursor: pointer; }
 .btn {
   padding: 7px 13px;
   border: 1px solid var(--smax-primary);
