@@ -489,6 +489,32 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── POST /api/v1/contacts/duplicates/:groupId/dismiss — bỏ qua group (false positive) ──
+  // Mark group resolved without merging. Dùng khi sale review thấy 2 contact thực sự
+  // là 2 người khác nhau (vd cùng tên SDT nhưng khác Zalo identity / khác giới tính).
+  app.post('/api/v1/contacts/duplicates/:groupId/dismiss', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { groupId } = request.params as { groupId: string };
+      const group = await prisma.duplicateGroup.findFirst({
+        where: { id: groupId, orgId: user.orgId, resolved: false },
+      });
+      if (!group) return reply.status(404).send({ error: 'Duplicate group not found' });
+      await prisma.duplicateGroup.update({ where: { id: groupId }, data: { resolved: true } });
+      await prisma.activityLog.create({
+        data: {
+          orgId: user.orgId, userId: user.id,
+          action: 'duplicate_group_dismissed', entityType: 'duplicate_group', entityId: groupId,
+          details: { contactIds: group.contactIds, matchType: group.matchType },
+        },
+      }).catch(() => {});
+      return reply.send({ dismissed: true });
+    } catch (err) {
+      logger.error('[contacts] Dismiss duplicate error:', err);
+      return reply.status(500).send({ error: 'Failed to dismiss duplicate group' });
+    }
+  });
+
   // ── POST /api/v1/contacts/duplicates/:groupId/merge — merge a group ──────
   app.post('/api/v1/contacts/duplicates/:groupId/merge', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

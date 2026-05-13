@@ -389,6 +389,16 @@ export function useContactIntelligence() {
     }
   }
 
+  async function dismissDuplicateGroup(groupId: string): Promise<boolean> {
+    try {
+      await api.post(`/contacts/duplicates/${groupId}/dismiss`, {});
+      return true;
+    } catch (err) {
+      console.error('Failed to dismiss duplicate group:', err);
+      return false;
+    }
+  }
+
   async function recomputeIntelligence(): Promise<boolean> {
     try {
       await api.post('/contacts/intelligence/recompute');
@@ -401,6 +411,6 @@ export function useContactIntelligence() {
 
   return {
     duplicateGroups, duplicateTotal, loadingDuplicates, merging,
-    fetchDuplicateGroups, mergeDuplicateGroup, recomputeIntelligence,
+    fetchDuplicateGroups, mergeDuplicateGroup, dismissDuplicateGroup, recomputeIntelligence,
   };
 }
