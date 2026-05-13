@@ -242,11 +242,36 @@ export async function chatRoutes(app: FastifyInstance) {
     });
     if (!conversation) return reply.status(404).send({ error: 'Not found' });
 
-    let friendship: { relationshipKind: string; friendshipStatus: string; becameFriendAt: Date | null; firstMessageAt: Date | null } | null = null;
+    // Friend per-pair info — counters + leadScore + status RIÊNG cặp (nick, KH).
+    // Header chat phải dùng per-pair counter (KHÔNG dùng contact.totalInbound aggregate
+    // — đó là tổng across-nicks, conv mới chưa có msg = 0 mới đúng).
+    let friendship: {
+      id: string;
+      relationshipKind: string;
+      friendshipStatus: string;
+      hasConversation: boolean;
+      becameFriendAt: Date | null;
+      firstMessageAt: Date | null;
+      totalInbound: number;
+      totalOutbound: number;
+      leadScore: number;
+      statusRef: { id: string; name: string; color: string | null; order: number } | null;
+    } | null = null;
     if (conversation.threadType === 'user' && conversation.contactId && conversation.externalThreadId) {
       const f = await prisma.friend.findUnique({
         where: { zaloAccountId_zaloUidInNick: { zaloAccountId: conversation.zaloAccountId, zaloUidInNick: conversation.externalThreadId } },
-        select: { relationshipKind: true, friendshipStatus: true, becameFriendAt: true, firstMessageAt: true },
+        select: {
+          id: true,
+          relationshipKind: true,
+          friendshipStatus: true,
+          hasConversation: true,
+          becameFriendAt: true,
+          firstMessageAt: true,
+          totalInbound: true,
+          totalOutbound: true,
+          leadScore: true,
+          statusRef: { select: { id: true, name: true, color: true, order: true } },
+        },
       });
       friendship = f;
     }

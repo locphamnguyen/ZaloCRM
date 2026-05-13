@@ -53,12 +53,21 @@ interface RawMessage extends Omit<Message, 'reactions' | 'reply'> {
 }
 
 export interface FriendshipInfo {
+  id?: string;
   /** friend | pending_friend | chatting_stranger | ghost | none */
   relationshipKind: string;
   /** none | pending_sent | pending_received | accepted | rejected | removed | blocked */
   friendshipStatus: string;
+  /** Đã từng nhắn 1-1 chưa. False = chỉ kết bạn Zalo / sync */
+  hasConversation?: boolean;
   becameFriendAt: string | null;
   firstMessageAt: string | null;
+  /** Per-pair counters (RIÊNG cặp nick × KH này, KHÔNG phải Contact aggregate) */
+  totalInbound?: number;
+  totalOutbound?: number;
+  /** Per-pair leadScore — sale chăm KH này từ nick này */
+  leadScore?: number;
+  statusRef?: { id: string; name: string; color: string | null; order: number } | null;
 }
 
 export interface Conversation {
@@ -327,8 +336,11 @@ export function useChat() {
     try {
       const convDetail = await api.get(`/conversations/${convId}`);
       const conv = conversations.value.find(c => c.id === convId);
-      if (conv && convDetail.data.contact) {
-        conv.contact = convDetail.data.contact;
+      if (conv) {
+        if (convDetail.data.contact) conv.contact = convDetail.data.contact;
+        // friendship per-pair (counter, leadScore, status RIÊNG cặp nick×KH).
+        // KHÔNG fallback contact aggregate vì các trường này khác semantics.
+        if (convDetail.data.friendship !== undefined) conv.friendship = convDetail.data.friendship;
       }
     } catch {
       // Non-critical

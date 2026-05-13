@@ -59,9 +59,13 @@
               {{ conversation.zaloAccount?.displayName || '—' }}
             </span>
             <span class="ch-sep">|</span>
-            <span class="msg-counts" :title="`${msgInCount} tin đến / ${msgOutCount} tin gửi`">
+            <span
+              class="msg-counts"
+              :title="`Tin nhắn 1-1 RIÊNG cặp nick × KH này: ${msgInCount} đến / ${msgOutCount} gửi. (Tổng toàn KH ${contactTotalIn}/${contactTotalOut} qua mọi nick chăm)`"
+            >
               <span class="cnt-in">{{ msgInCount }}</span>↘
               <span class="cnt-out">{{ msgOutCount }}</span>↗
+              <span class="cnt-scope">per nick này</span>
             </span>
             <span class="ch-sep">|</span>
             <span class="last-online" :class="{ 'is-online': isOnline }">
@@ -472,8 +476,13 @@ const genderChipClass = computed(() => {
 });
 
 // ── Message counts (per-pair, lấy từ contact aggregate cho user thread) ──────
-const msgInCount = computed(() => props.conversation?.contact?.totalInbound ?? 0);
-const msgOutCount = computed(() => props.conversation?.contact?.totalOutbound ?? 0);
+// Per-pair counter (Friend.totalInbound/Outbound) cho cặp nick × KH HIỆN TẠI.
+// KHÔNG fallback contact aggregate — conv mới chưa có msg thì hiện 0 mới đúng,
+// còn aggregate tổng across nicks chỉ dùng tooltip để sale biết bối cảnh.
+const msgInCount = computed(() => props.conversation?.friendship?.totalInbound ?? 0);
+const msgOutCount = computed(() => props.conversation?.friendship?.totalOutbound ?? 0);
+const contactTotalIn = computed(() => props.conversation?.contact?.totalInbound ?? 0);
+const contactTotalOut = computed(() => props.conversation?.contact?.totalOutbound ?? 0);
 
 // ── Last online status ──────────────────────────────────────────────────────
 // MOCK: dùng contact.lastInboundAt làm proxy. Chờ wire endpoint
@@ -1073,6 +1082,16 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .msg-counts .cnt-out {
   color: var(--smax-primary); font-weight: 600;
+}
+.msg-counts .cnt-scope {
+  font-size: 9.5px;
+  color: var(--smax-grey-700);
+  background: var(--smax-grey-100);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.2px;
 }
 .last-online {
   display: inline-flex; align-items: center; gap: 4px;
