@@ -215,7 +215,7 @@ Tham gia nhóm Telegram để trao đổi, hỏi đáp, nhận thông báo bản
 </p>
 
 - 📲 **Quét QR** ở trên bằng app Telegram, hoặc
-- 🔗 **Click link:** [https://t.me/+KKJ3SJSx6PA3NDE1](https://t.me/+KKJ3SJSx6PA3NDE1)
+- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
 
 ## Dịch vụ & Hỗ trợ
 
