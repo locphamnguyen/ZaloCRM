@@ -1,14 +1,12 @@
 <template>
   <v-card class="pa-8" style="backdrop-filter: blur(20px);" elevation="0">
     <div class="text-center mb-8">
-      <div
-        class="ai-core-orb mx-auto mb-4 d-flex align-center justify-center"
-        style="width: 64px; height: 64px; background: linear-gradient(135deg, #00F2FF, #0077B6);"
-      >
-        <v-icon size="32" color="white">mdi-robot</v-icon>
-      </div>
-      <h1 class="text-h5 font-weight-bold">Zalo<span style="color: #00F2FF;">CRM</span></h1>
-      <p class="text-caption mt-1" style="color: #8892b0;">Liquid Silicon • Multi-Account Zalo Management</p>
+      <img
+        src="/brand/zalocrm-lockup-vertical.png"
+        alt="ZaloCRM — Quản lý nhiều tài khoản Zalo cá nhân"
+        class="mx-auto"
+        style="max-width: 240px; width: 100%; height: auto; display: block;"
+      />
     </div>
 
     <v-form @submit.prevent="handleLogin">

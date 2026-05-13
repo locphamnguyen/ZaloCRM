@@ -204,6 +204,19 @@ Header: X-API-Key: your-api-key
 | `zalo.connected` | Zalo kết nối |
 | `zalo.disconnected` | Zalo mất kết nối |
 
+## Cộng đồng
+
+Tham gia nhóm Telegram để trao đổi, hỏi đáp, nhận thông báo bản phát hành mới:
+
+<p align="left">
+  <a href="https://t.me/+KKJ3SJSx6PA3NDE1">
+    <img src="docs/user-guide-images/qr-group-telegram.png" alt="Telegram Group QR" width="200" />
+  </a>
+</p>
+
+- 📲 **Quét QR** ở trên bằng app Telegram, hoặc
+- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
+
 ## Dịch vụ & Hỗ trợ
 
 Bạn cần triển khai ZaloCRM cho doanh nghiệp, custom thêm tính năng riêng, hoặc tích hợp với hệ thống có sẵn? Liên hệ trực tiếp tôi để được tư vấn:
@@ -211,6 +224,7 @@ Bạn cần triển khai ZaloCRM cho doanh nghiệp, custom thêm tính năng ri
 - 🌐 **Website:** [https://locnguyendata.com](https://locnguyendata.com)
 - 📧 **Email:** [locnt@locnguyendata.com](mailto:locnt@locnguyendata.com)
 - 📱 **Điện thoại / Zalo:** [0945031039](tel:0945031039)
+- 💬 **Telegram:** [Tham gia group](https://t.me/+KKJ3SJSx6PA3NDE1)
 
 ### Dịch vụ cung cấp
 - **Setup & deploy** ZaloCRM trên server riêng (VPS / dedicated / cloud)
@@ -256,14 +270,24 @@ By using ZaloCRM, you acknowledge that you understand and accept these terms and
 
 ## Giấy phép
 
-MIT — Miễn phí sử dụng, chỉnh sửa, phân phối lại cho mọi mục đích cá nhân và thương mại. Xem [LICENSE](LICENSE).
+**Apache License 2.0** — Miễn phí sử dụng, chỉnh sửa, phân phối lại cho mọi mục đích cá nhân và thương mại. Xem [LICENSE](LICENSE).
+
+### Yêu cầu attribution (NOTICE)
+
+Theo Apache 2.0 Section 4(d), khi phân phối lại (kể cả phiên bản chỉnh sửa hoặc deploy SaaS), bạn **bắt buộc** giữ file [NOTICE](NOTICE) và banner attribution chạy trên thanh top-nav. Banner này cấu thành "in-display attribution" theo điều khoản license.
+
+**Để xoá / thay đổi banner**, cần có **commercial license** riêng từ maintainer. Liên hệ: [locnt@locnguyendata.com](mailto:locnt@locnguyendata.com).
 
 ---
 
 ## Lời cảm ơn
 
 Xin chân thành cảm ơn:
-- [vuongnguyenbinh/ZaloCRM](https://github.com/vuongnguyenbinh/ZaloCRM) — vì những ý tưởng và codebase nền tảng làm cốt lõi cho dự án này
+- [hsholding](https://github.com/hsholding) — vì những đóng góp ý tưởng, kinh nghiệm thực tế quý báu và codebase giúp đưa các logic và chức năng thiết thực vào sản phẩm
+- [vuongnguyenbinh/ZaloCRM](https://github.com/vuongnguyenbinh/ZaloCRM) — vì những ý tưởng và codebase cho dự án này
 - [darkamenosa/openzca](https://github.com/darkamenosa/openzca) — vì CLI tích hợp Zalo (zca-js wrapper) mà ZaloCRM dùng làm cầu nối tới các tài khoản Zalo
 
+
 Trên cơ sở những đóng góp ý tưởng và code của các tác giả trên, tôi xây dựng tiếp và phát triển ZaloCRM thành phiên bản hiện tại.
+
+> 📄 Bản gốc giấy phép MIT của 2 dự án source-fork (vuongnguyenbinh + darkamenosa) được lưu trong [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).

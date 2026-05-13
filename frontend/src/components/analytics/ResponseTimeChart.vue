@@ -2,7 +2,9 @@
   <v-card>
     <v-card-title class="text-body-1">Thời gian trả lời trung bình</v-card-title>
     <v-card-text>
-      <Line v-if="chartData" :data="chartData" :options="chartOptions" style="height: 250px;" />
+      <div v-if="chartData" class="chart-wrap">
+        <Line :data="chartData" :options="chartOptions" />
+      </div>
       <div v-else class="text-center pa-8 text-grey">Không có dữ liệu</div>
       <div v-if="data?.overall" class="text-caption text-grey mt-2 text-center">
         Trung bình tổng: {{ formatTime(data.overall) }}
@@ -72,3 +74,7 @@ function formatTime(seconds: number | null): string {
   return `${m} phút ${s} giây`;
 }
 </script>
+
+<style scoped>
+.chart-wrap { position: relative; height: 280px; width: 100%; }
+</style>

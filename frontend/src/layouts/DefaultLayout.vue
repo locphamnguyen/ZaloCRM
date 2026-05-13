@@ -3,7 +3,9 @@
     <!-- ════════ TOP NAV (Smax-style dark, h=52px) ════════ -->
     <header class="smax-topnav">
       <!-- Logo + Workspace selector -->
-      <RouterLink to="/" class="logo" title="ZaloCRM">S</RouterLink>
+      <RouterLink to="/" class="logo" title="ZaloCRM">
+        <img src="/brand/zalocrm-logo.png" alt="ZaloCRM" />
+      </RouterLink>
 
       <v-menu open-on-hover>
         <template #activator="{ props: act }">
@@ -63,7 +65,28 @@
         </v-menu>
       </nav>
 
-      <div class="spacer" />
+      <!-- Flexible spacer pushes everything after it to the right edge. -->
+      <div class="topnav-spacer" />
+
+      <!--
+        ATTRIBUTION BANNER — Required by Apache License 2.0 NOTICE clause §4(d).
+        Source data is obfuscated in src/composables/use-attribution.ts; see that
+        file + the NOTICE file at the repository root before modifying.
+        Removing this element is a license violation unless you hold a commercial
+        license from the maintainer (locnt@locnguyendata.com).
+      -->
+      <a
+        v-if="attribution.enabled.value"
+        class="contact-marquee"
+        :href="attribution.href"
+        target="_blank"
+        rel="noopener"
+        :title="attribution.text"
+      >
+        <span class="marquee-track">
+          {{ attribution.text }}&nbsp;•&nbsp;{{ attribution.text }}&nbsp;•&nbsp;
+        </span>
+      </a>
 
       <!-- Global search trigger -->
       <GlobalSearch class="topnav-search" />
@@ -111,6 +134,10 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
+// Apache 2.0 §4(d) attribution — see src/composables/use-attribution.ts + NOTICE
+import { useAttribution } from '@/composables/use-attribution';
+
+const attribution = useAttribution();
 
 const theme = useTheme();
 const route = useRoute();
@@ -196,12 +223,16 @@ function logout() {
 
 .logo {
   width: 35px; height: 35px;
-  background: white; color: var(--smax-primary);
-  font-weight: 700; border-radius: 7px;
+  background: white; border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
   margin-right: 4px;
-  font-size: 16px;
   text-decoration: none;
+  overflow: hidden;
+  padding: 2px;
+}
+.logo img {
+  width: 100%; height: 100%;
+  object-fit: contain;
 }
 
 .workspace {
@@ -245,7 +276,45 @@ function logout() {
 .nav-tab:hover { background: rgba(255,255,255,0.06); color: white; }
 .nav-tab.active { background: rgba(255,255,255,0.12); color: white; font-weight: 500; }
 
-.spacer { flex: 1; }
+.topnav-spacer { flex: 1; min-width: 0; }
+
+.contact-marquee {
+  flex: 0 0 320px;
+  margin-right: 12px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: linear-gradient(90deg, rgba(0,242,255,0.12), rgba(0,119,182,0.12));
+  border: 1px solid rgba(0,242,255,0.30);
+  border-radius: 6px;
+  text-decoration: none;
+  color: #00F2FF;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+}
+.contact-marquee:hover {
+  background: linear-gradient(90deg, rgba(0,242,255,0.20), rgba(0,119,182,0.20));
+  border-color: rgba(0,242,255,0.50);
+}
+.marquee-track {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-scroll 32s linear infinite;
+  will-change: transform;
+}
+.contact-marquee:hover .marquee-track {
+  animation-play-state: paused;
+}
+@keyframes marquee-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@media (max-width: 1280px) {
+  .contact-marquee { display: none; }
+}
 
 .topnav-search {
   max-width: 240px;
