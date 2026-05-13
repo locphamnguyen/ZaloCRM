@@ -24,6 +24,7 @@
               <Avatar
                 v-for="(nick, idx) in selectedAccounts.slice(0, 3)"
                 :key="nick.id"
+                :src="nick.avatarUrl"
                 :name="nick.displayName || 'Nick'"
                 :size="24"
                 :gradient-seed="nick.id"
@@ -86,7 +87,7 @@
                     </v-icon>
                   </template>
                   <div class="picker-item-body">
-                    <Avatar :name="acc.displayName || 'Nick'" :size="22" :gradient-seed="acc.id" platform="zalo" />
+                    <Avatar :src="acc.avatarUrl" :name="acc.displayName || 'Nick'" :size="22" :gradient-seed="acc.id" platform="zalo" />
                     <span class="picker-item-name">{{ acc.displayName || 'Nick chưa đặt tên' }}</span>
                   </div>
                 </v-list-item>
@@ -105,6 +106,7 @@
           <Avatar
             v-for="(nick, idx) in selectedAccounts.slice(0, 3)"
             :key="nick.id"
+            :src="nick.avatarUrl"
             :name="nick.displayName || 'Nick'"
             :size="28"
             :gradient-seed="nick.id"
@@ -287,6 +289,7 @@ import { api } from '@/api';
 interface ZaloAccountLite {
   id: string;
   displayName: string | null;
+  avatarUrl?: string | null;
   ownerUserId?: string;
 }
 

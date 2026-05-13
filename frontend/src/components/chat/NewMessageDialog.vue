@@ -33,6 +33,7 @@
             @click="onPickNick(a.id)"
           >
             <Avatar
+              :src="a.avatarUrl"
               :name="a.displayName || 'Nick'"
               :size="22"
               :gradient-seed="a.id"
@@ -47,7 +48,7 @@
         <div v-else-if="accounts.length > 4" class="nick-select-wrap">
           <!-- Chip đang chọn (visual) -->
           <div v-if="selectedAccount" class="nick-selected-chip">
-            <Avatar :name="selectedAccount.displayName || 'Nick'" :size="22" :gradient-seed="selectedAccount.id" platform="zalo" />
+            <Avatar :src="selectedAccount.avatarUrl" :name="selectedAccount.displayName || 'Nick'" :size="22" :gradient-seed="selectedAccount.id" platform="zalo" />
             <span class="nick-name">{{ selectedAccount.displayName || 'Nick' }}</span>
             <button class="nick-clear" title="Đổi nick" @click="selectedAccountId = null; clearResults()">×</button>
           </div>
@@ -69,7 +70,7 @@
             <template #item="slotProps">
               <v-list-item v-bind="slotProps.props" :title="undefined">
                 <div class="nick-option">
-                  <Avatar :name="rawAcc(slotProps).displayName || 'Nick'" :size="28" :gradient-seed="rawAcc(slotProps).id" platform="zalo" />
+                  <Avatar :src="rawAcc(slotProps).avatarUrl" :name="rawAcc(slotProps).displayName || 'Nick'" :size="28" :gradient-seed="rawAcc(slotProps).id" platform="zalo" />
                   <div class="nick-option-body">
                     <div class="nick-option-name">{{ rawAcc(slotProps).displayName || 'Nick chưa đặt tên' }}</div>
                   </div>
@@ -283,7 +284,7 @@ import Avatar from '@/components/ui/Avatar.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 
-interface AccountLite { id: string; displayName: string | null }
+interface AccountLite { id: string; displayName: string | null; avatarUrl?: string | null }
 interface FriendRow {
   id: string;
   zaloUidInNick: string;

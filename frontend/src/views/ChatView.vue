@@ -120,6 +120,7 @@ const accountList = computed(() =>
   (zaloAccounts.value || []).map(a => ({
     id: a.id,
     displayName: a.displayName,
+    avatarUrl: a.avatarUrl ?? null,
     ownerUserId: a.ownerUserId,
   })),
 );

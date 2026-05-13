@@ -73,7 +73,7 @@ export async function friendRoutes(app: FastifyInstance) {
                 birthYear: true,
               },
             },
-            zaloAccount: { select: { id: true, displayName: true, phone: true } },
+            zaloAccount: { select: { id: true, displayName: true, phone: true, avatarUrl: true } },
             // Per-pair Status (dynamic, từ Status table) — UI dùng cho cột "Trạng thái KH"
             statusRef: { select: { id: true, name: true, color: true, order: true, isTerminal: true } },
           },

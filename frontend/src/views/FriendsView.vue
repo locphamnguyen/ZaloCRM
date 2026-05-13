@@ -166,6 +166,7 @@
             <td>
               <div class="nick-cell">
                 <Avatar
+                  :src="f.zaloAccount?.avatarUrl"
                   :name="f.zaloAccount?.displayName || 'Nick'"
                   :size="28"
                   :gradient-seed="f.zaloAccount?.id"

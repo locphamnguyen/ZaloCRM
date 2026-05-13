@@ -356,7 +356,7 @@
                       <tr v-for="(row, idx) in childRows(contact)" :key="row.id" :class="{ winner: idx === 0 }">
                         <td>
                           <div class="nick-cell">
-                            <Avatar :name="row.nickName" :size="26" :gradient-seed="row.id" platform="zalo" />
+                            <Avatar :src="row.nickAvatarUrl" :name="row.nickName" :size="26" :gradient-seed="row.id" platform="zalo" />
                             <div class="two-line">
                               <span class="line1">
                                 {{ row.nickName }}
@@ -783,6 +783,7 @@ function mapFriendshipToChildRow(f: ApiFriendship, contact: Contact): ChildRow {
   return {
     id: f.id,
     nickName: f.zaloAccount.displayName || 'Nick',
+    nickAvatarUrl: f.zaloAccount.avatarUrl ?? null,
     salePhone: f.zaloAccount.phone || '',
     saleName: f.zaloAccount.owner?.fullName || '—',
     aliasInNick: f.aliasInNick,
@@ -937,6 +938,7 @@ interface StatusLite { id: string; name: string; order: number; color: string | 
 interface ChildRow {
   id: string;
   nickName: string;
+  nickAvatarUrl: string | null;
   statusRef: StatusLite | null;
   leadScore: number;
   zaloAvatarUrl: string | null;

@@ -195,7 +195,7 @@
           <div class="friends-list">
             <div v-for="f in relations.friends" :key="f.id" class="friend-card">
               <div class="friend-card-head">
-                <Avatar :name="f.zaloAccount.displayName || 'Nick'" :size="32" :gradient-seed="f.id" platform="zalo" />
+                <Avatar :src="f.zaloAccount.avatarUrl" :name="f.zaloAccount.displayName || 'Nick'" :size="32" :gradient-seed="f.id" platform="zalo" />
                 <div class="friend-card-title">
                   <div class="friend-name">{{ f.zaloAccount.displayName || 'Nick' }}</div>
                   <div class="friend-sub">
@@ -419,7 +419,7 @@ interface FriendItem {
   zaloAvatarUrl: string | null;
   crmTagsPerNick: string[];
   statusRef: { id: string; name: string; order: number; color: string | null } | null;
-  zaloAccount: { id: string; displayName: string | null; owner: { id: string; fullName: string } | null };
+  zaloAccount: { id: string; displayName: string | null; avatarUrl?: string | null; owner: { id: string; fullName: string } | null };
 }
 interface RelationsState {
   friends: FriendItem[];

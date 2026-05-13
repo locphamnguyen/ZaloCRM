@@ -48,6 +48,7 @@ export interface DbFriend {
     id: string;
     displayName: string | null;
     phone: string | null;
+    avatarUrl?: string | null;
   };
 }
 
