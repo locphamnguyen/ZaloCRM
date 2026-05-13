@@ -306,8 +306,9 @@
                         <td>{{ row.becameFriendAt || '—' }}</td>
                         <td>
                           <div class="action-cell">
-                            <button class="row-action-btn" @click="onChildAction('chat', row)">💬</button>
-                            <button class="row-action-btn" @click="onChildAction('auto', row)">⚡</button>
+                            <button class="row-action-btn" @click="onChildAction('chat', row)" title="Mở chat">💬</button>
+                            <button class="row-action-btn" @click="onChildAction('auto', row)" title="Automation">⚡</button>
+                            <button class="row-action-btn" @click="onPromoteFriend(row)" title="Tách Con này thành KH Cha riêng">✂</button>
                           </div>
                         </td>
                       </tr>
@@ -514,6 +515,23 @@ function mapFriendshipToChildRow(f: ApiFriendship, contact: Contact): ChildRow {
     becameFriendAt: relativeTime(f.becameFriendAt),
     autoLabel: null,
   };
+}
+
+async function onPromoteFriend(row: ChildRow) {
+  const name = prompt(`Tên cho KH Cha mới (gỡ "${row.nickName}" × UID ${row.zaloUid}):`, '');
+  if (name === null) return;
+  try {
+    const res = await api.post<{ newContact: { id: string; fullName: string }; movedConversations: number }>(
+      `/friends/${row.id}/promote-to-parent`,
+      { fullName: name.trim() || undefined },
+    );
+    toast.success(`Đã tạo KH Cha "${res.data.newContact.fullName}". ${res.data.movedConversations} conversation chuyển.`);
+    Object.keys(friendshipCache.value).forEach(k => delete friendshipCache.value[k]);
+    fetchContacts();
+  } catch (err) {
+    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Tách thất bại';
+    toast.error(msg);
+  }
 }
 
 // ── Friend per-pair: edit status + score ─────────────────────────────────

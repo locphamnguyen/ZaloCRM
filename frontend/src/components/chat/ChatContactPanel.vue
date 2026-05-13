@@ -193,31 +193,44 @@
             <span class="scope-tag global">per-nick</span>
           </div>
           <div class="friends-list">
-            <div v-for="f in relations.friends" :key="f.id" class="friend-row">
-              <Avatar :name="f.zaloAccount.displayName || 'Nick'" :size="28" :gradient-seed="f.id" platform="zalo" />
-              <div class="friend-info">
-                <div class="friend-head">
-                  <span class="friend-name">{{ f.zaloAccount.displayName || 'Nick' }}</span>
-                  <span :class="['status-pill', friendKindClass(f.relationshipKind)]">{{ friendKindLabel(f.relationshipKind) }}</span>
+            <div v-for="f in relations.friends" :key="f.id" class="friend-card">
+              <div class="friend-card-head">
+                <Avatar :name="f.zaloAccount.displayName || 'Nick'" :size="32" :gradient-seed="f.id" platform="zalo" />
+                <div class="friend-card-title">
+                  <div class="friend-name">{{ f.zaloAccount.displayName || 'Nick' }}</div>
+                  <div class="friend-sub">
+                    <span v-if="f.zaloAccount.owner" class="sale-name">Sale: {{ f.zaloAccount.owner.fullName }}</span>
+                  </div>
                 </div>
-                <div class="friend-meta">
-                  <span v-if="f.zaloAccount.owner">Sale: {{ f.zaloAccount.owner.fullName }}</span>
-                  <span class="uid">UID:{{ f.zaloUidInNick }}</span>
-                </div>
-                <div class="friend-meta">
-                  <span
-                    v-if="f.statusRef"
-                    class="chip"
-                    :style="{ background: chipBg(f.statusRef.color), color: chipFg(f.statusRef.color) }"
-                  >{{ f.statusRef.name }}</span>
-                  <span class="chip chip-grey">{{ f.leadScore ?? 0 }}đ</span>
-                </div>
-                <div class="friend-meta">
-                  <span>📥 {{ f.totalInbound }}</span>
-                  <span>📤 {{ f.totalOutbound }}</span>
-                  <span v-if="f.becameFriendAt">KB: {{ relativeTime(f.becameFriendAt) }}</span>
-                  <span v-if="f.lastInboundAt">Last: {{ relativeTime(f.lastInboundAt) }}</span>
-                </div>
+                <span :class="['status-pill', friendKindClass(f.relationshipKind)]" :title="'Trạng thái kết bạn Zalo'">
+                  {{ friendKindLabel(f.relationshipKind) }}
+                </span>
+              </div>
+              <div class="friend-card-row">
+                <span class="lbl">UID khách:</span>
+                <code class="uid">{{ f.zaloUidInNick }}</code>
+              </div>
+              <div class="friend-card-row">
+                <span class="lbl">Trạng thái KH:</span>
+                <span
+                  v-if="f.statusRef"
+                  class="chip status-edit"
+                  :style="{ background: chipBg(f.statusRef.color), color: chipFg(f.statusRef.color) }"
+                >{{ f.statusRef.name }}</span>
+                <span v-else class="empty">— đặt —</span>
+                <span class="lbl ml-auto">Score:</span>
+                <strong>{{ f.leadScore ?? 0 }}</strong>
+              </div>
+              <div class="friend-card-row meta-line">
+                <span>📥 <strong>{{ f.totalInbound }}</strong></span>
+                <span>📤 <strong>{{ f.totalOutbound }}</strong></span>
+                <span v-if="f.becameFriendAt">KB: {{ relativeTime(f.becameFriendAt) }}</span>
+                <span v-if="f.lastInboundAt">Last: {{ relativeTime(f.lastInboundAt) }}</span>
+              </div>
+              <div class="friend-card-actions">
+                <button class="btn-sm-danger" :title="'Tách Con này thành KH Cha mới'" @click="onPromoteFriend(f)">
+                  ✂ Tách thành KH Cha riêng
+                </button>
               </div>
             </div>
           </div>
@@ -406,6 +419,23 @@ function chipBg(hex: string | null | undefined): string {
   return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},0.15)`;
 }
 function chipFg(hex: string | null | undefined): string { return hex || 'var(--smax-grey-700)'; }
+
+async function onPromoteFriend(f: FriendItem) {
+  const name = prompt(`Tên cho KH Cha mới (Nick "${f.zaloAccount.displayName}" × UID ${f.zaloUidInNick}):`, '');
+  if (name === null) return;  // cancelled
+  try {
+    const res = await api.post<{ newContact: { id: string; fullName: string }; movedConversations: number }>(
+      `/friends/${f.id}/promote-to-parent`,
+      { fullName: name.trim() || undefined },
+    );
+    toast.success(`Đã tạo KH Cha mới: ${res.data.newContact.fullName}. ${res.data.movedConversations} conversation đã chuyển.`);
+    if (props.contactId) await fetchRelations(props.contactId);
+    emit('saved');
+  } catch (err) {
+    const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Tách thất bại';
+    toast.error(msg);
+  }
+}
 
 function friendKindLabel(k: string): string {
   if (k === 'friend') return '✓ Đã KB';
@@ -691,16 +721,24 @@ function relativeTime(dateStr: string) {
 .parent-info { flex: 1; min-width: 0; }
 .parent-name { font-weight: 600; font-size: 13px; }
 .parent-meta { display: flex; gap: 8px; align-items: center; font-size: 11px; flex-wrap: wrap; margin-top: 4px; }
-.children-list, .friends-list { display: flex; flex-direction: column; gap: 8px; }
-.children-row, .friend-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border: 1px solid var(--smax-grey-200); border-radius: 6px; }
-.children-info, .friend-info { flex: 1; min-width: 0; }
-.children-name { font-weight: 500; font-size: 12.5px; }
-.children-meta, .friend-meta { display: flex; gap: 8px; font-size: 11px; color: var(--smax-grey-600); margin-top: 3px; flex-wrap: wrap; align-items: center; }
-.friend-head { display: flex; gap: 8px; align-items: center; }
-.friend-name { font-weight: 500; font-size: 12.5px; }
-.btn-sm { padding: 4px 8px; font-size: 11px; border: 1px solid var(--smax-grey-300); border-radius: 4px; background: var(--smax-bg); cursor: pointer; }
-.btn-sm:hover { background: rgba(0,0,0,0.05); }
-.uid { font-family: monospace; font-size: 10.5px; color: var(--smax-grey-600); }
+.friends-list { display: flex; flex-direction: column; gap: 10px; }
+.friend-card { border: 1px solid var(--smax-grey-200); border-radius: 8px; padding: 10px 12px; background: var(--smax-bg); }
+.friend-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.friend-card-title { flex: 1; min-width: 0; }
+.friend-name { font-weight: 600; font-size: 13px; }
+.friend-sub { font-size: 11px; color: var(--smax-grey-600); margin-top: 2px; }
+.sale-name { font-weight: 500; }
+.friend-card-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 3px 0; flex-wrap: wrap; }
+.friend-card-row .lbl { color: var(--smax-grey-600); }
+.friend-card-row .ml-auto { margin-left: auto; }
+.friend-card-row.meta-line { padding-top: 6px; border-top: 1px dashed var(--smax-grey-200); margin-top: 4px; color: var(--smax-grey-700); }
+.friend-card-row.meta-line strong { color: var(--smax-text); }
+.friend-card-actions { display: flex; justify-content: flex-end; gap: 6px; padding-top: 8px; border-top: 1px dashed var(--smax-grey-200); margin-top: 6px; }
+.btn-sm-danger { padding: 4px 10px; font-size: 11px; border: 1px solid #ffcdd2; color: #c62828; border-radius: 4px; background: rgba(255,82,82,0.05); cursor: pointer; }
+.btn-sm-danger:hover { background: rgba(255,82,82,0.15); }
+.status-edit { cursor: pointer; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.status-edit:hover { filter: brightness(1.1); }
+.uid { font-family: monospace; font-size: 10.5px; color: var(--smax-grey-700); background: rgba(0,0,0,0.04); padding: 1px 4px; border-radius: 3px; }
 .chip-grey { background: rgba(90,100,120,0.10); color: var(--smax-grey-700); padding: 1px 7px; border-radius: 9px; font-size: 10.5px; }
 .tab-empty code {
   background: var(--smax-grey-100);

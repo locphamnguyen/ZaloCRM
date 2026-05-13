@@ -483,6 +483,93 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── POST /api/v1/friends/:id/promote-to-parent — gỡ Friend Con thành KH Cha mới ──
+  // Tạo Contact mới từ Friend (1 Zalo identity per nick CRM), move Friend +
+  // Conversation tương ứng sang Contact mới. Cha cũ giữ lại các Friend khác.
+  // Copy statusId + leadScore từ Friend sang Contact mới (giữ data per-pair).
+  app.post('/api/v1/friends/:id/promote-to-parent', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id: friendId } = request.params as { id: string };
+      const body = (request.body || {}) as { fullName?: string };
+
+      const friend = await prisma.friend.findFirst({
+        where: { id: friendId, orgId: user.orgId },
+        select: {
+          id: true, contactId: true, zaloAccountId: true, zaloUidInNick: true,
+          statusId: true, leadScore: true, aliasInNick: true,
+        },
+      });
+      if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+
+      // Get default status for org (fallback)
+      const defaultStatus = await prisma.status.findFirst({
+        where: { orgId: user.orgId, isDefault: true },
+        select: { id: true },
+      });
+
+      // Build display name: body override > aliasInNick > "KH-{last4 UID}"
+      const last4 = friend.zaloUidInNick.slice(-4);
+      const fullName = body.fullName?.trim()
+        || friend.aliasInNick
+        || `KH-${last4}`;
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Create new Contact with friend's per-pair status/score
+        const newContact = await tx.contact.create({
+          data: {
+            orgId: user.orgId,
+            zaloUid: friend.zaloUidInNick,
+            fullName,
+            statusId: friend.statusId ?? defaultStatus?.id ?? null,
+            leadScore: friend.leadScore,
+            hasZalo: true,
+          },
+        });
+
+        // 2. Move Friend to new Contact
+        await tx.friend.update({
+          where: { id: friend.id },
+          data: { contactId: newContact.id },
+        });
+
+        // 3. Move Conversations matching (zaloAccountId, externalThreadId=zaloUidInNick)
+        const movedConvs = await tx.conversation.updateMany({
+          where: {
+            zaloAccountId: friend.zaloAccountId,
+            externalThreadId: friend.zaloUidInNick,
+            orgId: user.orgId,
+          },
+          data: { contactId: newContact.id },
+        });
+
+        // 4. Audit log
+        await tx.activityLog.create({
+          data: {
+            orgId: user.orgId,
+            userId: user.id,
+            action: 'friend_promoted_to_parent',
+            entityType: 'contact',
+            entityId: newContact.id,
+            details: {
+              fromContactId: friend.contactId,
+              friendId: friend.id,
+              zaloUidInNick: friend.zaloUidInNick,
+              movedConversations: movedConvs.count,
+            },
+          },
+        });
+
+        return { newContact, movedConversations: movedConvs.count };
+      });
+
+      return reply.send(result);
+    } catch (err) {
+      logger.error('[friends] promote-to-parent error:', err);
+      return reply.status(500).send({ error: 'Promote failed', detail: String(err) });
+    }
+  });
+
   // ── POST /api/v1/contacts/:id/merge-into — gắn Contact này làm Friends của Contact Cha ──
   // Move all Friends + Conversations + Appointments từ source → target, mark source mergedInto.
   // Use case: sale realize 2 Contact thực ra là cùng person (vd 2 Zalo account khác globalId).
