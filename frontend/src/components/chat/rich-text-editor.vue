@@ -148,9 +148,9 @@ function clear() {
   editor.value?.commands.clearContent(true);
 }
 
-/** Focus the editor */
-function focus() {
-  editor.value?.commands.focus();
+/** Focus the editor. Position: 'start' | 'end' | number | undefined (= last cursor pos). */
+function focus(position?: 'start' | 'end' | number) {
+  editor.value?.commands.focus(position);
 }
 
 /** Insert plain text/emoji at cursor position */

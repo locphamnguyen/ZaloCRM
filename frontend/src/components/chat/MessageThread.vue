@@ -913,11 +913,15 @@ function handleSend() {
   emit('cancel-reply-edit');
 }
 
-function applySuggestion(text?: string) {
+// Áp dụng suggestion: chèn text vào editor + focus caret cuối → user Enter gửi luôn.
+async function applySuggestion(text?: string) {
   const t = text || props.aiSuggestion;
   if (!t) return;
   inputText.value = t;
-  toast.success('Đã chèn vào ô chat');
+  // setContent ở RichTextEditor là async qua watch — đợi nextTick để editor update
+  // xong rồi mới focus 'end' (caret tại cuối text). Tránh focus trước khi content mount.
+  await nextTick();
+  setTimeout(() => editorRef.value?.focus('end'), 30);
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -971,6 +975,14 @@ watch(() => props.conversation?.id, async (newId) => {
   // Auto-focus editor — skip mobile (window.innerWidth < 768) tránh bật keyboard
   if (typeof window !== 'undefined' && window.innerWidth >= 768) {
     setTimeout(() => editorRef.value?.focus(), 80);
+  }
+});
+
+// Auto-apply AI suggestion ngay khi generate xong (transition empty → non-empty).
+// User chỉ cần bấm ✨ → text vào input + caret cuối → Enter gửi luôn.
+watch(() => props.aiSuggestion, (next, prev) => {
+  if (next && next !== prev) {
+    applySuggestion(next);
   }
 });
 
