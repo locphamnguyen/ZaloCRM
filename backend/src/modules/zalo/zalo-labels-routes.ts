@@ -206,7 +206,8 @@ export async function zaloLabelsRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ── POST /api/v1/zalo-accounts/:id/labels/sync — pull từ Zalo SDK ────────
+  // ── POST /api/v1/zalo-accounts/:id/labels/sync — pull từ Zalo SDK (force, bỏ cooldown).
+  //    Settings page "Đồng bộ ngay" + manual user click.
   app.post('/api/v1/zalo-accounts/:id/labels/sync', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -220,6 +221,86 @@ export async function zaloLabelsRoutes(app: FastifyInstance): Promise<void> {
     } catch (err) {
       logger.error('[zalo-labels] Sync error:', err);
       const msg = err instanceof Error ? err.message : 'Sync failed';
+      return reply.status(500).send({ error: msg });
+    }
+  });
+
+  // ── POST /api/v1/zalo-accounts/:id/labels/touch — sync nếu stale (cooldown 5s).
+  //    Frontend trigger khi switch conversation / load tab. No-op nếu vừa sync gần đây.
+  app.post('/api/v1/zalo-accounts/:id/labels/touch', async (request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const account = await prisma.zaloAccount.findFirst({
+        where: { id: request.params.id, orgId: user.orgId },
+        select: { id: true, orgId: true },
+      });
+      if (!account) return reply.status(404).send({ error: 'Zalo account not found' });
+      const result = await syncLabelsIfStale(account.id, account.orgId);
+      if (!result) return { ok: true, skipped: true, reason: 'cooldown' };
+      return { ok: true, ...result };
+    } catch (err) {
+      // Mềm: không trả 500 cho touch vì đây là trigger background — chỉ log + 200 ok=false
+      const msg = err instanceof Error ? err.message : 'Touch failed';
+      logger.warn('[zalo-labels] Touch sync warn:', msg);
+      return { ok: false, error: msg };
+    }
+  });
+
+  // ── POST /api/v1/friends/:friendId/zalo-label — assign 1 label cho friend (single-select).
+  //    Body: { labelId: number | null }. null = remove all labels.
+  //    Logic: tìm tất cả label hiện đang chứa externalThreadId → remove, rồi add vào label mới.
+  //    Cập nhật toàn bộ qua SDK updateLabels({labelData, version}).
+  app.post('/api/v1/friends/:friendId/zalo-label', async (request: FastifyRequest<{
+    Params: { friendId: string };
+    Body: { labelId: number | null };
+  }>, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const friend = await prisma.friend.findFirst({
+        where: { id: request.params.friendId, orgId: user.orgId },
+        select: { id: true, zaloAccountId: true, zaloUidInNick: true, orgId: true },
+      });
+      if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+
+      const newLabelId = request.body?.labelId ?? null;
+      const api = zaloPool.getApi(friend.zaloAccountId);
+      if (!api || typeof api.updateLabels !== 'function') {
+        return reply.status(503).send({ error: 'Zalo account chưa kết nối — không thể gán tag' });
+      }
+
+      // Pull current label data from Zalo (authoritative source)
+      const current = await api.getLabels();
+      const labelData: LabelDataFromSdk[] = (current?.labelData || []).map((l: LabelDataFromSdk) => ({
+        ...l,
+        conversations: Array.isArray(l.conversations) ? [...l.conversations] : [],
+      }));
+      const version: number = current?.version || 0;
+      const uid = friend.zaloUidInNick;
+
+      // Remove uid khỏi mọi label đang chứa nó (single-select cleanup)
+      for (const l of labelData) {
+        l.conversations = (l.conversations || []).filter(c => c !== uid);
+      }
+
+      // Add uid vào label được chọn (nếu có)
+      if (newLabelId !== null) {
+        const target = labelData.find(l => Number(l.id) === newLabelId);
+        if (!target) {
+          return reply.status(400).send({ error: 'Label ID không tồn tại trong tài khoản này' });
+        }
+        target.conversations = target.conversations || [];
+        if (!target.conversations.includes(uid)) target.conversations.push(uid);
+      }
+
+      // Push back to Zalo
+      await api.updateLabels({ labelData, version });
+
+      // Re-sync để DB phản ánh state mới (Friend.zaloLabels rebuilt)
+      const result = await syncLabelsForAccount(friend.zaloAccountId, friend.orgId);
+      return { ok: true, assignedLabelId: newLabelId, ...result };
+    } catch (err) {
+      logger.error('[zalo-labels] Assign error:', err);
+      const msg = err instanceof Error ? err.message : 'Assign failed';
       return reply.status(500).send({ error: msg });
     }
   });
@@ -273,40 +354,31 @@ export async function zaloLabelsRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /* ────────────────────────────────────────────────────────────────────────
- * Background sync job — periodic pull (every 60s) for connected accounts.
- * Keeps Friend.zaloLabels fresh without manual click.
+ * On-demand sync với rate-limit per-account (cooldown 5s).
+ * Gọi từ frontend khi switch conversation hoặc reload tab — không poll định kỳ.
  * ──────────────────────────────────────────────────────────────────────── */
-let labelSyncInterval: ReturnType<typeof setInterval> | null = null;
+const lastSyncedAt = new Map<string, number>();
+const SYNC_COOLDOWN_MS = 5_000;
 
-export function startLabelsBackgroundSync(intervalMs = 60_000): void {
-  if (labelSyncInterval) return;
-  logger.info(`[zalo-labels] Background sync started (every ${intervalMs / 1000}s)`);
-  labelSyncInterval = setInterval(async () => {
-    try {
-      const accounts = await prisma.zaloAccount.findMany({
-        where: { status: 'connected' },
-        select: { id: true, orgId: true },
-      });
-      for (const a of accounts) {
-        try {
-          await syncLabelsForAccount(a.id, a.orgId);
-        } catch (e) {
-          // Silent — account may have lost connection mid-sync
-          const msg = e instanceof Error ? e.message : String(e);
-          if (!msg.includes('chưa kết nối')) {
-            logger.warn(`[zalo-labels] Background sync failed for ${a.id}: ${msg}`);
-          }
-        }
-      }
-    } catch (err) {
-      logger.error('[zalo-labels] Background sync loop error:', err);
-    }
-  }, intervalMs);
-}
-
-export function stopLabelsBackgroundSync(): void {
-  if (labelSyncInterval) {
-    clearInterval(labelSyncInterval);
-    labelSyncInterval = null;
+/**
+ * Sync nếu lần gần nhất > 5s. Returns sync result hoặc null nếu skipped do cooldown.
+ * Designed cho việc gọi từ HTTP trigger khi user activity (conv switch, tab load).
+ */
+export async function syncLabelsIfStale(accountId: string, orgId: string): Promise<Awaited<ReturnType<typeof syncLabelsForAccount>> | null> {
+  const last = lastSyncedAt.get(accountId) || 0;
+  if (Date.now() - last < SYNC_COOLDOWN_MS) return null;
+  lastSyncedAt.set(accountId, Date.now());
+  try {
+    return await syncLabelsForAccount(accountId, orgId);
+  } catch (e) {
+    // Reset cooldown nếu failed → lần sau retry sớm hơn
+    lastSyncedAt.delete(accountId);
+    throw e;
   }
 }
+
+// Compat exports — đã bỏ background interval, giữ stub để app.ts không break
+export function startLabelsBackgroundSync(_intervalMs?: number): void {
+  logger.info('[zalo-labels] On-demand sync mode (no background interval, 5s cooldown per account)');
+}
+export function stopLabelsBackgroundSync(): void {}

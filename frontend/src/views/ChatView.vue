@@ -246,6 +246,14 @@ watch(
   { deep: false, immediate: false },
 );
 
+// Listener cho zalo-labels-synced custom event (dispatch từ MessageThread sau khi
+// touch/assign/sync labels). Refetch conversation detail để update friendship.zaloLabels.
+function onLabelsSynced() {
+  if (selectedConvId.value) {
+    selectConversation(selectedConvId.value);
+  }
+}
+
 onMounted(async () => {
   if (!isMobile.value) {
     await fetchZaloAccounts();
@@ -258,10 +266,14 @@ onMounted(async () => {
     if (typeof initId === 'string' && initId) {
       selectConversation(initId);
     }
+    window.addEventListener('zalo-labels-synced', onLabelsSynced);
   }
 });
 onUnmounted(() => {
-  if (!isMobile.value) destroySocket();
+  if (!isMobile.value) {
+    destroySocket();
+    window.removeEventListener('zalo-labels-synced', onLabelsSynced);
+  }
 });
 
 let searchTimeout: ReturnType<typeof setTimeout>;
