@@ -43,40 +43,48 @@
               :model-value="(conversation.contact.status as string | null) || 'new'"
               @update:model-value="onCareStatusChange"
             />
-            <!-- Zalo Real labels dropdown — chỉ user thread + có friend record -->
+            <!-- Zalo Real label dropdown — Zalo-native UI (single-select, list all labels in account) -->
             <v-menu v-if="conversation.threadType === 'user' && conversation.friendship" :close-on-content-click="false" location="bottom start">
               <template #activator="{ props: actProps }">
-                <button v-bind="actProps" class="zlbl-trigger" :title="`${zaloLabels.length} thẻ Zalo Real`">
-                  <span class="zlbl-icon">🏷</span>
-                  <span v-if="zaloLabels.length" class="zlbl-count">{{ zaloLabels.length }}</span>
-                  <span v-else class="zlbl-empty">Zalo</span>
+                <button v-bind="actProps" class="zlbl-trigger" :title="currentLabel ? `Đang gắn: ${currentLabel.text}` : 'Chưa gắn tag Zalo'">
+                  <span class="zlbl-icon" :style="currentLabel ? `color: ${currentLabel.color}` : ''">🏷</span>
+                  <span v-if="currentLabel" class="zlbl-current-name" :style="`color: ${currentLabel.color}`">
+                    {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
+                  </span>
+                  <span v-else class="zlbl-empty">Phân loại</span>
                   <span class="zlbl-caret">▾</span>
                 </button>
               </template>
-              <div class="zlbl-dropdown">
-                <div class="zlbl-head">
-                  <span>Thẻ Zalo Real</span>
-                  <button class="zlbl-sync-now" :disabled="syncingLabels" @click="onSyncLabels">
-                    {{ syncingLabels ? '⟳…' : '⟳ Sync' }}
+              <div class="zlbl-dropdown zalo-native">
+                <div v-if="loadingAllLabels && !allLabels.length" class="zlbl-loading">Đang tải…</div>
+
+                <div v-else-if="!allLabels.length" class="zlbl-empty-state">
+                  Tài khoản chưa có thẻ phân loại nào.<br />
+                  <button class="zlbl-inline-sync" @click="onSyncLabels">⟳ Đồng bộ từ Zalo</button>
+                </div>
+
+                <div v-else class="zlbl-options">
+                  <button
+                    v-for="lbl in allLabels"
+                    :key="lbl.id"
+                    class="zlbl-option"
+                    :class="{ active: currentLabel?.id === lbl.id, busy: assigningLabel }"
+                    :disabled="assigningLabel"
+                    @click="onPickLabel(lbl)"
+                  >
+                    <span class="zlbl-flag" :style="`color: ${lbl.color}`">⚑</span>
+                    <span class="zlbl-name">
+                      <span v-if="lbl.emoji">{{ lbl.emoji }} </span>{{ lbl.text }}
+                    </span>
+                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check">✓</span>
                   </button>
                 </div>
-                <div v-if="!zaloLabels.length" class="zlbl-empty-state">
-                  Chưa có thẻ Zalo. Nhấn Sync để pull từ Zalo client.
-                </div>
-                <div v-else class="zlbl-list">
-                  <span
-                    v-for="(label, idx) in zaloLabels"
-                    :key="label.id || idx"
-                    class="zlbl-chip"
-                    :style="label.color ? `background:${label.color}22;color:${label.color};border-color:${label.color}` : ''"
-                  >
-                    <span v-if="(label as any).emoji">{{ (label as any).emoji }} </span>{{ label.name || '—' }}
-                  </span>
-                </div>
-                <div class="zlbl-foot">
-                  <span class="zlbl-foot-hint">Đồng bộ 2 chiều · auto 60s</span>
-                  <button class="zlbl-settings-link" @click="goToLabelsSettings">⚙ Cài đặt</button>
-                </div>
+
+                <div class="zlbl-divider"></div>
+                <button class="zlbl-manage" @click="goToLabelsSettings">
+                  <span class="manage-icon">⚙</span>
+                  Quản lý thẻ phân loại
+                </button>
               </div>
             </v-menu>
           </div>
@@ -526,28 +534,111 @@ const genderChipClass = computed(() => {
 // còn aggregate tổng across nicks chỉ dùng tooltip để sale biết bối cảnh.
 const msgInCount = computed(() => props.conversation?.friendship?.totalInbound ?? 0);
 
-// Zalo Real labels từ Friend per-pair (sync 2-way với Zalo client)
-const zaloLabels = computed<Array<{ id?: string; name?: string; color?: string }>>(() => {
-  const arr = props.conversation?.friendship?.zaloLabels;
-  return Array.isArray(arr) ? arr : [];
+/* ── Zalo Real labels — Zalo-native dropdown UX ─────────────────────────
+ * - allLabels: master list của account (fetch GET /zalo-accounts/:id/labels)
+ * - currentLabel: label đang gán cho friend (lấy từ conversation.friendship.zaloLabels[0])
+ * - Single-select: click 1 label → POST /friends/:friendId/zalo-label {labelId}
+ *   Nếu label đó đang active → click sẽ unassign (labelId=null).
+ * - Sync 2-way: trigger /labels/touch (cooldown 5s) khi conversation đổi.
+ * ───────────────────────────────────────────────────────────────────── */
+type AccountLabelView = { id: number; text: string; color: string; emoji: string | null; offset: number; assignedCount: number };
+
+const allLabels = ref<AccountLabelView[]>([]);
+const loadingAllLabels = ref(false);
+const assigningLabel = ref(false);
+
+const currentLabel = computed<AccountLabelView | null>(() => {
+  const fs = props.conversation?.friendship;
+  const labels = Array.isArray(fs?.zaloLabels) ? fs!.zaloLabels : [];
+  if (!labels.length) return null;
+  const first = labels[0] as { id?: number | string; name?: string; color?: string; emoji?: string };
+  const fromMaster = allLabels.value.find(l => l.id === Number(first.id));
+  if (fromMaster) return fromMaster;
+  // Fallback: zaloLabels chứa shape khác
+  return {
+    id: Number(first.id) || 0,
+    text: first.name || '—',
+    color: first.color || '#999',
+    emoji: first.emoji || null,
+    offset: 0,
+    assignedCount: 0,
+  };
 });
-const syncingLabels = ref(false);
+
+async function fetchAllLabels(accountId: string) {
+  if (!accountId) return;
+  loadingAllLabels.value = true;
+  try {
+    const { api: apiClient } = await import('@/api/index');
+    const { data } = await apiClient.get(`/zalo-accounts/${accountId}/labels`);
+    allLabels.value = (data.labels || []) as AccountLabelView[];
+  } catch (err) {
+    console.error('[zalo-labels] fetch all error', err);
+  } finally {
+    loadingAllLabels.value = false;
+  }
+}
+
+/* Sync-on-demand: khi đổi conversation → touch endpoint (cooldown 5s server-side).
+ * Sau touch xong → re-fetch master list + emit reload-conversation cho parent. */
+async function touchAccountSync(accountId: string) {
+  if (!accountId) return;
+  try {
+    const { api: apiClient } = await import('@/api/index');
+    await apiClient.post(`/zalo-accounts/${accountId}/labels/touch`);
+    await fetchAllLabels(accountId);
+    // Báo parent rằng friendship.zaloLabels có thể đã đổi sau sync — re-fetch conversation detail
+    window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId } }));
+  } catch (err) {
+    // Silent — touch luôn 200 ngay cả khi error
+  }
+}
+
+// Watch conversation switch → sync labels (cooldown 5s server-side) + fetch master list
+watch(() => props.conversation?.id, (newId, oldId) => {
+  if (!newId || newId === oldId) return;
+  const accId = props.conversation?.zaloAccount?.id;
+  if (accId) {
+    void fetchAllLabels(accId);   // load master để dropdown render đủ
+    void touchAccountSync(accId); // touch để pick up Zalo client changes (2-way)
+  }
+}, { immediate: true });
+
+async function onPickLabel(label: AccountLabelView) {
+  const friendId = props.conversation?.friendship?.id;
+  if (!friendId || assigningLabel.value) return;
+  assigningLabel.value = true;
+  try {
+    const { api: apiClient } = await import('@/api/index');
+    // Toggle: nếu đang active → unassign (null), ngược lại assign labelId
+    const labelId = currentLabel.value?.id === label.id ? null : label.id;
+    await apiClient.post(`/friends/${friendId}/zalo-label`, { labelId });
+    toast.success(labelId ? `✓ Đã gắn "${label.text}"` : `✓ Đã bỏ tag`);
+    // Re-fetch master + báo parent reload conversation để cập nhật friendship.zaloLabels
+    const accId = props.conversation?.zaloAccount?.id;
+    if (accId) await fetchAllLabels(accId);
+    window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId: accId } }));
+  } catch (err: any) {
+    toast.error(err.response?.data?.error || 'Không gán được tag');
+  } finally {
+    assigningLabel.value = false;
+  }
+}
+
 async function onSyncLabels() {
   const accId = props.conversation?.zaloAccount?.id;
   if (!accId) return;
-  syncingLabels.value = true;
   try {
     const { api: apiClient } = await import('@/api/index');
     const { data } = await apiClient.post(`/zalo-accounts/${accId}/labels/sync`);
     toast.success(`✓ Sync ${data.labels.length} tag · ${data.friendsUpdated} KH`);
-    // Conversation parent should re-fetch to pick up updated zaloLabels — emit hint
+    await fetchAllLabels(accId);
     window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId: accId } }));
   } catch (err: any) {
     toast.error(err.response?.data?.error || 'Sync thất bại');
-  } finally {
-    syncingLabels.value = false;
   }
 }
+
 function goToLabelsSettings() {
   window.location.assign('/settings/zalo-labels');
 }
@@ -1429,112 +1520,131 @@ watch(() => props.editingMessage?.id, async (id) => {
   background: var(--smax-grey-100);
 }
 
-/* ── Zalo Real labels dropdown ────────────────────────────────────────── */
+/* ── Zalo Real labels dropdown — Zalo-native style ────────────────────── */
 .zlbl-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  background: var(--smax-grey-100);
-  border: 1px solid var(--smax-grey-200);
+  gap: 4px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 11px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   padding: 2px 7px;
   cursor: pointer;
   color: var(--smax-grey-700);
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
+  max-width: 180px;
 }
-.zlbl-trigger:hover { background: var(--smax-primary-soft, #e3f2fd); }
-.zlbl-icon { font-size: 11px; }
-.zlbl-count {
-  background: var(--smax-primary);
-  color: #fff;
-  border-radius: 8px;
-  padding: 0 5px;
-  font-size: 10px;
-  font-weight: 700;
+.zlbl-trigger:hover {
+  background: var(--smax-grey-100);
+  border-color: var(--smax-grey-200);
+}
+.zlbl-icon { font-size: 12px; flex-shrink: 0; }
+.zlbl-current-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .zlbl-empty { font-style: italic; color: var(--smax-grey-500); }
-.zlbl-caret { font-size: 9px; opacity: 0.6; }
+.zlbl-caret { font-size: 9px; opacity: 0.6; flex-shrink: 0; }
 
-.zlbl-dropdown {
-  min-width: 240px;
+/* Dropdown chính — match Zalo native: rộng, padding 0, list items full-width */
+.zlbl-dropdown.zalo-native {
+  min-width: 280px;
   max-width: 320px;
+  max-height: 480px;
+  overflow-y: auto;
   background: #fff;
-  padding: 8px 10px;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 6px 0;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.15);
 }
-.zlbl-head {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--smax-grey-600);
-  margin-bottom: 5px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.zlbl-sync-now {
-  background: var(--smax-primary-soft);
-  color: var(--smax-primary);
-  border: none;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.zlbl-sync-now:hover:not(:disabled) { filter: brightness(0.95); }
-.zlbl-sync-now:disabled { opacity: 0.5; cursor: not-allowed; }
+.zlbl-loading,
 .zlbl-empty-state {
-  font-size: 12px;
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
   color: var(--smax-grey-500);
-  font-style: italic;
-  padding: 8px 0;
 }
-.zlbl-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 4px 0 6px;
-}
-.zlbl-chip {
-  padding: 2px 9px;
-  border-radius: 11px;
-  font-size: 11.5px;
-  font-weight: 500;
-  border: 1.4px solid var(--smax-grey-300);
-  background: var(--smax-grey-50);
-  color: var(--smax-grey-700);
-}
-.zlbl-foot {
-  font-size: 10px;
-  color: var(--smax-grey-400);
-  margin-top: 4px;
-  border-top: 1px dashed var(--smax-grey-100);
-  padding-top: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.zlbl-foot-hint { color: var(--smax-grey-500); }
-.zlbl-settings-link {
-  background: var(--smax-grey-100);
+.zlbl-empty-state { font-style: italic; }
+.zlbl-inline-sync {
+  margin-top: 8px;
+  background: var(--smax-primary-soft, #e3f2fd);
+  color: var(--smax-primary, #2962ff);
   border: none;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--smax-grey-700);
-  padding: 3px 9px;
-  border-radius: 6px;
+  padding: 5px 12px;
+  border-radius: 7px;
   cursor: pointer;
-  text-decoration: none;
 }
-.zlbl-settings-link:hover {
-  background: var(--smax-primary-soft);
-  color: var(--smax-primary);
+.zlbl-inline-sync:hover { filter: brightness(0.95); }
+
+.zlbl-options {
+  display: flex;
+  flex-direction: column;
 }
+.zlbl-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: transparent;
+  border: none;
+  padding: 9px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  width: 100%;
+  text-align: left;
+  transition: background 0.1s;
+}
+.zlbl-option:hover { background: var(--smax-grey-50, #f5f6fa); }
+.zlbl-option.active { background: rgba(33, 150, 243, 0.06); }
+.zlbl-option.busy { opacity: 0.5; cursor: progress; }
+.zlbl-option:disabled { cursor: not-allowed; }
+.zlbl-flag {
+  font-size: 16px;
+  width: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.zlbl-name {
+  flex: 1;
+  color: var(--smax-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.zlbl-option.active .zlbl-name { font-weight: 600; }
+.zlbl-check {
+  color: var(--smax-primary, #2962ff);
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.zlbl-divider {
+  height: 1px;
+  background: var(--smax-grey-100);
+  margin: 4px 0;
+}
+.zlbl-manage {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 10px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--smax-grey-700);
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.1s;
+}
+.zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
+.manage-icon { font-size: 14px; }
 </style>
