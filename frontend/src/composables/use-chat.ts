@@ -378,31 +378,13 @@ export function useChat() {
     } catch {
       // Ignore mark-read errors
     }
-    // Auto-sync Zalo profile (gender/birth/phone/avatar) khi contact thiếu data.
-    // Chỉ fire-and-forget; user không phải đợi.
-    void autoSyncZaloProfile(convId);
+    // Note: Auto-sync Zalo profile được xử lý ở MessageThread.touchConversationProfile
+    // (gọi POST /conversations/:id/touch-profile, cooldown 5min server-side). KHÔNG
+    // duplicate ở đây để tránh spam SDK + 404 lên endpoint /contacts/:id/sync-zalo-profile
+    // (legacy, đã bỏ).
     // AI summary + sentiment KHÔNG auto-fire mỗi lần đổi conv — user bấm nút refresh khi cần.
     // Trước đây 2 LLM call awaited mỗi switch = 2-10s + tốn quota.
     void fetchAiUsage();
-  }
-
-  /** Fetch Zalo profile để fill các field còn null (gender/birthDate/phone/avatar). */
-  async function autoSyncZaloProfile(convId: string) {
-    const conv = conversations.value.find(c => c.id === convId);
-    const c = conv?.contact;
-    if (!c?.zaloUid) return;
-    // Chỉ sync khi missing 1 trong 4 field. Tránh gọi API thừa.
-    const needSync = !c.gender || !c.birthDate || !c.phone || !c.avatarUrl;
-    if (!needSync) return;
-    try {
-      const res = await api.post(`/contacts/${c.id}/sync-zalo-profile`);
-      if (res.data?.updated && res.data?.contact && conv) {
-        conv.contact = res.data.contact;
-      }
-    } catch (err) {
-      // Silent fail: KH không phải friend của nick nào, hoặc profile riêng tư
-      console.debug('[zalo-profile-sync]', (err as Error)?.message);
-    }
   }
 
   async function sendMessage(content: string, replyMessageId?: string | null) {
