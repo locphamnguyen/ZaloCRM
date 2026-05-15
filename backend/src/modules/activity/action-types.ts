@@ -41,6 +41,7 @@ export const ACTION_CATEGORY: Record<string, ActivityCategory> = {
   // tags_zalo
   tag_add_zalo: 'tags_zalo',
   tag_remove_zalo: 'tags_zalo',
+  tag_change_zalo: 'tags_zalo',          // gộp remove+add same friend same sync session
   zalo_label_renamed: 'tags_zalo',
   zalo_label_deleted: 'tags_zalo',
 

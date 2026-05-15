@@ -208,11 +208,12 @@ const toast = useToast();
 const currentUserId = computed(() => auth.user?.id || '');
 
 const FILTER_OPTIONS = [
-  { value: 'all',      label: 'Tất cả' },
   { value: 'notes',    label: '📝 Ghi chú' },
   { value: 'activity', label: '⚡ Hoạt động' },
+  { value: 'all',      label: 'Tất cả' },
 ];
-const filter = ref<'all' | 'notes' | 'activity'>('all');
+// Default 'notes' — ghi chú là tác vụ user thường xuyên nhất khi mở panel KH
+const filter = ref<'all' | 'notes' | 'activity'>('notes');
 
 const { getPref, setPref, loadPrefs } = useUserPreferences();
 const PREF_KEY = 'timeline.categories.visible';

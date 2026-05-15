@@ -67,6 +67,7 @@ export const ACTION_META: Record<string, ActionMeta> = {
   // tags_zalo
   tag_add_zalo:        { label: 'Gắn tag Zalo' },
   tag_remove_zalo:     { label: 'Gỡ tag Zalo' },
+  tag_change_zalo:     { label: 'Chuyển tag Zalo' },
   zalo_label_renamed:  { label: 'Đổi tên tag Zalo' },
   zalo_label_deleted:  { label: 'Xoá tag Zalo' },
 
@@ -115,7 +116,7 @@ export function categoryOf(action: string, fallback: ActivityCategory = 'system'
     customer_assign: 'customer_info', friend_alias_change: 'customer_info',
     friend_zalo_name_change: 'customer_info',
     tag_add_crm: 'tags_crm', tag_remove_crm: 'tags_crm', tag_replace_crm: 'tags_crm',
-    tag_add_zalo: 'tags_zalo', tag_remove_zalo: 'tags_zalo',
+    tag_add_zalo: 'tags_zalo', tag_remove_zalo: 'tags_zalo', tag_change_zalo: 'tags_zalo',
     zalo_label_renamed: 'tags_zalo', zalo_label_deleted: 'tags_zalo',
     status_change: 'status_care',
     score_change: 'score',

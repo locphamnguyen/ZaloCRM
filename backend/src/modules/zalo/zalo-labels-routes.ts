@@ -226,27 +226,43 @@ export async function syncLabelsForAccount(accountId: string, orgId: string): Pr
     });
     friendsUpdated++;
 
-    // ── ACTIVITY LOG — tag_add_zalo / tag_remove_zalo (system actor) ──
+    // ── ACTIVITY LOG — gộp tag_change_zalo nếu có CẢ remove + add cùng sync.
+    //  Single-select Zalo tag (1 label/friend) → đổi A→B thường có 1 remove + 1 add.
+    //  Edge case nhiều add/remove cùng lúc → fallback log riêng từng action. ──
     if (f.contactId) {
-      for (const labelName of addedLabels) {
+      const baseDetails = { friendId: f.id, accountId, trigger: 'sync' };
+      if (removedLabels.length === 1 && addedLabels.length === 1) {
+        // Case phổ biến nhất: đổi tag A→B
         logActivity({
           orgId,
           systemSource: 'zalo_label_sync',
-          action: 'tag_add_zalo',
+          action: 'tag_change_zalo',
           entityType: 'contact',
           entityId: f.contactId,
-          details: { tag: labelName, friendId: f.id, accountId, trigger: 'sync' },
+          details: { ...baseDetails, from: removedLabels[0], to: addedLabels[0] },
         });
-      }
-      for (const labelName of removedLabels) {
-        logActivity({
-          orgId,
-          systemSource: 'zalo_label_sync',
-          action: 'tag_remove_zalo',
-          entityType: 'contact',
-          entityId: f.contactId,
-          details: { tag: labelName, friendId: f.id, accountId, trigger: 'sync' },
-        });
+      } else {
+        // Fallback: log riêng từng add/remove (multi-add hoặc multi-remove)
+        for (const labelName of addedLabels) {
+          logActivity({
+            orgId,
+            systemSource: 'zalo_label_sync',
+            action: 'tag_add_zalo',
+            entityType: 'contact',
+            entityId: f.contactId,
+            details: { ...baseDetails, tag: labelName },
+          });
+        }
+        for (const labelName of removedLabels) {
+          logActivity({
+            orgId,
+            systemSource: 'zalo_label_sync',
+            action: 'tag_remove_zalo',
+            entityType: 'contact',
+            entityId: f.contactId,
+            details: { ...baseDetails, tag: labelName },
+          });
+        }
       }
     }
   }

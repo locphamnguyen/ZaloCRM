@@ -43,7 +43,35 @@
 import { computed } from 'vue';
 import type { ActivityLogItem } from '@/composables/use-timeline';
 import { CATEGORY_META, ACTION_META, categoryOf, type ActivityCategory } from '@/constants/activity-types';
+import { CARE_STATUSES } from '@/constants/care-status';
 import MentionPopover from './MentionPopover.vue';
+
+/* Care status meta map: code → { label VN, color hex từ chip class } */
+const CHIP_TO_HEX: Record<string, string> = {
+  'chip-grey':    '#6B7280',
+  'chip-cyan':    '#00838F',
+  'chip-info':    '#1976D2',
+  'chip-purple':  '#7B1FA2',
+  'chip-warning': '#F57C00',
+  'chip-error':   '#C62828',
+  'chip-success': '#2E7D32',
+};
+function statusMeta(code: string): { label: string; color: string } | null {
+  const s = CARE_STATUSES.find(x => x.value === code);
+  if (!s) return null;
+  return { label: s.label, color: CHIP_TO_HEX[s.chip] || '#6B7280' };
+}
+function escape(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
+}
+/* Render 1 status pill HTML — label VN + bg-color theo chip */
+function statusPillHtml(code: string | null | undefined): string {
+  if (!code) return '<span class="status-pill empty">— chưa có —</span>';
+  const meta = statusMeta(String(code));
+  if (!meta) return `<span class="status-pill empty">${escape(String(code))}</span>`;
+  // Background mờ 15%, color đậm
+  return `<span class="status-pill" style="background:${meta.color}22;color:${meta.color};border-color:${meta.color}66">${escape(meta.label)}</span>`;
+}
 
 const props = defineProps<{ item: ActivityLogItem }>();
 
@@ -91,9 +119,9 @@ const detailsLine = computed(() => {
   const d = props.item.details || {};
   const action = props.item.action;
 
-  // Status change: old → new
+  // Status change: hiển thị label VN + icon + màu theo CARE_STATUSES (không raw code)
   if (action === 'status_change' && (d.old || d.new)) {
-    return `: <span class="diff-old">${escape(String(d.old || '—'))}</span> → <span class="diff-new">${escape(String(d.new || '—'))}</span>`;
+    return `: ${statusPillHtml(d.old as string)} → ${statusPillHtml(d.new as string)}`;
   }
   // Score change: delta
   if (action === 'score_change') {
@@ -105,6 +133,10 @@ const detailsLine = computed(() => {
   // Tag add/remove
   if ((action === 'tag_add_crm' || action === 'tag_remove_crm' || action === 'tag_add_zalo' || action === 'tag_remove_zalo') && d.tag) {
     return `: <em>${escape(String(d.tag))}</em>`;
+  }
+  // Tag change (gộp remove+add cùng sync): A → B
+  if (action === 'tag_change_zalo' && (d.from || d.to)) {
+    return `: <em>${escape(String(d.from || '—'))}</em> → <em>${escape(String(d.to || '—'))}</em>`;
   }
   // Appointment: show date
   if (action === 'appointment_create' && d.appointmentDate) {
@@ -122,10 +154,6 @@ const detailsLine = computed(() => {
   }
   return '';
 });
-
-function escape(s: string): string {
-  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c));
-}
 
 /* Diff entries — render block 2-line cho customer_update changes (field text dài).
  * Format: birthday/date theo locale VN, các field khác giữ raw. */
@@ -301,5 +329,23 @@ const diffEntries = computed<Array<{ field: string; old: string; new: string }>>
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 11px;
+}
+
+/* Status pill inline trong activity details — match CareStatusBadge style */
+.act-details :deep(.status-pill) {
+  display: inline-block;
+  padding: 1px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.act-details :deep(.status-pill.empty) {
+  background: var(--smax-grey-100, #f5f6fa);
+  color: var(--smax-grey-500);
+  border-color: var(--smax-grey-200);
+  font-style: italic;
+  font-weight: 500;
 }
 </style>
