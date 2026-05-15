@@ -485,20 +485,33 @@ model NoteReaction {
   @@map("note_reactions")
 }
 
-// Audit trail for user actions
+// Audit trail — log MỌI mutation CRM với actor + category + diff.
+// Source of truth cho timeline + activity log page.
+// Actor 3 loại: user (sale/admin), bot (automation), system (migration/sync).
+// Category 9 nhóm: customer_info, tags_crm, tags_zalo, status_care, score,
+//   appointment, interaction, system, automation.
 model ActivityLog {
-  id         String   @id @default(uuid())
-  orgId      String   @map("org_id")
-  userId     String?  @map("user_id")
-  action     String
-  entityType String?  @map("entity_type")
-  entityId   String?  @map("entity_id")
-  details    Json     @default("{}")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  userId        String?  @map("user_id")              // null nếu actorType != 'user'
+  actorType     String   @default("user") @map("actor_type")  // 'user' | 'bot' | 'system'
+  botName       String?  @map("bot_name")             // vd "AutoTag Bot" — chỉ khi actorType='bot'
+  systemSource  String?  @map("system_source")        // vd "zalo_label_sync" — chỉ khi actorType='system'
+  category      String?                                // 9 nhóm — null cho legacy rows
+  action        String
+  entityType    String?  @map("entity_type")
+  entityId      String?  @map("entity_id")
+  details       Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User?        @relation(fields: [userId], references: [id])
 
+  // Composite indexes cho timeline query (entity per-customer) + activity log page
+  // (filter category + date range). Sort DESC vì 99% query là "latest first".
+  @@index([entityType, entityId, createdAt(sort: Desc)])
+  @@index([orgId, category, createdAt(sort: Desc)])
+  @@index([orgId, actorType, createdAt(sort: Desc)])
   @@map("activity_logs")
 }
 

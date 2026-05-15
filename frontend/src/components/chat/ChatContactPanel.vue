@@ -325,7 +325,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue';
 import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
@@ -407,8 +407,6 @@ watch(activeTab, (tab) => {
   }
 });
 
-onBeforeUnmount(() => clearCollapseTimer());
-
 // Animation: khi NotesSection emit 'appointment-created' (fly anim đã xong) → +1 badge với bump effect.
 // pendingAptBump giữ count cho tới khi reloadAppointments() refresh data thực từ backend.
 const pendingAptBump = ref(0);
@@ -422,6 +420,15 @@ function onAppointmentCreated() {
     setTimeout(() => { pendingAptBump.value = 0; }, 300);
   });
 }
+
+// Listen global 'appointment-created' event — fire khi MessageThread (cột 3) tạo
+// nhắc hẹn qua icon 📅 trong toolbar. Cùng pattern với zalo-labels-synced.
+function onGlobalAppointmentCreated() { onAppointmentCreated(); }
+onMounted(() => window.addEventListener('appointment-created', onGlobalAppointmentCreated));
+onBeforeUnmount(() => {
+  clearCollapseTimer();
+  window.removeEventListener('appointment-created', onGlobalAppointmentCreated);
+});
 
 // ════════ Relations data (friends per nick = KH Con) — fetch khi đổi contact ═══
 interface FriendItem {

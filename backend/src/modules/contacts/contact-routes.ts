@@ -16,6 +16,7 @@ import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { runAutomationRules } from '../automation/automation-service.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
+import { logActivity, computeDiff } from '../activity/activity-logger.js';
 
 type QueryParams = Record<string, string>;
 
@@ -350,7 +351,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.contact.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true, status: true, fullName: true, phone: true, source: true, assignedUserId: true },
+        select: {
+          id: true, status: true, fullName: true, phone: true, source: true,
+          assignedUserId: true, crmName: true, email: true, gender: true,
+          birthDate: true, leadScore: true, addressLine: true, occupation: true,
+        },
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
@@ -403,6 +408,46 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      // ── ACTIVITY LOG — diff với existing để log đúng action types ─────────
+      // Tách action-specific logs (status, score) vs bulk customer_update.
+      // Status change ưu tiên (workflow critical), score change track delta.
+      if (existing.status !== updated.status) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'status_change',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { old: existing.status, new: updated.status },
+        });
+      }
+      if (existing.leadScore !== updated.leadScore) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'score_change',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { old: existing.leadScore, new: updated.leadScore, delta: updated.leadScore - existing.leadScore },
+        });
+      }
+      // Bulk customer_info changes (fullName/phone/email/gender/birthDate/...) → 1 log
+      const infoDiff = computeDiff(
+        existing as Record<string, unknown>,
+        updated as Record<string, unknown>,
+        ['fullName', 'crmName', 'phone', 'email', 'gender', 'birthDate', 'addressLine', 'occupation', 'assignedUserId'],
+      );
+      if (Object.keys(infoDiff).length > 0) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'customer_update',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { changes: infoDiff },
+        });
+      }
+
       return updated;
     } catch (err) {
       logger.error('[contacts] Update error:', err);
@@ -419,10 +464,36 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       if (!Array.isArray(tags)) return reply.status(400).send({ error: 'tags must be an array' });
 
-      const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
+      const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true, tags: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
+      const oldTags = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
       const updated = await prisma.contact.update({ where: { id }, data: { tags } });
+
+      // ── ACTIVITY LOG — diff tags added/removed ─────────────────────────────
+      const added = tags.filter(t => !oldTags.includes(t));
+      const removed = oldTags.filter(t => !tags.includes(t));
+      for (const t of added) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'tag_add_crm',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { tag: t, level: 'contact' },
+        });
+      }
+      for (const t of removed) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'tag_remove_crm',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { tag: t, level: 'contact' },
+        });
+      }
+
       return updated;
     } catch (err) {
       logger.error('[contacts] Update tags error:', err);

@@ -1011,8 +1011,10 @@ function toggleFormat() {
 // ── Appointment quick-create từ icon 📅 trong toolbar — đồng bộ flow với cột 4.
 const showAppointmentDialog = ref(false);
 function onAppointmentCreated() {
-  // Notify parent reload conversation count + có thể mở Activity tab
+  // Notify parent reload thread + dispatch global event để cột 4 (ChatContactPanel)
+  // refresh Activity tab + bump badge count (cùng pattern với zalo-labels-synced).
   emit('refresh-thread');
+  window.dispatchEvent(new CustomEvent('appointment-created'));
 }
 
 // ── Display item types (album grouping + date dividers) ─────────────────────
