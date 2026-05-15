@@ -137,7 +137,6 @@ docker logs zalo-crm-app --tail 30 | grep -E "listener|backfill"
 | **AI parse fallback** | Rule-based khi Gemini quota 429 |
 | **Phone normalization** | `phoneNormalized` canonical, resolve-by-keys |
 | **DuplicateReviewDialog** | 3-column compare UX, filter, dismiss |
-| **Banner attribution** | Move từ topnav xuống Dashboard, 25% width right-aligned |
 
 ### Rollback về v3.0
 ```bash
@@ -149,7 +148,7 @@ docker compose up -d --build
 
 ## Nâng cấp từ v2.1 lên v3.0
 
-> ⚠️ **Backup database trước khi nâng cấp.** Schema v3.0 thêm bảng `friends`, `friendship_attempts` và nhiều field aggregate.
+> ⚠️ **Backup database trước khi nâng cấp.** Schema v3.0 thêm một số bảng và field aggregate mới.
 
 ```bash
 # 1. Backup database
