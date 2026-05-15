@@ -238,10 +238,8 @@ function logout() {
 .nav-tabs {
   display: flex; align-items: center; gap: 2px;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-shrink: 0; /* never compress — menu must stay visible */
 }
-.nav-tabs::-webkit-scrollbar { display: none; }
 .nav-tab {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 9px 13px; border-radius: 7px;
@@ -251,6 +249,21 @@ function logout() {
   background: transparent; border: none;
   white-space: nowrap;
   text-decoration: none;
+}
+
+/* Compact nav progressively as viewport shrinks so all tabs stay visible */
+@media (max-width: 1500px) {
+  .nav-tab { padding: 9px 9px; gap: 4px; font-size: 12.5px; }
+}
+@media (max-width: 1280px) {
+  .nav-tab { padding: 8px 7px; font-size: 12px; }
+  .nav-tab .ic { font-size: 13px; }
+  .workspace { padding: 6px 9px; margin-right: 8px; font-size: 12px; }
+}
+@media (max-width: 1100px) {
+  .nav-tab { padding: 7px 6px; gap: 3px; }
+  .nav-tab .ic { display: none; } /* drop emoji icons, keep labels */
+  .workspace span:nth-of-type(2) { display: none; } /* workspace name → only logo */
 }
 .nav-tab .ic { font-size: 14px; line-height: 1; }
 .nav-tab .caret { font-size: 10px; opacity: 0.7; margin-left: 2px; }
@@ -299,6 +312,16 @@ function logout() {
 
 .topnav-search {
   max-width: 240px;
+  flex-shrink: 1;
+}
+@media (max-width: 1500px) {
+  .topnav-search { max-width: 180px; }
+}
+@media (max-width: 1280px) {
+  .topnav-search { max-width: 140px; }
+}
+@media (max-width: 1100px) {
+  .topnav-search { display: none; } /* prioritize menu over inline search */
 }
 .topnav-search :deep(.v-field) {
   background: rgba(255,255,255,0.06) !important;
