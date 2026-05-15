@@ -13,32 +13,38 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  teams               Team[]
-  users               User[]
-  zaloAccounts        ZaloAccount[]
-  contacts            Contact[]
-  conversations       Conversation[]
-  appointments        Appointment[]
-  activityLogs        ActivityLog[]
-  dailyStats          DailyMessageStat[]
-  settings            AppSetting[]
-  duplicateGroups     DuplicateGroup[]
-  savedReports        SavedReport[]
-  integrations        Integration[]
-  automationRules     AutomationRule[]
-  messageTemplates    MessageTemplate[]
-  aiConfig            AiConfig?
-  aiSuggestions       AiSuggestion[]
-  pinnedConversations PinnedConversation[]
-  groupPolls          GroupPoll[]
-  friendshipAttempts  FriendshipAttempt[]
-  friends             Friend[]
-  statuses            Status[]
-  parentCandidates    ParentCandidate[]
-  notes               Note[]
-  zaloLabels          ZaloLabel[]
-  crmTags             CrmTag[]
-  crmTagGroups        CrmTagGroup[]
+  teams                Team[]
+  users                User[]
+  zaloAccounts         ZaloAccount[]
+  contacts             Contact[]
+  conversations        Conversation[]
+  appointments         Appointment[]
+  activityLogs         ActivityLog[]
+  dailyStats           DailyMessageStat[]
+  settings             AppSetting[]
+  duplicateGroups      DuplicateGroup[]
+  savedReports         SavedReport[]
+  integrations         Integration[]
+  automationRules      AutomationRule[]
+  messageTemplates     MessageTemplate[]
+  aiConfig             AiConfig?
+  aiSuggestions        AiSuggestion[]
+  pinnedConversations  PinnedConversation[]
+  groupPolls           GroupPoll[]
+  friendshipAttempts   FriendshipAttempt[]
+  friends              Friend[]
+  statuses             Status[]
+  parentCandidates     ParentCandidate[]
+  notes                Note[]
+  zaloLabels           ZaloLabel[]
+  crmTags              CrmTag[]
+  crmTagGroups         CrmTagGroup[]
+  // Phase 6 — Lead Scoring Engine relations
+  scoringConfig        ScoringConfig?
+  scoreSignalRules     ScoreSignalRule[]
+  stageTransitionRules StageTransitionRule[]
+  stuckThresholds      StuckThreshold[]
+  nbaTemplates         NbaTemplate[]
 
   @@map("organizations")
 }
@@ -241,6 +247,23 @@ model Contact {
   pendingNicksCount  Int @default(0) @map("pending_nicks_count")
   chattingNicksCount Int @default(0) @map("chatting_nicks_count")
 
+  // ── Phase 6: Aggregate Lead Scoring fields ─────────────────────────────
+  // Aggregated từ Friend rows. Trigger: sau mỗi Friend.score thay đổi.
+  // Logic: Contact.leadScore = MAX(Friend.leadScore), aggregateBreakdown =
+  // breakdown của Friend có leadScore cao nhất, ownerFriendId trỏ tới đó.
+  // Render: Manager view / dashboard / list dùng Contact.leadScore.
+  // Sale view (chat panel cột 3-4) dùng Friend.leadScore của nick đang active.
+  aggregateScoreUpdatedAt DateTime? @map("aggregate_score_updated_at")
+  // ownerFriendId: Friend.id có leadScore cao nhất + inbound recent 14d.
+  // Soft FK (không enforce qua relation) vì Friend cascade-delete sẽ NULL cell này.
+  ownerFriendId           String?   @map("owner_friend_id")
+  aggregateBreakdown      Json      @default("{}") @map("aggregate_breakdown")
+  // autoTags aggregated: UNION từ tất cả Friend.autoTags, dedupe.
+  autoTags                Json      @default("[]") @map("auto_tags")
+  // stuckSinceAggregate: MIN(Friend.stuckSince) khi TẤT CẢ Friend đều stuck.
+  // Nếu có ít nhất 1 Friend không stuck → null (KH vẫn có "đường" qua nick khác).
+  stuckSinceAggregate     DateTime? @map("stuck_since_aggregate")
+
   @@unique([orgId, zaloGlobalId])
   @@index([orgId, phone])
   @@index([orgId, phoneNormalized])
@@ -262,6 +285,10 @@ model Contact {
   @@index([orgId, acceptedNicksCount])
   @@index([orgId, parentContactId])
   @@index([orgId, statusId])
+  // Phase 6 aggregate indexes
+  @@index([orgId, leadScore(sort: Desc)])
+  @@index([orgId, stuckSinceAggregate])
+  @@index([orgId, aggregateScoreUpdatedAt(sort: Desc)])
   @@map("contacts")
 }
 
@@ -425,28 +452,28 @@ model Note {
 // Contact.tags JSON array of strings tham chiếu CrmTag.name. Nếu name không match
 // trong CrmTag table → vẫn cho lưu (free-text) nhưng FE hint user thêm vào table.
 model CrmTag {
-  id          String   @id @default(uuid())
-  orgId       String   @map("org_id")
-  name        String                                   // unique per org, dùng làm reference key
-  color       String   @default("#90A4AE")             // hex color
-  emoji       String?                                  // optional unicode emoji prefix
-  description String?                                  // mô tả mục đích, vd "Khách quan tâm dự án EGV"
-  category    String?                                  // LEGACY: gom nhóm string-based. Mới: dùng groupId
-  groupId     String?  @map("group_id")                // FK CrmTagGroup — gom nhóm formal
-  managedBy   String?  @map("managed_by")              // null | 'zalo_sync' — Zalo-managed tag read-only trong UI CRM
-  sourceZaloLabelId Int? @map("source_zalo_label_id")  // ZaloLabel.zaloLabelId nếu managedBy='zalo_sync'
-  archivedAt  DateTime? @map("archived_at")            // soft delete khi Zalo label bị xoá
-  order       Int      @default(0)                     // sort order trong settings
-  isActive    Boolean  @default(true) @map("is_active")
-  usageCount  Int      @default(0) @map("usage_count") // denorm — cập nhật khi recompute
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  orgId             String    @map("org_id")
+  name              String // unique per org, dùng làm reference key
+  color             String    @default("#90A4AE") // hex color
+  emoji             String? // optional unicode emoji prefix
+  description       String? // mô tả mục đích, vd "Khách quan tâm dự án EGV"
+  category          String? // LEGACY: gom nhóm string-based. Mới: dùng groupId
+  groupId           String?   @map("group_id") // FK CrmTagGroup — gom nhóm formal
+  managedBy         String?   @map("managed_by") // null | 'zalo_sync' — Zalo-managed tag read-only trong UI CRM
+  sourceZaloLabelId Int?      @map("source_zalo_label_id") // ZaloLabel.zaloLabelId nếu managedBy='zalo_sync'
+  archivedAt        DateTime? @map("archived_at") // soft delete khi Zalo label bị xoá
+  order             Int       @default(0) // sort order trong settings
+  isActive          Boolean   @default(true) @map("is_active")
+  usageCount        Int       @default(0) @map("usage_count") // denorm — cập nhật khi recompute
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  org   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   group CrmTagGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@unique([orgId, name])
-  @@unique([sourceZaloLabelId])                        // 1 Zalo label → 1 CrmTag mirror
+  @@unique([sourceZaloLabelId]) // 1 Zalo label → 1 CrmTag mirror
   @@index([orgId, category])
   @@index([orgId, groupId])
   @@index([managedBy, archivedAt])
@@ -459,20 +486,20 @@ model CrmTag {
 model CrmTagGroup {
   id            String    @id @default(uuid())
   orgId         String    @map("org_id")
-  name          String                                  // vd "Zalo - Phạm Thành CSKH (0912345678)" hoặc "Mức độ"
-  managedBy     String?   @map("managed_by")            // null | 'zalo_sync'
-  zaloAccountId String?   @map("zalo_account_id")       // set nếu managedBy='zalo_sync'
+  name          String // vd "Zalo - Phạm Thành CSKH (0912345678)" hoặc "Mức độ"
+  managedBy     String?   @map("managed_by") // null | 'zalo_sync'
+  zaloAccountId String?   @map("zalo_account_id") // set nếu managedBy='zalo_sync'
   order         Int       @default(0)
   archivedAt    DateTime? @map("archived_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  zaloAccount ZaloAccount?  @relation(fields: [zaloAccountId], references: [id], onDelete: SetNull)
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  zaloAccount ZaloAccount? @relation(fields: [zaloAccountId], references: [id], onDelete: SetNull)
   tags        CrmTag[]
 
   @@unique([orgId, name])
-  @@unique([zaloAccountId, managedBy])                  // 1 Zalo account chỉ có 1 zalo_sync group
+  @@unique([zaloAccountId, managedBy]) // 1 Zalo account chỉ có 1 zalo_sync group
   @@index([orgId, archivedAt])
   @@map("crm_tag_groups")
 }
@@ -482,7 +509,7 @@ model CrmTagGroup {
 model UserPreference {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  key       String                                  // vd "timeline.categories.visible"
+  key       String // vd "timeline.categories.visible"
   value     Json     @default("null")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -501,15 +528,15 @@ model ZaloLabel {
   id            String   @id @default(uuid())
   orgId         String   @map("org_id")
   zaloAccountId String   @map("zalo_account_id")
-  zaloLabelId   Int      @map("zalo_label_id")     // numeric ID từ Zalo
-  textKey       String   @map("text_key")          // SDK textKey field
-  text          String                              // tên label hiển thị
-  color         String                              // hex from SDK
-  emoji         String?                             // unicode emoji
-  offset        Int      @default(0)                // sort order trong Zalo client
-  version       Int      @default(0)                // server-version của bulk
-  conversations Json     @default("[]")             // string[] externalThreadId
-  createTime    BigInt?  @map("create_time")        // SDK epoch
+  zaloLabelId   Int      @map("zalo_label_id") // numeric ID từ Zalo
+  textKey       String   @map("text_key") // SDK textKey field
+  text          String // tên label hiển thị
+  color         String // hex from SDK
+  emoji         String? // unicode emoji
+  offset        Int      @default(0) // sort order trong Zalo client
+  version       Int      @default(0) // server-version của bulk
+  conversations Json     @default("[]") // string[] externalThreadId
+  createTime    BigInt?  @map("create_time") // SDK epoch
   syncedAt      DateTime @default(now()) @map("synced_at")
 
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -542,18 +569,18 @@ model NoteReaction {
 // Category 9 nhóm: customer_info, tags_crm, tags_zalo, status_care, score,
 //   appointment, interaction, system, automation.
 model ActivityLog {
-  id            String   @id @default(uuid())
-  orgId         String   @map("org_id")
-  userId        String?  @map("user_id")              // null nếu actorType != 'user'
-  actorType     String   @default("user") @map("actor_type")  // 'user' | 'bot' | 'system'
-  botName       String?  @map("bot_name")             // vd "AutoTag Bot" — chỉ khi actorType='bot'
-  systemSource  String?  @map("system_source")        // vd "zalo_label_sync" — chỉ khi actorType='system'
-  category      String?                                // 9 nhóm — null cho legacy rows
-  action        String
-  entityType    String?  @map("entity_type")
-  entityId      String?  @map("entity_id")
-  details       Json     @default("{}")
-  createdAt     DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  userId       String?  @map("user_id") // null nếu actorType != 'user'
+  actorType    String   @default("user") @map("actor_type") // 'user' | 'bot' | 'system'
+  botName      String?  @map("bot_name") // vd "AutoTag Bot" — chỉ khi actorType='bot'
+  systemSource String?  @map("system_source") // vd "zalo_label_sync" — chỉ khi actorType='system'
+  category     String? // 9 nhóm — null cho legacy rows
+  action       String
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id")
+  details      Json     @default("{}")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User?        @relation(fields: [userId], references: [id])
@@ -902,10 +929,29 @@ model Friend {
 
   // ── Per-pair CRM state (mỗi nick chăm có status + score RIÊNG) ────────
   // Contact (KH Cha) aggregate: displayStatus = MAX(friends.statusRef.order),
-  // displayLeadScore = AVG(friends.leadScore), displayHasZalo = friends.length > 0.
+  // displayLeadScore = MAX(friends.leadScore), displayHasZalo = friends.length > 0.
   statusId  String? @map("status_id")
   statusRef Status? @relation(fields: [statusId], references: [id], onDelete: SetNull)
   leadScore Int     @default(0) @map("lead_score")
+
+  // ── Phase 6: Lead Scoring Engine fields ────────────────────────────────
+  // scoreBreakdown: cached 4-dim sub-scores cho Score Explainability Modal.
+  // Shape: { engagement: 0-100, intent: 0-100, fit: 0-100, velocity: 0-100,
+  //          computedAt: ISO, finalScore: 0-100 }
+  // Mỗi recompute → ghi vào ActivityLog (category='score') với delta.
+  scoreBreakdown Json      @default("{}") @map("score_breakdown")
+  scoreUpdatedAt DateTime? @map("score_updated_at")
+  // stuckSince: timestamp KH bị flag đình trệ (theo StuckThreshold per stage).
+  // Cron daily 6am scan; set khi đạt threshold, clear khi có inbound mới.
+  // Stuck Detection Dashboard filter `WHERE stuckSince IS NOT NULL`.
+  stuckSince     DateTime? @map("stuck_since")
+  // autoTags: metadata layer derived từ score + activity + stage.
+  // Format: ["active","stuck","cold","ready","atrisk","rewarmed","frozen"]
+  // Update qua autoTagCompute() khi score/stage/activity đổi.
+  autoTags       Json      @default("[]") @map("auto_tags")
+  // stageEnteredAt: timestamp khi friend chuyển vào stage hiện tại.
+  // Dùng cho Stuck Detection (so với current time) + analytics (avg time per stage).
+  stageEnteredAt DateTime? @map("stage_entered_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -924,5 +970,234 @@ model Friend {
   @@index([zaloAccountId, friendshipStatus])
   @@index([orgId, relationshipKind])
   @@index([orgId, statusId])
+  // Phase 6 indexes for scoring queries
+  @@index([orgId, scoreUpdatedAt(sort: Desc)])
+  @@index([orgId, stuckSince])
+  @@index([orgId, leadScore(sort: Desc)])
   @@map("friends")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 6 — Lead Scoring Engine (Config + Rules + Templates)
+// ═══════════════════════════════════════════════════════════════════════════
+// ScoringConfig: org-level weights + global settings cho Lead Scoring Engine.
+// 1 row / orgId. Default seed khi org tạo lần đầu (xem seed.ts).
+// Edit qua Settings UI (admin only). Phase 6 PR6.
+model ScoringConfig {
+  id    String @id @default(uuid())
+  orgId String @unique @map("org_id")
+
+  // ── Weights cho 4 sub-dimensions (tổng phải = 100) ────────────────────
+  weightEngagement Int @default(35) @map("weight_engagement")
+  weightIntent     Int @default(30) @map("weight_intent")
+  weightFit        Int @default(15) @map("weight_fit")
+  weightVelocity   Int @default(20) @map("weight_velocity")
+
+  // ── Decay rules (silent → giảm điểm Engagement) ────────────────────────
+  decayDay3to7   Int @default(-1) @map("decay_day_3_7") // -1/ngày
+  decayDay7to14  Int @default(-3) @map("decay_day_7_14") // -3/ngày
+  decayDay14to30 Int @default(-5) @map("decay_day_14_30") // -5/ngày
+  decayDay30to60 Int @default(-8) @map("decay_day_30_60") // -8/ngày
+  // Sau 60 ngày: drop to Frozen (override, không decay tiếp).
+
+  // ── Global flags ──────────────────────────────────────────────────────
+  // autoPromote: cho phép engine auto-promote stage khi đạt criteria.
+  // Nếu false → chỉ manual promote.
+  autoPromote           Boolean @default(true) @map("auto_promote")
+  // stuckDetectionEnabled: bật/tắt cron daily phát hiện đình trệ.
+  stuckDetectionEnabled Boolean @default(true) @map("stuck_detection_enabled")
+  // explainabilityEnabled: lưu scoreBreakdown JSON cho UI explainability.
+  // Disable cho org muốn save space (production thường để true).
+  explainabilityEnabled Boolean @default(true) @map("explainability_enabled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("scoring_configs")
+}
+
+// ScoreSignalRule: rules để compute từng tín hiệu (signal) thành delta điểm.
+// Mỗi rule có signalKey (vd "ask_price", "appointment_complete") + delta + cap +
+// dimension target (engagement/intent/fit/velocity). Engine load rules per-org,
+// apply khi detect signal trong chat content hoặc action event.
+//
+// Default seed (xem seed.ts) match với CEO review design:
+//   intent.ask_price: +15, intent.appointment_complete: +35, ...
+//   engagement.inbound_message: +3 (cap +15/ngày), ...
+//
+// Admin có thể tune từ Settings UI (PR6).
+model ScoreSignalRule {
+  id        String @id @default(uuid())
+  orgId     String @map("org_id")
+  signalKey String @map("signal_key") // e.g. "ask_price", "inbound_message"
+  // Dimension target: engagement/intent/fit/velocity. Engine cộng delta vào
+  // sub-score tương ứng, sau aggregate qua weights → final score.
+  dimension String
+
+  // Detection rule type:
+  //   keyword     — match keywords trong chat content (Vietnamese)
+  //   action      — trigger từ event (appointment_create, appointment_complete...)
+  //   silent      — silent decay (theo decayDay* trong config)
+  //   profile     — set 1 lần khi profile match (budget/location/type)
+  //   velocity    — compute weekly (3 ngày liên tiếp, trend up...)
+  ruleType String @map("rule_type")
+
+  // Delta điểm khi rule match. Positive = tăng, negative = giảm.
+  delta Int
+
+  // Cap per day (null = không giới hạn). Vd "inbound_message" cap +15/ngày.
+  // Engine count signals/ngày, không apply nếu vượt cap.
+  capPerDay Int? @map("cap_per_day")
+
+  // Cap total (null = không giới hạn). Vd "first_inbound" chỉ apply 1 lần lifetime.
+  capTotal Int? @map("cap_total")
+
+  // Keywords config (chỉ áp dụng ruleType = "keyword"):
+  // Format JSON: ["giá", "bao nhiêu", "rao bao nhiêu"] — match case-insensitive.
+  keywords Json @default("[]")
+
+  // Vietnamese label cho Score Explainability Modal hiển thị.
+  // Vd "Hỏi giá rõ ràng", "Hoàn thành lịch xem nhà".
+  label String
+
+  // Stage applicability — rule chỉ apply khi friend ở stage này.
+  // null = apply mọi stage. Stage names: "Mới", "Tiếp cận", "Hẹn gặp", ...
+  applicableStages Json @default("[]") @map("applicable_stages")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, signalKey])
+  @@index([orgId, ruleType, enabled])
+  @@map("score_signal_rules")
+}
+
+// StageTransitionRule: criteria để auto-promote Friend giữa các stage.
+// Mỗi row định nghĩa fromStage → toStage + criteria (JSON).
+// Engine evaluate khi Friend.score thay đổi hoặc event xảy ra (appointment_create...).
+//
+// Default 7 rules (Mới→Tiếp cận, Tiếp cận→Hẹn gặp, ..., Tiềm năng→Chốt).
+// Khi criteriaMatch + autoPromote=true → engine update statusId + stageEnteredAt,
+// log ActivityLog với category='status_care', action='stage_promote_auto'.
+//
+// Manual promote (sale tự chuyển) → log với action='stage_promote_manual'.
+model StageTransitionRule {
+  id        String @id @default(uuid())
+  orgId     String @map("org_id")
+  fromStage String @map("from_stage") // tên Status (vd "Mới")
+  toStage   String @map("to_stage") // tên Status (vd "Tiếp cận")
+
+  // Criteria JSON shape: {
+  //   minEngagement?: number,
+  //   minIntent?: number,
+  //   minFit?: number,
+  //   minVelocity?: number,
+  //   minInboundCount?: number,
+  //   requiresAction?: string[],  // ["appointment_create"] | ["appointment_complete"]
+  //   minDaysInStage?: number,
+  //   requiresManualConfirm?: boolean
+  // }
+  criteria Json @default("{}")
+
+  // Auto-apply hay cần manual confirm (vd Nóng → Tiềm năng cần sale verify).
+  requiresManualConfirm Boolean @default(false) @map("requires_manual_confirm")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, fromStage, toStage])
+  @@index([orgId, fromStage, enabled])
+  @@map("stage_transition_rules")
+}
+
+// StuckThreshold: per-stage thresholds để phát hiện đình trệ.
+// Cron daily 6am scan tất cả Friend, set stuckSince nếu đạt threshold.
+// Stuck Detection Dashboard query `WHERE stuckSince IS NOT NULL` + group by stage.
+//
+// Default 5 thresholds:
+//   Mới        > 7 ngày  → extra decay -2/ngày
+//   Tiếp cận   > 14 ngày → extra decay -1/ngày
+//   Hẹn gặp    > 30 ngày → đề xuất video call
+//   Nóng       > 21 ngày → có ưu đãi tháng này
+//   Tiềm năng  > 14 ngày → gọi điện trực tiếp
+model StuckThreshold {
+  id    String @id @default(uuid())
+  orgId String @map("org_id")
+  stage String // tên Status (vd "Mới", "Tiếp cận")
+
+  // Số ngày tối thiểu trong stage để bị coi là đình trệ.
+  thresholdDays Int @map("threshold_days")
+
+  // Extra decay/ngày khi stuck (cộng dồn với decayDay* trong ScoringConfig).
+  extraDecayPerDay Int @default(0) @map("extra_decay_per_day")
+
+  // NBA template key — link tới NbaTemplate.
+  // Khi UI render Stuck Detection card → fetch template + render personalized.
+  nbaTemplateKey String? @map("nba_template_key")
+
+  // Vietnamese label cho UI ("Cần liên hệ ngay", "Đề xuất video call", ...).
+  alertLabel String @map("alert_label")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, stage])
+  @@index([orgId, stage, enabled])
+  @@map("stuck_thresholds")
+}
+
+// NbaTemplate: "Next Best Action" message templates.
+// Render trong Stuck Detection Dashboard + Score Breakdown Modal.
+// Sale 1-click "Gửi mẫu" → mở chat compose với template pre-filled (placeholders
+// thay bằng KH name, dự án, ưu đãi tháng này).
+//
+// Default 7 templates (match Stuck Detection design):
+//   - stuck_stage_new_greeting
+//   - stuck_stage_approach_tour
+//   - stuck_stage_meeting_videocall
+//   - stuck_stage_hot_promo
+//   - stuck_stage_potential_call
+//   - cold_reengage_30d
+//   - hot_close_push
+model NbaTemplate {
+  id              String @id @default(uuid())
+  orgId           String @map("org_id")
+  key             String // unique key (vd "stuck_stage_new_greeting")
+  // Vietnamese label cho UI dropdown / list.
+  label           String
+  // Content template với placeholders:
+  //   {{customerName}}  → KH.displayName
+  //   {{projectName}}   → org dự án hiện tại (settings)
+  //   {{promoMonth}}    → ưu đãi tháng này (settings)
+  //   {{viewingLink}}   → 360° tour URL
+  contentTemplate String @map("content_template")
+
+  // Phân loại để filter trong UI Settings.
+  // "stuck" | "cold_reengage" | "hot_close" | "general"
+  category String @default("general")
+
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, key])
+  @@index([orgId, category, enabled])
+  @@map("nba_templates")
 }
