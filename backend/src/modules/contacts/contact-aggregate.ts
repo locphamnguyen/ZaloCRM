@@ -15,6 +15,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { counterDelta, deriveRelationshipKind } from '../zalo/friend-event-handler.js';
+import { logActivity } from '../activity/activity-logger.js';
 
 const PREVIEW_LIMIT = 200;
 
@@ -74,6 +75,45 @@ export async function applyContactAggregateFromMessage(
     const preview = makePreview(message.content, message.contentType);
     const isInbound = message.senderType === 'contact';
     const contactId = conv.contactId;
+
+    // ── First inbound/outbound detection ──────────────────────────────────
+    // Đọc counter trước khi increment để biết tin nhắn này có phải đầu tiên không.
+    // Best-effort: nếu fail thì skip log, KHÔNG block main flow.
+    let isFirstInbound = false;
+    let isFirstOutbound = false;
+    try {
+      const counters = await prisma.contact.findUnique({
+        where: { id: contactId },
+        select: { totalInbound: true, totalOutbound: true, orgId: true },
+      });
+      if (counters) {
+        isFirstInbound = isInbound && counters.totalInbound === 0;
+        isFirstOutbound = !isInbound && counters.totalOutbound === 0;
+        if (isFirstInbound) {
+          logActivity({
+            orgId: counters.orgId,
+            systemSource: 'message_sync',
+            action: 'first_inbound',
+            entityType: 'contact',
+            entityId: contactId,
+            details: { messageId: message.id, sentAt, preview },
+          });
+        }
+        if (isFirstOutbound) {
+          logActivity({
+            orgId: counters.orgId,
+            userId: args.outboundUserId || null,
+            systemSource: args.outboundUserId ? undefined : 'message_sync',
+            action: 'first_outbound',
+            entityType: 'contact',
+            entityId: contactId,
+            details: { messageId: message.id, sentAt, preview },
+          });
+        }
+      }
+    } catch {
+      // Silent — log không được block aggregate
+    }
 
     if (isInbound) {
       // Conditional set-if-newer for last inbound fields

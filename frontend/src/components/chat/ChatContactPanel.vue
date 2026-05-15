@@ -4,11 +4,13 @@
     <header class="ip-header">
       <button class="ip-close" title="Đóng" @click="$emit('close')">×</button>
       <div class="ip-avatar-wrap">
+        <!-- KHÔNG truyền :gender — gender badge ♂/♀ sẽ đè lên lead-score-badge.
+             Gender info đã hiển thị ở chat header (chip "Nam"/"Nữ" row 1)
+             + ô select Gender trong tab Hồ sơ. Không cần lặp lại ở avatar cột 4. -->
         <Avatar
           :src="props.contact?.avatarUrl"
           :name="headerFullName"
           :size="64"
-          :gender="form.gender"
           :gradient-seed="props.contact?.id || headerFullName"
           class="ip-avatar-big"
         />
@@ -55,7 +57,7 @@
         data-fly-target="activity-tab"
         @click="activeTab = 'activity'"
       >
-        <span class="ic">⚡</span> Hoạt động
+        <span class="ic">📅</span> Lịch hẹn
         <span v-if="activityBadgeCount || pendingAptBump" class="tab-badge">{{ (activityBadgeCount ?? 0) + pendingAptBump }}</span>
       </button>
     </nav>
@@ -158,9 +160,9 @@
 
         <!-- Tag CRM section moved to MessageThread chat input bar (Smax-style) -->
 
-        <!-- ──── CRM Notes thread (Facebook-style, AI appointment suggest) ──── -->
+        <!-- ──── Customer Timeline (Notes + Activity unified) ──── -->
         <section class="ip-section ip-notes-section">
-          <NotesSection
+          <CustomerTimelineSection
             :contact-id="props.contactId"
             :contact-name="headerFullName"
             @appointment-created="onAppointmentCreated"
@@ -310,6 +312,7 @@
         <ChatAppointments
           v-if="props.contactId"
           :contact-id="props.contactId"
+          :contact-name="headerFullName"
           :appointments="contactAppointments"
           @refresh="reloadAppointments"
         />
@@ -325,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount } from 'vue';
+import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue';
 import type { Contact } from '@/composables/use-contacts';
 import type { AiSentiment } from '@/composables/use-chat';
 import { useChatContactPanel } from '@/composables/use-chat-contact-panel';
@@ -339,7 +342,7 @@ import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
 import type { CareStatusValue } from '@/constants/care-status';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
-import NotesSection from './NotesSection.vue';
+import CustomerTimelineSection from './CustomerTimelineSection.vue';
 
 const props = defineProps<{
   contactId: string | null;
@@ -407,8 +410,6 @@ watch(activeTab, (tab) => {
   }
 });
 
-onBeforeUnmount(() => clearCollapseTimer());
-
 // Animation: khi NotesSection emit 'appointment-created' (fly anim đã xong) → +1 badge với bump effect.
 // pendingAptBump giữ count cho tới khi reloadAppointments() refresh data thực từ backend.
 const pendingAptBump = ref(0);
@@ -422,6 +423,15 @@ function onAppointmentCreated() {
     setTimeout(() => { pendingAptBump.value = 0; }, 300);
   });
 }
+
+// Listen global 'appointment-created' event — fire khi MessageThread (cột 3) tạo
+// nhắc hẹn qua icon 📅 trong toolbar. Cùng pattern với zalo-labels-synced.
+function onGlobalAppointmentCreated() { onAppointmentCreated(); }
+onMounted(() => window.addEventListener('appointment-created', onGlobalAppointmentCreated));
+onBeforeUnmount(() => {
+  clearCollapseTimer();
+  window.removeEventListener('appointment-created', onGlobalAppointmentCreated);
+});
 
 // ════════ Relations data (friends per nick = KH Con) — fetch khi đổi contact ═══
 interface FriendItem {

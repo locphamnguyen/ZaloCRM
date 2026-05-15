@@ -5,6 +5,8 @@
       <div class="cl-search-row">
         <input
           class="cl-search"
+          name="conv-list-search"
+          autocomplete="off"
           :value="search"
           placeholder="Tìm theo tên, SĐT, nội dung tin nhắn…"
           @input="onSearchInput"
@@ -21,10 +23,10 @@
           v-for="tag in availableTags"
           :key="tag"
           class="cl-label-chip"
-          :class="{ active: filters.tags.includes(tag) }"
-          :data-color="colorOfTag(tag)"
+          :class="{ active: filters.tags.includes(tag), 'is-zalo': isZaloManaged(tag) }"
+          :style="{ '--tag-color': tagColor(tag) }"
           @click="toggleTag(tag)"
-        >{{ tag }}</span>
+        >{{ cleanTagName(tag) }}</span>
 
         <button
           v-if="filters.tags.length"
@@ -50,12 +52,13 @@
     </div>
 
     <!-- ════════ Conv items ════════ -->
-    <div class="conv-scroll">
+    <div ref="scrollContainer" class="conv-scroll">
       <div v-if="loading" class="loading">Đang tải…</div>
 
       <div
         v-for="conv in conversations"
         :key="conv.id"
+        :ref="(el) => registerRow(conv.id, el as HTMLElement | null)"
         class="conv-item"
         :class="{
           active: conv.id === selectedId,
@@ -93,17 +96,21 @@
           <div class="ci-preview">{{ lastMessagePreview(conv) }}</div>
 
           <!-- Tag row luôn render (kể cả rỗng) để giữ layout cố định.
+               Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored 🔵 X).
                Show 3 tag đầu + "+N" chip click xem rest qua v-menu. -->
           <div class="ci-tag-row">
             <span
-              v-for="tag in (conv.contact?.tags || []).slice(0, 3)"
+              v-for="tag in mergedTags(conv).slice(0, 3)"
               :key="tag"
               class="tag-mini"
-              :style="`background:${tagBgColor(tag)}`"
-            >{{ tag }}</span>
+              :class="{ 'tag-zalo': isZaloManaged(tag), 'tag-crm': !isZaloManaged(tag) }"
+              :style="{ '--tag-color': tagColor(tag) }"
+            >
+              <TagIcon v-if="isZaloManaged(tag)" :size="11" />{{ cleanTagName(tag) }}
+            </span>
 
             <v-menu
-              v-if="(conv.contact?.tags || []).length > 3"
+              v-if="mergedTags(conv).length > 3"
               :close-on-content-click="false"
               location="top start"
               open-on-hover
@@ -112,17 +119,20 @@
                 <span
                   v-bind="actProps"
                   class="tag-overflow"
-                  :title="`Còn ${(conv.contact?.tags || []).length - 3} tag khác`"
+                  :title="`Còn ${mergedTags(conv).length - 3} tag khác`"
                   @click.stop
-                >+{{ (conv.contact?.tags || []).length - 3 }}</span>
+                >+{{ mergedTags(conv).length - 3 }}</span>
               </template>
               <div class="tag-overflow-popup">
                 <span
-                  v-for="tag in (conv.contact?.tags || []).slice(3)"
+                  v-for="tag in mergedTags(conv).slice(3)"
                   :key="tag"
                   class="tag-popup-pill"
-                  :style="`background:${tagBgColor(tag)}`"
-                >{{ tag }}</span>
+                  :class="{ 'tag-zalo': isZaloManaged(tag), 'tag-crm': !isZaloManaged(tag) }"
+                  :style="{ '--tag-color': tagColor(tag) }"
+                >
+                  <TagIcon v-if="isZaloManaged(tag)" :size="11" />{{ cleanTagName(tag) }}
+                </span>
               </div>
             </v-menu>
 
@@ -171,12 +181,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, computed } from 'vue';
+import { ref, reactive, watch, onMounted, computed, nextTick } from 'vue';
 import type { Conversation, AiSentiment } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import NewMessageDialog from '@/components/chat/NewMessageDialog.vue';
+import TagIcon from '@/components/icons/TagIcon.vue';
+import { loadTagDefs, isZaloManaged, cleanTagName, tagColor } from '@/composables/use-crm-tag-defs';
 
 const props = defineProps<{
   conversations: Conversation[];
@@ -243,29 +255,22 @@ function buildFilterParams(): Record<string, string> {
   return params;
 }
 
-// CRM label color map (từ mockup chat-smax-v3)
-const TAG_COLOR_MAP: Record<string, string> = {
-  'TTAVIO': 'red',
-  'EGD': 'purple',
-  'EBV': 'blue',
-  'phiền': 'orange',
-  'ấm': 'yellow',
-  'nóng': 'red',
-  'có tương tác': 'green',
-  'lạnh': 'blue',
-  'đàm phán': 'green',
-  'vip': 'orange',
-};
-function colorOfTag(tag: string): string {
-  return TAG_COLOR_MAP[tag] || TAG_COLOR_MAP[tag.toLowerCase()] || 'grey';
-}
-function tagBgColor(tag: string): string {
-  const color = colorOfTag(tag);
-  const map: Record<string, string> = {
-    red: '#ef5350', purple: '#6f48d9', orange: '#ff9800',
-    yellow: '#f9a825', green: '#43a047', blue: '#1976d2', grey: '#9e9e9e',
-  };
-  return map[color] || '#9e9e9e';
+// Tag color logic giờ qua composable use-crm-tag-defs (tagColor lookup từ CrmTag.color).
+// Legacy TAG_COLOR_MAP + colorOfTag + tagBgColor đã removed sau refactor TagIcon monochromatic.
+
+/* Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
+ * Dedup, Zalo tags hiển thị đầu (priority cho per-pair context). */
+function mergedTags(conv: Conversation): string[] {
+  const contactTags = Array.isArray(conv.contact?.tags) ? (conv.contact!.tags as string[]) : [];
+  const friendTagsRaw = (conv.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick;
+  const friendTags = Array.isArray(friendTagsRaw) ? friendTagsRaw : [];
+  // Dedup, Zalo-managed (🔵 prefix) lên trước
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const t of friendTags) if (t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); result.push(t); }
+  for (const t of friendTags) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); result.push(t); }
+  for (const t of contactTags) if (!seen.has(t)) { seen.add(t); result.push(t); }
+  return result;
 }
 
 // ── Conversation display ───────────────────────────────────────────────────
@@ -360,7 +365,54 @@ watch(activeTab, () => {
 });
 
 onMounted(async () => {
-  await Promise.all([fetchCounts(), fetchAvailableTags()]);
+  // Load CrmTag defs (color + managedBy) cho TagIcon render — share cache toàn app
+  await Promise.all([fetchCounts(), fetchAvailableTags(), loadTagDefs()]);
+});
+
+/* ── Auto-scroll selected row vào viewport ──────────────────────────────────
+ * Khi user nav từ ContactsView/GroupsView (router.push /chat/:convId) HOẶC khi
+ * BE đẩy conv lên đầu list (do new message), row đang được select phải scroll
+ * lên top viewport — sale không phải tự kéo tìm. Cũng cover case row mới
+ * append (first-time chat ensure-conversation).
+ * Ref map: convId → row HTMLElement (registerRow gọi mỗi lần Vue mount row). */
+const scrollContainer = ref<HTMLElement | null>(null);
+const rowRefs = new Map<string, HTMLElement>();
+
+function registerRow(id: string, el: HTMLElement | null) {
+  if (el) rowRefs.set(id, el);
+  else rowRefs.delete(id);
+}
+
+function scrollSelectedIntoView() {
+  if (!props.selectedId) return;
+  const row = rowRefs.get(props.selectedId);
+  const container = scrollContainer.value;
+  if (!row || !container) return;
+  const rowRect = row.getBoundingClientRect();
+  const ctnRect = container.getBoundingClientRect();
+  // Chỉ scroll nếu row nằm ngoài viewport (tránh giật khi đã visible)
+  if (rowRect.top < ctnRect.top || rowRect.bottom > ctnRect.bottom) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+// Watch selectedId — scroll khi thay đổi (nav từ extern hoặc click trong list)
+watch(() => props.selectedId, async () => {
+  await nextTick();           // đợi row render xong (đặc biệt khi conv mới append)
+  scrollSelectedIntoView();
+}, { immediate: true });
+
+// Watch vị trí của selected conv trong list — nếu BE refresh + reorder (do user
+// vừa send message → conv đó lên top), index sẽ đổi từ N→0 → scroll lại lên top.
+// Watch derived index thay vì watch full array để hiệu suất tốt + chỉ fire khi
+// thật sự cần. Cũng cover case list mới fetch (length đổi).
+const selectedIndex = computed(() => {
+  if (!props.selectedId) return -1;
+  return props.conversations.findIndex(c => c.id === props.selectedId);
+});
+watch(selectedIndex, async () => {
+  await nextTick();
+  scrollSelectedIntoView();
 });
 
 // ── Utility functions ───────────────────────────────────────────────────────
@@ -712,13 +764,36 @@ function formatTime(dateStr: string | null): string {
   height: 16px;
 }
 .tag-mini {
-  display: inline-block;
-  padding: 1px 7px; border-radius: 4px;
-  font-size: 10px; font-weight: 600;
-  color: white;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
   flex-shrink: 0;
-  max-width: 80px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid;
+}
+/* Monochromatic chip — bg/border/text derive từ --tag-color via color-mix.
+ * Zalo-managed: icon + clean name. CRM: chỉ name. */
+.tag-mini.tag-zalo {
+  --tag-color: #0068FF;
+  background: color-mix(in srgb, var(--tag-color) 12%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 70%, white);
+  color: color-mix(in srgb, var(--tag-color) 75%, black);
+}
+.tag-mini.tag-zalo :deep(.tag-icon) {
+  color: var(--tag-color);
+}
+.tag-mini.tag-crm {
+  --tag-color: #546E7A;
+  background: color-mix(in srgb, var(--tag-color) 10%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 60%, white);
+  color: color-mix(in srgb, var(--tag-color) 80%, black);
 }
 /* Overflow "+N" chip — hover/click hiện popup các tag còn lại */
 .tag-overflow {
@@ -752,13 +827,30 @@ function formatTime(dateStr: string | null): string {
   max-width: 280px;
 }
 .tag-popup-pill {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   padding: 3px 10px;
   border-radius: 6px;
   font-size: 11px;
   font-weight: 600;
-  color: white;
   white-space: nowrap;
+  border: 1px solid;
+}
+.tag-popup-pill.tag-zalo {
+  --tag-color: #0068FF;
+  background: color-mix(in srgb, var(--tag-color) 12%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 70%, white);
+  color: color-mix(in srgb, var(--tag-color) 75%, black);
+}
+.tag-popup-pill.tag-zalo :deep(.tag-icon) {
+  color: var(--tag-color);
+}
+.tag-popup-pill.tag-crm {
+  --tag-color: #546E7A;
+  background: color-mix(in srgb, var(--tag-color) 10%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 60%, white);
+  color: color-mix(in srgb, var(--tag-color) 80%, black);
 }
 .status-pill {
   display: inline-flex; align-items: center; gap: 3px;

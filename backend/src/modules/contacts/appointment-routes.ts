@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { logActivity, computeDiff } from '../activity/activity-logger.js';
 
 type QueryParams = Record<string, string>;
 
@@ -194,6 +195,22 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         include: APPOINTMENT_INCLUDE,
       });
 
+      // ── ACTIVITY LOG — appointment_create — entity = contact để timeline KH có log
+      logActivity({
+        orgId: user.orgId,
+        userId: user.id,
+        action: 'appointment_create',
+        entityType: 'contact',
+        entityId: appointment.contactId,
+        details: {
+          appointmentId: appointment.id,
+          appointmentDate: appointment.appointmentDate,
+          appointmentTime: appointment.appointmentTime,
+          type: appointment.type,
+          notes: appointment.notes,
+        },
+      });
+
       return reply.status(201).send(appointment);
     } catch (err) {
       logger.error('[appointments] Create error:', err);
@@ -212,11 +229,15 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.appointment.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true, status: true },
+        select: {
+          id: true, status: true, contactId: true,
+          appointmentDate: true, appointmentTime: true, type: true, notes: true,
+        },
       });
       if (!existing) return reply.status(404).send({ error: 'Appointment not found' });
 
       const statusChanging = body.status !== undefined && body.status !== existing.status;
+      const dateChanging = body.appointmentDate && new Date(body.appointmentDate).getTime() !== existing.appointmentDate.getTime();
 
       const updated = await prisma.appointment.update({
         where: { id },
@@ -232,6 +253,56 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         },
         include: APPOINTMENT_INCLUDE,
       });
+
+      // ── ACTIVITY LOG — pick action based on what changed ────────────────
+      if (statusChanging) {
+        const statusToAction: Record<string, string> = {
+          completed: 'appointment_complete',
+          cancelled: 'appointment_cancel',
+          no_show: 'appointment_no_show',
+        };
+        const action = statusToAction[body.status] || 'appointment_update';
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action,
+          entityType: 'contact',
+          entityId: updated.contactId,
+          details: { appointmentId: updated.id, oldStatus: existing.status, newStatus: body.status, notes: body.notes },
+        });
+      } else if (dateChanging) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'appointment_reschedule',
+          entityType: 'contact',
+          entityId: updated.contactId,
+          details: {
+            appointmentId: updated.id,
+            oldDate: existing.appointmentDate,
+            newDate: updated.appointmentDate,
+            oldTime: existing.appointmentTime,
+            newTime: updated.appointmentTime,
+          },
+        });
+      } else {
+        // Other field changes → generic update
+        const diff = computeDiff(
+          existing as Record<string, unknown>,
+          updated as Record<string, unknown>,
+          ['type', 'notes', 'appointmentTime'],
+        );
+        if (Object.keys(diff).length > 0) {
+          logActivity({
+            orgId: user.orgId,
+            userId: user.id,
+            action: 'appointment_update',
+            entityType: 'contact',
+            entityId: updated.contactId,
+            details: { appointmentId: updated.id, changes: diff },
+          });
+        }
+      }
 
       return updated;
     } catch (err) {
@@ -252,7 +323,7 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.appointment.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, contactId: true },
       });
       if (!existing) return reply.status(404).send({ error: 'Appointment not found' });
 
@@ -266,6 +337,22 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         include: APPOINTMENT_INCLUDE,
       });
       logger.info(`[appointments] User ${user.email} changed appt ${id} status: ${existing.status} → ${status}`);
+
+      // ── ACTIVITY LOG ────────────────────────────────────────────────────
+      const statusToAction: Record<string, string> = {
+        completed: 'appointment_complete',
+        cancelled: 'appointment_cancel',
+        no_show: 'appointment_no_show',
+      };
+      logActivity({
+        orgId: user.orgId,
+        userId: user.id,
+        action: statusToAction[status] || 'appointment_update',
+        entityType: 'contact',
+        entityId: existing.contactId,
+        details: { appointmentId: id, oldStatus: existing.status, newStatus: status },
+      });
+
       return updated;
     } catch (err) {
       logger.error('[appointments] Status update error:', err);

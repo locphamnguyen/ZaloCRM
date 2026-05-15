@@ -74,6 +74,12 @@ const routes = [
     redirect: { path: '/settings', query: { tab: 'zalo-labels' } },
   },
   {
+    path: '/customers/:id/activity',
+    name: 'CustomerActivityLog',
+    component: () => import('@/views/CustomerActivityLogView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/api-settings',
     name: 'ApiSettings',
     component: () => import('@/views/ApiSettingsView.vue'),

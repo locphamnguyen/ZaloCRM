@@ -19,6 +19,8 @@
         <v-icon size="14" class="mr-1">mdi-magnify</v-icon>
         <input
           v-model="searchInput"
+          name="sticker-search"
+          autocomplete="off"
           placeholder="Tìm sticker (vd: vui, buồn, yêu...)"
           @keydown.enter="onSearch"
         />

@@ -469,6 +469,7 @@ import TagCrmBar from '@/components/chat/TagCrmBar.vue';
 import AppointmentQuickDialog from '@/components/chat/AppointmentQuickDialog.vue';
 import { useToast } from '@/composables/use-toast';
 import { groupAvatarStore } from '@/composables/use-group-avatar-cache';
+import { registerPendingTags, clearPendingTags } from '@/composables/use-pending-mutations';
 
 interface TemplateItem { id: string; name: string; content: string; category: string | null; isPersonal: boolean; }
 
@@ -635,6 +636,19 @@ async function touchAccountSync(accountId: string, threadId?: string | null) {
   }
 }
 
+/* Fire-and-forget: pull fresh profile (gender, phone, birthday, hasZalo, zaloDisplayName,
+ * avatar) từ Zalo SDK khi user click conv. Backend cooldown 5min/conv.
+ * Patch chỉ field còn NULL trong DB — không đè giá trị sale đã chỉnh. */
+async function touchConversationProfile(convId: string) {
+  if (!convId) return;
+  try {
+    const { api: apiClient } = await import('@/api/index');
+    await apiClient.post(`/conversations/${convId}/touch-profile`);
+  } catch {
+    // Silent — touch profile chỉ là background enrichment
+  }
+}
+
 // Watch conversation switch → sync labels (cooldown 5s server-side) + fetch master list cho thread hiện tại
 watch(() => props.conversation?.id, (newId, oldId) => {
   if (!newId || newId === oldId) return;
@@ -643,11 +657,14 @@ watch(() => props.conversation?.id, (newId, oldId) => {
   if (accId) {
     void fetchAllLabels(accId, threadId);  // BE trả assignedTo flag cho thread hiện tại
     void touchAccountSync(accId, threadId);
+    void touchConversationProfile(newId);  // refresh contact profile from SDK
   }
 }, { immediate: true });
 
-/* Optimistic UI: update assignedTo flags + currentLabel NGAY (không disable mờ chờ).
- * API call chạy background. Nếu fail → rollback to snapshot + toast error. */
+/* Optimistic UI FULL: update cả allLabels (dropdown ✓) + friendship.crmTagsPerNick
+ * (tag bar cột 3 + ConversationList cột 2) NGAY khi click.
+ * Tránh "show tag cũ vài giây rồi mới sang tag mới" — full snap immediately.
+ * API call background; rollback nếu fail. */
 async function onPickLabel(label: AccountLabelView) {
   const accId = props.conversation?.zaloAccount?.id;
   const threadId = props.conversation?.externalThreadId;
@@ -656,27 +673,52 @@ async function onPickLabel(label: AccountLabelView) {
   // Toggle: nếu đang active → unassign (null), ngược lại assign labelId
   const labelId = currentLabel.value?.id === label.id ? null : label.id;
 
-  // Snapshot trước khi mutate để rollback nếu fail
-  const snapshot = allLabels.value.map(l => ({ ...l }));
+  // ── Snapshots cho rollback nếu fail ─────────────────────────────────
+  const snapshotAllLabels = allLabels.value.map(l => ({ ...l }));
+  const friendship = props.conversation?.friendship as { crmTagsPerNick?: string[] } | null | undefined;
+  const oldCrmTags = Array.isArray(friendship?.crmTagsPerNick)
+    ? [...(friendship!.crmTagsPerNick as string[])]
+    : [];
 
-  // Optimistic mutation: clear assignedTo trên mọi label rồi set flag trên label được chọn.
+  // ── Optimistic 1: allLabels assignedTo flag (dropdown ✓ animation) ──
   allLabels.value = allLabels.value.map(l => ({
     ...l,
     assignedTo: labelId !== null && l.id === labelId,
   }));
 
+  // ── Optimistic 2: friendship.crmTagsPerNick — strip ALL "🔵 X" cũ +
+  // add "🔵 newLabel" nếu assign. Đây là field tag bar cột 3 + cột 2 read.
+  // Vue reactive mutation: friendship là proxy của conversation prop. ──
+  const stripped = oldCrmTags.filter(t => !t.startsWith('🔵 '));
+  const newTags = labelId !== null ? [...stripped, `🔵 ${label.text}`] : stripped;
+  if (friendship) {
+    friendship.crmTagsPerNick = newTags;
+  }
+
+  // Đăng ký pending mutation — fetchConversations giữa lúc BE đang sync sẽ apply lại
+  // newTags lên response thay vì để response (chưa có tag) ghi đè optimistic state.
+  const convId = props.conversation?.id;
+  if (convId) registerPendingTags(convId, newTags);
+
   toast.success(labelId ? `✓ Đã gắn "${label.text}"` : `✓ Đã bỏ tag`);
 
-  // API call background — không await, không disable UI
+  // API call background — UI đã update sẵn
   try {
     const { api: apiClient } = await import('@/api/index');
     await apiClient.post(`/zalo-accounts/${accId}/labels/assign-thread`, { threadId, labelId });
-    // Reconcile với BE (BE đã re-sync nên trả về authoritative state)
+    // BE đã confirm — clear pending để các fetch sau dùng BE-authoritative value
+    if (convId) clearPendingTags(convId);
+    // Reconcile với BE — fetch fresh + dispatch event để các surface khác re-fetch
     void fetchAllLabels(accId, threadId);
     window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId: accId } }));
+    // Trigger timeline refresh + highlight entry "tag_change_zalo" mới
+    const contactId = props.conversation?.contact?.id;
+    if (contactId) window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId } }));
   } catch (err: any) {
-    // Rollback optimistic mutation
-    allLabels.value = snapshot;
+    // Rollback BOTH optimistic mutations + clear pending
+    allLabels.value = snapshotAllLabels;
+    if (friendship) friendship.crmTagsPerNick = oldCrmTags;
+    if (convId) clearPendingTags(convId);
     toast.error(err.response?.data?.error || 'Không gán được tag — đã hoàn tác');
   }
 }
@@ -700,12 +742,30 @@ function goToLabelsSettings() {
   window.location.assign('/settings?tab=zalo-labels');
 }
 
-// CRM tags pulled from contact — local mirror to avoid stale prop after PATCH.
+// CRM tags = merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
+// Source of truth: 2 fields khác nhau. Dedup, Zalo tags lên trước.
 const contactTags = ref<string[]>([]);
-watch(() => props.conversation?.contact?.tags, (t) => {
-  contactTags.value = Array.isArray(t) ? [...t] : [];
-}, { immediate: true });
+function recomputeTags() {
+  const ct = Array.isArray(props.conversation?.contact?.tags)
+    ? (props.conversation!.contact!.tags as string[])
+    : [];
+  const ftRaw = (props.conversation?.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick;
+  const ft = Array.isArray(ftRaw) ? ftRaw : [];
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const t of ft) if (t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
+  for (const t of ft) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
+  for (const t of ct) if (!seen.has(t)) { seen.add(t); merged.push(t); }
+  contactTags.value = merged;
+}
+watch(() => [
+  props.conversation?.contact?.tags,
+  (props.conversation?.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick,
+], recomputeTags, { immediate: true, deep: true });
+
 function onUpdateTags(next: string[]) {
+  // TagCrmBar PUT only updates Contact.tags. Zalo-managed (🔵) tags stay in
+  // Friend.crmTagsPerNick (read-only). Merge view-side preserves both.
   contactTags.value = next;
 }
 const msgOutCount = computed(() => props.conversation?.friendship?.totalOutbound ?? 0);
@@ -886,7 +946,20 @@ async function onCareStatusChange(value: string) {
     const { api: apiClient } = await import('@/api/index');
     // Backend dùng PUT /contacts/:id (full update), KHÔNG có PATCH.
     await apiClient.put(`/contacts/${contactId}`, { status: value });
-    toast.success(`Đã đổi trạng thái → ${value}`);
+    // Trigger timeline refresh + highlight entry "status_change" mới
+    window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId } }));
+    // Undo toast 5s — click "Hoàn tác" → revert về status cũ
+    toast.undo(`Đã đổi trạng thái → ${value}`, async () => {
+      try {
+        await apiClient.put(`/contacts/${contactId}`, { status: prev || null });
+        if (props.conversation?.contact) {
+          (props.conversation.contact as { status?: string | null }).status = prev as string | null;
+        }
+        toast.success(`✓ Đã hoàn tác về "${prev || 'không có'}"`);
+      } catch {
+        toast.error('Hoàn tác thất bại');
+      }
+    });
     emit('care-status-changed', value);
   } catch (err: any) {
     // Rollback
@@ -1011,8 +1084,10 @@ function toggleFormat() {
 // ── Appointment quick-create từ icon 📅 trong toolbar — đồng bộ flow với cột 4.
 const showAppointmentDialog = ref(false);
 function onAppointmentCreated() {
-  // Notify parent reload conversation count + có thể mở Activity tab
+  // Notify parent reload thread + dispatch global event để cột 4 (ChatContactPanel)
+  // refresh Activity tab + bump badge count (cùng pattern với zalo-labels-synced).
   emit('refresh-thread');
+  window.dispatchEvent(new CustomEvent('appointment-created'));
 }
 
 // ── Display item types (album grouping + date dividers) ─────────────────────

@@ -3,6 +3,7 @@ import { api } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
 import type { Contact } from '@/composables/use-contacts';
 import { useAuthStore } from '@/stores/auth';
+import { applyPendingTags } from '@/composables/use-pending-mutations';
 
 interface ZaloAccount {
   id: string;
@@ -70,6 +71,8 @@ export interface FriendshipInfo {
   statusRef?: { id: string; name: string; color: string | null; order: number } | null;
   /** Zalo native labels synced từ Zalo client (Friend.zaloLabels) */
   zaloLabels?: Array<{ id?: string; name?: string; color?: string }>;
+  /** Per-pair CRM tags (kèm Zalo-mirrored "🔵 X" tags). Source of truth Friend-level. */
+  crmTagsPerNick?: string[];
 }
 
 export interface Conversation {
@@ -176,7 +179,9 @@ export function useChat() {
           ...extraFilters.value,
         },
       });
-      conversations.value = res.data.conversations;
+      // Apply pending optimistic mutations (tag assigns chưa được BE confirm) trước khi
+      // replace state — tránh fetchConversations chạy giữa lúc BE đang sync wipe UI optimistic.
+      conversations.value = applyPendingTags(res.data.conversations);
     } catch (err) {
       console.error('Failed to fetch conversations:', err);
     } finally {
@@ -373,36 +378,39 @@ export function useChat() {
     } catch {
       // Ignore mark-read errors
     }
-    // Auto-sync Zalo profile (gender/birth/phone/avatar) khi contact thiếu data.
-    // Chỉ fire-and-forget; user không phải đợi.
-    void autoSyncZaloProfile(convId);
+    // Note: Auto-sync Zalo profile được xử lý ở MessageThread.touchConversationProfile
+    // (gọi POST /conversations/:id/touch-profile, cooldown 5min server-side). KHÔNG
+    // duplicate ở đây để tránh spam SDK + 404 lên endpoint /contacts/:id/sync-zalo-profile
+    // (legacy, đã bỏ).
     // AI summary + sentiment KHÔNG auto-fire mỗi lần đổi conv — user bấm nút refresh khi cần.
     // Trước đây 2 LLM call awaited mỗi switch = 2-10s + tốn quota.
     void fetchAiUsage();
   }
 
-  /** Fetch Zalo profile để fill các field còn null (gender/birthDate/phone/avatar). */
-  async function autoSyncZaloProfile(convId: string) {
-    const conv = conversations.value.find(c => c.id === convId);
-    const c = conv?.contact;
-    if (!c?.zaloUid) return;
-    // Chỉ sync khi missing 1 trong 4 field. Tránh gọi API thừa.
-    const needSync = !c.gender || !c.birthDate || !c.phone || !c.avatarUrl;
-    if (!needSync) return;
-    try {
-      const res = await api.post(`/contacts/${c.id}/sync-zalo-profile`);
-      if (res.data?.updated && res.data?.contact && conv) {
-        conv.contact = res.data.contact;
-      }
-    } catch (err) {
-      // Silent fail: KH không phải friend của nick nào, hoặc profile riêng tư
-      console.debug('[zalo-profile-sync]', (err as Error)?.message);
-    }
-  }
-
   async function sendMessage(content: string, replyMessageId?: string | null) {
     if (!selectedConvId.value || !content.trim()) return;
     await sendMessageTo(selectedConvId.value, content, replyMessageId);
+  }
+
+  /** Insert message vào messages.value đúng vị trí sort theo sentAt ASC.
+   *  Binary search O(log N) — không re-sort toàn array. Dùng cho socket arrivals
+   *  và sendMessageTo (msg vừa POST cũng có thể đến trễ hơn 1 msg từ socket khác). */
+  function insertMessageSorted(msg: Message) {
+    const arr = messages.value;
+    const t = new Date(msg.sentAt).getTime();
+    // Fast path: append-to-end (msg mới nhất, thường case)
+    if (arr.length === 0 || new Date(arr[arr.length - 1].sentAt).getTime() <= t) {
+      arr.push(msg);
+      return;
+    }
+    // Binary search vị trí đầu tiên có sentAt > t
+    let lo = 0, hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (new Date(arr[mid].sentAt).getTime() <= t) lo = mid + 1;
+      else hi = mid;
+    }
+    arr.splice(lo, 0, msg);
   }
 
   async function sendMessageTo(conversationId: string, content: string, replyMessageId?: string | null) {
@@ -413,7 +421,7 @@ export function useChat() {
       const res = await api.post(`/conversations/${conversationId}/messages`, payload);
       if (conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === res.data.id)) {
-          messages.value.push(res.data);
+          insertMessageSorted(res.data);
         }
       }
     } catch (err) {
@@ -430,7 +438,13 @@ export function useChat() {
     socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
       if (data.conversationId === selectedConvId.value) {
         if (!messages.value.find(m => m.id === data.message.id)) {
-          messages.value.push(normalizeMessage(data.message as RawMessage));
+          // INSERT theo sortedBy sentAt thay vì push cuối array. Lý do: socket có
+          // thể giao messages KHÔNG theo chronological order (vd old_messages backfill
+          // delivers reverse, hoặc 2 msg cùng giây tới khác thứ tự server vs client).
+          // Nếu push cuối thì msg cũ tới muộn → hiển thị sai vị trí (user báo
+          // case "Đúng rồi bác" sent at 15:14:14 nhưng hiển thị SAU "ố toẹt vời"
+          // sent at 15:14:23 vì old_messages giao ngược).
+          insertMessageSorted(normalizeMessage(data.message as RawMessage));
         }
       }
       // Optimistic update conversation list — tránh fetch full HTTP mỗi message

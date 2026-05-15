@@ -13,6 +13,23 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 
+/* ── Read-only enforcement cho Zalo-managed tags ──────────────────────────
+ * Tag được sync tự động từ Zalo SDK (managedBy='zalo_sync', sourceZaloLabelId
+ * set). User KHÔNG được sửa name/color/emoji/delete trong CRM — phải đổi trên
+ * app Zalo, sync sẽ tự cập nhật. Escape hatch: header `X-Override-Managed: true`
+ * (chỉ owner/admin) cho trường hợp admin cần fix data integrity.
+ */
+const MANAGED_BY_ZALO = 'zalo_sync';
+const MSG_READ_ONLY = 'Tag này được đồng bộ từ Zalo. Đổi/gỡ trên app Zalo, hệ thống sẽ tự cập nhật.';
+
+function hasOverride(request: FastifyRequest): boolean {
+  const user = request.user;
+  if (!user) return false;
+  const headerVal = request.headers['x-override-managed'];
+  const headerStr = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+  return headerStr === 'true' && (user.role === 'owner' || user.role === 'admin');
+}
+
 export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
@@ -72,7 +89,7 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
 
   // ── POST /api/v1/crm-tags — create ──────────────────────────────────────
   app.post('/api/v1/crm-tags', async (request: FastifyRequest<{
-    Body: { name: string; color?: string; emoji?: string; description?: string; category?: string };
+    Body: { name: string; color?: string; emoji?: string; description?: string; category?: string; groupId?: string };
   }>, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -84,6 +101,21 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
         where: { orgId_name: { orgId: user.orgId, name } },
       });
       if (existing) return reply.status(409).send({ error: 'Tag đã tồn tại' });
+
+      // ── Guard: không cho tạo tag thủ công trong Zalo-sync group ─────────
+      // (chỉ syncLabelsForAccount mới được tạo trong group này — bảo toàn 1-1
+      // ZaloLabel ↔ CrmTag invariant). Override allowed cho admin/owner.
+      if (request.body.groupId && !hasOverride(request)) {
+        const group = await prisma.crmTagGroup.findFirst({
+          where: { id: request.body.groupId, orgId: user.orgId },
+          select: { managedBy: true },
+        });
+        if (group?.managedBy === MANAGED_BY_ZALO) {
+          return reply.status(403).send({
+            error: 'Không thể tạo tag trong nhóm Zalo. Tạo trên app Zalo, hệ thống tự đồng bộ về.',
+          });
+        }
+      }
 
       const maxOrder = await prisma.crmTag.aggregate({
         where: { orgId: user.orgId },
@@ -98,6 +130,7 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
           emoji: request.body.emoji || null,
           description: request.body.description || null,
           category: request.body.category || null,
+          groupId: request.body.groupId || null,
           order: (maxOrder._max.order || 0) + 1,
         },
       });
@@ -118,7 +151,20 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
       const tag = await prisma.crmTag.findFirst({ where: { id: request.params.id, orgId: user.orgId } });
       if (!tag) return reply.status(404).send({ error: 'Tag not found' });
 
+      // ── Guard: Zalo-managed tag chỉ cho phép edit `order` (drag reorder trong UI).
+      // Mọi field khác (name/color/emoji/description) phải đổi trên app Zalo. ──
       const body = request.body;
+      if (tag.managedBy === MANAGED_BY_ZALO && !hasOverride(request)) {
+        const allowedFields = ['order'];
+        const attemptedFields = Object.keys(body).filter(k => body[k as keyof typeof body] !== undefined);
+        const blockedFields = attemptedFields.filter(f => !allowedFields.includes(f));
+        if (blockedFields.length) {
+          return reply.status(403).send({
+            error: MSG_READ_ONLY,
+            blockedFields,
+          });
+        }
+      }
       const data: Record<string, unknown> = {};
       if (body.color !== undefined) data.color = body.color;
       if (body.emoji !== undefined) data.emoji = body.emoji;
@@ -165,6 +211,14 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const tag = await prisma.crmTag.findFirst({ where: { id: request.params.id, orgId: user.orgId } });
       if (!tag) return reply.status(404).send({ error: 'Tag not found' });
+
+      // ── Guard: KHÔNG cho xoá Zalo-managed tag. Phải xoá trên app Zalo → sync
+      // sẽ tự archive. Override cho phép admin/owner force delete (vd cleanup orphan). ──
+      if (tag.managedBy === MANAGED_BY_ZALO && !hasOverride(request)) {
+        return reply.status(403).send({
+          error: 'Tag Zalo-sync không thể xoá thủ công. Xoá trên app Zalo, hệ thống tự archive.',
+        });
+      }
 
       if (request.body?.removeFromContacts) {
         const contacts = await prisma.contact.findMany({

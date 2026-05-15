@@ -16,6 +16,7 @@ import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { runAutomationRules } from '../automation/automation-service.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
+import { logActivity, computeDiff } from '../activity/activity-logger.js';
 
 type QueryParams = Record<string, string>;
 
@@ -350,7 +351,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.contact.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true, status: true, fullName: true, phone: true, source: true, assignedUserId: true },
+        select: {
+          id: true, status: true, fullName: true, phone: true, source: true,
+          assignedUserId: true, crmName: true, email: true, gender: true,
+          birthDate: true, leadScore: true, addressLine: true, occupation: true,
+        },
       });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
@@ -403,6 +408,46 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      // ── ACTIVITY LOG — diff với existing để log đúng action types ─────────
+      // Tách action-specific logs (status, score) vs bulk customer_update.
+      // Status change ưu tiên (workflow critical), score change track delta.
+      if (existing.status !== updated.status) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'status_change',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { old: existing.status, new: updated.status },
+        });
+      }
+      if (existing.leadScore !== updated.leadScore) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'score_change',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { old: existing.leadScore, new: updated.leadScore, delta: updated.leadScore - existing.leadScore },
+        });
+      }
+      // Bulk customer_info changes (fullName/phone/email/gender/birthDate/...) → 1 log
+      const infoDiff = computeDiff(
+        existing as Record<string, unknown>,
+        updated as Record<string, unknown>,
+        ['fullName', 'crmName', 'phone', 'email', 'gender', 'birthDate', 'addressLine', 'occupation', 'assignedUserId'],
+      );
+      if (Object.keys(infoDiff).length > 0) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'customer_update',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { changes: infoDiff },
+        });
+      }
+
       return updated;
     } catch (err) {
       logger.error('[contacts] Update error:', err);
@@ -419,10 +464,36 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       if (!Array.isArray(tags)) return reply.status(400).send({ error: 'tags must be an array' });
 
-      const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
+      const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true, tags: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
+      const oldTags = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
       const updated = await prisma.contact.update({ where: { id }, data: { tags } });
+
+      // ── ACTIVITY LOG — diff tags added/removed ─────────────────────────────
+      const added = tags.filter(t => !oldTags.includes(t));
+      const removed = oldTags.filter(t => !tags.includes(t));
+      for (const t of added) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'tag_add_crm',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { tag: t, level: 'contact' },
+        });
+      }
+      for (const t of removed) {
+        logActivity({
+          orgId: user.orgId,
+          userId: user.id,
+          action: 'tag_remove_crm',
+          entityType: 'contact',
+          entityId: updated.id,
+          details: { tag: t, level: 'contact' },
+        });
+      }
+
       return updated;
     } catch (err) {
       logger.error('[contacts] Update tags error:', err);
@@ -644,7 +715,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       };
       const friend = await prisma.friend.findFirst({
         where: { id, orgId: user.orgId },
-        select: { id: true },
+        select: {
+          id: true, contactId: true, statusId: true, leadScore: true,
+          crmTagsPerNick: true, aliasInNick: true,
+        },
       });
       if (!friend) return reply.status(404).send({ error: 'Friend not found' });
 
@@ -671,6 +745,61 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           ...(body.aliasInNick !== undefined ? { aliasInNick: body.aliasInNick } : {}),
         },
       });
+
+      // ── ACTIVITY LOG — per-pair mutations log với entityType='contact' để timeline KH thấy
+      const entityId = friend.contactId;
+      if (entityId) {
+        if (body.statusId !== undefined && body.statusId !== friend.statusId) {
+          logActivity({
+            orgId: user.orgId,
+            userId: user.id,
+            action: 'status_change',
+            entityType: 'contact',
+            entityId,
+            details: { old: friend.statusId, new: body.statusId, scope: 'friend', friendId: friend.id },
+          });
+        }
+        if (body.leadScore !== undefined && body.leadScore !== friend.leadScore) {
+          logActivity({
+            orgId: user.orgId,
+            userId: user.id,
+            action: 'score_change',
+            entityType: 'contact',
+            entityId,
+            details: { old: friend.leadScore, new: body.leadScore, delta: body.leadScore - friend.leadScore, scope: 'friend', friendId: friend.id },
+          });
+        }
+        if (body.aliasInNick !== undefined && body.aliasInNick !== friend.aliasInNick) {
+          logActivity({
+            orgId: user.orgId,
+            userId: user.id,
+            action: 'friend_alias_change',
+            entityType: 'contact',
+            entityId,
+            details: { old: friend.aliasInNick, new: body.aliasInNick, friendId: friend.id },
+          });
+        }
+        if (cleanTags !== undefined) {
+          const oldT = Array.isArray(friend.crmTagsPerNick) ? (friend.crmTagsPerNick as string[]) : [];
+          const added = cleanTags.filter(t => !oldT.includes(t));
+          const removed = oldT.filter(t => !cleanTags!.includes(t));
+          for (const t of added) {
+            logActivity({
+              orgId: user.orgId, userId: user.id, action: 'tag_add_crm',
+              entityType: 'contact', entityId,
+              details: { tag: t, level: 'friend', friendId: friend.id },
+            });
+          }
+          for (const t of removed) {
+            logActivity({
+              orgId: user.orgId, userId: user.id, action: 'tag_remove_crm',
+              entityType: 'contact', entityId,
+              details: { tag: t, level: 'friend', friendId: friend.id },
+            });
+          }
+        }
+      }
+
       return reply.send(updated);
     } catch (err) {
       logger.error('[friends] update error:', err);
@@ -719,6 +848,56 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ conversationId: created.id, created: true });
     } catch (err) {
       logger.error('[friends] ensure-conversation error:', err);
+      return reply.status(500).send({ error: 'Ensure conversation failed', detail: String(err) });
+    }
+  });
+
+  // ── POST /api/v1/zalo-accounts/:accountId/groups/:groupId/ensure-conversation ─
+  //    Tạo (hoặc lấy) Conversation cho 1 nhóm Zalo. Use case: sale click nút "Mở
+  //    chat" từ danh sách group trong tab Nhóm → cần convId để nav /chat/:convId.
+  //    Idempotent — gọi nhiều lần vẫn trả cùng convId.
+  app.post('/api/v1/zalo-accounts/:accountId/groups/:groupId/ensure-conversation', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { accountId, groupId } = request.params as { accountId: string; groupId: string };
+
+      // Verify account thuộc org user (security)
+      const account = await prisma.zaloAccount.findFirst({
+        where: { id: accountId, orgId: user.orgId },
+        select: { id: true },
+      });
+      if (!account) return reply.status(404).send({ error: 'Zalo account not found' });
+      if (!groupId) return reply.status(400).send({ error: 'groupId required' });
+
+      // Find existing — group conv uniqueness: (zaloAccountId, externalThreadId, threadType='group')
+      const existing = await prisma.conversation.findFirst({
+        where: {
+          zaloAccountId: accountId,
+          externalThreadId: groupId,
+          threadType: 'group',
+        },
+        select: { id: true },
+      });
+      if (existing) return reply.send({ conversationId: existing.id, created: false });
+
+      // Group conv chưa có → tạo. Note: contactId nullable (group conv không bind 1
+      // contact cụ thể, listener sẽ tạo group-contact khi có msg đầu).
+      const created = await prisma.conversation.create({
+        data: {
+          orgId: user.orgId,
+          zaloAccountId: accountId,
+          contactId: null,
+          threadType: 'group',
+          externalThreadId: groupId,
+          lastMessageAt: new Date(),
+          unreadCount: 0,
+          isReplied: false,
+        },
+        select: { id: true },
+      });
+      return reply.send({ conversationId: created.id, created: true });
+    } catch (err) {
+      logger.error('[groups] ensure-conversation error:', err);
       return reply.status(500).send({ error: 'Ensure conversation failed', detail: String(err) });
     }
   });

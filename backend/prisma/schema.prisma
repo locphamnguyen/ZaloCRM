@@ -38,6 +38,7 @@ model Organization {
   notes               Note[]
   zaloLabels          ZaloLabel[]
   crmTags             CrmTag[]
+  crmTagGroups        CrmTagGroup[]
 
   @@map("organizations")
 }
@@ -80,6 +81,7 @@ model User {
   messageTemplates          MessageTemplate[]
   authoredNotes             Note[]              @relation("NoteAuthor")
   noteReactions             NoteReaction[]
+  preferences               UserPreference[]
 
   @@map("users")
 }
@@ -107,6 +109,7 @@ model ZaloAccount {
   friendshipAttempts FriendshipAttempt[]
   friends            Friend[]
   zaloLabelsList     ZaloLabel[]
+  crmTagGroups       CrmTagGroup[]
 
   @@map("zalo_accounts")
 }
@@ -428,18 +431,66 @@ model CrmTag {
   color       String   @default("#90A4AE")             // hex color
   emoji       String?                                  // optional unicode emoji prefix
   description String?                                  // mô tả mục đích, vd "Khách quan tâm dự án EGV"
-  category    String?                                  // gom nhóm (vd "Mức độ", "Nguồn", "Hành vi")
+  category    String?                                  // LEGACY: gom nhóm string-based. Mới: dùng groupId
+  groupId     String?  @map("group_id")                // FK CrmTagGroup — gom nhóm formal
+  managedBy   String?  @map("managed_by")              // null | 'zalo_sync' — Zalo-managed tag read-only trong UI CRM
+  sourceZaloLabelId Int? @map("source_zalo_label_id")  // ZaloLabel.zaloLabelId nếu managedBy='zalo_sync'
+  archivedAt  DateTime? @map("archived_at")            // soft delete khi Zalo label bị xoá
   order       Int      @default(0)                     // sort order trong settings
   isActive    Boolean  @default(true) @map("is_active")
   usageCount  Int      @default(0) @map("usage_count") // denorm — cập nhật khi recompute
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org   Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  group CrmTagGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
 
   @@unique([orgId, name])
+  @@unique([sourceZaloLabelId])                        // 1 Zalo label → 1 CrmTag mirror
   @@index([orgId, category])
+  @@index([orgId, groupId])
+  @@index([managedBy, archivedAt])
   @@map("crm_tags")
+}
+
+// Tag group — gom các CrmTag thuộc cùng "nhóm" (formal hơn category string).
+// 2 use case: (1) user-defined group, (2) zalo-managed group auto-tạo từ Zalo nick.
+// managedBy='zalo_sync' + zaloAccountId set → group được tạo+maintain tự động khi sync.
+model CrmTagGroup {
+  id            String    @id @default(uuid())
+  orgId         String    @map("org_id")
+  name          String                                  // vd "Zalo - Phạm Thành CSKH (0912345678)" hoặc "Mức độ"
+  managedBy     String?   @map("managed_by")            // null | 'zalo_sync'
+  zaloAccountId String?   @map("zalo_account_id")       // set nếu managedBy='zalo_sync'
+  order         Int       @default(0)
+  archivedAt    DateTime? @map("archived_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  zaloAccount ZaloAccount?  @relation(fields: [zaloAccountId], references: [id], onDelete: SetNull)
+  tags        CrmTag[]
+
+  @@unique([orgId, name])
+  @@unique([zaloAccountId, managedBy])                  // 1 Zalo account chỉ có 1 zalo_sync group
+  @@index([orgId, archivedAt])
+  @@map("crm_tag_groups")
+}
+
+// Per-user preferences (timeline filter, UI toggles, ...).
+// Key/value JSON store, scoped userId. Cross-device sync khi user đăng nhập máy khác.
+model UserPreference {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  key       String                                  // vd "timeline.categories.visible"
+  value     Json     @default("null")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+  @@index([userId])
+  @@map("user_preferences")
 }
 
 // Zalo native labels — synced từ Zalo SDK getLabels() per nick.
@@ -485,20 +536,33 @@ model NoteReaction {
   @@map("note_reactions")
 }
 
-// Audit trail for user actions
+// Audit trail — log MỌI mutation CRM với actor + category + diff.
+// Source of truth cho timeline + activity log page.
+// Actor 3 loại: user (sale/admin), bot (automation), system (migration/sync).
+// Category 9 nhóm: customer_info, tags_crm, tags_zalo, status_care, score,
+//   appointment, interaction, system, automation.
 model ActivityLog {
-  id         String   @id @default(uuid())
-  orgId      String   @map("org_id")
-  userId     String?  @map("user_id")
-  action     String
-  entityType String?  @map("entity_type")
-  entityId   String?  @map("entity_id")
-  details    Json     @default("{}")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  userId        String?  @map("user_id")              // null nếu actorType != 'user'
+  actorType     String   @default("user") @map("actor_type")  // 'user' | 'bot' | 'system'
+  botName       String?  @map("bot_name")             // vd "AutoTag Bot" — chỉ khi actorType='bot'
+  systemSource  String?  @map("system_source")        // vd "zalo_label_sync" — chỉ khi actorType='system'
+  category      String?                                // 9 nhóm — null cho legacy rows
+  action        String
+  entityType    String?  @map("entity_type")
+  entityId      String?  @map("entity_id")
+  details       Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User?        @relation(fields: [userId], references: [id])
 
+  // Composite indexes cho timeline query (entity per-customer) + activity log page
+  // (filter category + date range). Sort DESC vì 99% query là "latest first".
+  @@index([entityType, entityId, createdAt(sort: Desc)])
+  @@index([orgId, category, createdAt(sort: Desc)])
+  @@index([orgId, actorType, createdAt(sort: Desc)])
   @@map("activity_logs")
 }
 

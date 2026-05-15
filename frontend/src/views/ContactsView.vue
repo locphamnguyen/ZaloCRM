@@ -24,6 +24,8 @@
       <input
         v-model="filters.search"
         class="toolbar-search"
+        name="contacts-search"
+        autocomplete="off"
         placeholder="🔍 Tìm tên / SĐT / UID / @username / globalId…"
         @input="debouncedFetch"
       />
@@ -994,9 +996,22 @@ function kindChipClass(kind: ChildRow['relationshipKind']): string {
   return map[kind];
 }
 
-function onChildAction(action: string, row: ChildRow) {
+async function onChildAction(action: string, row: ChildRow) {
   if (action === 'chat') {
-    toast.success(`Mở chat qua nick ${row.nickName}`);
+    // Ensure-conversation cho cặp (nick, KH này) — idempotent. Nếu chưa có
+    // conv (sale chưa từng nhắn) → backend tạo mới, trả convId. Nav vào /chat/:convId
+    // để ChatView select luôn + ConversationList scroll row đó lên top.
+    try {
+      const res = await api.post<{ conversationId: string }>(
+        `/friends/${row.id}/ensure-conversation`, {},
+      );
+      if (res.data?.conversationId) {
+        router.push({ name: 'Chat', params: { convId: res.data.conversationId } });
+      }
+    } catch (err) {
+      console.error('[ContactsView] ensure-conversation failed:', err);
+      toast.error(`Không mở được chat qua nick ${row.nickName}`);
+    }
   } else if (action === 'auto') {
     toast.warning(`Automation cho cặp ${row.nickName} × KH: chưa implement`);
   }

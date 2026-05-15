@@ -65,7 +65,8 @@ import { watch, onBeforeUnmount, ref } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
-import Underline from '@tiptap/extension-underline';
+// Note: @tiptap/starter-kit v3+ đã bundle Underline trong default extensions.
+// KHÔNG import + add Underline rời nữa — sẽ gây warning "Duplicate extension names found".
 
 const props = withDefaults(defineProps<{
   modelValue: string;
@@ -94,7 +95,6 @@ const editor = useEditor({
       horizontalRule: false,
       blockquote: false,
     }),
-    Underline,
     Placeholder.configure({ placeholder: props.placeholder }),
   ],
   editorProps: {

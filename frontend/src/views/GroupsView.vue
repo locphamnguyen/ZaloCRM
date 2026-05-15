@@ -45,6 +45,7 @@
           :loading="loading"
           @select="onSelectGroup"
           @create="showCreateDialog = true"
+          @open-chat="onOpenGroupChat"
         />
       </v-card>
 
@@ -130,6 +131,8 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
+import { useRouter } from 'vue-router';
+import { api } from '@/api/index';
 import { useSelectedAccount } from '@/composables/use-selected-account';
 import { useGroups } from '@/composables/use-groups';
 import { usePolls } from '@/composables/use-polls';
@@ -139,6 +142,8 @@ import GroupCreateDialog from '@/components/groups/group-create-dialog.vue';
 import GroupSettingsDialog from '@/components/groups/group-settings-dialog.vue';
 import PollCreateDialog from '@/components/groups/poll-create-dialog.vue';
 import InviteLinkManager from '@/components/groups/invite-link-manager.vue';
+
+const router = useRouter();
 
 const { accounts, selectedAccountId, selectAccount, loading: accountLoading } = useSelectedAccount();
 const {
@@ -185,6 +190,27 @@ async function onSelectGroup(groupId: string) {
     fetchBlocked(acct, groupId),
     fetchPending(acct, groupId),
   ]);
+}
+
+/* Click "Nhắn tin" cạnh group → ensure-conversation backend + nav /chat/:convId.
+ * ChatView watch route.params.convId → select luôn, ConversationList scroll lên top. */
+async function onOpenGroupChat(groupId: string) {
+  const acct = selectedAccountId.value;
+  if (!acct || !groupId) {
+    notify('Chưa chọn tài khoản Zalo', 'error');
+    return;
+  }
+  try {
+    const res = await api.post<{ conversationId: string }>(
+      `/zalo-accounts/${acct}/groups/${groupId}/ensure-conversation`, {},
+    );
+    if (res.data?.conversationId) {
+      router.push({ name: 'Chat', params: { convId: res.data.conversationId } });
+    }
+  } catch (err) {
+    console.error('[GroupsView] ensure group conversation failed:', err);
+    notify('Không mở được hội thoại nhóm', 'error');
+  }
 }
 
 async function refresh() {

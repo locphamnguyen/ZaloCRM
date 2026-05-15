@@ -21,6 +21,8 @@
           ref="editInput"
           v-model="editDraft"
           class="edit-input"
+          name="note-edit-draft"
+          autocomplete="off"
           rows="2"
           @keydown.ctrl.enter.prevent="commitEdit"
           @keydown.meta.enter.prevent="commitEdit"

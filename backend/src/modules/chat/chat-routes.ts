@@ -67,6 +67,11 @@ function buildReplyQuote(message: {
   };
 }
 
+// Cooldown cho POST /conversations/:id/touch-profile — tránh spam Zalo SDK.
+// Profile (gender / phone / birthday) hiếm đổi → 5min cooldown đủ.
+const profileTouchCooldown = new Map<string, number>();
+const PROFILE_TOUCH_COOLDOWN_MS = 5 * 60_000;
+
 export async function chatRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
@@ -237,17 +242,27 @@ export async function chatRoutes(app: FastifyInstance) {
     const userPairs = conversations
       .filter(c => c.threadType === 'user' && c.contactId)
       .map(c => ({ zaloAccountId: c.zaloAccountId, contactId: c.contactId! }));
-    let friendMap = new Map<string, { relationshipKind: string; friendshipStatus: string; becameFriendAt: Date | null; firstMessageAt: Date | null }>();
+    let friendMap = new Map<string, {
+      relationshipKind: string; friendshipStatus: string;
+      becameFriendAt: Date | null; firstMessageAt: Date | null;
+      crmTagsPerNick: unknown;
+    }>();
     if (userPairs.length) {
       const friends = await prisma.friend.findMany({
         where: { OR: userPairs.map(p => ({ AND: [{ zaloAccountId: p.zaloAccountId }, { contactId: p.contactId }] })) },
-        select: { zaloAccountId: true, contactId: true, relationshipKind: true, friendshipStatus: true, becameFriendAt: true, firstMessageAt: true },
+        select: {
+          zaloAccountId: true, contactId: true,
+          relationshipKind: true, friendshipStatus: true,
+          becameFriendAt: true, firstMessageAt: true,
+          crmTagsPerNick: true,                // per-pair CRM tags (kèm Zalo-mirrored "🔵 X")
+        },
       });
       friendMap = new Map(friends.map(f => [`${f.zaloAccountId}:${f.contactId}`, {
         relationshipKind: f.relationshipKind,
         friendshipStatus: f.friendshipStatus,
         becameFriendAt: f.becameFriendAt,
         firstMessageAt: f.firstMessageAt,
+        crmTagsPerNick: f.crmTagsPerNick,
       }]));
     }
 
@@ -293,6 +308,7 @@ export async function chatRoutes(app: FastifyInstance) {
       leadScore: number;
       statusRef: { id: string; name: string; color: string | null; order: number } | null;
       zaloLabels: unknown;
+      crmTagsPerNick: unknown;
     } | null = null;
     if (conversation.threadType === 'user' && conversation.contactId && conversation.externalThreadId) {
       const f = await prisma.friend.findUnique({
@@ -309,12 +325,141 @@ export async function chatRoutes(app: FastifyInstance) {
           leadScore: true,
           statusRef: { select: { id: true, name: true, color: true, order: true } },
           zaloLabels: true,
+          crmTagsPerNick: true,
         },
       });
       friendship = f;
     }
 
     return { ...conversation, isPinned: conversation.pins.length > 0, friendship };
+  });
+
+  // ── POST /conversations/:id/touch-profile — pull profile từ Zalo SDK on conv click.
+  //    Lý do: upsertContact lúc msg đầu chỉ set fullName + zaloUid, KHÔNG fill gender /
+  //    phone / birthday. Khi user click conv, gọi getUserInfo() lấy fresh profile và
+  //    upsert những field còn NULL trong DB (KHÔNG ghi đè giá trị sale đã chỉnh).
+  //    Cooldown 5min per conv để không spam SDK.
+  app.post('/api/v1/conversations/:id/touch-profile', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+
+    const conv = await prisma.conversation.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true, contactId: true, zaloAccountId: true, externalThreadId: true, threadType: true },
+    });
+    if (!conv) return reply.status(404).send({ error: 'Conversation not found' });
+    if (conv.threadType !== 'user' || !conv.contactId || !conv.externalThreadId) {
+      return { ok: true, skipped: true, reason: 'group_or_no_contact' };
+    }
+
+    // Cooldown
+    const last = profileTouchCooldown.get(conv.id) || 0;
+    if (Date.now() - last < PROFILE_TOUCH_COOLDOWN_MS) {
+      return { ok: true, skipped: true, reason: 'cooldown' };
+    }
+    profileTouchCooldown.set(conv.id, Date.now());
+
+    const api = zaloPool.getApi(conv.zaloAccountId);
+    if (!api || typeof api.getUserInfo !== 'function') {
+      return { ok: true, skipped: true, reason: 'account_disconnected' };
+    }
+
+    try {
+      const result = await api.getUserInfo(conv.externalThreadId);
+      const profiles = result?.changed_profiles || {};
+      const profile = profiles[conv.externalThreadId] || profiles[`${conv.externalThreadId}_0`] || null;
+      if (!profile) return { ok: true, skipped: true, reason: 'no_profile' };
+
+      // Extract SDK fields
+      const sdkGender: number = Number(profile.gender ?? -1); // 0=male, 1=female, -1=unknown
+      const sdkPhone: string = String(profile.phoneNumber || '').trim();
+      const sdkSdob: string = String(profile.sdob || '').trim(); // YYYY-MM-DD
+      const sdkIsFr: number = Number(profile.isFr ?? 0);
+      const sdkZaloName: string = String(profile.zaloName || profile.zalo_name || profile.displayName || '').trim();
+      const sdkAvatar: string = String(profile.avatar || '').trim();
+      const sdkGlobalId: string = String(profile.globalId || '').trim();
+      const sdkUsername: string = String(profile.username || '').trim();
+
+      // Read current Contact to decide which fields to fill (don't overwrite manual edits)
+      const contact = await prisma.contact.findUnique({
+        where: { id: conv.contactId },
+        select: { gender: true, phone: true, birthDate: true, hasZalo: true, zaloGlobalId: true, zaloUsername: true },
+      });
+      if (!contact) return reply.status(404).send({ error: 'Contact not found' });
+
+      // Build patch: only fields currently NULL/empty
+      const contactPatch: Record<string, unknown> = {};
+      if (!contact.gender && sdkGender >= 0) {
+        contactPatch.gender = sdkGender === 1 ? 'female' : 'male';
+      }
+      if (!contact.phone && sdkPhone) contactPatch.phone = sdkPhone;
+      if (!contact.birthDate && /^\d{4}-\d{2}-\d{2}$/.test(sdkSdob)) {
+        contactPatch.birthDate = new Date(sdkSdob);
+      }
+      // hasZalo: luôn refresh (cheap, SDK authoritative)
+      if (sdkIsFr === 1 && contact.hasZalo !== true) contactPatch.hasZalo = true;
+      // globalId / username: backfill nếu chưa có
+      if (!contact.zaloGlobalId && sdkGlobalId) contactPatch.zaloGlobalId = sdkGlobalId;
+      if (!contact.zaloUsername && sdkUsername) contactPatch.zaloUsername = sdkUsername;
+
+      if (Object.keys(contactPatch).length > 0) {
+        await prisma.contact.update({ where: { id: conv.contactId }, data: contactPatch });
+      }
+
+      // Friend snapshot: zaloDisplayName + zaloAvatarUrl — per-pair, luôn refresh
+      const friendPatch: Record<string, unknown> = {};
+      if (sdkZaloName) friendPatch.zaloDisplayName = sdkZaloName;
+      if (sdkAvatar) friendPatch.zaloAvatarUrl = sdkAvatar;
+      if (Object.keys(friendPatch).length > 0) {
+        await prisma.friend.updateMany({
+          where: { zaloAccountId: conv.zaloAccountId, zaloUidInNick: conv.externalThreadId },
+          data: friendPatch,
+        });
+      }
+
+      // ── Counter integrity reconcile — recount totalInbound / totalOutbound từ Message table
+      //    nếu drift với counter hiện tại. applyContactAggregate đôi khi miss (race / dedup
+      //    edge case / silent error). Cheap query với index conversation_id → ~10-50ms.
+      const counterRows = await prisma.$queryRaw<Array<{ actual_in: bigint; actual_out: bigint; stored_in: number; stored_out: number }>>`
+        SELECT
+          COUNT(*) FILTER (WHERE m.sender_type = 'contact') AS actual_in,
+          COUNT(*) FILTER (WHERE m.sender_type = 'self') AS actual_out,
+          c.total_inbound AS stored_in,
+          c.total_outbound AS stored_out
+        FROM contacts c
+        LEFT JOIN conversations cv ON cv.contact_id = c.id
+        LEFT JOIN messages m ON m.conversation_id = cv.id
+        WHERE c.id = ${conv.contactId}
+        GROUP BY c.id
+      `;
+      let counterReconciled = false;
+      if (counterRows.length > 0) {
+        const row = counterRows[0];
+        const actualIn = Number(row.actual_in);
+        const actualOut = Number(row.actual_out);
+        if (actualIn !== row.stored_in || actualOut !== row.stored_out) {
+          await prisma.contact.update({
+            where: { id: conv.contactId },
+            data: { totalInbound: actualIn, totalOutbound: actualOut },
+          });
+          counterReconciled = true;
+          logger.info(`[touch-profile] Counter drift fixed contact=${conv.contactId}: in ${row.stored_in}→${actualIn}, out ${row.stored_out}→${actualOut}`);
+        }
+      }
+
+      return {
+        ok: true,
+        contactPatched: Object.keys(contactPatch),
+        friendPatched: Object.keys(friendPatch),
+        counterReconciled,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Touch profile failed';
+      logger.warn(`[touch-profile] conv=${conv.id}: ${msg}`);
+      // Reset cooldown nếu fail để lần sau retry sớm
+      profileTouchCooldown.delete(conv.id);
+      return { ok: false, error: msg };
+    }
   });
 
   // ── List messages for a conversation (paginated, newest first) ──────────

@@ -3,16 +3,27 @@
     <!-- Label prefix -->
     <span class="bar-label">🏷</span>
 
-    <!-- Assigned pills (sort theo priority order từ CrmTag.order) -->
+    <!-- Assigned pills — Zalo-managed FIRST (theo managedBy), sau đó CrmTag.order.
+         Zalo-managed: monochromatic chip (icon + bg + border + text cùng tone từ ZaloLabel.color
+         qua color-mix). CRM tag: chip gray neutral hoặc tinted theo CrmTag.color. -->
     <span
       v-for="tag in sortedTags"
       :key="tag"
       class="tag-pill"
-      :style="tagStyle(tag) || `border-color: ${defaultHue}; color: ${defaultHue}`"
-      :title="findDef(tag)?.description || 'Click × để xoá'"
+      :class="{ 'tag-zalo': isZaloManaged(tag), 'tag-crm': !isZaloManaged(tag) }"
+      :style="{ '--tag-color': tagColor(tag) }"
+      :title="isZaloManaged(tag)
+        ? `Tag Zalo Real — đổi/gỡ trên app Zalo, hệ thống tự cập nhật. ${findDef(tag)?.description || ''}`
+        : (findDef(tag)?.description || 'Click × để xoá')"
     >
-      <span v-if="findDef(tag)?.emoji">{{ findDef(tag)?.emoji }} </span>{{ tag }}
-      <button class="tag-x" title="Xoá tag" @click="removeTag(tag)">×</button>
+      <TagIcon v-if="isZaloManaged(tag)" :size="13" />
+      <span v-else-if="findDef(tag)?.emoji">{{ findDef(tag)?.emoji }} </span>{{ cleanTagName(tag) }}
+      <button
+        v-if="!isZaloManaged(tag)"
+        class="tag-x"
+        title="Xoá tag"
+        @click="removeTag(tag)"
+      >×</button>
     </span>
 
     <!-- "+ Thêm tag" dropdown — xổ lên (location top) chứa list system tags + settings link -->
@@ -29,6 +40,8 @@
           <input
             ref="searchInput"
             v-model="search"
+            name="tag-crm-search"
+            autocomplete="off"
             placeholder="Tìm tag…"
             @keydown.enter.prevent="onEnterSearch"
             @keydown.escape="dropdownOpen = false"
@@ -84,6 +97,8 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
+import TagIcon from '@/components/icons/TagIcon.vue';
+import { tagColor as lookupTagColor, cleanTagName } from '@/composables/use-crm-tag-defs';
 
 interface CrmTagDef {
   id: string;
@@ -94,6 +109,7 @@ interface CrmTagDef {
   category: string | null;
   order: number;
   isActive: boolean;
+  managedBy?: string | null;   // 'zalo_sync' | null — Zalo-managed read-only
 }
 
 const props = defineProps<{
@@ -128,12 +144,16 @@ async function loadTagDefs() {
 
 const tags = computed(() => props.modelValue || []);
 
-// Sort theo priority CrmTag.order
+// Sort: Zalo-managed tags FIRST, sau đó theo priority CrmTag.order, cuối là alphabetical
 const sortedTags = computed(() => {
   const list = tags.value;
   return [...list].sort((a, b) => {
     const da = findDef(a);
     const db = findDef(b);
+    // Zalo-managed luôn đứng trước
+    const aZalo = da?.managedBy === 'zalo_sync' ? 0 : 1;
+    const bZalo = db?.managedBy === 'zalo_sync' ? 0 : 1;
+    if (aZalo !== bZalo) return aZalo - bZalo;
     if (da && db) return da.order - db.order;
     if (da) return -1;
     if (db) return 1;
@@ -141,17 +161,18 @@ const sortedTags = computed(() => {
   });
 });
 
+function isZaloManaged(name: string): boolean {
+  return findDef(name)?.managedBy === 'zalo_sync';
+}
+
 function findDef(name: string): CrmTagDef | null {
   return tagDefs.value.find(d => d.name === name) || null;
 }
 
-function tagStyle(name: string): string | null {
-  const def = findDef(name);
-  if (!def) return null;
-  return `background: ${def.color}15; color: ${def.color}; border-color: ${def.color}`;
+function tagColor(name: string): string {
+  // Ưu tiên CrmTag.color local, fallback shared composable (Zalo-mirror, color cache)
+  return findDef(name)?.color || lookupTagColor(name);
 }
-
-const defaultHue = '#546E7A';
 
 // Dropdown state
 const dropdownOpen = ref(false);
@@ -221,7 +242,14 @@ async function onCreateNewTag() {
 }
 
 async function removeTag(tag: string) {
-  await persist(tags.value.filter(t => t !== tag));
+  const newTags = tags.value.filter(t => t !== tag);
+  await persist(newTags);
+  // Undo 5s — restore tag vào đúng vị trí cũ
+  toast.undo(`Đã gỡ tag "${tag}"`, async () => {
+    if (!tags.value.includes(tag)) {
+      await persist([...tags.value, tag]);
+    }
+  });
 }
 
 async function persist(next: string[]) {
@@ -230,6 +258,8 @@ async function persist(next: string[]) {
   try {
     // Backend dùng PUT /contacts/:id/tags (endpoint chuyên cho tags), KHÔNG phải PATCH.
     await api.put(`/contacts/${props.contactId}/tags`, { tags: next });
+    // Trigger timeline refresh + highlight entry "tag_*_crm" mới
+    window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId: props.contactId } }));
   } catch (err: any) {
     const msg = err?.response?.data?.error || `Lưu tag thất bại (${err?.response?.status || 'network'})`;
     toast.error(msg);
@@ -275,8 +305,8 @@ onMounted(() => { void loadTagDefs(); });
 .tag-pill {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 5px 3px 10px;
+  gap: 4px;
+  padding: 3px 10px;
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
@@ -287,6 +317,28 @@ onMounted(() => { void loadTagDefs(); });
   transition: filter 0.12s;
 }
 .tag-pill:hover { filter: brightness(0.96); }
+
+/* Zalo-managed: monochromatic chip dùng color-mix() derive 3 màu phụ từ --tag-color.
+ * Hỗ trợ Chrome 111+, Safari 16.2+, Firefox 113+ — modern browsers OK cho CRM nội bộ. */
+.tag-pill.tag-zalo {
+  --tag-color: #0068FF;
+  background: color-mix(in srgb, var(--tag-color) 12%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 80%, white);
+  color: color-mix(in srgb, var(--tag-color) 75%, black);
+  padding: 3px 10px;
+  cursor: help;
+}
+.tag-pill.tag-zalo :deep(.tag-icon) {
+  color: var(--tag-color);
+}
+
+/* CRM tag: dùng CrmTag.color qua --tag-color, render tinted chip nhẹ. */
+.tag-pill.tag-crm {
+  --tag-color: #546E7A;
+  background: color-mix(in srgb, var(--tag-color) 8%, white);
+  border-color: color-mix(in srgb, var(--tag-color) 70%, white);
+  color: color-mix(in srgb, var(--tag-color) 80%, black);
+}
 .tag-x {
   background: none;
   border: none;

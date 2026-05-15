@@ -33,6 +33,17 @@
         <v-list-item-subtitle v-if="group.totalMember" class="text-caption">
           {{ group.totalMember }} thành viên
         </v-list-item-subtitle>
+        <template #append>
+          <!-- Nhắn tin: ensure-conversation cho group → nav /chat/:convId -->
+          <v-btn
+            icon="mdi-message-text"
+            size="x-small"
+            variant="text"
+            color="primary"
+            :title="`Nhắn tin nhóm ${group.name || ''}`"
+            @click.stop="$emit('open-chat', group.id)"
+          />
+        </template>
       </v-list-item>
     </v-list>
 
@@ -70,6 +81,7 @@ const props = defineProps<{
 defineEmits<{
   select: [groupId: string];
   create: [];
+  'open-chat': [groupId: string];
 }>();
 
 const search = ref('');
