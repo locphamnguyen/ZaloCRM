@@ -147,6 +147,16 @@ export async function applySignalsToFriend(
         /* silent */
       }
     })();
+
+    // Trigger auto-tag recompute (fire-and-forget).
+    void (async () => {
+      try {
+        const { updateFriendAutoTags } = await import('./auto-tag.js');
+        await updateFriendAutoTags(friendId);
+      } catch {
+        /* silent */
+      }
+    })();
   } catch (err) {
     logger.error({ friendId, orgId, trigger, err }, 'applySignalsToFriend failed');
   }

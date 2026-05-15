@@ -12,12 +12,14 @@
 import { logger } from '../../shared/utils/logger.js';
 import { runDecayAllOrgs } from './decay-cron.js';
 import { runStuckDetectionAllOrgs } from './stuck-detection.js';
+import { runAutoTagsAllOrgs } from './auto-tag.js';
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 let decayTimer: NodeJS.Timeout | null = null;
 let stuckTimer: NodeJS.Timeout | null = null;
+let autoTagTimer: NodeJS.Timeout | null = null;
 
 /**
  * Start scheduler. Idempotent — call once at app boot.
@@ -63,6 +65,17 @@ export function startScoringScheduler(opts?: {
     { stuckRunHourLocal: stuckHour, firstRunInMs: stuckMs },
     'Stuck detection scheduler started'
   );
+
+  // ── Auto-tag: daily at stuckHour+1 (run sau stuck detection để dùng latest stuckSince) ──
+  if (autoTagTimer) clearInterval(autoTagTimer);
+  const autoTagMs = msUntilNextHourMatch((stuckHour + 1) % 24);
+  setTimeout(() => {
+    void runAutoTagJob();
+    autoTagTimer = setInterval(() => {
+      void runAutoTagJob();
+    }, DAY_MS);
+  }, autoTagMs);
+  logger.info({ firstRunInMs: autoTagMs }, 'Auto-tag scheduler started');
 }
 
 export function stopScoringScheduler(): void {
@@ -73,6 +86,24 @@ export function stopScoringScheduler(): void {
   if (stuckTimer) {
     clearInterval(stuckTimer);
     stuckTimer = null;
+  }
+  if (autoTagTimer) {
+    clearInterval(autoTagTimer);
+    autoTagTimer = null;
+  }
+}
+
+async function runAutoTagJob(): Promise<void> {
+  try {
+    const start = Date.now();
+    const results = await runAutoTagsAllOrgs();
+    const totalChanged = results.reduce((sum, r) => sum + r.changed, 0);
+    logger.info(
+      { totalChanged, orgs: results.length, ms: Date.now() - start },
+      'Auto-tag batch completed'
+    );
+  } catch (err) {
+    logger.error({ err }, 'Auto-tag job failed');
   }
 }
 
