@@ -146,6 +146,7 @@ const primaryTabs: NavTab[] = [
   { path: '/chat',         label: 'Tin nhắn',   icon: '💬' },
   { path: '/friends',      label: 'Bạn bè',     icon: '👥' },
   { path: '/contacts',     label: 'Khách hàng', icon: '🧑' },
+  { path: '/leads/stuck',  label: 'KH đình trệ', icon: '🚨' },
   { path: '/appointments', label: 'Lịch hẹn',   icon: '📅' },
   { path: '/analytics',    label: 'Phân tích',  icon: '📈' },
   { path: '/reports',      label: 'Báo cáo',    icon: '📊' },
