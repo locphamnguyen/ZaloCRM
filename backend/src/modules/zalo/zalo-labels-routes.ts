@@ -109,26 +109,63 @@ export async function syncLabelsForAccount(accountId: string, orgId: string): Pr
   }
 
   // Bulk update friend.zaloLabels + mirror sang CrmTagsPerNick + log diff.
-  // Load existing zaloLabels để diff (detect added/removed labels per friend).
-  // Mirror naming: "🔵 {labelText}" prefix để dễ phân biệt Zalo-synced vs CRM-managed.
-  // Account display name dùng làm category để gom group.
+  // Mirror naming: "🔵 {labelText}" prefix. CrmTagGroup auto-tạo per Zalo account.
+  // CrmTag.managedBy='zalo_sync' + sourceZaloLabelId để read-only enforcement.
   const account = await prisma.zaloAccount.findUnique({
     where: { id: accountId },
     select: { displayName: true, phone: true },
   });
   const groupName = `Zalo - ${account?.displayName || 'Nick'}${account?.phone ? ` (${account.phone})` : ''}`;
 
-  // Auto-create CrmTag definitions cho mỗi label (idempotent — skipDuplicates)
-  await prisma.crmTag.createMany({
-    data: upserted.map(l => ({
+  // Upsert CrmTagGroup for this Zalo account (managedBy='zalo_sync')
+  const group = await prisma.crmTagGroup.upsert({
+    where: { zaloAccountId_managedBy: { zaloAccountId: accountId, managedBy: 'zalo_sync' } },
+    create: {
       orgId,
-      name: `🔵 ${l.text}`,
-      color: l.color || '#1976D2',
-      emoji: l.emoji || null,
-      category: groupName,
-      description: `Auto-sync từ Zalo label ID ${l.zaloLabelId}`,
-    })),
-    skipDuplicates: true,
+      name: groupName,
+      managedBy: 'zalo_sync',
+      zaloAccountId: accountId,
+    },
+    update: { name: groupName }, // rename khi displayName/phone đổi
+  });
+
+  // Upsert CrmTag definitions per label — use sourceZaloLabelId as natural key
+  for (const l of upserted) {
+    const tagName = `🔵 ${l.text}`;
+    await prisma.crmTag.upsert({
+      where: { sourceZaloLabelId: l.zaloLabelId },
+      create: {
+        orgId,
+        name: tagName,
+        color: l.color || '#1976D2',
+        emoji: l.emoji || null,
+        groupId: group.id,
+        category: groupName,             // legacy field cho FE chưa migrate
+        managedBy: 'zalo_sync',
+        sourceZaloLabelId: l.zaloLabelId,
+        description: `Auto-sync từ Zalo label ID ${l.zaloLabelId}`,
+      },
+      update: {
+        name: tagName,
+        color: l.color || '#1976D2',
+        emoji: l.emoji || null,
+        groupId: group.id,
+        archivedAt: null,                // un-archive nếu label hồi sinh
+      },
+    });
+  }
+
+  // Archive CrmTag tương ứng với label bị xoá (không còn trong upserted set)
+  const currentLabelIds = upserted.map(l => l.zaloLabelId);
+  await prisma.crmTag.updateMany({
+    where: {
+      orgId,
+      managedBy: 'zalo_sync',
+      groupId: group.id,
+      sourceZaloLabelId: { notIn: currentLabelIds.length ? currentLabelIds : [-1] },
+      archivedAt: null,
+    },
+    data: { archivedAt: new Date() },
   });
 
   // Bulk update friend.zaloLabels + diff log
