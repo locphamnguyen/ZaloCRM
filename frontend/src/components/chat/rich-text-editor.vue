@@ -70,10 +70,11 @@ import Underline from '@tiptap/extension-underline';
 const props = withDefaults(defineProps<{
   modelValue: string;
   placeholder?: string;
-  showToolbar?: boolean;
+  showToolbar?: boolean;       // Hiển thị format toolbar (B I U S list code) — mặc định FALSE.
+                               //  Parent toggle qua T icon button khi cần.
 }>(), {
   placeholder: 'Nhập tin nhắn...',
-  showToolbar: true,
+  showToolbar: false,
 });
 
 const emit = defineEmits<{
@@ -178,27 +179,22 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
   box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.10);
 }
 
-/* ── Toolbar luôn hiển thị (KHÔNG collapsible) — tránh layout nhảy khi focus / switch conv.
- * Toolbar reserved fixed height ngay từ đầu để input area stable. ── */
+/* ── Format toolbar: hidden by default, parent toggle qua prop showToolbar=true.
+ * Khi prop true → render `v-if="showToolbar"` ở template → element không tồn tại
+ * khi false → 0 height, không reserve space. ── */
 .editor-toolbar {
-  max-height: 32px;
-  height: 32px;
-  opacity: 0.85;
+  height: 30px;
   padding: 3px 4px;
   border-bottom: 1px solid var(--smax-grey-100, #f5f6fa);
   overflow: hidden;
-  transition: opacity 0.15s;
-}
-.rich-text-editor:focus-within .editor-toolbar,
-.rich-text-editor.focused .editor-toolbar {
-  opacity: 1;
+  background: var(--smax-grey-50, #fafbfc);
 }
 
-/* Lock fixed height cho editor content — không auto-grow, không max-height behavior tạo
- * cảm giác "nhảy" khi nhập nhiều dòng. Scroll bên trong nếu vượt. */
+/* Editor content height: 60px ~ Zalo Web compose (2 dòng visible).
+ * Fixed height, scroll bên trong nếu user nhập nhiều. */
 .editor-content :deep(.tiptap-input) {
-  padding: 9px 13px;
-  height: 84px;          /* FIXED — không min/max */
+  padding: 8px 13px;
+  height: 60px;
   overflow-y: auto;
   outline: none;
   font-size: 14px;

@@ -296,7 +296,12 @@
           <button class="icon-tool" title="Gửi danh thiếp" @click="todoToast('Danh thiếp')">
             <v-icon size="18">mdi-account-box-outline</v-icon>
           </button>
-          <button class="icon-tool" title="Định dạng văn bản" @click="toggleFormat">
+          <button
+            class="icon-tool"
+            :class="{ active: formatBarVisible }"
+            :title="formatBarVisible ? 'Ẩn định dạng văn bản' : 'Hiện định dạng văn bản (B I U S ...)'"
+            @click="toggleFormat"
+          >
             <v-icon size="18">mdi-format-text</v-icon>
           </button>
           <span class="toolbar-divider"></span>
@@ -314,19 +319,18 @@
         </div>
 
         <div class="input-row">
-          <!-- Avatar nick đang gửi (thụt vào để input thẳng hàng) -->
-          <Avatar
-            v-if="conversation.zaloAccount"
-            :src="conversation.zaloAccount.avatarUrl"
-            :name="conversation.zaloAccount.displayName || 'Nick'"
-            :size="34"
-            :gradient-seed="conversation.zaloAccount.id"
-            platform="zalo"
-            :title="`Đang gửi từ nick: ${conversation.zaloAccount.displayName || ''}`"
-            class="sender-nick-avatar"
-          />
-
           <div class="editor-wrap">
+            <!-- Avatar nick đang gửi — TOP-LEFT của editor (overlay, Zalo Web style) -->
+            <Avatar
+              v-if="conversation.zaloAccount"
+              :src="conversation.zaloAccount.avatarUrl"
+              :name="conversation.zaloAccount.displayName || 'Nick'"
+              :size="22"
+              :gradient-seed="conversation.zaloAccount.id"
+              platform="zalo"
+              :title="`Đang gửi từ nick: ${conversation.zaloAccount.displayName || ''}`"
+              class="sender-nick-avatar"
+            />
             <QuickTemplatePopup
               :visible="showTemplatePopup"
               :query="templateQuery"
@@ -339,7 +343,8 @@
               ref="editorRef"
               v-model="inputText"
               :placeholder="inputPlaceholder"
-              class="input-editor"
+              :show-toolbar="formatBarVisible"
+              class="input-editor with-nick-avatar"
               @submit="handleSend"
               @typing="onTypingEvent"
               @paste-image="onPasteImage"
@@ -974,15 +979,12 @@ async function handleFiles(files: File[]) {
   }
 }
 
-// ── Format toggle (HTML formatting toolbar of RichTextEditor) ────────────────
+// ── Format toggle: T icon bật/tắt format toolbar (B I U S list code) trong editor.
+//   Mặc định ẨN — chỉ user nào cần định dạng mới bật. Tiết kiệm 30px chiều cao.
 const formatBarVisible = ref(false);
 function toggleFormat() {
   formatBarVisible.value = !formatBarVisible.value;
-  // RichTextEditor toolbar tự show khi focus; click button này để focus + toggle CSS class
-  if (formatBarVisible.value) {
-    editorRef.value?.focus();
-    toast.push('Bôi đen text rồi dùng Ctrl+B / Ctrl+I / Ctrl+U');
-  }
+  if (formatBarVisible.value) editorRef.value?.focus();
 }
 
 // ── Display item types (album grouping + date dividers) ─────────────────────
@@ -1545,6 +1547,10 @@ watch(() => props.editingMessage?.id, async (id) => {
   outline: 2px solid var(--smax-primary-soft, #bbdefb);
   outline-offset: -1px;
 }
+.icon-tool.active {
+  background: var(--smax-primary-soft, #e3f2fd);
+  color: var(--smax-primary, #2962ff);
+}
 .icon-tool.spacer-after {
   border-right: 1px solid var(--smax-grey-200);
   margin-right: 4px; padding-right: 4px;
@@ -1555,15 +1561,25 @@ watch(() => props.editingMessage?.id, async (id) => {
   display: flex; align-items: flex-end; gap: 8px;
   position: relative;
 }
-.sender-nick-avatar {
-  margin-bottom: 4px; /* căn đáy với textarea */
-  flex-shrink: 0;
-}
 .editor-wrap {
   flex: 1; min-width: 0;
   position: relative;
 }
+/* Avatar nick — overlay top-left của editor box (Zalo Web style) */
+.sender-nick-avatar {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 3;
+  pointer-events: auto;
+  box-shadow: 0 0 0 2px var(--smax-bg, #fff);  /* viền trắng tách khỏi editor border */
+  border-radius: 50%;
+}
 .input-editor { width: 100%; }
+/* Khi có avatar overlay → text input cần thụt vào tránh đè avatar */
+.input-editor.with-nick-avatar :deep(.tiptap-input) {
+  padding-left: 38px !important;
+}
 
 .send-btn {
   background: var(--smax-primary);

@@ -7,7 +7,9 @@
   >
     <template #activator="{ props: actProps }">
       <button v-bind="actProps" class="icon-tool" title="Gửi sticker">
-        <v-icon size="18">mdi-sticker-emoji</v-icon>
+        <!-- mdi-sticker-emoji có inherent square outline trong glyph (cảm giác "lệch"
+             so với các icon outline-style khác). Chuyển sang sticker-outline cho đồng nhất. -->
+        <v-icon size="18">mdi-sticker-outline</v-icon>
       </button>
     </template>
 
