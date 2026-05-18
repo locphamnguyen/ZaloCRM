@@ -1,6 +1,6 @@
 <template>
   <div class="cfb">
-    <!-- ① Quick pills row (scroll-x, no wrap, no overflow ngoài) -->
+    <!-- ① Quick pills row — soft button, no icon, count fixed-slot tránh nhảy UI -->
     <div class="cfb-pills-wrap">
       <div class="cfb-pills">
         <button
@@ -8,41 +8,37 @@
           :class="{ active: filters.state.quickPills.has('unread') }"
           @click="filters.toggleQuickPill('unread')"
         >
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
-          Chưa đọc
-          <span v-if="counts.unread" class="count">{{ counts.unread }}</span>
+          <span class="pill-label">Chưa đọc</span>
+          <span class="count">{{ counts.unread ?? 0 }}</span>
         </button>
         <button
           class="pill warning"
           :class="{ active: filters.state.quickPills.has('unanswered') }"
           @click="filters.toggleQuickPill('unanswered')"
         >
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" /></svg>
-          Chưa rep
-          <span v-if="counts.unanswered" class="count">{{ counts.unanswered }}</span>
+          <span class="pill-label">Chưa rep</span>
+          <span class="count">{{ counts.unanswered ?? 0 }}</span>
         </button>
         <button
           class="pill danger"
           :class="{ active: filters.state.quickPills.has('stuck') }"
           @click="filters.toggleQuickPill('stuck')"
         >
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
-          Đình trệ
-          <span v-if="counts.stuck" class="count">{{ counts.stuck }}</span>
+          <span class="pill-label">Đình trệ</span>
+          <span class="count">{{ counts.stuck ?? 0 }}</span>
         </button>
         <button
           class="pill success"
           :class="{ active: filters.state.quickPills.has('ready') }"
           @click="filters.toggleQuickPill('ready')"
         >
-          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>
-          Sẵn sàng
-          <span v-if="counts.ready" class="count">{{ counts.ready }}</span>
+          <span class="pill-label">Sẵn sàng</span>
+          <span class="count">{{ counts.ready ?? 0 }}</span>
         </button>
       </div>
     </div>
 
-    <!-- ② 4 tabs row — single active (1 tab tại 1 thời điểm) -->
+    <!-- ② 4 tabs row — chia 4 cố định, text + count, KHÔNG icon, single active -->
     <div class="cfb-tabs">
       <button
         v-for="tab in TABS"
@@ -52,9 +48,8 @@
         @click="setActiveTab(tab.key)"
         :title="tab.tooltip"
       >
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" v-html="tab.svg" />
-        {{ tab.label }}
-        <span v-if="tabCount(tab.key) !== null" class="tab-count">{{ tabCount(tab.key) }}</span>
+        <span class="tab-label">{{ tab.label }}</span>
+        <span class="tab-count">{{ tabCount(tab.key) ?? 0 }}</span>
       </button>
     </div>
 
@@ -97,33 +92,12 @@ type TabKey = 'personal' | 'group' | 'main' | 'other';
 const TABS: Array<{
   key: TabKey;
   label: string;
-  svg: string;
   tooltip: string;
 }> = [
-  {
-    key: 'personal',
-    label: 'Cá nhân',
-    tooltip: 'Chỉ hội thoại 1-1 (user với user)',
-    svg: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />',
-  },
-  {
-    key: 'group',
-    label: 'Nhóm',
-    tooltip: 'Chỉ hội thoại nhóm',
-    svg: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />',
-  },
-  {
-    key: 'main',
-    label: 'Chính',
-    tooltip: 'Hộp thư chính (cả user lẫn nhóm)',
-    svg: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />',
-  },
-  {
-    key: 'other',
-    label: 'Khác',
-    tooltip: 'Hội thoại đã move qua Khác',
-    svg: '<circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" />',
-  },
+  { key: 'personal', label: 'Cá nhân', tooltip: 'Chỉ hội thoại 1-1 (user với user)' },
+  { key: 'group',    label: 'Nhóm',    tooltip: 'Chỉ hội thoại nhóm' },
+  { key: 'main',     label: 'Chính',   tooltip: 'Hộp thư chính (cả user lẫn nhóm)' },
+  { key: 'other',    label: 'Khác',    tooltip: 'Hội thoại đã move qua Khác' },
 ];
 
 function setActiveTab(key: TabKey) {
@@ -159,104 +133,158 @@ function toggleSort() {
   flex-shrink: 0;
 }
 
-/* ① Quick pills — scroll-x, KHÔNG wrap, KHÔNG overflow ra ngoài */
+/* ① Quick pills — soft button, no icon, count fixed-slot, gentle color khi active */
 .cfb-pills-wrap {
   border-bottom: 1px solid #F3F4F6;
-  /* Critical: clip overflow-x, scroll trong wrap */
   overflow: hidden;
   position: relative;
 }
 .cfb-pills {
   display: flex;
-  gap: 5px;
+  gap: 6px;
   padding: 8px 14px;
   overflow-x: auto;
   scrollbar-width: none;
   align-items: center;
-  /* Cho pill bay-out smooth khi scroll */
   scroll-behavior: smooth;
 }
 .cfb-pills::-webkit-scrollbar { display: none; }
+
+/* Pill: nhẹ nhàng, soft button, không có dark fill khi active.
+   Active = light tint background + accent border (gentle color change). */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 9px;
-  border-radius: 13px;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 14px;
   font-size: 11.5px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s;
+  /* Critical: KHÔNG transition width/padding để tránh nhảy UI khi click */
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   border: 1px solid #E5E7EB;
   background: white;
   color: #4B5563;
   white-space: nowrap;
   flex-shrink: 0;
   font-family: inherit;
+  /* Tránh layout shift khi count đổi width — min-width đảm bảo width stable */
+  min-width: 0;
 }
-.pill:hover { background: #F9FAFB; border-color: #D1D5DB; }
-.pill.active {
-  background: #111827;
-  color: white;
-  border-color: #111827;
+.pill:hover {
+  background: #FAFBFC;
+  border-color: #D1D5DB;
+  color: #111827;
 }
-.pill.alert.active { background: #DC2626; border-color: #DC2626; }
-.pill.warning.active { background: #F59E0B; border-color: #F59E0B; }
-.pill.danger.active { background: #EF4444; border-color: #EF4444; }
-.pill.success.active { background: #10B981; border-color: #10B981; }
-.pill .ic { width: 12px; height: 12px; }
-.pill .count {
-  background: rgba(255, 255, 255, 0.2);
-  padding: 0 4px;
-  border-radius: 4px;
-  font-size: 9.5px;
+.pill .pill-label {
+  font-weight: 500;
 }
-.pill:not(.active) .count { background: #F3F4F6; color: #6B7280; }
 
-/* ③ 4 tabs — single active */
+/* Active state: light tint + colored border (no dark solid bg) */
+.pill.alert.active {
+  background: #FEF2F2;
+  border-color: #FCA5A5;
+  color: #B91C1C;
+  font-weight: 600;
+}
+.pill.warning.active {
+  background: #FFFBEB;
+  border-color: #FCD34D;
+  color: #B45309;
+  font-weight: 600;
+}
+.pill.danger.active {
+  background: #FEF2F2;
+  border-color: #F87171;
+  color: #B91C1C;
+  font-weight: 600;
+}
+.pill.success.active {
+  background: #F0FDF4;
+  border-color: #86EFAC;
+  color: #047857;
+  font-weight: 600;
+}
+
+/* Count: fixed slot, monospace tiny, always visible */
+.pill .count {
+  background: #F3F4F6;
+  color: #6B7280;
+  padding: 1px 6px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 22px;
+  text-align: center;
+  /* Tránh inherit transitions của parent pill */
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+.pill.alert.active .count { background: rgba(220, 38, 38, 0.12); color: #B91C1C; }
+.pill.warning.active .count { background: rgba(245, 158, 11, 0.15); color: #B45309; }
+.pill.danger.active .count { background: rgba(239, 68, 68, 0.12); color: #B91C1C; }
+.pill.success.active .count { background: rgba(16, 185, 129, 0.12); color: #047857; }
+
+/* ② 4 tabs — chia 4 cố định, KHÔNG icon, text + count, single active.
+   Compact để fit Cột 2 hẹp 340px (mỗi tab ~85px). */
 .cfb-tabs {
   display: flex;
-  padding: 0 14px;
-  gap: 2px;
+  padding: 0 4px;
   border-bottom: 1px solid #F3F4F6;
   background: white;
 }
 .cfb-tab {
-  flex: 1;
-  padding: 9px 0 11px;
+  /* Chia đều 4 cột — flex 1 1 0 ép equal width bất kể content */
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 10px 2px 12px;
   text-align: center;
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 500;
   color: #6B7280;
   cursor: pointer;
   border: none;
   background: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.18s ease, border-color 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  /* Quan trọng: KHÔNG cho text wrap → giữ width cố định */
+  white-space: nowrap;
+  overflow: hidden;
   font-family: inherit;
 }
 .cfb-tab:hover { color: #4338CA; }
 .cfb-tab.active {
   color: #6366F1;
+  font-weight: 600;
   border-bottom-color: #6366F1;
 }
-.cfb-tab .ic { width: 13px; height: 13px; }
+.cfb-tab .tab-label {
+  /* Không cắt label — flex-shrink: 0 giữ nguyên kích thước */
+  flex-shrink: 0;
+}
 .cfb-tab .tab-count {
   background: #F3F4F6;
-  color: #4B5563;
+  color: #6B7280;
   font-size: 9.5px;
   padding: 0 5px;
   border-radius: 5px;
   font-weight: 700;
   min-width: 16px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.18s ease, color 0.18s ease;
+  flex-shrink: 0;
 }
-.cfb-tab.active .tab-count { background: #EEF2FF; color: #4338CA; }
+.cfb-tab.active .tab-count {
+  background: #EEF2FF;
+  color: #4338CA;
+}
 
 /* ④ Mini row — half height, muted */
 .cfb-mini {

@@ -86,7 +86,7 @@ export function defaultFilterState(): FilterState {
   return {
     folderId: null,
     saleAssigneeId: null,
-    activeTab: 'main', // Default: Hộp thư Chính (cả user + group)
+    activeTab: 'personal', // Default: Cá nhân (user-user 1-1)
     quickPills: new Set(),
     tagsZalo: [],
     tagsCrm: [],
