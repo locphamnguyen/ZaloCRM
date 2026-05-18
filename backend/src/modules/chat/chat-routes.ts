@@ -136,18 +136,47 @@ export async function chatRoutes(app: FastifyInstance) {
       scoreMax = '',
       // Mới — Friend level (per-pair aggregate)
       relationshipKindAny = '', // CSV: friend,pending_friend,chatting_stranger,ghost
+      // Phase 6+ — Inbox Triage Filter params
+      folderId = '',            // AccountFolder ID — translate sang accountIds
+      sortMode = '',            // 'unread-first' | 'recent' (default recent)
+      autoTagsAny = '',         // CSV: active,stuck,cold,ready,atrisk,rewarmed,frozen
+      stuck = '',               // 'true' → friends.some.stuckSince != null
+      ready = '',               // 'true' → score >= 80
+      zaloLabels = '',          // CSV: filter by Zalo Real labels
     } = request.query as QueryParams;
 
     const where: any = { orgId: user.orgId };
     if (tab) where.tab = tab;
     if (threadType === 'user' || threadType === 'group') where.threadType = threadType;
 
-    // accountIds CSV ưu tiên hơn accountId single (multi-nick FE)
-    const accountIdList = accountIds
-      ? accountIds.split(',').map(s => s.trim()).filter(Boolean)
-      : accountId ? [accountId] : [];
+    // Phase 6+ — folderId translate sang accountIds (override accountId/accountIds nếu set)
+    let folderAccountIds: string[] | null = null;
+    if (folderId) {
+      const folder = await prisma.accountFolder.findUnique({
+        where: { id: folderId },
+        include: { members: { select: { zaloAccountId: true } } },
+      });
+      if (folder && folder.userId === user.id) {
+        folderAccountIds = folder.members.map((m) => m.zaloAccountId);
+      }
+    }
+
+    // accountIds CSV ưu tiên hơn accountId single (multi-nick FE).
+    // folderAccountIds (Phase 6+ folder filter) override nếu có.
+    let accountIdList: string[] = [];
+    if (folderAccountIds !== null) {
+      accountIdList = folderAccountIds;
+    } else {
+      accountIdList = accountIds
+        ? accountIds.split(',').map(s => s.trim()).filter(Boolean)
+        : accountId ? [accountId] : [];
+    }
     if (accountIdList.length === 1) where.zaloAccountId = accountIdList[0];
     else if (accountIdList.length > 1) where.zaloAccountId = { in: accountIdList };
+    else if (folderAccountIds !== null && folderAccountIds.length === 0) {
+      // Folder rỗng (chưa add nick nào) → return empty list
+      where.zaloAccountId = 'EMPTY_FOLDER_NO_MATCH';
+    }
 
     // Contact-level filter — gộp vào where.contact nested
     const contactWhere: Record<string, unknown> = {};
@@ -184,6 +213,54 @@ export async function chatRoutes(app: FastifyInstance) {
     if (unread === 'true') where.unreadCount = { gt: 0 };
     if (unreplied === 'true') where.isReplied = false;
 
+    // Phase 6+ Quick Pills filters — apply qua Contact + Friend
+    // Stuck → có ít nhất 1 Friend với stuckSince != null
+    if (stuck === 'true') {
+      const existingFriends = (contactWhere.friends as any) || {};
+      const someClause = existingFriends.some || {};
+      contactWhere.friends = {
+        some: { ...someClause, stuckSince: { not: null } },
+      };
+    }
+    // Ready → Contact aggregate leadScore >= 80 (đã cover bởi scoreMin nếu set, đây là shortcut)
+    if (ready === 'true') {
+      const existingLeadScore = (contactWhere.leadScore as any) || {};
+      contactWhere.leadScore = { ...existingLeadScore, gte: 80 };
+    }
+    // Auto-tags filter — Friend có autoTags chứa bất kỳ tag nào trong list
+    if (autoTagsAny) {
+      const tagList = autoTagsAny.split(',').map((t) => t.trim()).filter(Boolean);
+      if (tagList.length > 0) {
+        const existingFriends = (contactWhere.friends as any) || {};
+        const someClause = existingFriends.some || {};
+        // Postgres JSON array_contains_any cần or-chain hoặc raw SQL.
+        // Workaround: union per tag (vẫn dùng `some` với OR).
+        const orConditions = tagList.map((tag) => ({ autoTags: { array_contains: [tag] } }));
+        contactWhere.friends = {
+          some: { ...someClause, OR: orConditions },
+        };
+      }
+    }
+    // Zalo Labels filter — Friend có zaloLabels chứa label name
+    if (zaloLabels) {
+      const labelList = zaloLabels.split(',').map((t) => t.trim()).filter(Boolean);
+      if (labelList.length > 0) {
+        const existingFriends = (contactWhere.friends as any) || {};
+        const someClause = existingFriends.some || {};
+        // zaloLabels là array of {id,name,color} — cần raw match
+        // Workaround: array_contains check
+        const orConditions = labelList.map((name) => ({
+          zaloLabels: { path: ['$[*].name'], array_contains: [name] },
+        }));
+        contactWhere.friends = {
+          some: { ...someClause, OR: orConditions },
+        };
+      }
+    }
+
+    // Re-apply contactWhere nếu đã modify trên (stuck/ready/tags)
+    if (Object.keys(contactWhere).length > 0) where.contact = contactWhere;
+
     // Date range — accept cả from/to legacy lẫn dateFrom/dateTo mới
     const dFrom = dateFrom || from;
     const dTo = dateTo || to;
@@ -216,6 +293,14 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
+    // Sort mode — Phase 6+ "Chưa đọc lên trên" vs "Mới nhất lên trên"
+    // unread-first: composite [unreadCount > 0 DESC, lastMessageAt DESC]
+    // Recent (default): [lastMessageAt DESC]
+    const orderByClause: any =
+      sortMode === 'unread-first'
+        ? [{ unreadCount: 'desc' }, { lastMessageAt: 'desc' }]
+        : { lastMessageAt: 'desc' };
+
     const [conversations, total] = await Promise.all([
       prisma.conversation.findMany({
         where,
@@ -231,7 +316,7 @@ export async function chatRoutes(app: FastifyInstance) {
             select: { id: true, zaloMsgId: true, senderUid: true, senderName: true, content: true, contentType: true, senderType: true, sentAt: true, isDeleted: true, reactions: { select: { emoji: true, reactorId: true } } },
           },
         },
-        orderBy: { lastMessageAt: 'desc' },
+        orderBy: orderByClause,
         skip: (parseInt(page) - 1) * Math.min(parseInt(limit), 200),
         take: Math.min(parseInt(limit), 200),
       }),
@@ -247,6 +332,12 @@ export async function chatRoutes(app: FastifyInstance) {
       relationshipKind: string; friendshipStatus: string;
       becameFriendAt: Date | null; firstMessageAt: Date | null;
       crmTagsPerNick: unknown;
+      // Phase 6+ score + auto-tag display
+      leadScore: number;
+      autoTags: unknown;
+      stuckSince: Date | null;
+      statusName: string | null;
+      statusColor: string | null;
     }>();
     if (userPairs.length) {
       const friends = await prisma.friend.findMany({
@@ -257,6 +348,12 @@ export async function chatRoutes(app: FastifyInstance) {
           relationshipKind: true, friendshipStatus: true,
           becameFriendAt: true, firstMessageAt: true,
           crmTagsPerNick: true,                // per-pair CRM tags (kèm Zalo-mirrored "🔵 X")
+          // Phase 6+ — Score + auto-tags + stuck cho render badge trong conv list
+          leadScore: true,
+          autoTags: true,
+          stuckSince: true,
+          statusId: true,
+          statusRef: { select: { name: true, color: true } },
         },
       });
       friendMap = new Map(friends.map(f => [`${f.zaloAccountId}:${f.contactId}`, {
@@ -266,6 +363,12 @@ export async function chatRoutes(app: FastifyInstance) {
         becameFriendAt: f.becameFriendAt,
         firstMessageAt: f.firstMessageAt,
         crmTagsPerNick: f.crmTagsPerNick,
+        // Phase 6+ score + auto-tag display data
+        leadScore: f.leadScore,
+        autoTags: f.autoTags,
+        stuckSince: f.stuckSince,
+        statusName: f.statusRef?.name ?? null,
+        statusColor: f.statusRef?.color ?? null,
       }]));
     }
 
