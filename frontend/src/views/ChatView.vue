@@ -64,6 +64,7 @@
       :contact-id="selectedConv.contact.id"
       :contact="selectedConv.contact"
       :active-zalo-account-id="selectedConv.zaloAccount?.id ?? null"
+      :friend-id="selectedConv.friendship?.id ?? null"
       :ai-summary="aiSummary"
       :ai-summary-loading="aiSummaryLoading"
       :ai-sentiment="aiSentiment"
