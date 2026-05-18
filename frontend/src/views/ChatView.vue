@@ -12,14 +12,9 @@
       @manage-folders="showFolderManagePopup = true"
     />
 
-    <!-- COL 2: conversation list with NEW filter bar overlay -->
+    <!-- COL 2: conversation list — FilterBar render INSIDE via named slot
+         giữa CRM tag bar và conv list (đúng order user yêu cầu) -->
     <div class="smax-conv-col">
-      <ConversationFilterBar
-        :filters="inboxFilters"
-        :total-count="conversations.length"
-        :counts="conversationCounts"
-        @open-tag-popup="showTagPopup = true"
-      />
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -32,7 +27,15 @@
         @update:filters="onFiltersUpdate"
         @conversation-moved="onConversationMoved"
         @compose-opened="onComposeOpened"
-      />
+      >
+        <template #filters>
+          <ConversationFilterBar
+            :filters="inboxFilters"
+            :total-count="conversations.length"
+            :counts="conversationCounts"
+          />
+        </template>
+      </ConversationList>
     </div>
 
     <!-- COL 3: message thread (giữ nguyên — handles header/messages/input bên trong) -->
@@ -144,7 +147,6 @@ const workspaceName = computed(() => authStore.user?.fullName?.split(' ')[0] || 
 const currentUserName = computed(() => authStore.user?.fullName || 'Tôi');
 const currentUserId = computed(() => authStore.user?.id || '');
 const showFolderManagePopup = ref(false);
-const showTagPopup = ref(false);
 
 const totalUnreadCount = computed(() =>
   conversations.value.reduce((sum, c) => sum + ((c as any).unreadCount || 0), 0)
@@ -167,8 +169,7 @@ watch(
   () => [
     inboxFilters.state.folderId,
     inboxFilters.state.saleAssigneeId,
-    inboxFilters.state.tabType,
-    inboxFilters.state.tabBox,
+    inboxFilters.state.activeTab,
     Array.from(inboxFilters.state.quickPills).join(','),
     inboxFilters.state.tagsZalo.join(','),
     inboxFilters.state.tagsCrm.join(','),

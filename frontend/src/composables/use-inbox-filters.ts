@@ -50,8 +50,13 @@ export interface SavedFilterPreset {
 }
 
 export type QuickPillKey = 'unread' | 'unanswered' | 'stuck' | 'ready';
-export type TabType = 'user' | 'group';
-export type TabBox = 'main' | 'other';
+/** 4 tabs single-active (mutually exclusive):
+ *   personal = chỉ user-user (threadType=user)
+ *   group    = chỉ nhóm (threadType=group)
+ *   main     = Hộp thư chính (cả user lẫn nhóm)
+ *   other    = Move qua Khác
+ */
+export type ActiveTab = 'personal' | 'group' | 'main' | 'other';
 export type SortMode = 'recent' | 'unread-first';
 export type TimeAxis =
   | 'last-interaction'
@@ -62,8 +67,8 @@ export type TimeAxis =
 export interface FilterState {
   folderId: string | null;
   saleAssigneeId: string | null | 'all';
-  tabType: TabType;
-  tabBox: TabBox;
+  /** Tab single-active (1 trong 4: personal/group/main/other). Default = main. */
+  activeTab: ActiveTab;
   quickPills: Set<QuickPillKey>;
   tagsZalo: string[];
   tagsCrm: string[];
@@ -81,8 +86,7 @@ export function defaultFilterState(): FilterState {
   return {
     folderId: null,
     saleAssigneeId: null,
-    tabType: 'user',
-    tabBox: 'main',
+    activeTab: 'main', // Default: Hộp thư Chính (cả user + group)
     quickPills: new Set(),
     tagsZalo: [],
     tagsCrm: [],
@@ -149,8 +153,7 @@ export function useInboxFilters() {
     const filterJson = {
       folderId: state.folderId,
       saleAssigneeId: state.saleAssigneeId,
-      tabType: state.tabType,
-      tabBox: state.tabBox,
+      activeTab: state.activeTab,
       quickPills: Array.from(state.quickPills),
       tagsZalo: state.tagsZalo,
       tagsCrm: state.tagsCrm,
@@ -173,8 +176,7 @@ export function useInboxFilters() {
     const j = preset.filterJson as Partial<FilterState> & { quickPills?: string[] };
     if (j.folderId !== undefined) state.folderId = j.folderId;
     if (j.saleAssigneeId !== undefined) state.saleAssigneeId = j.saleAssigneeId;
-    if (j.tabType) state.tabType = j.tabType;
-    if (j.tabBox) state.tabBox = j.tabBox;
+    if (j.activeTab) state.activeTab = j.activeTab;
     if (j.quickPills) state.quickPills = new Set(j.quickPills as QuickPillKey[]);
     if (j.tagsZalo) state.tagsZalo = j.tagsZalo;
     if (j.tagsCrm) state.tagsCrm = j.tagsCrm;
@@ -202,13 +204,8 @@ export function useInboxFilters() {
     state.sortMode = mode;
   }
 
-  function setTabType(t: TabType) {
-    state.tabType = t;
-    activePresetId.value = null;
-  }
-
-  function setTabBox(b: TabBox) {
-    state.tabBox = b;
+  function setActiveTab(t: ActiveTab) {
+    state.activeTab = t;
     activePresetId.value = null;
   }
 
@@ -222,8 +219,21 @@ export function useInboxFilters() {
     const params: Record<string, string> = {};
     if (state.folderId) params.folderId = state.folderId;
     if (state.searchQuery) params.search = state.searchQuery;
-    if (state.tabType) params.threadType = state.tabType;
-    if (state.tabBox) params.tab = state.tabBox;
+    // 4 tabs single-active → translate sang threadType + tab Zalo box
+    switch (state.activeTab) {
+      case 'personal':
+        params.threadType = 'user';
+        break;
+      case 'group':
+        params.threadType = 'group';
+        break;
+      case 'main':
+        params.tab = 'main';
+        break;
+      case 'other':
+        params.tab = 'other';
+        break;
+    }
     if (state.sortMode === 'unread-first') params.sortMode = 'unread-first';
 
     // Quick pills → individual query params
@@ -288,8 +298,7 @@ export function useInboxFilters() {
     setFolder,
     toggleQuickPill,
     setSortMode,
-    setTabType,
-    setTabBox,
+    setActiveTab,
     clearAll,
     // Query
     buildQueryParams,

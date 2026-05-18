@@ -36,19 +36,9 @@
         >×</button>
       </div>
 
-      <!-- Tab Main / Other (giữ business logic) -->
-      <div class="cl-tabs">
-        <button
-          class="cl-tab"
-          :class="{ active: activeTab === 'main' }"
-          @click="activeTab = 'main'"
-        >Chính<span class="cl-tab-count">{{ counts.total - 0 }}</span></button>
-        <button
-          class="cl-tab"
-          :class="{ active: activeTab === 'other' }"
-          @click="activeTab = 'other'"
-        >Khác</button>
-      </div>
+      <!-- Phase 6+ Inbox Triage Filter Bar (Pills + 4 tabs + Mini counter) -->
+      <!-- Old "Chính/Khác" tabs replaced by 4-tab single-active trong slot này. -->
+      <slot name="filters" />
     </div>
 
     <!-- ════════ Conv items ════════ -->

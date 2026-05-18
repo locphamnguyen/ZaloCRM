@@ -317,15 +317,14 @@ watch(
 
 <style scoped>
 .filter-sidebar {
-  width: 260px;
+  /* Fill grid track — KHÔNG 100vh (overflow parent gây input cột 3 thụt sâu) */
+  width: 100%;
+  height: 100%;
   background: #FAFBFC;
   border-right: 1px solid #E5E7EB;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  height: 100vh;
-  position: sticky;
-  top: 0;
   font-family: -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
 }
 .filter-sidebar.collapsed { width: 56px; }
