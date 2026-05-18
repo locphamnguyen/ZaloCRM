@@ -31,23 +31,24 @@ Toàn bộ commits của locphamnguyen đến `v3.1.2` đều có trong fork nà
 
 ### Trên GitHub fork (`locphamnguyen/ZaloCRM`)
 
-| Branch | Vai trò | Trạng thái vs `origin/main` |
+| Branch | Vai trò | Trạng thái vs `upstream-mirror` |
 |---|---|---|
-| `main` | Mirror locphamnguyen v3.1.2 (reference only) | = upstream |
-| `feat/phase-6-lead-scoring` | **Core ổn định** — chứa stable tag | +7 commits |
-| `feat/ui-phase5` | WIP popup edit + alias sync | +5 / -41 (chưa rebase) |
+| **`main`** (default) | **Core stable** — production branch, deploy từ đây | +7 commits ahead |
+| `upstream-mirror` | Read-only mirror locphamnguyen v3.1.2 (= `origin/main`) | = upstream |
+| `feat/ui-phase5` | WIP popup edit + alias sync (chưa merge vào main) | +5 / -41 (cần rebase) |
 
 ### Tag stable để restore
 
 ```bash
 # Khôi phục về bản chốt ổn định bất cứ lúc nào:
-git fetch origin --tags
+git remote add fork https://github.com/locphamnguyen/ZaloCRM.git
+git fetch fork --tags
 git checkout stable-2026-05-18
 # hoặc tạo branch mới từ tag:
 git checkout -b restore-2026-05-18 stable-2026-05-18
 ```
 
-`stable-2026-05-18` = `feat/phase-6-lead-scoring` HEAD = `8f50e1e` (locphamnguyen v3.1.2 + Lead Scoring + flicker fix).
+`stable-2026-05-18` = `main` HEAD = `01dc870` (locphamnguyen v3.1.2 + Lead Scoring + flicker fix + fork README).
 
 ---
 
@@ -95,63 +96,74 @@ git checkout -b restore-2026-05-18 stable-2026-05-18
 
 ## 🔄 Workflow phát triển song song với locphamnguyen
 
-Mô hình 4-nhánh để giữ fork ổn định nhưng vẫn dễ pull updates từ upstream:
+Mô hình 3-nhánh trên fork:
 
 ```
-origin/main (locphamnguyen)     ← READ ONLY
+origin/main (locphamnguyen)     ← READ ONLY (upstream gốc)
         │
-        │ git fetch + review diff
+        │ git fetch + git merge --ff-only
         ▼
-upstream-watch                  ← Mirror origin/main, để review
+upstream-mirror                 ← Mirror sạch của locphamnguyen, để review trước khi merge
         │
-        │ chọn lọc merge sau khi review
+        │ review diff + chọn lọc merge vào main
         ▼
-main (= fork/main)              ← Core stable, deploy từ đây
+main (= fork/main, default)     ← CORE STABLE — deploy từ đây
         │
-        │ checkout
+        │ checkout làm việc
         ▼
-feat/xxx                        ← Test riêng, chỉ push khi ổn định
+feat/xxx                        ← Test riêng local, chỉ push khi ổn định
 ```
 
-### Review upstream trước khi merge
+### Setup 2 remote (lần đầu)
+
+```bash
+git clone https://github.com/locphamnguyen/ZaloCRM.git
+cd ZaloCRM
+git remote rename origin fork                                       # đổi origin → fork cho rõ
+git remote add origin https://github.com/locphamnguyen/ZaloCRM.git  # thêm upstream gốc
+git remote -v   # verify
+```
+
+### Review upstream trước khi merge vào core
 
 ```bash
 git fetch origin
-git checkout upstream-watch
-git merge --ff-only origin/main
-git log main..upstream-watch --oneline   # Xem commits mới
-git diff main..upstream-watch --stat     # Xem file thay đổi
-# Đọc + quyết định:
+git checkout upstream-mirror
+git merge --ff-only origin/main          # Update mirror (chỉ fast-forward, an toàn)
+git log main..upstream-mirror --oneline  # Xem commits mới
+git diff main..upstream-mirror --stat    # Xem files thay đổi
+# Đọc kỹ + quyết định khi nào sẵn sàng merge:
 git checkout main
-git merge upstream-watch                 # merge cả batch
-# HOẶC cherry-pick từng commit:
+git merge upstream-mirror                # Merge cả batch (linear nếu main chưa diverge)
+# HOẶC cherry-pick từng commit anh muốn:
 git cherry-pick <hash1> <hash2>
 git push fork main
+git push fork upstream-mirror
 ```
 
-### Phát triển feature riêng
+### Phát triển feature riêng (test local trước, push sau)
 
 ```bash
 git checkout main
 git pull fork main                        # Lấy main mới nhất
-git checkout -b feat/abc                  # Branch mới
-# code + commit local — test thoải mái
-# Test bằng docker compose: docker compose up -d --build
+git checkout -b feat/abc                  # Branch mới từ main
+# code + commit local — test docker thoải mái:
+docker compose up -d --build
 # Khi ổn → merge vào main:
 git checkout main
-git merge feat/abc
+git merge feat/abc                        # hoặc squash merge nếu muốn linear
 git push fork main
+git branch -d feat/abc                    # Xoá branch sau khi merge
 ```
 
-### Sync fork main về đúng locphamnguyen v3.1.2
-
-Fork hiện tại có `main` = `origin/main` đầy đủ. Nếu sau này upstream có release mới (v3.1.3, v3.2…):
+### Sync upstream-mirror khi locphamnguyen có release mới
 
 ```bash
 git fetch origin
-git checkout main
-git merge --ff-only origin/main
-git push fork main
+git checkout upstream-mirror
+git merge --ff-only origin/main           # mirror = upstream latest
+git push fork upstream-mirror
+# Sau đó review + quyết định merge vào main như mục trên
 ```
 
 ---
