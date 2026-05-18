@@ -45,6 +45,9 @@ model Organization {
   stageTransitionRules StageTransitionRule[]
   stuckThresholds      StuckThreshold[]
   nbaTemplates         NbaTemplate[]
+  // Phase 6+ — Inbox Triage Filter relations
+  accountFolders       AccountFolder[]
+  savedFilterPresets   SavedFilterPreset[]
 
   @@map("organizations")
 }
@@ -88,6 +91,9 @@ model User {
   authoredNotes             Note[]              @relation("NoteAuthor")
   noteReactions             NoteReaction[]
   preferences               UserPreference[]
+  // Phase 6+ — Inbox Triage Filter (per-user)
+  accountFolders            AccountFolder[]
+  savedFilterPresets        SavedFilterPreset[]
 
   @@map("users")
 }
@@ -107,8 +113,8 @@ model ZaloAccount {
   lastConnectedAt DateTime? @map("last_connected_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  org                Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  owner              User                @relation(fields: [ownerUserId], references: [id])
+  org                Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  owner              User                  @relation(fields: [ownerUserId], references: [id])
   access             ZaloAccountAccess[]
   conversations      Conversation[]
   dailyStats         DailyMessageStat[]
@@ -116,6 +122,8 @@ model ZaloAccount {
   friends            Friend[]
   zaloLabelsList     ZaloLabel[]
   crmTagGroups       CrmTagGroup[]
+  // Phase 6+ — Inbox Triage Filter (junction folder membership)
+  folderMembers      AccountFolderMember[]
 
   @@map("zalo_accounts")
 }
@@ -1200,4 +1208,84 @@ model NbaTemplate {
   @@unique([orgId, key])
   @@index([orgId, category, enabled])
   @@map("nba_templates")
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 6+ — Inbox Triage Filters (AccountFolder + SavedFilterPreset)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// AccountFolder — gom 2-3 ZaloAccount thành 1 "thư mục" tùy chỉnh per-user.
+// UI Smax-style flat list (không cây): folder hiện composite avatar + tên + count.
+// Click folder = chọn context filter (cùng style với "ALL toàn bộ").
+// 1 ZaloAccount có thể nằm trong NHIỀU folder (junction model AccountFolderMember).
+model AccountFolder {
+  id     String @id @default(uuid())
+  orgId  String @map("org_id")
+  // Folder per-user (sale tự tổ chức) — không share giữa user trong cùng org.
+  // Null = system-default folder (vd "ALL toàn bộ" — không cần row vì derived).
+  userId String @map("user_id")
+
+  name  String
+  color String? @default("#6366F1") // hex màu accent cho folder
+
+  // Order trong sidebar (sale drag-drop sắp xếp). Default order theo createdAt.
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org     Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user    User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  members AccountFolderMember[]
+
+  @@unique([userId, name])
+  @@index([orgId, userId, sortOrder])
+  @@map("account_folders")
+}
+
+// AccountFolderMember — junction: folder ↔ ZaloAccount (M:N).
+// 1 account có thể trong nhiều folder cùng lúc (vd "Sales miền Bắc" + "Hot deals").
+model AccountFolderMember {
+  id            String @id @default(uuid())
+  folderId      String @map("folder_id")
+  zaloAccountId String @map("zalo_account_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  folder      AccountFolder @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  zaloAccount ZaloAccount   @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+
+  @@unique([folderId, zaloAccountId])
+  @@index([zaloAccountId])
+  @@map("account_folder_members")
+}
+
+// SavedFilterPreset — combo filter user đã lưu để 1-click recall.
+// Vd: "Sáng nay xử lý" = { unread: true, type: 'user', sortBy: 'unread-first' }
+// UI render trong Cột 1 sau folder list (theo yêu cầu user).
+model SavedFilterPreset {
+  id     String @id @default(uuid())
+  orgId  String @map("org_id")
+  userId String @map("user_id")
+
+  name       String
+  emoji      String? @default("⭐") // emoji nhanh nhận diện (☀️ 🥶 🔥 📞)
+  // filterJson lưu toàn bộ state filter: { folderId, saleAssigneeId, type,
+  //   tabBox, quickPills: [...], tags: [...], timeAxis, timeRange, sortMode }
+  filterJson Json    @map("filter_json")
+
+  // Order vertical trong list. Default theo createdAt DESC (mới nhất trên cùng).
+  sortOrder  Int       @default(0) @map("sort_order")
+  // Last-used timestamp — để future feature "smart sort" theo recency.
+  lastUsedAt DateTime? @map("last_used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([orgId, userId, sortOrder])
+  @@map("saved_filter_presets")
 }

@@ -21,6 +21,8 @@ import { authRoutes } from './modules/auth/auth-routes.js';
 import { brandingRoutes } from './modules/branding/branding-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
+import { folderRoutes } from './modules/chat/folder-routes.js';
+import { presetRoutes } from './modules/chat/preset-routes.js';
 import { chatAttachmentRoutes } from './modules/chat/chat-attachment-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { statusRoutes } from './modules/contacts/status-routes.js';
@@ -137,6 +139,8 @@ async function bootstrap() {
   await app.register(brandingRoutes);
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
+  await app.register(folderRoutes);
+  await app.register(presetRoutes);
   await app.register(chatAttachmentRoutes);
   await app.register(contactRoutes);
   await app.register(statusRoutes);
