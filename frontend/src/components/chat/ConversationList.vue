@@ -253,8 +253,14 @@ const visibleTags = computed(() => {
 });
 
 function buildFilterParams(): Record<string, string> {
-  const params: Record<string, string> = { tab: activeTab.value };
-  if (filters.tags.length > 0) params.tags = filters.tags.join(',');
+  // LUÔN include key 'tags' (empty string khi không có tag).
+  // Lý do: ChatView onFiltersUpdate merge với extraFilters cũ — nếu không
+  // gửi 'tags' key, giá trị cũ vẫn tồn tại → list không clear filter khi
+  // user bấm × hoặc click tag để untag. Empty string → backend skip filter.
+  const params: Record<string, string> = {
+    tab: activeTab.value,
+    tags: filters.tags.length > 0 ? filters.tags.join(',') : '',
+  };
   return params;
 }
 
@@ -608,11 +614,33 @@ function formatTime(dateStr: string | null): string {
   border-color: var(--tag-color, #6B7280);
   font-weight: 600;
 }
+/* Nút × clear tag filter — to hơn + có border để dễ click */
 .clear-tags {
-  background: transparent; border: none;
-  color: var(--smax-grey-700);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: #FEF2F2;
+  border: 1px solid #FCA5A5;
+  color: #DC2626;
   cursor: pointer;
-  font-size: 16px; line-height: 1; padding: 0 5px;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+  border-radius: 11px;
+  margin-left: 4px;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.clear-tags:hover {
+  background: #FEE2E2;
+  border-color: #F87171;
+  color: #B91C1C;
+}
+.clear-tags:active {
+  background: #FECACA;
 }
 
 .cl-tabs {
