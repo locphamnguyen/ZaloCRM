@@ -7,10 +7,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { resolveAccount, checkAccess, handleError } from './zalo-route-helpers.js';
-import { markFriendRequestSent, applyFriendTransition } from './friend-event-handler.js';
+import { markFriendRequestSent } from './friend-event-handler.js';
 import { prisma } from '../../shared/database/prisma-client.js';
-import { randomUUID } from 'node:crypto';
 import { normalizePhone } from '../../shared/utils/phone.js';
+import { FRIEND_INCLUDE_WITH_CONTACT, toFriendDto } from '../../shared/friend-serializer.js';
+import { syncFriendsForAccount } from './friend-sync-service.js';
+import { zaloPool } from './zalo-pool.js';
 
 const BASE = '/api/v1/zalo-accounts/:accountId/friends';
 
@@ -64,19 +66,7 @@ export async function friendRoutes(app: FastifyInstance) {
       const [friends, total, countsRaw] = await Promise.all([
         prisma.friend.findMany({
           where,
-          include: {
-            contact: {
-              select: {
-                id: true, fullName: true, crmName: true, phone: true, email: true,
-                avatarUrl: true, tags: true, leadScore: true, source: true,
-                gender: true, status: true, province: true, district: true,
-                birthYear: true,
-              },
-            },
-            zaloAccount: { select: { id: true, displayName: true, phone: true, avatarUrl: true } },
-            // Per-pair Status (dynamic, từ Status table) — UI dùng cho cột "Trạng thái KH"
-            statusRef: { select: { id: true, name: true, color: true, order: true, isTerminal: true } },
-          },
+          include: FRIEND_INCLUDE_WITH_CONTACT,
           orderBy: [{ lastInboundAt: 'desc' }, { lastOutboundAt: 'desc' }, { createdAt: 'desc' }],
           skip: (pageNum - 1) * limitNum,
           take: limitNum,
@@ -90,98 +80,143 @@ export async function friendRoutes(app: FastifyInstance) {
       ]);
 
       const counts = Object.fromEntries(countsRaw.map((g) => [g.relationshipKind, g._count]));
-      return { friends, total, counts, page: pageNum, limit: limitNum };
+      return {
+        friends: friends.map(toFriendDto),
+        total,
+        counts,
+        page: pageNum,
+        limit: limitNum,
+      };
     } catch (err) {
       return handleError(reply, err, 'friends-db-list');
     }
   });
 
-  // POST .../friends-db/sync — pull live friend list + sent requests, upsert into Friend table
+  // GET /api/v1/friends-db/all-nicks — cross-nick Friend list (mọi nick user có access)
+  // Phục vụ FriendsView "Tất cả nick" mode. Flat per-pair: 1 KH × N nick chăm → N rows.
+  app.get('/api/v1/friends-db/all-nicks', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const {
+      kind = 'all',
+      page = '1',
+      limit = '25',
+      search = '',
+    } = request.query as { kind?: string; page?: string; limit?: string; search?: string };
+    try {
+      // Resolve accessible accounts: union của ZaloAccountAccess + accounts user own.
+      // Admin/manager có thể không có ZaloAccountAccess row nhưng vẫn own → include cả 2.
+      const accessRows = await prisma.zaloAccountAccess.findMany({
+        where: { userId: user.id, zaloAccount: { orgId: user.orgId } },
+        select: { zaloAccountId: true },
+      });
+      const ownedRows = await prisma.zaloAccount.findMany({
+        where: { orgId: user.orgId, ownerUserId: user.id },
+        select: { id: true },
+      });
+      const accessibleIds = [
+        ...new Set([
+          ...accessRows.map((r) => r.zaloAccountId),
+          ...ownedRows.map((r) => r.id),
+        ]),
+      ];
+
+      if (accessibleIds.length === 0) {
+        return { friends: [], total: 0, counts: {}, page: 1, limit: parseInt(limit, 10) || 25 };
+      }
+
+      const pageNum = Math.max(1, parseInt(page, 10) || 1);
+      const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 25));
+
+      const where: any = {
+        orgId: user.orgId,
+        zaloAccountId: { in: accessibleIds },
+      };
+      if (kind && kind !== 'all') where.relationshipKind = kind;
+      if (search.trim()) {
+        const q = search.trim();
+        const canonicalPhone = normalizePhone(q);
+        const contactOr: Record<string, unknown>[] = [
+          { fullName: { contains: q, mode: 'insensitive' } },
+          { crmName:  { contains: q, mode: 'insensitive' } },
+        ];
+        if (canonicalPhone) contactOr.push({ phoneNormalized: { equals: canonicalPhone } });
+        where.AND = [
+          { OR: [
+            { contact: { OR: contactOr } },
+            { zaloUidInNick:   { equals: q } },
+            { zaloGlobalId:    { equals: q } },
+            { zaloUsername:    { equals: q } },
+            { zaloDisplayName: { contains: q, mode: 'insensitive' } },
+            { aliasInNick:     { contains: q, mode: 'insensitive' } },
+          ] },
+        ];
+      }
+
+      const [friends, total, countsRaw] = await Promise.all([
+        prisma.friend.findMany({
+          where,
+          include: FRIEND_INCLUDE_WITH_CONTACT,
+          // Stable cross-nick sort: theo activity, tie-break createdAt rồi id để
+          // pagination deterministic giữa các page (cùng row không hiện 2 lần).
+          orderBy: [
+            { lastInboundAt: { sort: 'desc', nulls: 'last' } },
+            { lastOutboundAt: { sort: 'desc', nulls: 'last' } },
+            { createdAt: 'desc' },
+            { id: 'asc' },
+          ],
+          skip: (pageNum - 1) * limitNum,
+          take: limitNum,
+        }),
+        prisma.friend.count({ where }),
+        prisma.friend.groupBy({
+          by: ['relationshipKind'],
+          where: { orgId: user.orgId, zaloAccountId: { in: accessibleIds } },
+          _count: true,
+        }),
+      ]);
+
+      const counts = Object.fromEntries(countsRaw.map((g) => [g.relationshipKind, g._count]));
+      return {
+        friends: friends.map(toFriendDto),
+        total,
+        counts,
+        page: pageNum,
+        limit: limitNum,
+        accessibleNicks: accessibleIds.length,
+      };
+    } catch (err) {
+      return handleError(reply, err, 'friends-db-all-nicks');
+    }
+  });
+
+  // POST .../friends-db/sync — manual force-refresh ("↻ Làm mới ngay" button).
+  // Inline upsert logic đã extract → friend-sync-service.syncFriendsForAccount
+  // (dùng chung cho cron, on-connect, manual). Cooldown 5s/account để chống spam.
   app.post(`${BASE}-db/sync`, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId } = request.params as { accountId: string };
     const user = request.user!;
     if (!await checkAccess(request, reply, accountId, 'chat')) return;
     try {
       const account = await resolveAccount(accountId, user.orgId);
-
-      // Pull live data
-      const liveFriends = (await zaloOps.getAllFriends(accountId).catch(() => [])) as any[];
-      const sentRequests = (await zaloOps.getSentFriendRequests(accountId).catch(() => [])) as any[];
-
-      let createdContacts = 0;
-      let upsertedFriends = 0;
-
-      // Upsert each live friend (state=accepted)
-      for (const f of liveFriends) {
-        const uid = String(f.userId || f.uid || '');
-        if (!uid) continue;
-        // Find or create Contact
-        let contact = await prisma.contact.findFirst({
-          where: { orgId: user.orgId, zaloUid: uid },
-          select: { id: true },
+      const result = await syncFriendsForAccount(accountId, user.orgId, {
+        trigger: 'manual',
+        io: zaloPool.getIO(),
+      });
+      if (result.skipped === 'cooldown') {
+        return reply.status(429).send({
+          error: 'cooldown',
+          message: 'Vừa đồng bộ xong, vui lòng thử lại sau vài giây',
         });
-        if (!contact) {
-          contact = await prisma.contact.create({
-            data: {
-              id: randomUUID(),
-              orgId: user.orgId,
-              zaloUid: uid,
-              fullName: f.zaloName || f.displayName || 'Unknown',
-              avatarUrl: f.avatar || null,
-              hasZalo: true,
-            },
-            select: { id: true },
-          });
-          createdContacts++;
-        }
-        await applyFriendTransition({
-          orgId: user.orgId,
-          zaloAccountId: accountId,
-          contactId: contact.id,
-          zaloUidInNick: uid,
-          newFriendshipStatus: 'accepted',
-        });
-        upsertedFriends++;
       }
-
-      // Upsert sent requests (state=pending_sent)
-      for (const r of sentRequests) {
-        const uid = String(r.uid || r.userId || '');
-        if (!uid) continue;
-        let contact = await prisma.contact.findFirst({
-          where: { orgId: user.orgId, zaloUid: uid },
-          select: { id: true },
-        });
-        if (!contact) {
-          contact = await prisma.contact.create({
-            data: {
-              id: randomUUID(),
-              orgId: user.orgId,
-              zaloUid: uid,
-              fullName: r.zaloName || r.displayName || 'Unknown',
-              hasZalo: true,
-            },
-            select: { id: true },
-          });
-          createdContacts++;
-        }
-        await applyFriendTransition({
-          orgId: user.orgId,
-          zaloAccountId: accountId,
-          contactId: contact.id,
-          zaloUidInNick: uid,
-          newFriendshipStatus: 'pending_sent',
-        });
-        upsertedFriends++;
-      }
-
       return {
         nickId: accountId,
         nickDisplayName: account.displayName,
-        liveFriends: liveFriends.length,
-        sentRequests: sentRequests.length,
-        upsertedFriends,
-        createdContacts,
+        liveFriends: result.liveCount,
+        upsertedFriends: result.upsertedFriends,
+        createdContacts: result.createdContacts,
+        emittedCount: result.emittedCount,
+        errors: result.errors,
+        durationMs: result.durationMs,
       };
     } catch (err) {
       return handleError(reply, err, 'friends-db-sync');

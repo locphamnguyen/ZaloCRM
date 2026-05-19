@@ -5,7 +5,11 @@
  *   displayStatus    = status có order CAO NHẤT trong friends (fallback Contact.statusRef)
  *   displayLeadScore = AVG(friends.leadScore) — fallback Contact.leadScore khi 0 friend
  *   displayHasZalo   = friends.length > 0 ? true : Contact.hasZalo (giữ giá trị cũ)
+ *
+ * Prisma include shape cho friends → dùng FRIEND_INCLUDE từ shared/friend-serializer.ts
+ * (canonical, dùng chung với /friends-db để tránh drift).
  */
+import { FRIEND_INCLUDE, STATUS_LITE_SELECT } from '../../shared/friend-serializer.js';
 
 interface StatusLite {
   id: string;
@@ -93,43 +97,13 @@ export function computeAggregateDisplay<T extends ContactWithFriends>(contact: T
 }
 
 /** Standard include shape cho Prisma query để feed computeAggregateDisplay.
- *  Friends include statusRef per-pair + zaloAccount (cho UI hiển thị nick CRM). */
+ *  Friends include qua canonical FRIEND_INCLUDE (shared/friend-serializer.ts) để
+ *  cùng shape với /friends-db. Friend columns trả full qua `include` (không select
+ *  whitelist) — thêm field schema mới tự lan tới mọi endpoint. */
 export const AGGREGATE_INCLUDE = {
-  statusRef: { select: { id: true, name: true, order: true, color: true, isTerminal: true } },
+  statusRef: { select: STATUS_LITE_SELECT },
   friends: {
-    select: {
-      id: true,
-      zaloAccountId: true,
-      zaloUidInNick: true,
-      relationshipKind: true,
-      friendshipStatus: true,
-      hasConversation: true,
-      aliasInNick: true,
-      zaloLabels: true,
-      zaloDisplayName: true,
-      zaloAvatarUrl: true,
-      zaloGlobalId: true,
-      zaloUsername: true,
-      crmTagsPerNick: true,
-      becameFriendAt: true,
-      lastInboundAt: true,
-      lastOutboundAt: true,
-      totalInbound: true,
-      totalOutbound: true,
-      leadScore: true,
-      statusId: true,
-      statusRef: { select: { id: true, name: true, order: true, color: true, isTerminal: true } },
-      zaloAccount: {
-        select: {
-          id: true,
-          displayName: true,
-          phone: true,
-          zaloUid: true,
-          avatarUrl: true,
-          owner: { select: { id: true, fullName: true } },
-        },
-      },
-    },
+    include: FRIEND_INCLUDE,
     orderBy: { lastInboundAt: { sort: 'desc', nulls: 'last' } },
   },
 } as const;

@@ -57,6 +57,12 @@ class ZaloAccountPool {
     this.io = io;
   }
 
+  /** Accessor cho module ngoài (friend-sync-service, ...) cần emit socket
+   *  mà không cần register listener — dùng zaloPool như central IO registry. */
+  getIO(): Server | null {
+    return this.io;
+  }
+
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string, proxyUrl?: string | null): Promise<void> {
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
@@ -130,7 +136,7 @@ class ZaloAccountPool {
 
       // Fire-and-forget: pull Zalo labels lần đầu để Friend.zaloLabels + crmTagsPerNick
       // có data ngay sau khi connect — tránh phải bấm "Đồng bộ ngay" thủ công.
-      this.autoSyncLabelsOnConnect(accountId);
+      this.autoSyncOnConnect(accountId);
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
@@ -186,7 +192,7 @@ class ZaloAccountPool {
 
       // Fire-and-forget: pull Zalo labels sau reconnect — bắt kịp thay đổi label
       // mà user thực hiện trên Zalo Real lúc CRM offline.
-      this.autoSyncLabelsOnConnect(accountId);
+      this.autoSyncOnConnect(accountId);
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
@@ -195,22 +201,45 @@ class ZaloAccountPool {
     }
   }
 
-  /** Pull Zalo labels for this account, fire-and-forget. Loads orgId from DB
-   *  vì instance trong RAM không có. Có thể trỳ lỗi nếu account vừa kết nối
-   *  chưa kịp ổn định — không throw, chỉ log. */
-  private autoSyncLabelsOnConnect(accountId: string): void {
+  /** Pull Zalo labels + friend list cho account vừa connect.
+   *  Fire-and-forget — chạy song song cả 2 nhánh để giảm latency lần đầu.
+   *  Labels: catch up label thay đổi lúc CRM offline.
+   *  Friends: pull full list (accepted + sent) → diff-then-emit cho FE refresh live.
+   *  Errors logged, không throw — connect path không bị block. */
+  private autoSyncOnConnect(accountId: string): void {
     void (async () => {
-      try {
-        const account = await prisma.zaloAccount.findUnique({
-          where: { id: accountId },
-          select: { orgId: true },
-        });
-        if (!account) return;
-        const { syncLabelsForAccount } = await import('./zalo-labels-routes.js');
-        const result = await syncLabelsForAccount(accountId, account.orgId);
-        logger.info(`[zalo:${accountId}] Auto-sync labels on connect: ${result.labels.length} labels, ${result.friendsUpdated} friends updated`);
-      } catch (err) {
-        logger.warn(`[zalo:${accountId}] Auto-sync labels on connect failed:`, err);
+      const account = await prisma.zaloAccount.findUnique({
+        where: { id: accountId },
+        select: { orgId: true },
+      });
+      if (!account) return;
+
+      // Parallel: labels + friends song song
+      const [labelsRes, friendsRes] = await Promise.allSettled([
+        (async () => {
+          const { syncLabelsForAccount } = await import('./zalo-labels-routes.js');
+          return syncLabelsForAccount(accountId, account.orgId);
+        })(),
+        (async () => {
+          const { syncFriendsForAccount } = await import('./friend-sync-service.js');
+          return syncFriendsForAccount(accountId, account.orgId, {
+            trigger: 'connect',
+            io: this.io,
+          });
+        })(),
+      ]);
+
+      if (labelsRes.status === 'fulfilled') {
+        const r = labelsRes.value;
+        logger.info(`[zalo:${accountId}] Auto-sync labels on connect: ${r.labels.length} labels, ${r.friendsUpdated} friends updated`);
+      } else {
+        logger.warn(`[zalo:${accountId}] Auto-sync labels on connect failed:`, labelsRes.reason);
+      }
+      if (friendsRes.status === 'fulfilled') {
+        const r = friendsRes.value;
+        logger.info(`[zalo:${accountId}] Auto-sync friends on connect: live=${r.liveCount} upserted=${r.upsertedFriends} emitted=${r.emittedCount} created=${r.createdContacts}`);
+      } else {
+        logger.warn(`[zalo:${accountId}] Auto-sync friends on connect failed:`, friendsRes.reason);
       }
     })();
   }

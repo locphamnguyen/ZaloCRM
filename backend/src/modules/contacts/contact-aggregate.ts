@@ -16,6 +16,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { counterDelta, deriveRelationshipKind } from '../zalo/friend-event-handler.js';
 import { logActivity } from '../activity/activity-logger.js';
+import { zaloPool } from '../zalo/zalo-pool.js';
 
 const PREVIEW_LIMIT = 200;
 
@@ -234,6 +235,16 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
     const sentAt = message.sentAt;
     const isInbound = message.senderType === 'contact';
 
+    // Deferred socket emits — collect inside transaction, flush after commit
+    // để tránh emit khi rollback. Mỗi entry sẽ thành 1 'friend:updated' socket event.
+    const emitQueue: Array<{
+      friendId: string;
+      contactId: string;
+      zaloAccountId: string;
+      orgId: string;
+      patch: Record<string, unknown>;
+    }> = [];
+
     await prisma.$transaction(async (tx) => {
       // Friend identity = (zaloAccountId, zaloUidInNick) — externalThreadId của conversation
       // chính là zaloUidInNick (UID per-account của khách qua nick này).
@@ -249,9 +260,10 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
       if (!existing) {
         // No Friend row yet — this is the first message exchanged.
         // Create as chatting_stranger (no friendship_event has fired).
+        const newFriendId = randomUUID();
         await tx.friend.create({
           data: {
-            id: randomUUID(),
+            id: newFriendId,
             orgId: conv.orgId,
             contactId: conv.contactId!,
             zaloAccountId: conv.zaloAccountId,
@@ -273,6 +285,20 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
         await tx.contact.update({
           where: { id: conv.contactId! },
           data: { chattingNicksCount: { increment: 1 } },
+        });
+        // Emit 'friend:updated' sau transaction (deferred — gắn vào emitQueue)
+        emitQueue.push({
+          friendId: newFriendId,
+          contactId: conv.contactId!,
+          zaloAccountId: conv.zaloAccountId,
+          orgId: conv.orgId,
+          patch: {
+            relationshipKind: 'chatting_stranger',
+            hasConversation: true,
+            firstMessageAt: sentAt,
+            ...(isInbound && args.contactZaloDisplayName ? { zaloDisplayName: args.contactZaloDisplayName } : {}),
+            ...(isInbound && args.contactZaloAvatarUrl ? { zaloAvatarUrl: args.contactZaloAvatarUrl } : {}),
+          },
         });
         return;
       }
@@ -324,7 +350,40 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
           },
         });
       }
+
+      // Emit 'friend:updated' chỉ khi có Identity drift hoặc kind change.
+      // KHÔNG emit cho mỗi message (totalInbound increment + lastInboundAt) để
+      // tránh spam — FE đã refetch chat list qua channel khác (chat:message).
+      const patchForEmit: Record<string, unknown> = {};
+      if (updates.zaloDisplayName) patchForEmit.zaloDisplayName = updates.zaloDisplayName;
+      if (updates.zaloAvatarUrl)   patchForEmit.zaloAvatarUrl   = updates.zaloAvatarUrl;
+      if (updates.relationshipKind) patchForEmit.relationshipKind = updates.relationshipKind;
+      if (updates.hasConversation) patchForEmit.hasConversation = updates.hasConversation;
+      if (Object.keys(patchForEmit).length > 0) {
+        emitQueue.push({
+          friendId: existing.id,
+          contactId: conv.contactId!,
+          zaloAccountId: conv.zaloAccountId,
+          orgId: conv.orgId,
+          patch: patchForEmit,
+        });
+      }
     });
+
+    // Flush deferred socket emits AFTER transaction commit (avoid emitting on rollback)
+    if (emitQueue.length > 0) {
+      const io = zaloPool.getIO();
+      if (io) {
+        for (const ev of emitQueue) {
+          io.to(`org:${ev.orgId}`).emit('friend:updated', {
+            friendId: ev.friendId,
+            contactId: ev.contactId,
+            zaloAccountId: ev.zaloAccountId,
+            patch: ev.patch,
+          });
+        }
+      }
+    }
   } catch (err) {
     logger.warn(`[friend-aggregate] apply failed conv=${args.conversationId}:`, err);
   }

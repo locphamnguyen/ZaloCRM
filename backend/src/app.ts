@@ -225,6 +225,10 @@ async function bootstrap() {
     startContactIntelligence();
     startLabelsBackgroundSync(60_000); // realtime-ish 2-way pull every 60s
     startInteractionCron(); // daily silent_30d detection (02:00 VN)
+    // Friend full-sync periodic (*/15 min) — catch alias/name/avatar drift từ Zalo
+    // native app mà friend_event listener không bắt được (xem friend-sync-cron.ts)
+    const { startFriendSyncCron } = await import('./modules/zalo/friend-sync-cron.js');
+    startFriendSyncCron(io);
     // Phase 6 — Lead Scoring background jobs (decay hourly + stuck detection 6am daily)
     const { startScoringScheduler } = await import('./modules/scoring/scoring-scheduler.js');
     startScoringScheduler({ enabled: config.nodeEnv !== 'test' });

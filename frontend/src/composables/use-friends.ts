@@ -283,17 +283,51 @@ export function useFriends() {
     }
   }
 
-  // Sync from Zalo → upsert our Friend table
+  // Sync from Zalo → upsert our Friend table.
+  // Backend cooldown 5s/account → trả 429 { error:'cooldown', message } khi spam.
+  // Caller có thể distinguish bằng `result.cooldown === true`.
   async function syncFriendsDb(accountId: string) {
     syncing.value = true;
     try {
       const res = await api.post(`${base(accountId)}-db/sync`);
       return res.data;
-    } catch (err) {
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { error?: string; message?: string } } };
+      if (e.response?.status === 429 && e.response.data?.error === 'cooldown') {
+        return { cooldown: true, message: e.response.data.message || 'Vừa đồng bộ xong, thử lại sau' };
+      }
       console.error('syncFriendsDb failed:', err);
       return null;
     } finally {
       syncing.value = false;
+    }
+  }
+
+  // Cross-nick aggregate (FriendsView "Tất cả nick" mode).
+  // Backend trả Friend rows flat từ mọi zaloAccount user có access.
+  async function fetchFriendsDbAllNicks(
+    opts: { kind?: string; page?: number; limit?: number; search?: string } = {},
+  ) {
+    loadingDb.value = true;
+    try {
+      const res = await api.get(`/friends-db/all-nicks`, {
+        params: {
+          kind: opts.kind ?? 'all',
+          page: opts.page ?? 1,
+          limit: opts.limit ?? 25,
+          search: opts.search ?? '',
+        },
+      });
+      friendsDb.value = res.data?.friends ?? [];
+      friendCounts.value = res.data?.counts ?? {};
+      friendsDbTotal.value = res.data?.total ?? 0;
+    } catch (err) {
+      console.error('fetchFriendsDbAllNicks failed:', err);
+      friendsDb.value = [];
+      friendCounts.value = {};
+      friendsDbTotal.value = 0;
+    } finally {
+      loadingDb.value = false;
     }
   }
 
@@ -328,6 +362,7 @@ export function useFriends() {
     loadingDb,
     syncing,
     fetchFriendsDb,
+    fetchFriendsDbAllNicks,
     syncFriendsDb,
   };
 }

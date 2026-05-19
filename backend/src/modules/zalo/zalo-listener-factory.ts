@@ -307,7 +307,41 @@ export function attachZaloListener(ctx: ListenerContext): void {
   listener.on('friend_event', async (event: any) => {
     try {
       await handleFriendEvent(accountId, event);
+      // Coarse event (giữ backward-compat — không ai mới subscribe nhưng cũ có thể vẫn dùng)
       io?.emit('friend:event', { accountId, type: event.type, threadId: event.threadId });
+
+      // Granular patch event cho FE composable use-friend-socket.ts → live update
+      // FriendsView + ContactsView child row mà không cần refetch.
+      // Lookup Friend row vừa bị handleFriendEvent mutate để lấy patch payload.
+      try {
+        const threadId = String(event?.threadId || event?.data?.fromUid || event?.data?.toUid || '');
+        if (!threadId) return;
+        const friend = await prisma.friend.findUnique({
+          where: {
+            zaloAccountId_zaloUidInNick: { zaloAccountId: accountId, zaloUidInNick: threadId },
+          },
+          select: {
+            id: true, contactId: true, zaloAccountId: true, orgId: true,
+            friendshipStatus: true, relationshipKind: true,
+            becameFriendAt: true, removedAt: true,
+          },
+        });
+        if (friend) {
+          io?.to(`org:${friend.orgId}`).emit('friend:updated', {
+            friendId: friend.id,
+            contactId: friend.contactId,
+            zaloAccountId: friend.zaloAccountId,
+            patch: {
+              friendshipStatus: friend.friendshipStatus,
+              relationshipKind: friend.relationshipKind,
+              becameFriendAt: friend.becameFriendAt,
+              removedAt: friend.removedAt,
+            },
+          });
+        }
+      } catch (emitErr) {
+        logger.warn(`[zalo:${accountId}] friend:updated emit failed:`, emitErr);
+      }
     } catch (err) {
       logger.error(`[zalo:${accountId}] friend_event handler error:`, err);
     }
@@ -414,14 +448,8 @@ export function attachZaloListener(ctx: ListenerContext): void {
     // Future: store as system message in the group conversation
   });
 
-  // Friend lifecycle events: request sent/accepted/blocked
-  listener.on('friend_event', (event: any) => {
-    logger.info(`[zalo:${accountId}] Friend event: type=${event?.type ?? 'unknown'}`, {
-      fromId: event?.fromId,
-      toId: event?.toId,
-    });
-    // Future: update contact status based on friend_event type
-  });
+  // Note: duplicate 'friend_event' listener đã xoá ở chỗ này (legacy stub).
+  // Listener thực ở line ~307 — đã wire handleFriendEvent + emit 'friend:updated'.
 
   listener.on('closed', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener closed: ${code} ${reason}`);

@@ -531,6 +531,7 @@ import {
 import type { Contact } from '@/composables/use-contacts';
 import MobileContactView from '@/views/MobileContactView.vue';
 import { useMobile } from '@/composables/use-mobile';
+import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-friend-socket';
 
 const { isMobile } = useMobile();
 const router = useRouter();
@@ -733,6 +734,24 @@ async function fetchFriendships(contact: Contact) {
     friendshipLoading.value[contact.id] = false;
   }
 }
+
+// ─── Live socket subscribe: friend:updated → mutate row trong friendshipCache
+// Chỉ áp dụng khi KH Cha đang được expand (có cache). Row khác → ignore.
+// Tránh refetch list, mutate trực tiếp ô đã đổi (alias/status/score/avatar...).
+useFriendSocket((payload: FriendUpdatedPayload) => {
+  const cached = friendshipCache.value[payload.contactId];
+  if (!cached) return; // KH Cha chưa expand, skip
+  const row = cached.find((r) => r.id === payload.friendId);
+  if (!row) return;
+  // Merge fields mà ChildRow shape có. Skip key không match (vd Prisma timestamps
+  // dạng Date string — ChildRow đã có relativeTime cache riêng, để parent refetch
+  // tự rebuild).
+  for (const [k, v] of Object.entries(payload.patch)) {
+    if (k in row) {
+      (row as Record<string, unknown>)[k] = v;
+    }
+  }
+});
 
 interface ApiFriendship {
   id: string;

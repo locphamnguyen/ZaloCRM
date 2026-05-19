@@ -40,8 +40,9 @@
             v-if="activeAccount"
             class="btn primary"
             :disabled="syncing"
+            title="Auto-sync mỗi 15 phút. Click để refresh ngay lập tức."
             @click="onSync"
-          >{{ syncing ? '↻ Đang đồng bộ…' : '↻ Đồng bộ Zalo' }}</button>
+          >{{ syncing ? '↻ Đang làm mới…' : '↻ Làm mới ngay' }}</button>
         </header>
 
         <FriendsSmartHints :friends="friendsDb" @apply="onApplyHint" />
@@ -134,6 +135,7 @@ import { useRouter } from 'vue-router';
 import { useFriends, type DbFriend } from '@/composables/use-friends';
 import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 import { useFriendsState, type DensityMode, type FriendKindFilter } from '@/composables/use-friends-state';
+import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-friend-socket';
 import NickSidebar from '@/components/friends/NickSidebar.vue';
 import FriendsFilterBar from '@/components/friends/FriendsFilterBar.vue';
 import FriendsSmartHints from '@/components/friends/FriendsSmartHints.vue';
@@ -151,6 +153,7 @@ const {
   loadingDb,
   syncing,
   fetchFriendsDb,
+  fetchFriendsDbAllNicks,
   syncFriendsDb,
 } = useFriends();
 
@@ -235,11 +238,15 @@ function debouncedFetch() {
 
 async function fetch() {
   const id = effectiveNickId.value;
-  if (!id || id === 'all') {
-    // 'all' mode — backend chưa hỗ trợ aggregate cross-nick; tạm để trống danh sách
-    // và hiện hint message (TODO: implement /friends-all endpoint backend-side).
-    friendsDb.value = [];
-    friendsDbTotal.value = 0;
+  if (!id) return;
+  if (id === 'all') {
+    // Cross-nick aggregate: gọi /friends-db/all-nicks (Phase 4)
+    await fetchFriendsDbAllNicks({
+      kind: state.kindFilter.value === 'all' ? undefined : state.kindFilter.value,
+      page: pagination.page,
+      limit: pagination.limit,
+      search: searchInput.value || undefined,
+    });
     return;
   }
   await fetchFriendsDb(id, {
@@ -277,9 +284,22 @@ function onCareChange(v: string) {
 
 async function onSync() {
   if (!effectiveNickId.value || effectiveNickId.value === 'all') return;
-  await syncFriendsDb(effectiveNickId.value);
+  const result = await syncFriendsDb(effectiveNickId.value);
+  if (result?.cooldown) {
+    // Backend từ chối do 5s cooldown — hiện hint nhẹ không cần fetch lại
+    console.warn('[FriendsView] sync cooldown:', result.message);
+    return;
+  }
   await fetch();
 }
+
+// ─── Live socket subscribe: friend:updated → merge patch vào row trong cache
+// Không refetch list, chỉ mutate trực tiếp row để tránh flicker + tiết kiệm HTTP.
+useFriendSocket((payload: FriendUpdatedPayload) => {
+  const row = friendsDb.value.find((f) => f.id === payload.friendId);
+  if (!row) return; // row không có trong page hiện tại, skip
+  Object.assign(row as Record<string, unknown>, payload.patch);
+});
 
 // ─── Detail panel + actions ───
 function onOpenDetail(f: DbFriend) {
