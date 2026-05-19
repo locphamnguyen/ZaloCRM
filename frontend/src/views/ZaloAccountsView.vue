@@ -1,273 +1,635 @@
 <template>
-  <div>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h4">Tài khoản Zalo</h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showAddDialog = true">Thêm Zalo</v-btn>
+  <div class="za-page">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="lead">
+        <h1>Quản lý tài khoản Zalo</h1>
+        <div class="sub">
+          <b>{{ stats?.totalNick ?? '—' }}</b> nick
+          <span v-if="stats"> · {{ stats.active }} active · {{ stats.idle }} idle</span>
+          <span v-if="stats?.error" class="warn"> · {{ stats.error }} cần re-login</span>
+          <span class="dot">·</span>
+          cập nhật {{ lastRefreshLabel }}
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" @click="onRefresh" :disabled="loadingStats || loadingEnriched">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+          Refresh
+        </button>
+        <button class="btn btn-primary" @click="openAddDialog">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Kết nối kênh
+        </button>
+      </div>
     </div>
 
-    <v-card>
-      <v-data-table :headers="headers" :items="accounts" :loading="loading" no-data-text="Chưa có tài khoản Zalo nào">
-        <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.liveStatus || item.status)" size="small" variant="flat">
-            {{ statusText(item.liveStatus || item.status) }}
-          </v-chip>
-        </template>
-        <template #item.proxy="{ item }">
-          <v-chip v-if="item.hasProxy" color="info" size="small" variant="tonal">
-            <v-icon start size="small">mdi-shield-check</v-icon>Proxy
-          </v-chip>
-          <span v-else class="text-grey-darken-1">—</span>
-        </template>
-        <template #item.actions="{ item }">
-          <v-btn v-if="authStore.isAdmin" icon size="small" color="cyan" title="Phân quyền truy cập" @click="openAccess(item)">
-            <v-icon>mdi-shield-account</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="orange" title="Cấu hình Proxy" @click="openProxy(item)">
-            <v-icon>mdi-shield-key</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="success" @click="syncContacts(item.id)" title="Đồng bộ danh bạ Zalo" :loading="syncing === item.id">
-            <v-icon>mdi-account-sync</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="teal" @click="syncHistory(item.id)" title="Đồng bộ lịch sử tin nhắn (nhóm)" :loading="syncingHistory === item.id">
-            <v-icon>mdi-history</v-icon>
-          </v-btn>
-          <v-btn v-if="item.liveStatus !== 'connected'" icon size="small" color="primary" @click="loginAccount(item.id)" title="Đăng nhập QR">
-            <v-icon>mdi-qrcode</v-icon>
-          </v-btn>
-          <v-btn v-if="item.liveStatus === 'disconnected' && item.sessionData" icon size="small" color="info" @click="reconnectAccount(item.id)" title="Kết nối lại">
-            <v-icon>mdi-refresh</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="error" @click="confirmDelete(item)" title="Xóa">
-            <v-icon>mdi-delete</v-icon>
-          </v-btn>
-        </template>
-      </v-data-table>
-    </v-card>
+    <!-- STATS CARDS -->
+    <StatsCards :stats="stats" />
 
-    <!-- Add account dialog -->
-    <v-dialog v-model="showAddDialog" max-width="450">
-      <v-card>
-        <v-card-title>Thêm tài khoản Zalo</v-card-title>
-        <v-card-text>
-          <v-text-field v-model="newAccountName" label="Tên hiển thị (VD: Zalo Sale Hương)" />
-          <v-text-field
-            v-model="newAccountProxy"
-            label="Proxy URL (tùy chọn)"
-            placeholder="http://user:pass@host:port hoặc socks5://host:port"
-            hint="Để trống nếu không dùng proxy — kết nối Zalo trực tiếp qua internet"
-            persistent-hint
-            class="mt-2"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="closeAddDialog">Hủy</v-btn>
-          <v-btn color="primary" :loading="adding" @click="handleAddAccount">Thêm</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- FILTER ROW -->
+    <div class="filter-row">
+      <div class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input v-model="search" placeholder="Tìm theo tên nick, UID, SĐT..." />
+      </div>
+      <select v-model="statusFilter" class="select">
+        <option value="all">Trạng thái: Tất cả</option>
+        <option value="active">Active</option>
+        <option value="idle">Idle</option>
+        <option value="error">Error / Disconnected</option>
+      </select>
+      <select v-model="saleFilter" class="select">
+        <option value="">Sale: Tất cả</option>
+        <option v-for="u in salesOptions" :key="u.id" :value="u.id">{{ u.fullName || u.email }}</option>
+      </select>
+      <select v-model="sortMode" class="select">
+        <option value="recent">Sort: Hoạt động mới</option>
+        <option value="msg-desc">Sort: Msg today (nhiều→ít)</option>
+        <option value="uptime-asc">Sort: Uptime thấp trước</option>
+        <option value="name">Sort: Tên A→Z</option>
+      </select>
+    </div>
 
-    <!-- Proxy config dialog -->
-    <v-dialog v-model="showProxyDialog" max-width="450">
-      <v-card>
-        <v-card-title>Cấu hình Proxy — {{ proxyTarget?.displayName || 'Tài khoản' }}</v-card-title>
-        <v-card-text>
-          <v-text-field
-            v-model="proxyUrlEdit"
-            label="Proxy URL"
-            placeholder="http://user:pass@host:port hoặc socks5://host:port"
-            hint="Để trống để xóa proxy hiện tại"
-            persistent-hint
-          />
-          <v-alert v-if="proxyTarget?.hasProxy" type="info" density="compact" class="mt-3">
-            Proxy hiện tại: {{ proxyTarget?.proxyUrl }}
-            <div class="text-caption">Credentials đã được ẩn vì lý do bảo mật.</div>
-          </v-alert>
-        </v-card-text>
-        <v-card-actions>
-          <v-btn v-if="proxyTarget?.hasProxy" color="warning" variant="text" @click="handleRemoveProxy">Xóa proxy</v-btn>
-          <v-spacer />
-          <v-btn @click="showProxyDialog = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="savingProxy" @click="handleSaveProxy">Lưu</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- TABLE -->
+    <AccountsTable
+      :accounts="filtered"
+      :uptime-cache="uptimeCache"
+      :is-selected="isSelected"
+      :toggle-select="toggleSelect"
+      :select-all="selectAll"
+      :clear-selection="clearSelection"
+      :relative-time="relativeTime"
+      :status-label="statusLabel"
+      :uptime-color="uptimeColor"
+      @open-detail="openDrawer"
+      @action="onTableAction"
+    />
 
-    <!-- QR Code dialog -->
-    <v-dialog v-model="showQRDialog" max-width="400" persistent>
-      <v-card class="text-center pa-4">
-        <v-card-title>Quét QR để đăng nhập Zalo</v-card-title>
-        <v-card-text>
-          <div v-if="qrImage" class="mb-4">
-            <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px;" />
+    <!-- DETAIL DRAWER -->
+    <AccountDetailDrawer
+      v-model="drawerOpen"
+      :account="drawerAccount"
+      :uptime-cache="uptimeCache"
+      :relative-time="relativeTime"
+      :status-label="statusLabel"
+      :uptime-color="uptimeColor"
+      @add-crew="onAddCrew"
+      @remove-crew="onRemoveCrew"
+      @action="onDrawerAction"
+    />
+
+    <!-- BULK ACTION BAR -->
+    <BulkActionBar
+      :count="selectedCount"
+      :loading="bulkLoading"
+      @action="onBulkAction"
+      @clear="clearSelection"
+    />
+
+    <!-- ADD ACCOUNT DIALOG -->
+    <div v-if="showAddDialog" class="modal-backdrop" @click.self="showAddDialog = false">
+      <div class="modal">
+        <div class="modal-head">
+          <h3>Kết nối nick Zalo mới</h3>
+          <button class="x-btn" @click="showAddDialog = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label>Tên hiển thị</label>
+            <input v-model="newAccountName" placeholder="VD: Sale Hùng — Vinhomes" />
           </div>
-          <div v-else-if="qrScanned" class="mb-4">
-            <v-icon icon="mdi-check-circle" size="64" color="success" />
-            <p class="text-h6 mt-2">Đã quét! Xác nhận trên điện thoại...</p>
-            <p v-if="scannedName" class="text-body-2">{{ scannedName }}</p>
+          <div class="field">
+            <label>Proxy URL (tùy chọn)</label>
+            <input v-model="newAccountProxy" placeholder="http://user:pass@host:port" />
+            <div class="hint">Để trống nếu kết nối Zalo trực tiếp qua internet</div>
           </div>
-          <div v-else class="mb-4">
-            <v-progress-circular indeterminate color="primary" size="64" />
-            <p class="mt-2">Đang tạo QR code...</p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" @click="closeAddDialog">Huỷ</button>
+          <button class="btn btn-primary" :disabled="adding" @click="handleAddAccount">
+            {{ adding ? 'Đang tạo...' : 'Tạo + Quét QR' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- QR CODE DIALOG (reuse từ composable QR socket flow) -->
+    <div v-if="showQRDialog" class="modal-backdrop">
+      <div class="modal modal-qr">
+        <div class="modal-head">
+          <h3>Quét QR để đăng nhập Zalo</h3>
+        </div>
+        <div class="modal-body text-center">
+          <div v-if="qrImage" class="qr-img-wrap">
+            <img :src="'data:image/png;base64,' + qrImage" alt="QR" />
+            <div class="qr-step active"><span class="n">1</span> Mở app Zalo trên điện thoại</div>
+            <div class="qr-step"><span class="n">2</span> Cài đặt → Quản lý thiết bị → Quét QR</div>
+            <div class="qr-step"><span class="n">3</span> Đợi xác thực hoàn tất</div>
           </div>
-          <v-alert v-if="qrError" type="error" density="compact" class="mt-2">{{ qrError }}</v-alert>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="cancelQR">Đóng</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+          <div v-else-if="qrScanned" class="qr-scanned">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            <p>Đã quét! Xác nhận trên điện thoại…</p>
+            <p v-if="scannedName" class="muted">{{ scannedName }}</p>
+          </div>
+          <div v-else>
+            <div class="loading-spinner"></div>
+            <p>Đang tạo QR code…</p>
+          </div>
+          <div v-if="qrError" class="error-text">{{ qrError }}</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" @click="cancelQR">Đóng</button>
+        </div>
+      </div>
+    </div>
 
-    <!-- Delete confirm dialog -->
-    <v-dialog v-model="showDeleteDialog" max-width="400">
-      <v-card>
-        <v-card-title>Xác nhận xóa</v-card-title>
-        <v-card-text>Bạn có chắc muốn xóa tài khoản "{{ deleteTarget?.displayName || deleteTarget?.id }}"?</v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="showDeleteDialog = false">Hủy</v-btn>
-          <v-btn color="error" :loading="deleting" @click="handleDeleteAccount">Xóa</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- DELETE CONFIRM -->
+    <div v-if="showDeleteDialog" class="modal-backdrop" @click.self="showDeleteDialog = false">
+      <div class="modal">
+        <div class="modal-head"><h3>Xác nhận xoá</h3></div>
+        <div class="modal-body">
+          Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>"?
+          <div class="hint">Hành động này không thể hoàn tác.</div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" @click="showDeleteDialog = false">Huỷ</button>
+          <button class="btn btn-danger" :disabled="deleting" @click="handleDelete">
+            {{ deleting ? 'Đang xoá...' : 'Xoá' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
-    <!-- Access control dialog -->
+    <!-- ACCESS DIALOG (reuse existing) -->
     <ZaloAccessDialog
       v-model="showAccessDialog"
-      :account-id="accessTarget?.id ?? ''"
-      :account-name="accessTarget?.displayName ?? accessTarget?.id ?? ''"
+      :account-id="accessTargetId"
+      :account-name="accessTargetName"
+      @update:modelValue="onAccessDialogClose"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useZaloAccounts, type ZaloAccount } from '@/composables/use-zalo-accounts';
-import { useAuthStore } from '@/stores/auth';
+import { ref, onMounted, computed } from 'vue';
+import { useZaloAccountsDashboard } from '@/composables/use-zalo-accounts-dashboard';
+import StatsCards from '@/components/zalo-accounts/StatsCards.vue';
+import AccountsTable from '@/components/zalo-accounts/AccountsTable.vue';
+import AccountDetailDrawer from '@/components/zalo-accounts/AccountDetailDrawer.vue';
+import BulkActionBar from '@/components/zalo-accounts/BulkActionBar.vue';
 import ZaloAccessDialog from '@/components/settings/ZaloAccessDialog.vue';
 import { api } from '@/api/index';
 
+const dash = useZaloAccountsDashboard();
 const {
-  accounts, loading, adding, deleting,
+  // dashboard data
+  stats, filtered, loadingStats, loadingEnriched,
+  // filters
+  search, statusFilter, saleFilter, sortMode,
+  // selection
+  selectedCount, isSelected, toggleSelect, selectAll, clearSelection,
+  // drawer
+  drawerOpen, drawerAccount, openDrawer,
+  // uptime
+  uptimeCache,
+  // actions
+  fetchStats, refreshAll, bulkAction,
+  // helpers
+  relativeTime, statusLabel, uptimeColor,
+  // QR/socket from base composable
   showQRDialog, qrImage, qrScanned, scannedName, qrError,
-  statusColor, statusText,
-  fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
-  updateProxy, cancelQR, setupSocket,
-} = useZaloAccounts();
+  adding, deleting,
+  addAccount, loginAccount, reconnectAccount, deleteAccount,
+  cancelQR, setupSocket,
+} = dash;
 
-const authStore = useAuthStore();
-
+// Local UI state
 const showAddDialog = ref(false);
-const showProxyDialog = ref(false);
-const syncing = ref<string | null>(null);
-const syncingHistory = ref<string | null>(null);
-const showDeleteDialog = ref(false);
-const showAccessDialog = ref(false);
 const newAccountName = ref('');
 const newAccountProxy = ref('');
-const proxyUrlEdit = ref('');
-const savingProxy = ref(false);
-const deleteTarget = ref<ZaloAccount | null>(null);
-const accessTarget = ref<ZaloAccount | null>(null);
-const proxyTarget = ref<ZaloAccount | null>(null);
+const showDeleteDialog = ref(false);
+const deleteTargetId = ref<string | null>(null);
+const bulkLoading = ref(false);
+const lastRefresh = ref(new Date());
 
-const headers = [
-  { title: 'Tên', key: 'displayName', sortable: true },
-  { title: 'Zalo UID', key: 'zaloUid' },
-  { title: 'SĐT', key: 'phone' },
-  { title: 'Trạng thái', key: 'status', sortable: true },
-  { title: 'Proxy', key: 'proxy', sortable: false },
-  { title: 'Hành động', key: 'actions', sortable: false, align: 'end' as const },
-];
+const showAccessDialog = ref(false);
+const accessTargetId = ref('');
+const accessTargetName = ref('');
 
-async function syncContacts(accountId: string) {
-  syncing.value = accountId;
-  try {
-    const res = await api.post(`/zalo-accounts/${accountId}/sync-contacts`);
-    alert(`Đồng bộ thành công: ${res.data.created} mới, ${res.data.updated} cập nhật`);
-  } catch (err: any) {
-    alert('Đồng bộ thất bại: ' + (err.response?.data?.error || err.message));
-  } finally {
-    syncing.value = null;
+const deleteTarget = computed(() => filtered.value.find((a) => a.id === deleteTargetId.value));
+
+const lastRefreshLabel = computed(() => relativeTime(lastRefresh.value.toISOString()));
+
+// Sales filter options derived from current crew
+const salesOptions = computed(() => {
+  const map = new Map<string, { id: string; fullName: string | null; email: string }>();
+  for (const a of filtered.value) {
+    for (const c of a.crew) {
+      if (!map.has(c.user.id)) map.set(c.user.id, c.user);
+    }
   }
+  return Array.from(map.values()).sort((a, b) =>
+    (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Handlers
+// ─────────────────────────────────────────────────────────────────
+async function onRefresh() {
+  await refreshAll();
+  lastRefresh.value = new Date();
 }
 
-async function syncHistory(accountId: string) {
-  syncingHistory.value = accountId;
-  try {
-    const res = await api.post(`/zalo-accounts/${accountId}/sync-history`);
-    const d = res.data;
-    alert(`Đồng bộ lịch sử: ${d.friendsSynced} bạn, ${d.groupsSynced} nhóm, ${d.messagesBackfilled} tin nhắn, ${d.dmPagesRequested} trang DM${d.errors ? ` (${d.errors} lỗi)` : ''}`);
-  } catch (err: any) {
-    alert('Đồng bộ lịch sử thất bại: ' + (err.response?.data?.error || err.message));
-  } finally {
-    syncingHistory.value = null;
-  }
+function openAddDialog() {
+  newAccountName.value = '';
+  newAccountProxy.value = '';
+  showAddDialog.value = true;
+}
+function closeAddDialog() {
+  showAddDialog.value = false;
 }
 
 async function handleAddAccount() {
   const ok = await addAccount(newAccountName.value, newAccountProxy.value);
-  if (ok) closeAddDialog();
-}
-
-function closeAddDialog() {
-  showAddDialog.value = false;
-  newAccountName.value = '';
-  newAccountProxy.value = '';
-}
-
-function openProxy(account: ZaloAccount) {
-  proxyTarget.value = account;
-  // Don't prefill with masked value; user must re-enter full URL with creds
-  proxyUrlEdit.value = '';
-  showProxyDialog.value = true;
-}
-
-async function handleSaveProxy() {
-  if (!proxyTarget.value) return;
-  savingProxy.value = true;
-  try {
-    const ok = await updateProxy(proxyTarget.value.id, proxyUrlEdit.value || null);
-    if (ok) showProxyDialog.value = false;
-  } finally {
-    savingProxy.value = false;
+  if (ok) {
+    showAddDialog.value = false;
+    await refreshAll();
+    // Auto-launch QR for the latest account
+    // The created account is the most recent — find it and trigger login
+    setTimeout(async () => {
+      const list = await api.get('/zalo-accounts');
+      const latest = list.data[list.data.length - 1];
+      if (latest) await loginAccount(latest.id);
+    }, 300);
   }
 }
 
-async function handleRemoveProxy() {
-  if (!proxyTarget.value) return;
-  savingProxy.value = true;
-  try {
-    const ok = await updateProxy(proxyTarget.value.id, null);
-    if (ok) showProxyDialog.value = false;
-  } finally {
-    savingProxy.value = false;
+function onTableAction(payload: { account: any; action: 'reconnect' | 'sync' }) {
+  if (payload.action === 'reconnect') {
+    if (payload.account.liveStatus === 'connected') {
+      // Already connected → trigger sync-history instead as "refresh"
+      api.post(`/zalo-accounts/${payload.account.id}/sync-history`).catch(() => {});
+    } else {
+      reconnectAccount(payload.account.id);
+    }
+  } else if (payload.action === 'sync') {
+    api.post(`/zalo-accounts/${payload.account.id}/sync-contacts`)
+      .then(() => refreshAll())
+      .catch((e) => alert('Sync thất bại: ' + (e.response?.data?.error || e.message)));
   }
 }
 
-function confirmDelete(account: ZaloAccount) {
-  deleteTarget.value = account;
-  showDeleteDialog.value = true;
+async function onDrawerAction(payload: { accountId: string; action: string }) {
+  const id = payload.accountId;
+  try {
+    switch (payload.action) {
+      case 'sync-contacts':
+        await api.post(`/zalo-accounts/${id}/sync-contacts`);
+        await refreshAll();
+        break;
+      case 'sync-history':
+        await api.post(`/zalo-accounts/${id}/sync-history`);
+        break;
+      case 'reconnect':
+        await reconnectAccount(id);
+        break;
+      case 'qr-login':
+        await loginAccount(id);
+        break;
+      case 'edit-proxy':
+        // Simple inline prompt — replaces the dedicated proxy dialog for now.
+        // eslint-disable-next-line no-alert
+        const url = window.prompt('Proxy URL (để trống = xoá):', '');
+        if (url === null) return; // cancelled
+        await api.put(`/zalo-accounts/${id}/proxy`, { proxyUrl: url.trim() || null });
+        await refreshAll();
+        break;
+      case 'disconnect':
+        // eslint-disable-next-line no-alert
+        if (!window.confirm('Ngắt kết nối nick này?')) return;
+        await api.post('/zalo-accounts/bulk-action', { ids: [id], action: 'disable' });
+        await refreshAll();
+        break;
+      case 'delete':
+        deleteTargetId.value = id;
+        showDeleteDialog.value = true;
+        break;
+    }
+  } catch (e: any) {
+    alert('Lỗi: ' + (e.response?.data?.error || e.message));
+  }
 }
 
-function openAccess(account: ZaloAccount) {
-  accessTarget.value = account;
+function onAddCrew(accountId: string) {
+  const acct = filtered.value.find((a) => a.id === accountId);
+  accessTargetId.value = accountId;
+  accessTargetName.value = acct?.displayName || acct?.zaloUid || accountId;
   showAccessDialog.value = true;
 }
 
-async function handleDeleteAccount() {
-  if (!deleteTarget.value) return;
-  const ok = await deleteAccount(deleteTarget.value);
-  if (ok) {
-    showDeleteDialog.value = false;
-    deleteTarget.value = null;
+async function onRemoveCrew(payload: { accountId: string; accessId: string }) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm('Bỏ gán sale này?')) return;
+  try {
+    await api.delete(`/zalo-accounts/${payload.accountId}/access/${payload.accessId}`);
+    await refreshAll();
+  } catch (e: any) {
+    alert('Bỏ gán thất bại: ' + (e.response?.data?.error || e.message));
   }
 }
 
-onMounted(() => {
-  fetchAccounts();
+function onAccessDialogClose() {
+  // Refresh after the dialog closes so newly granted access shows up
+  refreshAll();
+}
+
+async function onBulkAction(action: 'reconnect' | 'sync-contacts' | 'disable') {
+  if (action === 'disable') {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm(`Disable ${selectedCount.value} nick? Status sẽ chuyển sang disconnected.`)) return;
+  }
+  bulkLoading.value = true;
+  try {
+    const res = await bulkAction(action);
+    if (res) {
+      alert(`Hoàn tất: ${res.ok}/${res.total} thành công${res.failed ? `, ${res.failed} lỗi` : ''}`);
+      clearSelection();
+    }
+  } finally {
+    bulkLoading.value = false;
+  }
+}
+
+async function handleDelete() {
+  if (!deleteTarget.value) return;
+  const ok = await deleteAccount(deleteTarget.value as any);
+  if (ok) {
+    showDeleteDialog.value = false;
+    deleteTargetId.value = null;
+    await refreshAll();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Lifecycle
+// ─────────────────────────────────────────────────────────────────
+onMounted(async () => {
   setupSocket();
+  await refreshAll();
+  lastRefresh.value = new Date();
+
+  // Light polling — refresh stats every 60s while page is open.
+  // No refresh of enriched list to avoid blowing away in-flight selection state.
+  const id = window.setInterval(() => {
+    if (!document.hidden) fetchStats();
+  }, 60_000);
+  // Pin to view lifecycle
+  (window as any).__zaPollId = id;
 });
 </script>
+
+<style scoped>
+.za-page {
+  padding: 20px 24px 120px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+.topbar h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+.topbar .sub {
+  font-size: 12.5px;
+  color: #6B7280;
+  margin-top: 2px;
+}
+.topbar .sub b { color: #111827; font-weight: 600 }
+.topbar .sub .warn { color: #B91C1C; font-weight: 500 }
+.topbar .sub .dot { margin: 0 6px; color: #D1D5DB }
+.topbar .actions { display: flex; gap: 8px }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  background: white;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #4B5563;
+  font-weight: 500;
+  transition: background 0.12s, border 0.12s, color 0.12s;
+}
+.btn:hover:not(:disabled) {
+  border-color: #D1D5DB;
+  color: #111827;
+}
+.btn:disabled { opacity: 0.55; cursor: not-allowed }
+.btn svg { width: 14px; height: 14px }
+.btn-primary {
+  background: #6366F1;
+  color: white;
+  border-color: #6366F1;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #4F46E5;
+  border-color: #4F46E5;
+  color: white;
+}
+.btn-danger {
+  background: #EF4444;
+  color: white;
+  border-color: #EF4444;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #DC2626;
+  border-color: #DC2626;
+}
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: white;
+  border: 1px solid #F3F4F6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+.search {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: #F9FAFB;
+  border: 1px solid #F3F4F6;
+  border-radius: 8px;
+  height: 32px;
+}
+.search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 12.5px;
+  color: #111827;
+}
+.search input::placeholder { color: #9CA3AF }
+.search svg { width: 13px; height: 13px; color: #6B7280 }
+
+.select {
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #E5E7EB;
+  border-radius: 7px;
+  background: white;
+  font-size: 12px;
+  color: #4B5563;
+  cursor: pointer;
+  font-family: inherit;
+}
+.select:hover { border-color: #D1D5DB }
+
+/* MODAL */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.modal {
+  background: white;
+  border-radius: 14px;
+  width: 420px;
+  max-width: 92vw;
+  box-shadow: 0 24px 60px rgba(17, 24, 39, 0.18);
+  overflow: hidden;
+}
+.modal-qr { width: 380px }
+.modal-head {
+  padding: 14px 18px;
+  border-bottom: 1px solid #F3F4F6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-head h3 { margin: 0; font-size: 15px; font-weight: 600; color: #111827 }
+.x-btn {
+  background: transparent;
+  border: none;
+  color: #6B7280;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+}
+.modal-body {
+  padding: 18px;
+  font-size: 13px;
+  color: #4B5563;
+}
+.modal-body.text-center { text-align: center }
+.field { margin-bottom: 12px }
+.field label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 4px;
+}
+.field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #E5E7EB;
+  border-radius: 7px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+}
+.field input:focus { border-color: #6366F1 }
+.hint {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: 4px;
+}
+.modal-foot {
+  padding: 12px 18px;
+  background: #FAFBFC;
+  border-top: 1px solid #F3F4F6;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.qr-img-wrap img {
+  max-width: 220px;
+  margin-bottom: 14px;
+}
+.qr-step {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #6B7280;
+  margin-bottom: 4px;
+  text-align: left;
+}
+.qr-step.active {
+  background: #EEF2FF;
+  color: #4F46E5;
+}
+.qr-step .n {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #F3F4F6;
+  color: #6B7280;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 10.5px;
+}
+.qr-step.active .n { background: #6366F1; color: white }
+.qr-scanned p { color: #047857; font-weight: 500; margin: 8px 0 }
+.qr-scanned .muted { color: #6B7280; font-weight: 400; font-size: 12px }
+.error-text {
+  color: #B91C1C;
+  font-size: 12px;
+  margin-top: 8px;
+  background: #FEF2F2;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #F3F4F6;
+  border-top-color: #6366F1;
+  border-radius: 50%;
+  margin: 20px auto;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg) }
+}
+</style>
