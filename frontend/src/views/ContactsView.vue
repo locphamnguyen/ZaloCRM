@@ -57,6 +57,12 @@
         💡 Gợi ý KH Cha
         <span v-if="candidateCount > 0" class="btn-badge">{{ candidateCount }}</span>
       </button>
+      <button
+        class="btn"
+        :disabled="runningDetector"
+        title="Chạy detector ngay (không đợi cron 02:30 UTC). Cần admin/owner."
+        @click="onRunDetector"
+      >{{ runningDetector ? '🔄 Đang quét…' : '🔄 Quét ngay' }}</button>
       <button class="btn">⬇ Xuất</button>
       <v-menu :close-on-content-click="false">
         <template #activator="{ props: act }">
@@ -603,6 +609,34 @@ async function fetchCandidateCount() {
   } catch { candidateCount.value = 0; }
 }
 function onCandidateResolved() { fetchCandidateCount(); fetchContacts(); }
+
+// Manual trigger duplicate-detector — admin/owner only. Không đợi cron 02:30 UTC daily.
+// Sau khi xong, refetch parent-candidates + duplicate-groups count để hiện badge mới.
+const runningDetector = ref(false);
+async function onRunDetector() {
+  if (runningDetector.value) return;
+  runningDetector.value = true;
+  try {
+    const res = await api.post<{
+      ok: boolean; durationMs: number; parentCandidates: number; duplicateGroups: number;
+    }>('/admin/run-detector');
+    const { parentCandidates, duplicateGroups, durationMs } = res.data;
+    toast.success(
+      `Quét xong trong ${(durationMs / 1000).toFixed(1)}s — `
+      + `${parentCandidates} gợi ý KH Cha, ${duplicateGroups} cụm trùng lặp`,
+    );
+    await Promise.all([fetchCandidateCount(), fetchDuplicateGroups(), fetchContacts()]);
+  } catch (err: unknown) {
+    const e = err as { response?: { status?: number; data?: { error?: string } } };
+    if (e.response?.status === 403) {
+      toast.error('Chỉ admin/owner được phép chạy detector');
+    } else {
+      toast.error('Quét thất bại: ' + (e.response?.data?.error || String(err)));
+    }
+  } finally {
+    runningDetector.value = false;
+  }
+}
 const selectedContact = ref<Contact | null>(null);
 const expandedId = ref<string | null>(null);
 // Real friendship data per contact (key: contactId → ChildRow[]). Fetched on first expand.

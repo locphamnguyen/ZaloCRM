@@ -1492,6 +1492,39 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── POST /api/v1/admin/run-detector — chạy duplicate-detector ngay, không đợi 02:30 UTC cron
+  //    Endpoint admin-only (owner/admin role). Trả về stats sau khi chạy xong.
+  //    Use case: sau khi sync backfill globalId cho Contact stub legacy, anh muốn detector
+  //    auto-merge ngay không đợi cron daily next.
+  app.post('/api/v1/admin/run-detector', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      if (!['owner', 'admin'].includes(user.role)) {
+        return reply.status(403).send({ error: 'Chỉ admin/owner được phép trigger detector' });
+      }
+      const startedAt = Date.now();
+      logger.info(`[admin] run-detector triggered by user ${user.id}`);
+      // Lazy import — tránh circular dep + chỉ load khi cần
+      const { runContactIntelligence } = await import('./contact-intelligence.js');
+      await runContactIntelligence();
+      const durationMs = Date.now() - startedAt;
+      // Stats sau khi chạy: count parent candidates undismissed, duplicate groups unresolved
+      const [candidates, duplicates] = await Promise.all([
+        prisma.parentCandidate.count({ where: { orgId: user.orgId, dismissed: false } }),
+        prisma.duplicateGroup.count({ where: { orgId: user.orgId, resolved: false } }),
+      ]);
+      return reply.send({
+        ok: true,
+        durationMs,
+        parentCandidates: candidates,
+        duplicateGroups: duplicates,
+      });
+    } catch (err) {
+      logger.error('[admin] run-detector error:', err);
+      return reply.status(500).send({ error: 'Detector run failed', detail: String(err) });
+    }
+  });
+
   // ── POST /api/v1/admin/migrate-status-table — one-off seed + convert enum ────
   app.post('/api/v1/admin/migrate-status-table', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

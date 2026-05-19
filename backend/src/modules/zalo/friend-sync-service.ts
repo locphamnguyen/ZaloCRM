@@ -486,31 +486,74 @@ export async function syncAccountFully(
     result.errors.push(`labels: ${labelsRes.reason instanceof Error ? labelsRes.reason.message : String(labelsRes.reason)}`);
   }
 
-  // B8 sweep — backfill Contact stub 'Unknown' bằng Friend.zaloDisplayName.
-  // Coverage cho pending_received friends (không nằm trong getAllFriends/getSentFriendRequests
-  // loop của processFriend) + legacy stub data. Single UPDATE…FROM atomic, không N+1.
+  // B8 sweep mở rộng — backfill TẤT CẢ identity field cho Contact stub khi Friend
+  // có data hơn. KHÔNG overwrite data sale đã edit:
+  //   - full_name: chỉ ghi đè khi NULL/''/literal 'Unknown' (treat stub)
+  //   - zalo_global_id / zalo_username / avatar_url: chỉ ghi đè khi NULL
+  //     (COALESCE — sale edit avatar tay sẽ không bị reset)
+  // Coverage:
+  //   1. Pending_received friends (không vào getAllFriends/getSentFriendRequests loop)
+  //   2. Legacy Contact tạo từ friend-event-handler/applyFriendAggregate trước Phase 6
+  //      (chỉ có UID, thiếu globalId/username — sweep này fill)
+  //   3. Khi user dùng UI tạo Contact manual sau đó nick CRM nhận message từ KH đó
+  //
+  // Sau khi sweep, Contact của cùng KH 2 nick chăm sẽ cùng zalo_global_id →
+  // duplicate-detector cron 02:30 UTC sẽ auto-merge step 1 (cùng globalId).
+  // Single UPDATE…FROM atomic, dùng index (org_id, zalo_global_id) + FK, <100ms cho ~3k friends.
   try {
+    // CRITICAL — phải tránh @@unique([org_id, zalo_global_id]) violation khi
+    // Contact A NULL globalId, Contact B đã có globalId X, cùng person 2 nicks.
+    // NOT EXISTS subquery: chỉ set globalId nếu KHÔNG có Contact khác cùng org
+    // đã claim globalId này. Trường hợp duplicate → giữ NULL, để duplicate-detector
+    // cron handle qua step khác (name+phone hoặc fuzzy match) hoặc admin run-detector.
+    // Tương tự cho zalo_username (uniqueness implicit qua data sống cùng Zalo).
     const backfilled = await prisma.$executeRaw`
       UPDATE contacts
-      SET full_name = sub.new_name,
-          avatar_url = COALESCE(contacts.avatar_url, sub.new_avatar)
+      SET
+        full_name      = COALESCE(NULLIF(NULLIF(contacts.full_name, ''), 'Unknown'), sub.f_name, contacts.full_name),
+        zalo_global_id = CASE
+          WHEN (contacts.zalo_global_id IS NULL OR contacts.zalo_global_id = '')
+            AND sub.f_global_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM contacts c2
+              WHERE c2.org_id = contacts.org_id
+                AND c2.id <> contacts.id
+                AND c2.zalo_global_id = sub.f_global_id
+            )
+          THEN sub.f_global_id
+          ELSE contacts.zalo_global_id
+        END,
+        zalo_username  = COALESCE(contacts.zalo_username, sub.f_username),
+        avatar_url     = COALESCE(contacts.avatar_url, sub.f_avatar)
       FROM (
         SELECT DISTINCT ON (f.contact_id)
-          f.contact_id, f.zalo_display_name AS new_name, f.zalo_avatar_url AS new_avatar
+          f.contact_id,
+          f.zalo_display_name AS f_name,
+          f.zalo_global_id    AS f_global_id,
+          f.zalo_username     AS f_username,
+          f.zalo_avatar_url   AS f_avatar
         FROM friends f
         WHERE f.org_id = ${orgId}
           AND f.zalo_account_id = ${accountId}
-          AND f.zalo_display_name IS NOT NULL
-          AND f.zalo_display_name <> ''
-          AND f.zalo_display_name <> 'Unknown'
+          AND (
+            f.zalo_display_name IS NOT NULL AND f.zalo_display_name <> '' AND f.zalo_display_name <> 'Unknown'
+            OR f.zalo_global_id IS NOT NULL AND f.zalo_global_id <> ''
+            OR f.zalo_username IS NOT NULL AND f.zalo_username <> ''
+            OR f.zalo_avatar_url IS NOT NULL AND f.zalo_avatar_url <> ''
+          )
         ORDER BY f.contact_id, f.updated_at DESC
       ) sub
       WHERE contacts.id = sub.contact_id
         AND contacts.org_id = ${orgId}
-        AND (contacts.full_name IS NULL OR contacts.full_name = '' OR contacts.full_name = 'Unknown')
+        AND (
+          (contacts.full_name IS NULL OR contacts.full_name = '' OR contacts.full_name = 'Unknown') AND sub.f_name IS NOT NULL
+          OR (contacts.zalo_global_id IS NULL OR contacts.zalo_global_id = '') AND sub.f_global_id IS NOT NULL
+          OR (contacts.zalo_username IS NULL OR contacts.zalo_username = '') AND sub.f_username IS NOT NULL
+          OR (contacts.avatar_url IS NULL OR contacts.avatar_url = '') AND sub.f_avatar IS NOT NULL
+        )
     `;
     if (backfilled > 0) {
-      logger.info(`[friend-sync-full:${accountId}] B8 backfill: ${backfilled} Contact stubs filled from Friend.zaloDisplayName`);
+      logger.info(`[friend-sync-full:${accountId}] B8 backfill sweep: ${backfilled} Contact stubs filled (full_name + global_id + username + avatar from Friend)`);
     }
   } catch (err) {
     logger.warn(`[friend-sync-full:${accountId}] B8 backfill sweep failed:`, err);
