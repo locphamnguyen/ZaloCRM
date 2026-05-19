@@ -39,14 +39,30 @@
           </td>
           <td>
             <div class="cell-customer">
-              <div class="av" :class="avatarClass(f)">{{ initials(f.contact?.crmName || f.contact?.fullName) }}</div>
+              <!-- Avatar: ưu tiên zaloAvatarUrl, fallback contact.avatarUrl, cuối cùng initials text -->
+              <div class="av" :class="avatarBgClass(f)">
+                <img
+                  v-if="f.zaloAvatarUrl || f.contact?.avatarUrl"
+                  :src="f.zaloAvatarUrl || f.contact?.avatarUrl || ''"
+                  :alt="displayName(f)"
+                  loading="lazy"
+                  referrerpolicy="no-referrer"
+                  @error="onAvatarError($event)"
+                />
+                <span v-else>{{ initials(displayName(f)) }}</span>
+              </div>
               <div class="info">
                 <div class="name">
-                  {{ f.contact?.crmName || f.contact?.fullName || '—' }}
+                  {{ displayName(f) }}
                   <span v-if="f.aliasInNick" class="alias">· {{ f.aliasInNick }}</span>
                 </div>
                 <div class="sub">
-                  📱 {{ f.contact?.phone || '—' }}
+                  <!-- Nick chăm (zaloAccount.displayName) — quan trọng nhất khi "Tất cả nick" mode -->
+                  <span v-if="f.zaloAccount?.displayName" class="nick-chip" :title="'Nick chăm: ' + f.zaloAccount.displayName">
+                    👤 {{ f.zaloAccount.displayName }}
+                  </span>
+                  <template v-if="f.contact?.phone">· 📱 {{ f.contact.phone }}</template>
+                  <template v-else-if="f.zaloAccount?.phone">· 📱 {{ f.zaloAccount.phone }}</template>
                   <template v-if="f.contact?.birthYear">· {{ age(f.contact.birthYear) }}t</template>
                   <template v-if="f.contact?.gender">· {{ genderShort(f.contact.gender) }}</template>
                 </div>
@@ -68,13 +84,23 @@
             <span v-else class="dim-cell">—</span>
           </td>
           <td>
-            <div v-if="getCrmTags(f).length" class="tag-chips">
+            <div v-if="getCrmTags(f).length || getZaloLabels(f).length" class="tag-chips">
+              <!-- CRM tag per-pair -->
               <span
                 v-for="t in getCrmTags(f)"
-                :key="t"
+                :key="'crm-' + t"
                 class="tag-chip"
                 :class="tagColor(t)"
+                :title="'Tag CRM: ' + t"
               >{{ t }}</span>
+              <!-- Zalo label per-pair (đồng bộ từ Zalo native), prefix 🏷 phân biệt -->
+              <span
+                v-for="l in getZaloLabels(f)"
+                :key="'zlb-' + l.name"
+                class="tag-chip zalo-label"
+                :style="l.color ? { background: hexAlpha(l.color, 0.18), color: l.color, borderColor: hexAlpha(l.color, 0.4) } : {}"
+                :title="'Label Zalo: ' + l.name"
+              >🏷 {{ l.name }}</span>
             </div>
             <span v-else class="dim-cell">—</span>
           </td>
@@ -165,11 +191,55 @@ function initials(name?: string | null): string {
 
 // Color avatar based on contact id (deterministic, matches sidebar palette family but for customers)
 const CUSTOMER_PALETTE = ['av-c1', 'av-c2', 'av-c3', 'av-c4', 'av-c5', 'av-c6', 'av-c7'];
-function avatarClass(f: DbFriend): string {
+function avatarBgClass(f: DbFriend): string {
   const id = f.contactId || f.id;
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return CUSTOMER_PALETTE[h % CUSTOMER_PALETTE.length];
+}
+
+/** Tên hiển thị — ưu tiên CRM tự đặt > zaloDisplayName per-pair > Contact.fullName > placeholder. */
+function displayName(f: DbFriend): string {
+  return (
+    f.contact?.crmName ||
+    f.zaloDisplayName ||
+    f.contact?.fullName ||
+    '—'
+  );
+}
+
+/** Fallback initials khi avatar img fail load (vd URL Zalo expired). */
+function onAvatarError(e: Event): void {
+  const img = e.target as HTMLImageElement;
+  // Ẩn img, span initials sibling sẽ thay thế tự nhiên nếu có; nếu không có thì hiện ?
+  img.style.display = 'none';
+  const parent = img.parentElement;
+  if (parent && !parent.querySelector('span')) {
+    const span = document.createElement('span');
+    span.textContent = '?';
+    parent.appendChild(span);
+  }
+}
+
+interface ZaloLabelLite { name?: string; color?: string; id?: string }
+
+/** Zalo labels per-pair — array of {name,color,id}. Defensive parse. */
+function getZaloLabels(f: DbFriend): Array<{ name: string; color: string | null }> {
+  const raw = f.zaloLabels;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((l): l is ZaloLabelLite => !!l && typeof l === 'object')
+    .map((l) => ({ name: l.name || '', color: l.color || null }))
+    .filter((l) => l.name.length > 0);
+}
+
+/** Convert hex #RRGGBB → rgba với alpha cho background chip. */
+function hexAlpha(hex: string | null | undefined, alpha = 0.18): string {
+  if (!hex) return 'rgba(90,100,120,0.10)';
+  const m = hex.match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return 'rgba(90,100,120,0.10)';
+  const n = parseInt(m[1], 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
 function age(year?: number | null): number | null {
@@ -313,16 +383,30 @@ function relativeDate(iso: string): string {
   width: 36px; height: 36px; border-radius: 50%;
   color: #fff; display: grid; place-items: center;
   font-weight: 700; font-size: 12px; flex-shrink: 0;
-  position: relative;
+  position: relative; overflow: hidden;
+}
+.cell-customer .av img {
+  width: 100%; height: 100%; object-fit: cover;
+  display: block;
 }
 .cell-customer .av::after {
   content: "🔵"; position: absolute; bottom: -3px; right: -3px;
   font-size: 10px; line-height: 1;
+  z-index: 1;
 }
 .cell-customer .info { min-width: 0; }
 .cell-customer .info .name { font-weight: 600; }
 .cell-customer .info .name .alias { color: #8d96a4; font-weight: 400; font-size: 11px; }
-.cell-customer .info .sub { font-size: 11px; color: #8d96a4; }
+.cell-customer .info .sub { font-size: 11px; color: #8d96a4; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cell-customer .info .sub .nick-chip {
+  background: #eef2ff; color: #4f46e5;
+  padding: 1px 6px; border-radius: 10px;
+  font-size: 10px; font-weight: 500;
+  white-space: nowrap;
+}
+.zalo-label {
+  border: 1px solid; font-size: 10px;
+}
 
 .alias-cell { font-size: 12px; color: #1a2433; }
 .alias-empty { font-size: 12px; color: #8d96a4; font-style: italic; }

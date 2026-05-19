@@ -18,7 +18,7 @@ import cron from 'node-cron';
 import type { Server } from 'socket.io';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { syncFriendsForAccount } from './friend-sync-service.js';
+import { syncAccountFully } from './friend-sync-service.js';
 
 // 15 phút. Đủ để bắt alias/name/avatar drift mà không spam Zalo rate-limit.
 // Sequential 50 nick × 5s = 250s = ~4min → fit trong 15min window có dư 11min.
@@ -84,29 +84,33 @@ async function runCronCycle(io: Server | null): Promise<void> {
   logger.info(`[friend-sync-cron] Starting cycle: ${accounts.length} connected account(s)`);
 
   let totalEmitted = 0;
+  let totalAliases = 0;
+  let totalLabels = 0;
   let totalErrors = 0;
   for (const acc of accounts) {
     try {
-      const res = await syncFriendsForAccount(acc.id, acc.orgId, {
+      const res = await syncAccountFully(acc.id, acc.orgId, {
         trigger: 'cron',
         io,
       });
-      totalEmitted += res.emittedCount;
-      totalErrors += res.errors;
+      totalEmitted += res.friends?.emittedCount ?? 0;
+      totalAliases += res.aliasesUpdated;
+      totalLabels += res.labelsUpdated;
+      totalErrors += res.errors.length + (res.friends?.errors ?? 0);
     } catch (err) {
-      // syncFriendsForAccount swallows internal errors → reaching here is unusual,
+      // syncAccountFully swallows per-branch errors → reaching here is unusual,
       // but cron loop must continue regardless.
       totalErrors++;
       logger.error(`[friend-sync-cron] Account ${acc.id} (${acc.displayName}) failed:`, err);
     }
-    // Stagger giữa accounts để tránh burst
+    // Stagger giữa accounts để tránh burst Zalo rate-limit
     if (STAGGER_MS > 0) {
       await new Promise((r) => setTimeout(r, STAGGER_MS));
     }
   }
 
   logger.info(
-    `[friend-sync-cron] Cycle stats: accounts=${accounts.length} emitted=${totalEmitted} errors=${totalErrors}`,
+    `[friend-sync-cron] Cycle stats: accounts=${accounts.length} friends_emitted=${totalEmitted} aliases=${totalAliases} labels=${totalLabels} errors=${totalErrors}`,
   );
 }
 

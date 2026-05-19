@@ -11,7 +11,7 @@ import { markFriendRequestSent } from './friend-event-handler.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { FRIEND_INCLUDE_WITH_CONTACT, toFriendDto } from '../../shared/friend-serializer.js';
-import { syncFriendsForAccount } from './friend-sync-service.js';
+import { syncAccountFully } from './friend-sync-service.js';
 import { zaloPool } from './zalo-pool.js';
 
 const BASE = '/api/v1/zalo-accounts/:accountId/friends';
@@ -190,19 +190,20 @@ export async function friendRoutes(app: FastifyInstance) {
   });
 
   // POST .../friends-db/sync — manual force-refresh ("↻ Làm mới ngay" button).
-  // Inline upsert logic đã extract → friend-sync-service.syncFriendsForAccount
-  // (dùng chung cho cron, on-connect, manual). Cooldown 5s/account để chống spam.
+  // Gọi syncAccountFully → 3 nhánh parallel (friends + aliases + labels) để
+  // user bấm 1 nút catch tất cả update từ Zalo native app.
+  // Cooldown 5s/account (áp ở friends branch) để chống spam.
   app.post(`${BASE}-db/sync`, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId } = request.params as { accountId: string };
     const user = request.user!;
     if (!await checkAccess(request, reply, accountId, 'chat')) return;
     try {
       const account = await resolveAccount(accountId, user.orgId);
-      const result = await syncFriendsForAccount(accountId, user.orgId, {
+      const result = await syncAccountFully(accountId, user.orgId, {
         trigger: 'manual',
         io: zaloPool.getIO(),
       });
-      if (result.skipped === 'cooldown') {
+      if (result.friends?.skipped === 'cooldown') {
         return reply.status(429).send({
           error: 'cooldown',
           message: 'Vừa đồng bộ xong, vui lòng thử lại sau vài giây',
@@ -211,10 +212,12 @@ export async function friendRoutes(app: FastifyInstance) {
       return {
         nickId: accountId,
         nickDisplayName: account.displayName,
-        liveFriends: result.liveCount,
-        upsertedFriends: result.upsertedFriends,
-        createdContacts: result.createdContacts,
-        emittedCount: result.emittedCount,
+        liveFriends: result.friends?.liveCount ?? 0,
+        upsertedFriends: result.friends?.upsertedFriends ?? 0,
+        createdContacts: result.friends?.createdContacts ?? 0,
+        emittedCount: result.friends?.emittedCount ?? 0,
+        aliasesUpdated: result.aliasesUpdated,
+        labelsUpdated: result.labelsUpdated,
         errors: result.errors,
         durationMs: result.durationMs,
       };

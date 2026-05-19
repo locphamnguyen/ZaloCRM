@@ -357,6 +357,78 @@ async function processFriend(args: ProcessFriendArgs): Promise<void> {
   }
 }
 
+// ── Full account sync wrapper (friends + aliases + labels) ────────────────
+
+export interface SyncAccountFullyResult {
+  friends: SyncFriendsResult | null;
+  aliasesUpdated: number;
+  labelsUpdated: number;
+  errors: string[];
+  durationMs: number;
+}
+
+/**
+ * Sync TOÀN BỘ identity per-pair (friends + aliases + labels) cho 1 account.
+ *
+ * Single entry point dùng chung cho:
+ *  - friend-sync-cron.ts (mỗi 15 phút loop accounts)
+ *  - zalo-pool.autoSyncOnConnect (lần đầu connect)
+ *  - friend-routes /friends-db/sync (manual "↻ Làm mới ngay")
+ *
+ * 3 nhánh chạy parallel via Promise.allSettled — 1 nhánh fail không break 2 nhánh kia.
+ * (Cron loop ngoài vẫn sequential giữa accounts để tránh burst Zalo rate-limit.)
+ */
+export async function syncAccountFully(
+  accountId: string,
+  orgId: string,
+  opts: SyncFriendsOptions,
+): Promise<SyncAccountFullyResult> {
+  const startedAt = Date.now();
+  const result: SyncAccountFullyResult = {
+    friends: null,
+    aliasesUpdated: 0,
+    labelsUpdated: 0,
+    errors: [],
+    durationMs: 0,
+  };
+
+  // Lazy import labels + alias để tránh circular dependency (labels-routes import nhiều thứ)
+  const [friendsRes, aliasesRes, labelsRes] = await Promise.allSettled([
+    syncFriendsForAccount(accountId, orgId, opts),
+    (async () => {
+      const { syncAliasesForAccount } = await import('./alias-sync.js');
+      return syncAliasesForAccount(accountId, orgId);
+    })(),
+    (async () => {
+      const { syncLabelsIfStale } = await import('./zalo-labels-routes.js');
+      return syncLabelsIfStale(accountId, orgId);
+    })(),
+  ]);
+
+  if (friendsRes.status === 'fulfilled') {
+    result.friends = friendsRes.value;
+  } else {
+    result.errors.push(`friends: ${friendsRes.reason instanceof Error ? friendsRes.reason.message : String(friendsRes.reason)}`);
+  }
+  if (aliasesRes.status === 'fulfilled') {
+    result.aliasesUpdated = aliasesRes.value?.updated ?? 0;
+  } else {
+    result.errors.push(`aliases: ${aliasesRes.reason instanceof Error ? aliasesRes.reason.message : String(aliasesRes.reason)}`);
+  }
+  if (labelsRes.status === 'fulfilled') {
+    // syncLabelsIfStale có thể trả null (cooldown / grace) → coi như 0
+    result.labelsUpdated = labelsRes.value?.friendsUpdated ?? 0;
+  } else {
+    result.errors.push(`labels: ${labelsRes.reason instanceof Error ? labelsRes.reason.message : String(labelsRes.reason)}`);
+  }
+
+  result.durationMs = Date.now() - startedAt;
+  logger.info(
+    `[friend-sync-full:${accountId}] trigger=${opts.trigger} friends_emitted=${result.friends?.emittedCount ?? 0} aliases=${result.aliasesUpdated} labels=${result.labelsUpdated} errors=${result.errors.length} dur=${result.durationMs}ms`,
+  );
+  return result;
+}
+
 // ── Error logging helper ───────────────────────────────────────────────────
 
 async function logSyncError(
