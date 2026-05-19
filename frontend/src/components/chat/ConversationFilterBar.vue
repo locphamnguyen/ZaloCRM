@@ -38,8 +38,9 @@
       </div>
     </div>
 
-    <!-- ② 4 tabs row — chia 4 cố định, text + count, KHÔNG icon, single active -->
-    <div class="cfb-tabs">
+    <!-- ② 4 tabs row — Main Tab style, chia 4 equal, KHÔNG icon KHÔNG count.
+         User spec: "Đây dạng Main Tab — fix size không cần đếm số hội thoại". -->
+    <div class="cfb-tabs main-tab-style">
       <button
         v-for="tab in TABS"
         :key="tab.key"
@@ -49,7 +50,6 @@
         :title="tab.tooltip"
       >
         <span class="tab-label">{{ tab.label }}</span>
-        <span class="tab-count">{{ tabCount(tab.key) ?? 0 }}</span>
       </button>
     </div>
 
@@ -105,20 +105,6 @@ function setActiveTab(key: TabKey) {
   props.filters.state.activeTab = key;
 }
 
-function tabCount(key: TabKey): number | null {
-  switch (key) {
-    case 'personal':
-      return props.counts.individual ?? null;
-    case 'group':
-      return props.counts.group ?? null;
-    case 'main':
-      return props.counts.main ?? null;
-    case 'other':
-      return props.counts.other ?? null;
-  }
-  return null;
-}
-
 function toggleSort() {
   props.filters.setSortMode(
     props.filters.state.sortMode === 'unread-first' ? 'recent' : 'unread-first'
@@ -133,44 +119,41 @@ function toggleSort() {
   flex-shrink: 0;
 }
 
-/* ① Quick pills — soft button, no icon, count fixed-slot, gentle color khi active */
+/* ① Quick pills — 4 pills chia ĐỀU, vừa khít khung cột 2, KHÔNG scroll ngang */
 .cfb-pills-wrap {
   border-bottom: 1px solid #F3F4F6;
-  overflow: hidden;
-  position: relative;
 }
 .cfb-pills {
   display: flex;
-  gap: 6px;
-  padding: 8px 14px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 4px;
+  padding: 7px 10px;
   align-items: center;
-  scroll-behavior: smooth;
 }
-.cfb-pills::-webkit-scrollbar { display: none; }
 
-/* Pill: nhẹ nhàng, soft button, không có dark fill khi active.
-   Active = light tint background + accent border (gentle color change). */
+/* Pill: flex 1 1 0 chia đều 4 cột, soft button, gentle color khi active */
 .pill {
+  flex: 1 1 0;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
-  border-radius: 14px;
-  font-size: 11.5px;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border-radius: 12px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  /* Critical: KHÔNG transition width/padding để tránh nhảy UI khi click */
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   border: 1px solid #E5E7EB;
   background: white;
   color: #4B5563;
   white-space: nowrap;
-  flex-shrink: 0;
+  overflow: hidden;
   font-family: inherit;
-  /* Tránh layout shift khi count đổi width — min-width đảm bảo width stable */
-  min-width: 0;
+}
+.pill .pill-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pill:hover {
   background: #FAFBFC;
@@ -211,14 +194,14 @@ function toggleSort() {
 .pill .count {
   background: #F3F4F6;
   color: #6B7280;
-  padding: 1px 6px;
-  border-radius: 7px;
-  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 9.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  min-width: 22px;
+  min-width: 18px;
   text-align: center;
-  /* Tránh inherit transitions của parent pill */
+  flex-shrink: 0;
   transition: background-color 0.18s ease, color 0.18s ease;
 }
 .pill.alert.active .count { background: rgba(220, 38, 38, 0.12); color: #B91C1C; }
@@ -226,64 +209,51 @@ function toggleSort() {
 .pill.danger.active .count { background: rgba(239, 68, 68, 0.12); color: #B91C1C; }
 .pill.success.active .count { background: rgba(16, 185, 129, 0.12); color: #047857; }
 
-/* ② 4 tabs — chia 4 cố định, KHÔNG icon, text + count, single active.
-   Compact để fit Cột 2 hẹp 340px (mỗi tab ~85px). */
-.cfb-tabs {
-  display: flex;
-  padding: 0 4px;
-  border-bottom: 1px solid #F3F4F6;
-  background: white;
+/* ② Main Tab style — 4 tabs prominent, fix size, KHÔNG count */
+.cfb-tabs.main-tab-style {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 6px;
+  margin: 8px 10px 0;
+  background: #F3F4F6;
+  border-radius: 10px;
+  gap: 2px;
+  border-bottom: none;
 }
-.cfb-tab {
-  /* Chia đều 4 cột — flex 1 1 0 ép equal width bất kể content */
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 10px 2px 12px;
+.cfb-tabs.main-tab-style .cfb-tab {
+  padding: 7px 4px;
   text-align: center;
   font-size: 12.5px;
-  font-weight: 500;
+  font-weight: 600;
   color: #6B7280;
   cursor: pointer;
   border: none;
-  background: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color 0.18s ease, border-color 0.18s ease;
+  background: transparent;
+  border-radius: 7px;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  /* Quan trọng: KHÔNG cho text wrap → giữ width cố định */
   white-space: nowrap;
   overflow: hidden;
   font-family: inherit;
 }
-.cfb-tab:hover { color: #4338CA; }
-.cfb-tab.active {
+.cfb-tabs.main-tab-style .cfb-tab:hover {
+  background: rgba(255, 255, 255, 0.6);
+  color: #4338CA;
+}
+.cfb-tabs.main-tab-style .cfb-tab.active {
+  background: white;
   color: #6366F1;
-  font-weight: 600;
-  border-bottom-color: #6366F1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(99, 102, 241, 0.1);
 }
 .cfb-tab .tab-label {
-  /* Không cắt label — flex-shrink: 0 giữ nguyên kích thước */
-  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.cfb-tab .tab-count {
-  background: #F3F4F6;
-  color: #6B7280;
-  font-size: 9.5px;
-  padding: 0 5px;
-  border-radius: 5px;
-  font-weight: 700;
-  min-width: 16px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  transition: background-color 0.18s ease, color 0.18s ease;
-  flex-shrink: 0;
-}
-.cfb-tab.active .tab-count {
-  background: #EEF2FF;
-  color: #4338CA;
+/* Bottom border thay cho tabs section sau khi đổi sang main-tab pill style */
+.cfb-tabs.main-tab-style + .cfb-mini {
+  margin-top: 8px;
 }
 
 /* ④ Mini row — half height, muted */

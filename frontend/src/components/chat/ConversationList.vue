@@ -17,14 +17,15 @@
         </button>
       </div>
 
-      <!-- Label chip bar (filter theo tag CRM) -->
-      <div v-if="availableTags.length" class="cl-label-bar">
+      <!-- Label chip bar (filter theo tag CRM) — SINGLE-SELECT.
+           Khi 1 tag active → ẩn tag khác. Click lại để clear (show all). -->
+      <div v-if="visibleTags.length" class="cl-label-bar">
         <span
-          v-for="tag in availableTags"
+          v-for="tag in visibleTags"
           :key="tag"
           class="cl-label-chip"
           :class="{ active: filters.tags.includes(tag), 'is-zalo': isZaloManaged(tag) }"
-          :style="{ '--tag-color': tagColor(tag) }"
+          :style="{ '--tag-color': tagColor(tag) || '#6B7280' }"
           @click="toggleTag(tag)"
         >{{ cleanTagName(tag) }}</span>
 
@@ -32,7 +33,7 @@
           v-if="filters.tags.length"
           class="clear-tags"
           @click="filters.tags = []"
-          title="Xoá lọc tag"
+          title="Bỏ lọc tag · hiển thị lại tất cả"
         >×</button>
       </div>
 
@@ -233,13 +234,23 @@ function onSearchInput(e: Event) {
   emit('update:search', (e.target as HTMLInputElement).value);
 }
 
+// Single-select: click tag → set ONLY tag đó. Click tag đang active → clear.
+// Khi đã có 1 tag active → tag khác ẩn (visibleTags computed).
 function toggleTag(tag: string) {
   if (filters.tags.includes(tag)) {
-    filters.tags = filters.tags.filter(t => t !== tag);
+    filters.tags = [];          // deselect → clear filter, show all tags lại
   } else {
-    filters.tags.push(tag);
+    filters.tags = [tag];        // single-select chỉ giữ 1 tag
   }
 }
+
+// visibleTags: nếu có tag active → chỉ hiện tag đó. Còn lại → show all.
+const visibleTags = computed(() => {
+  if (filters.tags.length > 0) {
+    return availableTags.value.filter((t: string) => filters.tags.includes(t));
+  }
+  return availableTags.value;
+});
 
 function buildFilterParams(): Record<string, string> {
   const params: Record<string, string> = { tab: activeTab.value };
@@ -484,6 +495,14 @@ function parseSentiment(conv: Conversation): AiSentiment | null {
   }
 }
 
+// Time format theo spec user (tăng độ rộng tên conv):
+//   < 1 phút     → "Vừa xong"
+//   < 60 phút    → "Xp"   (vd "5p")
+//   < 24h        → "HH:mm"
+//   = 1 ngày     → "Hôm qua"
+//   < 7 ngày     → "Xd"   (vd "3d")
+//   ≥ 7 ngày cùng năm → "DD/MM" (vd "12/05") — không hiện năm
+//   năm cũ (≠ năm nay) → "MM/YYYY" (vd "11/2025") — không hiện ngày
 function formatTime(dateStr: string | null): string {
   if (!dateStr) return '';
   const date = new Date(dateStr);
@@ -501,7 +520,15 @@ function formatTime(dateStr: string | null): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays === 1) return 'Hôm qua';
   if (diffDays < 7) return `${diffDays}d`;
-  return date.toLocaleDateString('vi-VN');
+  // ≥ 7 ngày — phân biệt cùng năm vs năm cũ
+  const dd = date.getDate().toString().padStart(2, '0');
+  const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+  if (date.getFullYear() === now.getFullYear()) {
+    // Cùng năm: "DD/MM" (vd "12/05")
+    return `${dd}/${mm}`;
+  }
+  // Khác năm: "MM/YYYY" (vd "11/2025") — bỏ ngày, hiện tháng+năm
+  return `${mm}/${date.getFullYear()}`;
 }
 </script>
 
@@ -556,32 +583,31 @@ function formatTime(dateStr: string | null): string {
   align-items: center;
 }
 .cl-label-bar::-webkit-scrollbar { height: 4px; }
+/* Chip tag CRM — dùng --tag-color từ tagColor() lookup (sync system color).
+   Text + border ăn theo --tag-color, active state fill background. */
 .cl-label-chip {
   display: inline-flex; align-items: center; gap: 3px;
   padding: 3px 9px;
   border-radius: 11px;
   font-size: 11px; font-weight: 500;
-  border: 1px solid;
+  border: 1px solid var(--tag-color, #D1D5DB);
+  color: var(--tag-color, #4B5563);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
   user-select: none;
   background: var(--smax-bg);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.cl-label-chip[data-color="red"]    { color: #c62828; border-color: #ef5350; }
-.cl-label-chip[data-color="red"].active    { background: #ef5350; color: white; }
-.cl-label-chip[data-color="purple"] { color: #6a1b9a; border-color: #ab47bc; }
-.cl-label-chip[data-color="purple"].active { background: #6a1b9a; color: white; }
-.cl-label-chip[data-color="orange"] { color: #ef6c00; border-color: #ffa726; }
-.cl-label-chip[data-color="orange"].active { background: #ff9800; color: white; }
-.cl-label-chip[data-color="yellow"] { color: #f57f17; border-color: #fbc02d; }
-.cl-label-chip[data-color="yellow"].active { background: #f9a825; color: white; }
-.cl-label-chip[data-color="green"]  { color: #2e7d32; border-color: #66bb6a; }
-.cl-label-chip[data-color="green"].active  { background: #43a047; color: white; }
-.cl-label-chip[data-color="blue"]   { color: #1565c0; border-color: #42a5f5; }
-.cl-label-chip[data-color="blue"].active   { background: #1976d2; color: white; }
-.cl-label-chip[data-color="grey"]   { color: var(--smax-grey-700); border-color: var(--smax-grey-300); }
-.cl-label-chip[data-color="grey"].active   { background: var(--smax-grey-700); color: white; }
+.cl-label-chip:hover {
+  background: color-mix(in srgb, var(--tag-color, #6B7280) 12%, transparent);
+}
+.cl-label-chip.active {
+  background: var(--tag-color, #6B7280);
+  color: white;
+  border-color: var(--tag-color, #6B7280);
+  font-weight: 600;
+}
 .clear-tags {
   background: transparent; border: none;
   color: var(--smax-grey-700);
@@ -707,7 +733,9 @@ function formatTime(dateStr: string | null): string {
 .ci-name-row {
   display: flex; align-items: center;
   height: 20px;
-  padding-right: 64px; /* chừa rộng hơn để fit "Vừa xong" (~58px), không đè lên tên */
+  /* Giảm 50% padding-right (64px → 38px) để tăng width tên KH.
+     Time format ngắn: "DD/MM" (5 ký tự) hoặc "MM/YYYY" (7 ký tự) ~28px. */
+  padding-right: 38px;
 }
 .ci-name {
   font-size: 14px;

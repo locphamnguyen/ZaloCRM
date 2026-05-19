@@ -164,7 +164,11 @@ const conversationCounts = computed(() => {
   return { unread, unanswered, stuck, ready, individual, group };
 });
 
-// Apply inbox filter state → extraFilters → refetch
+// Apply inbox filter state → extraFilters → refetch.
+// Sync ngay extraFilters trên mount để first fetch dùng đúng default tab
+// (Cá nhân → threadType=user) thay vì load tất cả conv.
+extraFilters.value = inboxFilters.buildQueryParams();
+
 let filterApplyTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   () => [
