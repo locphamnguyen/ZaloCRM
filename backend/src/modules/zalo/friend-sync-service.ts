@@ -150,8 +150,18 @@ export async function syncFriendsForAccount(
   let sentRequests: Array<Record<string, unknown>> = [];
 
   try {
-    liveFriends = (await zaloOps.getAllFriends(accountId).catch(() => [])) as any[];
-    sentRequests = (await zaloOps.getSentFriendRequests(accountId).catch(() => [])) as any[];
+    // SDK có thể trả: array | {data:[]} | {items:[]} | undefined tuỳ phiên bản zca-js.
+    // Defensive normalize sang array; non-array shape coi như empty.
+    const liveRaw: any = await zaloOps.getAllFriends(accountId).catch(() => []);
+    const sentRaw: any = await zaloOps.getSentFriendRequests(accountId).catch(() => []);
+    liveFriends = Array.isArray(liveRaw) ? liveRaw
+      : Array.isArray(liveRaw?.data) ? liveRaw.data
+      : Array.isArray(liveRaw?.items) ? liveRaw.items
+      : [];
+    sentRequests = Array.isArray(sentRaw) ? sentRaw
+      : Array.isArray(sentRaw?.data) ? sentRaw.data
+      : Array.isArray(sentRaw?.items) ? sentRaw.items
+      : [];
   } catch (err) {
     result.errors++;
     logger.warn(`[friend-sync:${accountId}] SDK fetch failed:`, err);
