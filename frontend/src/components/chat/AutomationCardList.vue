@@ -2,7 +2,8 @@
   <section v-if="cards.length || allowEmpty" class="ip-section automation-section">
     <div class="ip-section-title">
       <span class="accent" />
-      ⚡ Automation đang chạy
+      <v-icon class="section-icon" size="18">mdi-lightning-bolt-outline</v-icon>
+      Automation đang chạy
       <span class="scope-tag">per-nick</span>
       <button class="add-mini-btn" title="Gắn thêm automation" @click="$emit('attach')">+</button>
     </div>
@@ -39,7 +40,7 @@
     </div>
 
     <div v-else class="empty-state">
-      Chưa có automation nào đang chạy cho cặp nick × KH này.
+      Chưa có automation nào đang chạy cho cặp nick và KH này.
     </div>
   </section>
 </template>
@@ -62,9 +63,9 @@ defineEmits<{ action: [id: string, kind: string]; attach: [] }>();
 function stateLabel(state: AutomationState) {
   const map: Record<AutomationState, string> = {
     running: '▶ Đang chạy',
-    scheduled: '🕐 Sắp chạy',
+    scheduled: 'Sắp chạy',
     paused: '⏸ Tạm dừng',
-    completed: '✓ Hoàn thành',
+    completed: 'Hoàn thành',
   };
   return map[state];
 }

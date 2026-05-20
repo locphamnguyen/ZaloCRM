@@ -48,12 +48,12 @@
             <v-menu v-if="conversation.externalThreadId && conversation.zaloAccount" :close-on-content-click="false" location="bottom start">
               <template #activator="{ props: actProps }">
                 <button v-bind="actProps" class="zlbl-trigger" :title="currentLabel ? `Đang gắn: ${currentLabel.text}` : 'Chưa gắn tag Zalo'">
-                  <span class="zlbl-icon" :style="currentLabel ? `color: ${currentLabel.color}` : ''">🏷</span>
+                  <v-icon class="zlbl-icon" size="16" :style="currentLabel ? `color: ${currentLabel.color}` : ''">mdi-tag-outline</v-icon>
                   <span v-if="currentLabel" class="zlbl-current-name" :style="`color: ${currentLabel.color}`">
                     {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
                   </span>
                   <span v-else class="zlbl-empty">Phân loại</span>
-                  <span class="zlbl-caret">▾</span>
+                  <v-icon class="zlbl-caret" size="14">mdi-chevron-down</v-icon>
                 </button>
               </template>
               <div class="zlbl-dropdown zalo-native">
@@ -61,7 +61,10 @@
 
                 <div v-else-if="!allLabels.length" class="zlbl-empty-state">
                   Tài khoản chưa có thẻ phân loại nào.<br />
-                  <button class="zlbl-inline-sync" @click="onSyncLabels">⟳ Đồng bộ từ Zalo</button>
+                  <button class="zlbl-inline-sync" @click="onSyncLabels">
+                    <v-icon size="14">mdi-sync</v-icon>
+                    Đồng bộ từ Zalo
+                  </button>
                 </div>
 
                 <div v-else class="zlbl-options">
@@ -72,17 +75,17 @@
                     :class="{ active: currentLabel?.id === lbl.id }"
                     @click="onPickLabel(lbl)"
                   >
-                    <span class="zlbl-flag" :style="`color: ${lbl.color}`">⚑</span>
+                    <v-icon class="zlbl-flag" size="14" :style="`color: ${lbl.color}`">mdi-flag-outline</v-icon>
                     <span class="zlbl-name">
                       <span v-if="lbl.emoji">{{ lbl.emoji }} </span>{{ lbl.text }}
                     </span>
-                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check">✓</span>
+                    <v-icon v-if="currentLabel?.id === lbl.id" class="zlbl-check" size="14">mdi-check</v-icon>
                   </button>
                 </div>
 
                 <div class="zlbl-divider"></div>
                 <button class="zlbl-manage" @click="goToLabelsSettings">
-                  <span class="manage-icon">⚙</span>
+                  <v-icon class="manage-icon" size="16">mdi-cog-outline</v-icon>
                   Quản lý thẻ phân loại
                 </button>
               </div>
@@ -107,8 +110,8 @@
               class="msg-counts"
               :title="`Tin nhắn 1-1 RIÊNG cặp nick × KH này: ${msgInCount} đến / ${msgOutCount} gửi. (Tổng toàn KH ${contactTotalIn}/${contactTotalOut} qua mọi nick chăm)`"
             >
-              <span class="cnt-in">{{ msgInCount }}</span>↘
-              <span class="cnt-out">{{ msgOutCount }}</span>↗
+              <span class="cnt-in">{{ msgInCount }}</span><v-icon class="cnt-direction" size="13">mdi-call-received</v-icon>
+              <span class="cnt-out">{{ msgOutCount }}</span><v-icon class="cnt-direction" size="13">mdi-call-made</v-icon>
               <span class="cnt-scope">per nick này</span>
             </span>
             <span class="ch-sep">|</span>
@@ -127,7 +130,7 @@
             :title="friendshipTitle"
             disabled
           >
-            <span class="ic">✓</span> Đã KB
+            <v-icon class="ic" size="16">mdi-check</v-icon> Đã KB
             <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
           </button>
           <button
@@ -136,7 +139,7 @@
             :title="`Đã gửi mời. ${pendingDaysLabel}. Click để hủy.`"
             @click="onCancelInvite"
           >
-            <span class="ic">📤</span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
+            <v-icon class="ic" size="16">mdi-send-outline</v-icon> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
           </button>
           <button
             v-else-if="friendshipState === 'ghost'"
@@ -156,13 +159,15 @@
           </button>
 
           <button class="btn-action btn-webhook" :disabled="webhookLoading" @click="fireWebhook">
-            {{ webhookLoading ? '⏳ Đang bắn…' : '🚀 Webhook' }}
+            <v-icon v-if="webhookLoading" class="ic" size="16">mdi-timer-sand</v-icon>
+            <v-icon v-else class="ic" size="16">mdi-rocket-launch-outline</v-icon>
+            {{ webhookLoading ? 'Đang bắn…' : 'Webhook' }}
           </button>
 
           <!-- More dropdown: gộp Lịch sử / Tìm / Note -->
           <v-menu>
             <template #activator="{ props: act }">
-              <button class="icon-btn" v-bind="act" title="Thêm">⋮</button>
+              <button class="icon-btn" v-bind="act" title="Thêm"><v-icon size="18">mdi-dots-vertical</v-icon></button>
             </template>
             <v-list density="compact" min-width="220">
               <v-list-item prepend-icon="mdi-history" title="Lịch sử hội thoại" @click="toast.push('Lịch sử: chưa implement')" />
@@ -173,7 +178,7 @@
               <v-list-item
                 v-if="conversation.contact"
                 prepend-icon="mdi-merge"
-                title="🔗 Gắn vào KH Cha (merge)"
+                title="Gắn vào KH Cha (merge)"
                 @click="showLinkParentDialog = true"
               />
               <v-divider />
@@ -187,7 +192,9 @@
             :class="{ on: showContactPanel }"
             title="Toggle thông tin KH"
             @click="$emit('toggle-contact-panel')"
-          >ⓘ</button>
+          >
+            <v-icon size="16">mdi-information-outline</v-icon>
+          </button>
         </div>
       </header>
 
@@ -220,7 +227,9 @@
                   {{ item.messages.length }}/{{ item.totalExpected }} ảnh đã nhận
                 </div>
                 <div class="bubble-time">
-                  {{ formatMessageTime(item.sentAt) }} · 🖼️ {{ item.messages.length }} ảnh
+                  {{ formatMessageTime(item.sentAt) }} ·
+                  <v-icon size="12" class="bubble-time-icon">mdi-image-outline</v-icon>
+                  {{ item.messages.length }} ảnh
                 </div>
               </div>
             </div>
@@ -376,7 +385,7 @@
           v-model="showAppointmentDialog"
           :contact-id="conversation.contact?.id ?? null"
           :contact-name="conversation.contact?.fullName ?? null"
-          header="📅 Tạo nhắc hẹn"
+          header="Tạo nhắc hẹn"
           @created="onAppointmentCreated"
         />
 
@@ -661,7 +670,7 @@ watch(() => props.conversation?.id, (newId, oldId) => {
   }
 }, { immediate: true });
 
-/* Optimistic UI FULL: update cả allLabels (dropdown ✓) + friendship.crmTagsPerNick
+/* Optimistic UI FULL: update cả allLabels (dropdown active state) + friendship.crmTagsPerNick
  * (tag bar cột 3 + ConversationList cột 2) NGAY khi click.
  * Tránh "show tag cũ vài giây rồi mới sang tag mới" — full snap immediately.
  * API call background; rollback nếu fail. */
@@ -680,17 +689,21 @@ async function onPickLabel(label: AccountLabelView) {
     ? [...(friendship!.crmTagsPerNick as string[])]
     : [];
 
-  // ── Optimistic 1: allLabels assignedTo flag (dropdown ✓ animation) ──
+  // ── Optimistic 1: allLabels assignedTo flag (dropdown active animation) ──
   allLabels.value = allLabels.value.map(l => ({
     ...l,
     assignedTo: labelId !== null && l.id === labelId,
   }));
 
-  // ── Optimistic 2: friendship.crmTagsPerNick — strip ALL "🔵 X" cũ +
-  // add "🔵 newLabel" nếu assign. Đây là field tag bar cột 3 + cột 2 read.
-  // Vue reactive mutation: friendship là proxy của conversation prop. ──
-  const stripped = oldCrmTags.filter(t => !t.startsWith('🔵 '));
-  const newTags = labelId !== null ? [...stripped, `🔵 ${label.text}`] : stripped;
+  // ── Optimistic 2: friendship.crmTagsPerNick — replace previous Zalo label text.
+  // Đây là field tag bar cột 3 + cột 2 read. Vue reactive mutation: friendship là proxy của conversation prop. ──
+  const legacyMirrorPrefix = `${String.fromCodePoint(0x1f535)} `;
+  const labelTexts = new Set(allLabels.value.map(l => l.text).filter(Boolean));
+  const stripped = oldCrmTags.filter(t => {
+    const normalized = t.startsWith(legacyMirrorPrefix) ? t.slice(legacyMirrorPrefix.length) : t;
+    return !labelTexts.has(normalized);
+  });
+  const newTags = labelId !== null ? [...stripped, label.text] : stripped;
   if (friendship) {
     friendship.crmTagsPerNick = newTags;
   }
@@ -700,7 +713,7 @@ async function onPickLabel(label: AccountLabelView) {
   const convId = props.conversation?.id;
   if (convId) registerPendingTags(convId, newTags);
 
-  toast.success(labelId ? `✓ Đã gắn "${label.text}"` : `✓ Đã bỏ tag`);
+  toast.success(labelId ? `Đã gắn "${label.text}"` : `Đã bỏ tag`);
 
   // API call background — UI đã update sẵn
   try {
@@ -730,7 +743,7 @@ async function onSyncLabels() {
   try {
     const { api: apiClient } = await import('@/api/index');
     const { data } = await apiClient.post(`/zalo-accounts/${accId}/labels/sync`);
-    toast.success(`✓ Sync ${data.labels.length} tag · ${data.friendsUpdated} KH`);
+    toast.success(`Sync ${data.labels.length} tag · ${data.friendsUpdated} KH`);
     await fetchAllLabels(accId, threadId);
     window.dispatchEvent(new CustomEvent('zalo-labels-synced', { detail: { accountId: accId } }));
   } catch (err: any) {
@@ -742,7 +755,7 @@ function goToLabelsSettings() {
   window.location.assign('/settings?tab=zalo-labels');
 }
 
-// CRM tags = merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
+// CRM tags = merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored plain label text).
 // Source of truth: 2 fields khác nhau. Dedup, Zalo tags lên trước.
 const contactTags = ref<string[]>([]);
 function recomputeTags() {
@@ -753,8 +766,7 @@ function recomputeTags() {
   const ft = Array.isArray(ftRaw) ? ftRaw : [];
   const seen = new Set<string>();
   const merged: string[] = [];
-  for (const t of ft) if (t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
-  for (const t of ft) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
+  for (const t of ft) if (!seen.has(t)) { seen.add(t); merged.push(t); }
   for (const t of ct) if (!seen.has(t)) { seen.add(t); merged.push(t); }
   contactTags.value = merged;
 }
@@ -764,7 +776,7 @@ watch(() => [
 ], recomputeTags, { immediate: true, deep: true });
 
 function onUpdateTags(next: string[]) {
-  // TagCrmBar PUT only updates Contact.tags. Zalo-managed (🔵) tags stay in
+  // TagCrmBar PUT only updates Contact.tags. Zalo-managed labels stay in
   // Friend.crmTagsPerNick (read-only). Merge view-side preserves both.
   contactTags.value = next;
 }
@@ -955,7 +967,7 @@ async function onCareStatusChange(value: string) {
         if (props.conversation?.contact) {
           (props.conversation.contact as { status?: string | null }).status = prev as string | null;
         }
-        toast.success(`✓ Đã hoàn tác về "${prev || 'không có'}"`);
+        toast.success(`Đã hoàn tác về "${prev || 'không có'}"`);
       } catch {
         toast.error('Hoàn tác thất bại');
       }
@@ -1038,7 +1050,7 @@ function onPasteImage(files: File[]) {
 async function handleImageFiles(files: File[]) {
   if (!props.conversation?.id) return;
   if (!files.length) return;
-  toast.push(`📷 Đang gửi ${files.length} ảnh…`);
+  toast.push(`Đang gửi ${files.length} ảnh…`);
   try {
     const fd = new FormData();
     for (const f of files) fd.append('files', f, f.name);
@@ -1058,7 +1070,7 @@ async function handleFiles(files: File[]) {
   // Tạm dùng same endpoint upload-image — Zalo SDK auto detect type qua extension
   if (!props.conversation?.id) return;
   if (!files.length) return;
-  toast.push(`📎 Đang gửi ${files.length} file…`);
+  toast.push(`Đang gửi ${files.length} file…`);
   try {
     const fd = new FormData();
     for (const f of files) fd.append('files', f, f.name);
@@ -1081,7 +1093,7 @@ function toggleFormat() {
   if (formatBarVisible.value) editorRef.value?.focus();
 }
 
-// ── Appointment quick-create từ icon 📅 trong toolbar — đồng bộ flow với cột 4.
+// ── Appointment quick-create từ calendar icon trong toolbar — đồng bộ flow với cột 4.
 const showAppointmentDialog = ref(false);
 function onAppointmentCreated() {
   // Notify parent reload thread + dispatch global event để cột 4 (ChatContactPanel)
@@ -1308,7 +1320,7 @@ watch(() => props.conversation?.id, async (newId) => {
 });
 
 // Auto-apply AI suggestion ngay khi generate xong (transition empty → non-empty).
-// User chỉ cần bấm ✨ → text vào input + caret cuối → Enter gửi luôn.
+// User chỉ cần bấm nút gợi ý AI → text vào input + caret cuối → Enter gửi luôn.
 watch(() => props.aiSuggestion, (next, prev) => {
   if (next && next !== prev) {
     applySuggestion(next);

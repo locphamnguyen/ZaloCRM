@@ -4,7 +4,7 @@
       <div class="apt-dialog">
         <div class="apt-dialog-head">
           <span>{{ headerTitle }}</span>
-          <button class="dialog-close" @click="$emit('update:modelValue', false)">×</button>
+          <button class="dialog-close" @click="$emit('update:modelValue', false)"><v-icon size="16">mdi-close</v-icon></button>
         </div>
         <div class="apt-dialog-body">
           <!-- Title -->
@@ -44,7 +44,7 @@
                 <select v-model="timeMinute" class="time-select">
                   <option v-for="m in MINUTES" :key="m" :value="m">{{ m }}</option>
                 </select>
-                <button v-if="form.time" class="clear-time" title="Xoá giờ (cả ngày)" @click="form.time = ''">×</button>
+                <button v-if="form.time" class="clear-time" title="Xoá giờ (cả ngày)" @click="form.time = ''"><v-icon size="14">mdi-close</v-icon></button>
               </div>
               <div class="quick-chips">
                 <button
@@ -54,7 +54,8 @@
                   :class="{ active: form.time === opt.value }"
                   @click="form.time = opt.value"
                 >
-                  {{ opt.icon }} {{ opt.label }}
+                  <v-icon size="15">{{ opt.icon }}</v-icon>
+                  {{ opt.label }}
                 </button>
               </div>
             </div>
@@ -71,7 +72,7 @@
                 :class="{ active: form.type === opt.value }"
                 @click="form.type = opt.value"
               >
-                <span class="type-icon">{{ opt.icon }}</span>
+                <v-icon class="type-icon" size="16">{{ opt.icon }}</v-icon>
                 <span>{{ opt.label }}</span>
               </button>
             </div>
@@ -87,7 +88,8 @@
         <div class="apt-dialog-foot">
           <button class="btn-link" @click="$emit('update:modelValue', false)">Huỷ</button>
           <button class="btn-primary" :disabled="!form.date || saving" @click="submit">
-            {{ saving ? 'Đang tạo…' : '📅 Lên lịch' }}
+            <template v-if="saving">Đang tạo…</template>
+            <template v-else><v-icon size="16">mdi-calendar-outline</v-icon> Lên lịch</template>
           </button>
         </div>
       </div>
@@ -125,7 +127,10 @@ const saving = ref(false);
 function isoDate(offsetDays: number): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 const DATE_QUICK = computed(() => [
   { label: 'Hôm nay', value: isoDate(0) },
@@ -139,17 +144,17 @@ const HOURS = Array.from({ length: 18 }, (_, i) => String(i + 6).padStart(2, '0'
 const MINUTES = ['00', '15', '30', '45'];
 
 const TIME_QUICK = [
-  { icon: '☀️', label: 'Sáng', value: '09:00' },
-  { icon: '🌤', label: 'Trưa', value: '12:00' },
-  { icon: '🌇', label: 'Chiều', value: '14:00' },
-  { icon: '🌆', label: 'Tối', value: '19:00' },
+  { icon: 'mdi-weather-sunny', label: 'Sáng', value: '09:00' },
+  { icon: 'mdi-weather-partly-cloudy', label: 'Trưa', value: '12:00' },
+  { icon: 'mdi-weather-sunset', label: 'Chiều', value: '14:00' },
+  { icon: 'mdi-weather-sunset', label: 'Tối', value: '19:00' },
 ];
 
 const TYPE_OPTIONS = [
-  { value: 'call', label: 'Gọi điện', icon: '📞' },
-  { value: 'message', label: 'Nhắn tin', icon: '💬' },
-  { value: 'meeting', label: 'Gặp mặt', icon: '🤝' },
-  { value: 'follow_up', label: 'Theo dõi', icon: '🔁' },
+  { value: 'call', label: 'Gọi điện', icon: 'mdi-phone-outline' },
+  { value: 'message', label: 'Nhắn tin', icon: 'mdi-chat-outline' },
+  { value: 'meeting', label: 'Gặp mặt', icon: 'mdi-handshake-outline' },
+  { value: 'follow_up', label: 'Theo dõi', icon: 'mdi-repeat' },
 ];
 
 const form = ref({ summary: '', date: '', time: '09:00', type: 'follow_up', location: '' });
@@ -197,7 +202,7 @@ const timeMinute = computed<string>({
   },
 });
 
-const headerTitle = computed(() => props.header || '📅 Tạo nhắc hẹn');
+const headerTitle = computed(() => props.header || 'Tạo nhắc hẹn');
 
 async function submit() {
   if (!form.value.date || !props.contactId) return;
@@ -206,7 +211,7 @@ async function submit() {
     const time = form.value.time && /^\d{2}:\d{2}$/.test(form.value.time) ? form.value.time : '09:00';
     const isoDateTime = new Date(`${form.value.date}T${time}:00`).toISOString();
     const loc = (form.value.location || '').trim();
-    const notes = loc ? `${form.value.summary} (📍 ${loc})` : form.value.summary;
+    const notes = loc ? `${form.value.summary} (${loc})` : form.value.summary;
     const { data } = await api.post('/appointments', {
       contactId: props.contactId,
       appointmentDate: isoDateTime,
@@ -215,7 +220,7 @@ async function submit() {
       notes,
     });
     const aptId = data.id || data.appointment?.id;
-    toast.success('📅 Đã tạo lịch hẹn');
+    toast.success('Đã tạo lịch hẹn');
     if (aptId) emit('created', aptId);
     emit('update:modelValue', false);
   } catch (err: any) {

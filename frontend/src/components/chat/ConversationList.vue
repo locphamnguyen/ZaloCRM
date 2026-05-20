@@ -33,7 +33,9 @@
           class="clear-tags"
           @click="filters.tags = []"
           title="Xoá lọc tag"
-        >×</button>
+        >
+          <v-icon size="16">mdi-close</v-icon>
+        </button>
       </div>
 
       <!-- Tab Main / Other (giữ business logic) -->
@@ -81,7 +83,7 @@
         <div class="ci-body">
           <div class="ci-name-row">
             <div class="ci-name">
-              <span v-if="conv.threadType === 'group'" class="group-icon">👥</span>
+              <v-icon v-if="conv.threadType === 'group'" class="group-icon" size="16">mdi-account-group-outline</v-icon>
               {{ displayName(conv) }}
             </div>
             <div class="ci-meta-right">
@@ -96,7 +98,7 @@
           <div class="ci-preview">{{ lastMessagePreview(conv) }}</div>
 
           <!-- Tag row luôn render (kể cả rỗng) để giữ layout cố định.
-               Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored 🔵 X).
+               Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored Zalo-managed tags).
                Show 3 tag đầu + "+N" chip click xem rest qua v-menu. -->
           <div class="ci-tag-row">
             <span
@@ -211,6 +213,7 @@ const emit = defineEmits<{
 
 // ── Compose new message ─────────────────────────────────────────────────────
 const newMsgOpen = ref(false);
+const tagDefsReady = ref(false);
 const composeAccounts = computed(() => props.accounts || []);
 const composeDefaultAccountId = computed<string | null>(() => {
   const ids = props.selectedAccountIds || [];
@@ -258,17 +261,17 @@ function buildFilterParams(): Record<string, string> {
 // Tag color logic giờ qua composable use-crm-tag-defs (tagColor lookup từ CrmTag.color).
 // Legacy TAG_COLOR_MAP + colorOfTag + tagBgColor đã removed sau refactor TagIcon monochromatic.
 
-/* Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored "🔵 X").
+/* Merge Contact.tags + Friend.crmTagsPerNick (Zalo-mirrored tags).
  * Dedup, Zalo tags hiển thị đầu (priority cho per-pair context). */
 function mergedTags(conv: Conversation): string[] {
   const contactTags = Array.isArray(conv.contact?.tags) ? (conv.contact!.tags as string[]) : [];
   const friendTagsRaw = (conv.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick;
   const friendTags = Array.isArray(friendTagsRaw) ? friendTagsRaw : [];
-  // Dedup, Zalo-managed (🔵 prefix) lên trước
+  tagDefsReady.value;
   const seen = new Set<string>();
   const result: string[] = [];
-  for (const t of friendTags) if (t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); result.push(t); }
-  for (const t of friendTags) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); result.push(t); }
+  for (const t of friendTags) if (isZaloManaged(t) && !seen.has(t)) { seen.add(t); result.push(t); }
+  for (const t of friendTags) if (!isZaloManaged(t) && !seen.has(t)) { seen.add(t); result.push(t); }
   for (const t of contactTags) if (!seen.has(t)) { seen.add(t); result.push(t); }
   return result;
 }
@@ -367,6 +370,7 @@ watch(activeTab, () => {
 onMounted(async () => {
   // Load CrmTag defs (color + managedBy) cho TagIcon render — share cache toàn app
   await Promise.all([fetchCounts(), fetchAvailableTags(), loadTagDefs()]);
+  tagDefsReady.value = true;
 });
 
 /* ── Auto-scroll selected row vào viewport ──────────────────────────────────
@@ -738,7 +742,7 @@ function formatTime(dateStr: string | null): string {
 .ci-name :first-child + * { /* tên thật sự — cho phép shrink */
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.group-icon { font-size: 11px; }
+.group-icon { color: var(--smax-grey-700); flex: 0 0 auto; }
 /* Meta-right float ra góc phải, không nằm trong flex flow → badge không phá height */
 .ci-meta-right {
   position: absolute; top: 0; right: 0;

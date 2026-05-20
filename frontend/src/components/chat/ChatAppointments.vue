@@ -24,7 +24,7 @@
       v-model="showQuickDialog"
       :contact-id="contactId"
       :contact-name="contactName"
-      header="📅 Tạo nhắc hẹn"
+      header="Tạo nhắc hẹn"
       @created="onCreated"
     />
 
@@ -46,7 +46,8 @@
             prepend-icon="mdi-bell-ring"
             class="mr-1"
           >
-            {{ apt.emoji || '🔔' }} Zalo
+            <v-icon size="13">mdi-bell-outline</v-icon>
+            Zalo
           </v-chip>
           <v-chip
             v-else

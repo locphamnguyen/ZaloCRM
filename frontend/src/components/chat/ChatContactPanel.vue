@@ -2,7 +2,7 @@
   <aside class="info-panel">
     <!-- ════════ HEADER pinned (avatar + lead score overlay + care-status) ════════ -->
     <header class="ip-header">
-      <button class="ip-close" title="Đóng" @click="$emit('close')">×</button>
+      <button class="ip-close" title="Đóng" @click="$emit('close')"><v-icon size="16">mdi-close</v-icon></button>
       <div class="ip-avatar-wrap">
         <!-- KHÔNG truyền :gender — gender badge ♂/♀ sẽ đè lên lead-score-badge.
              Gender info đã hiển thị ở chat header (chip "Nam"/"Nữ" row 1)
@@ -41,14 +41,14 @@
         :class="{ active: activeTab === 'profile' }"
         @click="activeTab = 'profile'"
       >
-        <span class="ic">👤</span> Hồ sơ
+        <v-icon class="ic" size="16">mdi-account-outline</v-icon> Hồ sơ
       </button>
       <button
         class="ip-tab"
         :class="{ active: activeTab === 'relations' }"
         @click="activeTab = 'relations'"
       >
-        <span class="ic">🔗</span> Quan hệ
+        <v-icon class="ic" size="16">mdi-link-variant</v-icon> Quan hệ
         <span v-if="relationBadgeCount" class="tab-badge">{{ relationBadgeCount }}</span>
       </button>
       <button
@@ -57,7 +57,7 @@
         data-fly-target="activity-tab"
         @click="activeTab = 'activity'"
       >
-        <span class="ic">📅</span> Lịch hẹn
+        <v-icon class="ic" size="16">mdi-calendar-outline</v-icon> Lịch hẹn
         <span v-if="activityBadgeCount || pendingAptBump" class="tab-badge">{{ (activityBadgeCount ?? 0) + pendingAptBump }}</span>
       </button>
     </nav>
@@ -71,14 +71,14 @@
         <section class="ip-form" :class="{ collapsed: !infoExpanded }">
           <!-- Always visible: Tên Zalo -->
           <div class="ip-form-row">
-            <span class="ip-icon">👤</span>
+            <v-icon class="ip-icon" size="16">mdi-account-outline</v-icon>
             <span class="ip-label">Tên Zalo</span>
             <input v-model="form.fullName" placeholder="Tên Zalo cung cấp" @blur="saveContact" />
           </div>
 
           <!-- Always visible: SĐT chính -->
           <div class="ip-form-row">
-            <span class="ip-icon">📞</span>
+            <v-icon class="ip-icon" size="16">mdi-phone-outline</v-icon>
             <span class="ip-label">SĐT</span>
             <div class="phone-cell">
               <input v-model="form.phone" placeholder="SĐT chính" @blur="saveContact" />
@@ -102,17 +102,17 @@
           <!-- Expanded fields -->
           <template v-if="infoExpanded">
             <div class="ip-form-row">
-              <span class="ip-icon">✏</span>
+              <v-icon class="ip-icon" size="16">mdi-pencil-outline</v-icon>
               <span class="ip-label">Tên Alias</span>
               <input v-model="form.crmName" placeholder="Sale tự đặt" @blur="saveContact" />
             </div>
             <div class="ip-form-row">
-              <span class="ip-icon">📅</span>
+              <v-icon class="ip-icon" size="16">mdi-calendar-outline</v-icon>
               <span class="ip-label">Ngày sinh</span>
               <input type="date" v-model="form.birthDate" @blur="saveContact" />
             </div>
             <div class="ip-form-row">
-              <span class="ip-icon">⚧</span>
+              <v-icon class="ip-icon" size="16">mdi-gender-male-female</v-icon>
               <span class="ip-label">Giới tính</span>
               <select v-model="form.gender" @change="saveContact">
                 <option :value="null">Không rõ</option>
@@ -132,17 +132,17 @@
               </div>
             </template>
             <div class="ip-form-row">
-              <span class="ip-icon">✉</span>
+              <v-icon class="ip-icon" size="16">mdi-email-outline</v-icon>
               <span class="ip-label">Email</span>
               <input v-model="form.email" placeholder="Chưa có email" @blur="saveContact" />
             </div>
             <div class="ip-form-row">
-              <span class="ip-icon">📍</span>
+              <v-icon class="ip-icon" size="16">mdi-map-marker-outline</v-icon>
               <span class="ip-label">Địa chỉ</span>
               <input v-model="form.addressLine" placeholder="Địa chỉ chi tiết" @blur="saveContact" />
             </div>
             <div class="ip-form-row">
-              <span class="ip-icon">💼</span>
+              <v-icon class="ip-icon" size="16">mdi-briefcase-outline</v-icon>
               <span class="ip-label">Nghề</span>
               <input v-model="form.occupation" placeholder="Nghề nghiệp" @blur="saveContact" />
             </div>
@@ -176,7 +176,7 @@
         <section v-if="relations.friends.length" class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: var(--smax-info)" />
-            💬 Nick CRM đang chăm ({{ relations.friends.length }})
+            <v-icon class="section-title-icon" size="16">mdi-chat-outline</v-icon> Nick CRM đang chăm ({{ relations.friends.length }})
             <span class="scope-tag global">per-nick</span>
           </div>
           <div class="friends-list">
@@ -196,7 +196,7 @@
                   v-if="f.hasConversation"
                   class="conv-badge conv-badge--on"
                   title="Đã từng nhắn 1-1 với KH qua nick này"
-                >💬</span>
+                > <v-icon size="14">mdi-chat-outline</v-icon></span>
                 <span
                   v-else
                   class="conv-badge conv-badge--off"
@@ -228,14 +228,14 @@
                 <strong>{{ f.leadScore ?? 0 }}</strong>
               </div>
               <div class="friend-card-row meta-line">
-                <span>📥 <strong>{{ f.totalInbound }}</strong></span>
-                <span>📤 <strong>{{ f.totalOutbound }}</strong></span>
+                <span><v-icon size="13">mdi-inbox-arrow-down-outline</v-icon> <strong>{{ f.totalInbound }}</strong></span>
+                <span><v-icon size="13">mdi-send-outline</v-icon> <strong>{{ f.totalOutbound }}</strong></span>
                 <span v-if="f.becameFriendAt">KB: {{ relativeTime(f.becameFriendAt) }}</span>
                 <span v-if="f.lastInboundAt">Last: {{ relativeTime(f.lastInboundAt) }}</span>
               </div>
               <div class="friend-card-actions">
                 <button class="btn-sm-danger" :title="'Tách Con này thành KH Cha mới'" @click="onPromoteFriend(f)">
-                  ✂ Tách thành KH Cha riêng
+                  <v-icon size="14">mdi-content-cut</v-icon> Tách thành KH Cha riêng
                 </button>
               </div>
             </div>
@@ -251,7 +251,7 @@
         <section class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: var(--smax-warning)" />
-            🔖 Label Zalo (native)
+            <v-icon class="section-title-icon" size="16">mdi-bookmark-outline</v-icon> Label Zalo (native)
             <span class="scope-tag pernick">per-nick</span>
           </div>
           <TagChipList
@@ -265,11 +265,11 @@
           </div>
         </section>
 
-        <!-- Tag riêng nick × KH (per-pair) -->
+        <!-- Tag riêng nick với KH (per-pair) -->
         <section class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: var(--smax-warning)" />
-            🏷 Tag riêng nick × KH
+            <v-icon class="section-title-icon" size="16">mdi-tag-outline</v-icon> Tag riêng nick với KH
             <span class="scope-tag pernick">per-nick</span>
           </div>
           <TagChipList
@@ -288,7 +288,7 @@
         <section v-if="aiSummary || aiSummaryLoading" class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: #9c27b0" />
-            ✨ AI Tóm tắt
+            <v-icon class="section-title-icon" size="16">mdi-creation-outline</v-icon> AI Tóm tắt
             <button class="refresh-mini" :disabled="aiSummaryLoading" @click="$emit('refresh-ai-summary')">↻</button>
           </div>
           <AiSummaryCard :summary="aiSummary" :loading="aiSummaryLoading" />
@@ -298,7 +298,7 @@
         <section v-if="aiSentiment || aiSentimentLoading" class="ip-section">
           <div class="ip-section-title">
             <span class="accent" style="background: #ec407a" />
-            💗 Cảm xúc khách hàng
+            <v-icon class="section-title-icon" size="16">mdi-heart-outline</v-icon> Cảm xúc khách hàng
             <button class="refresh-mini" :disabled="aiSentimentLoading" @click="$emit('refresh-ai-sentiment')">↻</button>
           </div>
           <AiSentimentBadge :sentiment="aiSentiment" />
@@ -425,7 +425,7 @@ function onAppointmentCreated() {
 }
 
 // Listen global 'appointment-created' event — fire khi MessageThread (cột 3) tạo
-// nhắc hẹn qua icon 📅 trong toolbar. Cùng pattern với zalo-labels-synced.
+// nhắc hẹn qua icon lịch hẹn trong toolbar. Cùng pattern với zalo-labels-synced.
 function onGlobalAppointmentCreated() { onAppointmentCreated(); }
 onMounted(() => window.addEventListener('appointment-created', onGlobalAppointmentCreated));
 onBeforeUnmount(() => {
@@ -483,7 +483,7 @@ function chipBg(hex: string | null | undefined): string {
 function chipFg(hex: string | null | undefined): string { return hex || 'var(--smax-grey-700)'; }
 
 async function onPromoteFriend(f: FriendItem) {
-  const name = prompt(`Tên cho KH Cha mới (Nick "${f.zaloAccount.displayName}" × UID ${f.zaloUidInNick}):`, '');
+  const name = prompt(`Tên cho KH Cha mới (Nick "${f.zaloAccount.displayName}" với UID ${f.zaloUidInNick}):`, '');
   if (name === null) return;  // cancelled
   try {
     const res = await api.post<{ newContact: { id: string; fullName: string }; movedConversations: number }>(
@@ -500,10 +500,10 @@ async function onPromoteFriend(f: FriendItem) {
 }
 
 function friendKindLabel(k: string): string {
-  if (k === 'friend') return '✓ Đã KB';
+  if (k === 'friend') return 'Đã KB';
   if (k === 'pending_friend') return '… Pending';
-  if (k === 'chatting_stranger') return '👥 Lạ';
-  if (k === 'ghost') return '🚫 Ngắt';
+  if (k === 'chatting_stranger') return 'Lạ';
+  if (k === 'ghost') return 'Ngắt';
   return k;
 }
 function friendKindClass(k: string): string {
@@ -551,7 +551,7 @@ function onAttachAutomation() { toast.warning('Gắn automation: chờ backend s
 // MOCK: zaloLabels (per-pair native labels) chưa expose qua API
 const zaloLabels = ref<string[]>([]);
 
-// Per-pair CRM tags: tags RIÊNG cho cặp (nick active × KH). KHÁC contact.tags
+// Per-pair CRM tags: tags RIÊNG cho cặp (nick active với KH). KHÁC contact.tags
 // (cấp KH chung). Trigger PATCH /friends/:id để persist.
 const activeFriend = computed<FriendItem | null>(() => {
   if (!props.activeZaloAccountId) return null;

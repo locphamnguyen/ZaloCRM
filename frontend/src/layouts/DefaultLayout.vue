@@ -165,7 +165,7 @@ const isSettingsActive = computed(() =>
 );
 
 // Workspace — placeholder single-tenant cho Phase 1
-const workspaceName = computed(() => authStore.user?.fullName || 'Huy Tran');
+const workspaceName = computed(() => 'HUY TRAN');
 const workspaceShort = computed(() =>
   workspaceName.value.slice(0, 2).toUpperCase(),
 );

@@ -48,12 +48,12 @@
             <input type="checkbox" v-model="groupInbox" @change="emitFilters" />
             Gom inbox
           </label>
-          <span v-if="selectedAccounts.length > 0" class="clear-nick" @click="clearAllNicks">× Bỏ chọn</span>
+          <span v-if="selectedAccounts.length > 0" class="clear-nick" @click="clearAllNicks"><v-icon size="16">mdi-close</v-icon> Bỏ chọn</span>
         </div>
 
         <!-- Nick selection dropdown -->
         <v-menu v-model="showAccountMenu" :close-on-content-click="false" location="bottom start">
-          <template #activator="{ props: act }">
+          <template v-slot:activator="{ props: act }">
             <span v-bind="act" />
           </template>
           <v-card min-width="320" max-width="380">
@@ -81,7 +81,7 @@
                   :key="acc.id"
                   @click="toggleAccount(acc.id)"
                 >
-                  <template #prepend>
+                  <template v-slot:prepend>
                     <v-icon size="18" :color="isSelected(acc.id) ? 'primary' : ''">
                       {{ isSelected(acc.id) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline' }}
                     </v-icon>
@@ -129,7 +129,7 @@
         :title="collapsed ? `Tin nhắn nhóm${counts?.groups != null ? ' (' + counts.groups + ')' : ''}` : ''"
         @click="setThreadType('group')"
       >
-        <span class="icon">👥</span>
+        <v-icon class="icon" size="18">mdi-account-group-outline</v-icon>
         <span class="label">Tin nhắn nhóm</span>
         <span class="count" v-if="!collapsed && counts?.groups != null">{{ counts.groups }}</span>
       </div>
@@ -139,7 +139,7 @@
         :title="collapsed ? `Tin nhắn user 1-1${counts?.users != null ? ' (' + counts.users + ')' : ''}` : ''"
         @click="setThreadType('user')"
       >
-        <span class="icon">👤</span>
+        <v-icon class="icon" size="18">mdi-account-outline</v-icon>
         <span class="label">Tin nhắn user (1-1)</span>
         <span class="count" v-if="!collapsed && counts?.users != null">{{ counts.users }}</span>
       </div>
@@ -154,7 +154,7 @@
         :title="collapsed ? 'Chỉ lọc chưa đọc' : ''"
         @click="toggleFilter('unread')"
       >
-        <span class="icon">⊙</span>
+        <v-icon class="icon" size="18">mdi-filter-outline</v-icon>
         <span class="label">Chỉ chưa đọc</span>
         <div v-if="!collapsed" class="smax-toggle-pill" :class="{ on: filters.unread }"></div>
         <span v-else-if="filters.unread" class="badge-dot" />
@@ -165,7 +165,7 @@
         :title="collapsed ? 'Chưa trả lời' : ''"
         @click="toggleFilter('unreplied')"
       >
-        <span class="icon">↩</span>
+        <v-icon class="icon" size="18">mdi-undo-variant</v-icon>
         <span class="label">Chưa trả lời</span>
         <div v-if="!collapsed" class="smax-toggle-pill" :class="{ on: filters.unreplied }"></div>
         <span v-else-if="filters.unreplied" class="badge-dot" />
@@ -176,7 +176,7 @@
         :title="collapsed ? 'Chưa đọc lên trên' : ''"
         @click="toggleFilter('unreadOnTop')"
       >
-        <span class="icon">⬆</span>
+        <v-icon class="icon" size="18">mdi-arrow-up-bold-outline</v-icon>
         <span class="label">Chưa đọc lên trên</span>
         <div v-if="!collapsed" class="smax-toggle-pill" :class="{ on: filters.unreadOnTop }"></div>
         <span v-else-if="filters.unreadOnTop" class="badge-dot" />
@@ -189,7 +189,7 @@
 
       <!-- Trạng thái KH -->
       <div class="filter-row filter-row-select" :title="collapsed ? 'Trạng thái KH' : ''">
-        <span class="icon">🏷</span>
+        <v-icon class="icon" size="18">mdi-tag-outline</v-icon>
         <template v-if="!collapsed">
           <select v-model="advFilters.statusId" @change="emitFilters" class="rail-select">
             <option value="">Trạng thái KH: tất cả</option>
@@ -201,7 +201,7 @@
 
       <!-- Sale phụ trách -->
       <div class="filter-row filter-row-select" :title="collapsed ? 'Sale phụ trách' : ''">
-        <span class="icon">👤</span>
+        <v-icon class="icon" size="18">mdi-account-outline</v-icon>
         <template v-if="!collapsed">
           <select v-model="advFilters.assignedUserId" @change="emitFilters" class="rail-select">
             <option value="">Sale: tất cả</option>
@@ -213,13 +213,13 @@
 
       <!-- Có Zalo? -->
       <div class="filter-row filter-row-select" :title="collapsed ? 'Trạng thái Zalo' : ''">
-        <span class="icon">💬</span>
+        <v-icon class="icon" size="18">mdi-chat-outline</v-icon>
         <template v-if="!collapsed">
           <select v-model="advFilters.hasZalo" @change="emitFilters" class="rail-select">
             <option value="">Zalo: tất cả</option>
-            <option value="true">✓ Có Zalo</option>
-            <option value="false">✗ Không có</option>
-            <option value="unknown">? Chưa tra</option>
+            <option value="true">Có Zalo</option>
+            <option value="false">Không có</option>
+            <option value="unknown">Chưa tra</option>
           </select>
         </template>
         <span v-else-if="advFilters.hasZalo" class="badge-dot" />
@@ -227,14 +227,14 @@
 
       <!-- KB Zalo per-pair -->
       <div class="filter-row filter-row-select" :title="collapsed ? 'Trạng thái KB Zalo' : ''">
-        <span class="icon">🤝</span>
+        <v-icon class="icon" size="18">mdi-handshake-outline</v-icon>
         <template v-if="!collapsed">
           <select v-model="advFilters.relationshipKindAny" @change="emitFilters" class="rail-select">
             <option value="">KB Zalo: tất cả</option>
-            <option value="friend">✓ Đã KB</option>
-            <option value="pending_friend">… Đang mời</option>
-            <option value="chatting_stranger">💬 Chat lạ</option>
-            <option value="ghost">🚫 Ngắt</option>
+            <option value="friend">Đã KB</option>
+            <option value="pending_friend">Đang mời</option>
+            <option value="chatting_stranger">Chat lạ</option>
+            <option value="ghost">Ngắt</option>
           </select>
         </template>
         <span v-else-if="advFilters.relationshipKindAny" class="badge-dot" />
@@ -242,7 +242,7 @@
 
       <!-- Lead score range -->
       <div class="filter-row filter-row-range" :title="collapsed ? 'Lead score range' : ''">
-        <span class="icon">⭐</span>
+        <v-icon class="icon" size="18">mdi-star-outline</v-icon>
         <template v-if="!collapsed">
           <input type="number" v-model.number="advFilters.scoreMin" placeholder="Min" min="0" max="100" class="rail-score" @change="emitFilters" />
           <span class="dash">—</span>
@@ -253,7 +253,7 @@
 
       <!-- Tags multi -->
       <div class="filter-row filter-row-select" :title="collapsed ? 'Tag CRM' : ''">
-        <span class="icon">#</span>
+        <v-icon class="icon" size="18">mdi-pound</v-icon>
         <template v-if="!collapsed">
           <select v-model="advFilters.tags" @change="emitFilters" class="rail-select">
             <option value="">Tag CRM: tất cả</option>
@@ -265,7 +265,7 @@
 
       <!-- Date range -->
       <div class="filter-row filter-row-range" :title="collapsed ? 'Tin nhắn cuối: khoảng thời gian' : ''">
-        <span class="icon">📅</span>
+        <v-icon class="icon" size="18">mdi-calendar-outline</v-icon>
         <template v-if="!collapsed">
           <input type="date" v-model="advFilters.dateFrom" class="rail-date" @change="emitFilters" />
           <input type="date" v-model="advFilters.dateTo" class="rail-date" @change="emitFilters" />
@@ -275,7 +275,8 @@
 
       <div v-if="!collapsed && hasAnyFilter" class="filter-divider"></div>
       <button v-if="!collapsed && hasAnyFilter" class="clear-all-btn" @click="clearAllFilters">
-        × Xoá tất cả bộ lọc
+        <v-icon size="16">mdi-close</v-icon>
+        Xoá tất cả bộ lọc
       </button>
     </div>
   </aside>
@@ -676,7 +677,7 @@ watch(() => filters.unreadOnTop, () => { /* triggers via toggleFilter */ });
 .badge-dot {
   position: absolute; top: 6px; right: 6px;
   width: 7px; height: 7px;
-  background: var(--smax-error, #ff3d00);
+  background: var(--smax-error, rgb(255, 61, 0));
   border-radius: 50%;
   border: 1.5px solid var(--smax-bg);
 }
