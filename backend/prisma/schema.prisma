@@ -1704,6 +1704,11 @@ model CustomerListEntry {
   phoneRaw String  @map("phone_raw") // gốc anh paste vào
   nameRaw  String? @map("name_raw")  // cắt ra từ phoneRaw nếu có
 
+  // Lời mời / tin nhắn riêng cho entry này — dùng khi gửi friend-request hoặc message
+  // Chỉ map từ CSV/Excel column "Ghi chú". Paste tab KHÔNG có (chỉ phone+name).
+  // Tên field cố ý KHÔNG là `notes` để tránh nhầm với Contact.notes (CRM internal notes).
+  personalNote String? @map("personal_note")
+
   // Normalized phone variants
   phoneE164     String? @map("phone_e164")     // "+84908123456"
   phoneLocal    String? @map("phone_local")    // "0908123456" — Vietnamese local format
