@@ -54,7 +54,9 @@ onMounted(async () => {
   try {
     const needs = await authStore.checkSetup();
     if (needs) router.replace('/setup');
-  } catch {}
+  } catch (err: any) {
+    error.value = err.response?.data?.error || 'Không kiểm tra được trạng thái thiết lập';
+  }
 });
 
 async function handleLogin() {

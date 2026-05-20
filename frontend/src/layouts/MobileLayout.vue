@@ -3,12 +3,12 @@
     <OfflineIndicator />
 
     <!-- Slim mobile app bar -->
-    <v-app-bar density="compact" flat>
+    <v-app-bar density="compact" flat class="mobile-golden-appbar">
       <div class="d-flex align-center ml-3" style="gap: 8px;">
-        <div class="d-flex align-center justify-center" style="width: 28px; height: 28px; background: linear-gradient(135deg, #00F2FF, #0077B6); border-radius: 8px;">
-          <v-icon size="16" color="white">mdi-robot</v-icon>
+        <div class="d-flex align-center justify-center mobile-brand-mark">
+          <v-icon size="16">mdi-robot</v-icon>
         </div>
-        <span class="font-weight-bold text-body-1">Zalo<span style="color: #00F2FF;">CRM</span></span>
+        <span class="font-weight-bold text-body-1">Zalo<span class="mobile-brand-accent">CRM</span></span>
       </div>
 
       <v-spacer />
@@ -45,16 +45,19 @@ import OfflineIndicator from '@/components/OfflineIndicator.vue';
 const theme = useTheme();
 const authStore = useAuthStore();
 const router = useRouter();
-const isDark = ref(localStorage.getItem('theme') !== 'light');
+const isDark = ref((localStorage.getItem('theme') || 'golden-dark') === 'golden-dark');
 
 onMounted(() => {
-  theme.global.name.value = isDark.value ? 'dark' : 'light';
+  const saved = localStorage.getItem('theme') || 'golden-dark';
+  theme.global.name.value = saved;
+  isDark.value = saved === 'golden-dark';
 });
 
 function toggleTheme() {
+  const next = isDark.value ? 'smax-light' : 'golden-dark';
   isDark.value = !isDark.value;
-  theme.global.name.value = isDark.value ? 'dark' : 'light';
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
+  theme.global.name.value = next;
+  localStorage.setItem('theme', next);
 }
 
 function logout() {
@@ -62,3 +65,25 @@ function logout() {
   router.push('/login');
 }
 </script>
+
+
+<style scoped>
+.mobile-golden-appbar {
+  background: linear-gradient(180deg, rgba(16, 21, 34, 0.96), rgba(7, 10, 18, 0.92)) !important;
+  border-bottom: 1px solid var(--gold-border);
+  color: var(--gold-text) !important;
+  padding-top: env(safe-area-inset-top);
+}
+
+.mobile-brand-mark {
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover));
+  border-radius: 8px;
+  color: #070a12;
+}
+
+.mobile-brand-accent {
+  color: var(--gold-primary);
+}
+</style>

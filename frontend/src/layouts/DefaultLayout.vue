@@ -31,13 +31,13 @@
           class="nav-tab"
           :class="{ active: isActive(tab) }"
         >
-          <span class="ic">{{ tab.icon }}</span>{{ tab.label }}
+          <v-icon class="ic" size="16">{{ tab.icon }}</v-icon>{{ tab.label }}
         </RouterLink>
 
         <v-menu open-on-hover>
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isPathPrefix('/automation') }" v-bind="act">
-              <span class="ic">⚡</span>Automation<span class="caret">▾</span>
+              <v-icon class="ic" size="16">mdi-lightning-bolt-outline</v-icon>Automation<span class="caret">▾</span>
             </button>
           </template>
           <v-list density="compact" min-width="220">
@@ -51,7 +51,7 @@
         <v-menu open-on-hover>
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isSettingsActive }" v-bind="act">
-              <span class="ic">⚙</span>Cài đặt<span class="caret">▾</span>
+              <v-icon class="ic" size="16">mdi-cog-outline</v-icon>Cài đặt<span class="caret">▾</span>
             </button>
           </template>
           <v-list density="compact" min-width="220">
@@ -94,7 +94,7 @@
           <v-list-item :title="authStore.user?.fullName || ''" :subtitle="authStore.user?.email || ''" />
           <v-divider />
           <v-list-item to="/profile" title="Hồ sơ" prepend-icon="mdi-account-circle-outline" />
-          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối (legacy)'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
+          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối golden'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
           <v-divider />
           <v-list-item @click="logout" title="Đăng xuất" prepend-icon="mdi-logout" />
         </v-list>
@@ -125,12 +125,12 @@ const route = useRoute();
 const authStore = useAuthStore();
 const router = useRouter();
 
-const isDark = ref((localStorage.getItem('theme') || 'smax-light') === 'legacy-dark');
+const isDark = ref((localStorage.getItem('theme') || 'golden-dark') === 'golden-dark');
 
 onMounted(() => {
-  const saved = localStorage.getItem('theme') || 'smax-light';
+  const saved = localStorage.getItem('theme') || 'golden-dark';
   theme.global.name.value = saved;
-  isDark.value = saved === 'legacy-dark';
+  isDark.value = saved === 'golden-dark';
 });
 
 interface NavTab {
@@ -142,13 +142,13 @@ interface NavTab {
 
 // Excel-driven menu (cấp 1) — Automation/Cài đặt được render riêng với dropdown.
 const primaryTabs: NavTab[] = [
-  { path: '/',             label: 'Dashboard',  icon: '🏠', matchPrefix: '/$' },
-  { path: '/chat',         label: 'Tin nhắn',   icon: '💬' },
-  { path: '/friends',      label: 'Bạn bè',     icon: '👥' },
-  { path: '/contacts',     label: 'Khách hàng', icon: '🧑' },
-  { path: '/appointments', label: 'Lịch hẹn',   icon: '📅' },
-  { path: '/analytics',    label: 'Phân tích',  icon: '📈' },
-  { path: '/reports',      label: 'Báo cáo',    icon: '📊' },
+  { path: '/',             label: 'Dashboard',  icon: 'mdi-view-dashboard-outline', matchPrefix: '/$' },
+  { path: '/chat',         label: 'Tin nhắn',   icon: 'mdi-message-text-outline' },
+  { path: '/friends',      label: 'Bạn bè',     icon: 'mdi-account-heart-outline' },
+  { path: '/contacts',     label: 'Khách hàng', icon: 'mdi-account-group-outline' },
+  { path: '/appointments', label: 'Lịch hẹn',   icon: 'mdi-calendar-clock-outline' },
+  { path: '/analytics',    label: 'Phân tích',  icon: 'mdi-chart-line' },
+  { path: '/reports',      label: 'Báo cáo',    icon: 'mdi-file-chart-outline' },
 ];
 
 function isActive(tab: NavTab): boolean {
@@ -179,7 +179,7 @@ const initials = computed(() => {
 });
 
 function toggleTheme() {
-  const next = isDark.value ? 'smax-light' : 'legacy-dark';
+  const next = isDark.value ? 'smax-light' : 'golden-dark';
   isDark.value = !isDark.value;
   theme.global.name.value = next;
   localStorage.setItem('theme', next);
@@ -193,23 +193,26 @@ function logout() {
 
 <style scoped>
 .smax-topnav {
-  background: var(--smax-header-bg);
-  color: white;
+  background: linear-gradient(180deg, rgba(16, 21, 34, 0.96), rgba(7, 10, 18, 0.92));
+  color: var(--gold-text);
   height: var(--smax-topnav-h);
   display: flex; align-items: center;
-  padding: 0 13px; gap: 4px;
+  padding: 0 14px; gap: 6px;
   flex-shrink: 0;
   position: sticky; top: 0; z-index: 100;
+  border-bottom: 1px solid var(--gold-border);
+  backdrop-filter: blur(14px);
 }
 
 .logo {
-  width: 35px; height: 35px;
-  background: white; border-radius: 7px;
+  width: 36px; height: 36px;
+  background: var(--gold-surface-elevated); border-radius: 10px;
   display: flex; align-items: center; justify-content: center;
   margin-right: 4px;
   text-decoration: none;
   overflow: hidden;
   padding: 2px;
+  border: 1px solid var(--gold-border);
 }
 .logo img {
   width: 100%; height: 100%;
@@ -217,21 +220,21 @@ function logout() {
 }
 
 .workspace {
-  background: rgba(255,255,255,0.06);
-  border: none;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--gold-border);
   display: flex; align-items: center; gap: 7px;
-  padding: 7px 11px; border-radius: 7px;
+  padding: 7px 11px; border-radius: 10px;
   margin-right: 13px;
-  cursor: pointer; color: white;
+  cursor: pointer; color: var(--gold-text);
   font-size: 13px;
 }
-.workspace:hover { background: rgba(255,255,255,0.10); }
+.workspace:hover { background: var(--gold-primary-soft); border-color: rgba(214, 168, 79, 0.34); }
 .ws-logo {
   width: 24px; height: 24px;
-  background: linear-gradient(135deg, #ff5722, #d84315);
+  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover));
   border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
-  color: white; font-size: 11px; font-weight: 600;
+  color: #070a12; font-size: 11px; font-weight: 600;
 }
 .opacity-50 { opacity: 0.5; }
 
@@ -244,9 +247,9 @@ function logout() {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 9px 13px; border-radius: 7px;
   cursor: pointer;
-  color: rgba(255,255,255,0.75);
+  color: var(--gold-text-secondary);
   font-size: 13px;
-  background: transparent; border: none;
+  background: transparent; border: 1px solid transparent;
   white-space: nowrap;
   text-decoration: none;
 }
@@ -267,8 +270,17 @@ function logout() {
 }
 .nav-tab .ic { font-size: 14px; line-height: 1; }
 .nav-tab .caret { font-size: 10px; opacity: 0.7; margin-left: 2px; }
-.nav-tab:hover { background: rgba(255,255,255,0.06); color: white; }
-.nav-tab.active { background: rgba(255,255,255,0.12); color: white; font-weight: 500; }
+.nav-tab:hover {
+  color: var(--gold-text);
+  background: rgba(255,255,255,0.05);
+  border-color: var(--gold-border);
+}
+.nav-tab.active {
+  color: var(--gold-primary);
+  background: var(--gold-primary-soft);
+  border-color: rgba(214, 168, 79, 0.32);
+  font-weight: 500;
+}
 
 .topnav-spacer { flex: 1; min-width: 0; }
 
@@ -360,7 +372,10 @@ function logout() {
 }
 
 .smax-main {
-  background: var(--smax-grey-100);
+  background:
+    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
+    var(--gold-bg);
+  color: var(--gold-text);
 }
 .smax-main :deep(.v-main__wrap) { min-height: calc(100vh - var(--smax-topnav-h)); }
 

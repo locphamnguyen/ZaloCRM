@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 
 /* ════════════════════════════════════════════════════════════
    Global app styles — Smax design language (mockup chat-smax-v3).
@@ -10,15 +10,98 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Plus Jakarta Sans", Roboto, sans-serif;
+  font-family: "Be Vietnam Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   scroll-behavior: smooth;
-  background: var(--smax-grey-100);
-  color: var(--smax-text);
+  background:
+    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
+    var(--gold-bg);
+  color: var(--gold-text);
   font-size: var(--smax-font-base);
   line-height: var(--smax-line-height);
 }
 
 #app { height: 100%; }
+
+.v-theme--golden-dark .v-application,
+.v-theme--smax-light .v-application {
+  background:
+    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
+    var(--gold-bg) !important;
+  color: var(--gold-text) !important;
+}
+
+.v-theme--golden-dark h1,
+.v-theme--golden-dark h2,
+.v-theme--golden-dark h3,
+.v-theme--smax-light h1,
+.v-theme--smax-light h2,
+.v-theme--smax-light h3 {
+  font-family: "Space Grotesk", "Be Vietnam Pro", system-ui, sans-serif;
+}
+
+.v-theme--golden-dark .v-card,
+.v-theme--smax-light .v-card {
+  background: var(--gold-surface) !important;
+  border: 1px solid var(--gold-border) !important;
+  color: var(--gold-text) !important;
+}
+
+.v-theme--golden-dark .v-btn--variant-flat.bg-primary,
+.v-theme--smax-light .v-btn--variant-flat.bg-primary {
+  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover)) !important;
+  color: #070a12 !important;
+}
+
+.v-theme--golden-dark .v-field,
+.v-theme--smax-light .v-field {
+  background: color-mix(in srgb, var(--gold-surface-elevated) 72%, transparent) !important;
+  border-radius: var(--smax-radius-md) !important;
+}
+
+.v-theme--golden-dark .v-field--focused,
+.v-theme--smax-light .v-field--focused {
+  box-shadow: 0 0 0 3px var(--gold-focus-ring);
+}
+
+.v-theme--golden-dark .v-list,
+.v-theme--golden-dark .v-menu > .v-overlay__content,
+.v-theme--smax-light .v-list,
+.v-theme--smax-light .v-menu > .v-overlay__content {
+  background: var(--gold-surface-elevated) !important;
+  color: var(--gold-text) !important;
+  border: 1px solid var(--gold-border);
+}
+
+.v-theme--golden-dark .v-list-item:hover,
+.v-theme--smax-light .v-list-item:hover {
+  background: var(--gold-primary-soft) !important;
+}
+
+.v-theme--golden-dark .v-list-item--active,
+.v-theme--smax-light .v-list-item--active {
+  background: var(--gold-primary-soft) !important;
+  color: var(--gold-primary) !important;
+}
+
+.v-theme--golden-dark ::-webkit-scrollbar,
+.v-theme--smax-light ::-webkit-scrollbar { width: 8px; height: 8px; }
+.v-theme--golden-dark ::-webkit-scrollbar-track,
+.v-theme--smax-light ::-webkit-scrollbar-track { background: transparent; }
+.v-theme--golden-dark ::-webkit-scrollbar-thumb,
+.v-theme--smax-light ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--gold-primary) 36%, transparent);
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 
 /* ════════ Smax light theme — defaults for v-* components ════════ */
 .v-theme--smax-light .v-card {

@@ -16,7 +16,7 @@ services:
     volumes:
       - pg_data_dev:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U crmuser"]
+      test: ["CMD-SHELL", "pg_isready -U crmuser -d zalocrm"]
       interval: 5s
       timeout: 3s
       retries: 3

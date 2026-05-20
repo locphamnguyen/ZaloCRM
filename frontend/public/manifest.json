@@ -4,8 +4,8 @@
   "description": "Quản lý nhiều tài khoản Zalo cá nhân",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0A192F",
-  "theme_color": "#0A192F",
+  "background_color": "#070A12",
+  "theme_color": "#D6A84F",
   "orientation": "portrait-primary",
   "icons": [
     { "src": "/brand/zalocrm-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
