@@ -1,0 +1,878 @@
+From 8c5ce90233769cb7cf7ae7618f0c279106fa72f6 Mon Sep 17 00:00:00 2001
+From: Huy Dev <innercoach.net@gmail.com>
+Date: Wed, 20 May 2026 06:40:30 +0000
+Subject: [PATCH] feat(ui): preserve golden redesign snapshot
+
+Commit the modern golden theme, PWA metadata alignment, Docker healthcheck fixes, and login setup-status feedback so the work can be exported as a reusable patch before core upgrades continue.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+---
+ docker-compose.dev.yml                        |   2 +-
+ docker-compose.yml                            |   2 +-
+ ...20-pwa-design-patch-preservation-design.md |  87 ++++++++++++
+ frontend/index.html                           |   4 +-
+ frontend/public/manifest.json                 |   4 +-
+ frontend/src/assets/main.css                  |  91 ++++++++++++-
+ frontend/src/assets/tokens.css                | 126 +++++++++++-------
+ frontend/src/components/BottomNav.vue         |  20 ++-
+ .../src/components/MobileQuickActions.vue     |  19 ++-
+ frontend/src/layouts/DefaultLayout.vue        |  79 ++++++-----
+ frontend/src/layouts/MobileLayout.vue         |  41 ++++--
+ frontend/src/plugins/vuetify.ts               |  75 +++++------
+ frontend/src/views/LoginView.vue              |   4 +-
+ 13 files changed, 414 insertions(+), 140 deletions(-)
+ create mode 100644 docs/superpowers/specs/2026-05-20-pwa-design-patch-preservation-design.md
+
+diff --git a/docker-compose.dev.yml b/docker-compose.dev.yml
+index 206be08..93c6c25 100644
+--- a/docker-compose.dev.yml
++++ b/docker-compose.dev.yml
+@@ -16,7 +16,7 @@ services:
+     volumes:
+       - pg_data_dev:/var/lib/postgresql/data
+     healthcheck:
+-      test: ["CMD-SHELL", "pg_isready -U crmuser"]
++      test: ["CMD-SHELL", "pg_isready -U crmuser -d zalocrm"]
+       interval: 5s
+       timeout: 3s
+       retries: 3
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 42eb6d2..e41edd3 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -44,7 +44,7 @@ services:
+     ports:
+       - "127.0.0.1:5433:5432"
+     healthcheck:
+-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser}"]
++      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser} -d ${DB_NAME:-zalocrm}"]
+       interval: 10s
+       timeout: 5s
+       retries: 5
+diff --git a/docs/superpowers/specs/2026-05-20-pwa-design-patch-preservation-design.md b/docs/superpowers/specs/2026-05-20-pwa-design-patch-preservation-design.md
+new file mode 100644
+index 0000000..5bf604d
+--- /dev/null
++++ b/docs/superpowers/specs/2026-05-20-pwa-design-patch-preservation-design.md
+@@ -0,0 +1,87 @@
++# PWA1 and Golden Design Patch Preservation Design
++
++## Goal
++
++Preserve the completed Mobile PWA v1 and modern golden redesign work as reusable patch artifacts plus a branch backup, so core upgrades can proceed without losing or entangling these updates.
++
++## Context
++
++Mobile PWA v1 is already represented by commit `bef9c07` and merged into the local `main` history through merge commit `0c13808`. The modern golden redesign is currently present as uncommitted work in `worktree-modern-golden-redesign`, covering theme tokens, Vuetify theme setup, desktop/mobile shell styling, PWA metadata, Docker healthchecks, and login setup-status error feedback.
++
++The preservation workflow must not include local Claude artifacts such as `.claude` in either commits or patch files.
++
++## Approach
++
++Use a two-layer preservation model:
++
++1. **Git backup:** commit the golden redesign work on the existing `worktree-modern-golden-redesign` branch, then create a clearly named backup branch pointing at the complete PWA1 + golden redesign snapshot.
++2. **Patch artifacts:** export separate patch files for PWA1 and golden redesign, plus a combined patch from the upstream baseline to the complete snapshot.
++
++This gives two recovery paths. Git history supports normal cherry-pick, merge, and diff workflows. Patch files provide a portable fallback if the core upgrade happens on a separate branch, clone, or upstream release state.
++
++## Patch layers
++
++### Layer 1: Mobile PWA v1
++
++Source commit: `bef9c07`.
++
++This patch preserves the installable PWA shell, service worker registration, offline fallback route, mobile offline indicator, and queued mobile chat message behavior.
++
++### Layer 2: Modern golden redesign
++
++Source: the new commit created from the current uncommitted design changes.
++
++This patch preserves the golden dark Vuetify theme, Smax light compatibility, theme-aware CSS tokens, global component styling, desktop and mobile shell redesign, mobile navigation/FAB styling, Vietnamese font stack, corrected PWA metadata, Docker Postgres healthchecks, and setup-status error feedback on the login screen.
++
++### Combined patch
++
++Source range: upstream baseline (`origin/main`/`upstream/main` at `5a47da9`) through the complete preserved snapshot.
++
++This patch is for applying the full PWA1 + golden design bundle in one step when a layered apply is unnecessary.
++
++## Artifact layout
++
++Create patch artifacts under `docs/superpowers/patches/`:
++
++- `2026-05-20-pwa1-mobile.patch`
++- `2026-05-20-golden-design.patch`
++- `2026-05-20-pwa1-golden-design-combined.patch`
++- `2026-05-20-pwa1-golden-design-README.md`
++
++The README explains source commits, apply order, verification commands, and known conflict expectations.
++
++## Backup branch
++
++Create a local branch named:
++
++`backup/pwa1-golden-design-before-core-upgrade`
++
++The branch points at the complete preserved snapshot after the golden redesign commit. It should not be pushed unless explicitly requested.
++
++## Apply workflow after core upgrade
++
++For a new core-upgrade branch:
++
++1. Start from the target upgraded core baseline.
++2. Apply `2026-05-20-pwa1-mobile.patch`.
++3. Build and resolve conflicts if needed.
++4. Apply `2026-05-20-golden-design.patch`.
++5. Build and run Docker validation.
++6. If the upgraded core is close to the current baseline, the combined patch can be used instead of the two-step apply.
++
++## Verification
++
++After creating the preservation artifacts:
++
++- Confirm the working tree is clean except intentionally untracked local artifacts.
++- Confirm the backup branch points at the preserved snapshot.
++- Confirm patch files exist and are non-empty.
++- Confirm `git apply --check` succeeds for patches against the intended baseline when practical.
++- Run the frontend build or Docker build if dependencies and disk space allow.
++
++## Non-goals
++
++- Do not upgrade core in this workflow.
++- Do not reset or rewrite existing history.
++- Do not push branches or create PRs unless explicitly requested.
++- Do not include `.claude` artifacts in commits or patch files.
+diff --git a/frontend/index.html b/frontend/index.html
+index 789f9ca..4804487 100644
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -4,10 +4,10 @@
+     <meta charset="UTF-8" />
+     <link rel="icon" type="image/x-icon" href="/brand/zalocrm.ico" />
+     <link rel="icon" type="image/png" sizes="512x512" href="/brand/zalocrm-logo.png" />
+-    <link rel="manifest" href="/manifest.json" />
++    <link rel="manifest" href="/manifest.webmanifest" />
+     <link rel="apple-touch-icon" href="/brand/zalocrm-logo.png" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+-    <meta name="theme-color" content="#0A192F" />
++    <meta name="theme-color" content="#D6A84F" />
+     <meta name="apple-mobile-web-app-capable" content="yes" />
+     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+     <title>ZaloCRM</title>
+diff --git a/frontend/public/manifest.json b/frontend/public/manifest.json
+index 70c24c8..ee858df 100644
+--- a/frontend/public/manifest.json
++++ b/frontend/public/manifest.json
+@@ -4,8 +4,8 @@
+   "description": "Quản lý nhiều tài khoản Zalo cá nhân",
+   "start_url": "/",
+   "display": "standalone",
+-  "background_color": "#0A192F",
+-  "theme_color": "#0A192F",
++  "background_color": "#070A12",
++  "theme_color": "#D6A84F",
+   "orientation": "portrait-primary",
+   "icons": [
+     { "src": "/brand/zalocrm-logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+diff --git a/frontend/src/assets/main.css b/frontend/src/assets/main.css
+index b11e081..de065eb 100644
+--- a/frontend/src/assets/main.css
++++ b/frontend/src/assets/main.css
+@@ -1,4 +1,4 @@
+-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
++@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+ 
+ /* ════════════════════════════════════════════════════════════
+    Global app styles — Smax design language (mockup chat-smax-v3).
+@@ -10,16 +10,99 @@ html, body {
+   margin: 0;
+   padding: 0;
+   height: 100%;
+-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Plus Jakarta Sans", Roboto, sans-serif;
++  font-family: "Be Vietnam Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+   scroll-behavior: smooth;
+-  background: var(--smax-grey-100);
+-  color: var(--smax-text);
++  background:
++    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
++    var(--gold-bg);
++  color: var(--gold-text);
+   font-size: var(--smax-font-base);
+   line-height: var(--smax-line-height);
+ }
+ 
+ #app { height: 100%; }
+ 
++.v-theme--golden-dark .v-application,
++.v-theme--smax-light .v-application {
++  background:
++    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
++    var(--gold-bg) !important;
++  color: var(--gold-text) !important;
++}
++
++.v-theme--golden-dark h1,
++.v-theme--golden-dark h2,
++.v-theme--golden-dark h3,
++.v-theme--smax-light h1,
++.v-theme--smax-light h2,
++.v-theme--smax-light h3 {
++  font-family: "Space Grotesk", "Be Vietnam Pro", system-ui, sans-serif;
++}
++
++.v-theme--golden-dark .v-card,
++.v-theme--smax-light .v-card {
++  background: var(--gold-surface) !important;
++  border: 1px solid var(--gold-border) !important;
++  color: var(--gold-text) !important;
++}
++
++.v-theme--golden-dark .v-btn--variant-flat.bg-primary,
++.v-theme--smax-light .v-btn--variant-flat.bg-primary {
++  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover)) !important;
++  color: #070a12 !important;
++}
++
++.v-theme--golden-dark .v-field,
++.v-theme--smax-light .v-field {
++  background: color-mix(in srgb, var(--gold-surface-elevated) 72%, transparent) !important;
++  border-radius: var(--smax-radius-md) !important;
++}
++
++.v-theme--golden-dark .v-field--focused,
++.v-theme--smax-light .v-field--focused {
++  box-shadow: 0 0 0 3px var(--gold-focus-ring);
++}
++
++.v-theme--golden-dark .v-list,
++.v-theme--golden-dark .v-menu > .v-overlay__content,
++.v-theme--smax-light .v-list,
++.v-theme--smax-light .v-menu > .v-overlay__content {
++  background: var(--gold-surface-elevated) !important;
++  color: var(--gold-text) !important;
++  border: 1px solid var(--gold-border);
++}
++
++.v-theme--golden-dark .v-list-item:hover,
++.v-theme--smax-light .v-list-item:hover {
++  background: var(--gold-primary-soft) !important;
++}
++
++.v-theme--golden-dark .v-list-item--active,
++.v-theme--smax-light .v-list-item--active {
++  background: var(--gold-primary-soft) !important;
++  color: var(--gold-primary) !important;
++}
++
++.v-theme--golden-dark ::-webkit-scrollbar,
++.v-theme--smax-light ::-webkit-scrollbar { width: 8px; height: 8px; }
++.v-theme--golden-dark ::-webkit-scrollbar-track,
++.v-theme--smax-light ::-webkit-scrollbar-track { background: transparent; }
++.v-theme--golden-dark ::-webkit-scrollbar-thumb,
++.v-theme--smax-light ::-webkit-scrollbar-thumb {
++  background: color-mix(in srgb, var(--gold-primary) 36%, transparent);
++  border-radius: 999px;
++}
++
++@media (prefers-reduced-motion: reduce) {
++  *, *::before, *::after {
++    animation-duration: 0.01ms !important;
++    animation-iteration-count: 1 !important;
++    scroll-behavior: auto !important;
++    transition-duration: 0.01ms !important;
++  }
++}
++
++
+ /* ════════ Smax light theme — defaults for v-* components ════════ */
+ .v-theme--smax-light .v-card {
+   background: var(--smax-bg) !important;
+diff --git a/frontend/src/assets/tokens.css b/frontend/src/assets/tokens.css
+index 9b41a17..1b2210a 100644
+--- a/frontend/src/assets/tokens.css
++++ b/frontend/src/assets/tokens.css
+@@ -3,59 +3,89 @@
+    Used by DefaultLayout (top nav), ChatView, ContactsView, FriendsView.
+    ════════════════════════════════════════════════════════════ */
+ :root {
+-  /* Brand palette */
+-  --smax-primary: #2962ff;
+-  --smax-primary-hover: #1565c0;
+-  --smax-primary-soft: #e3f2fd;
+-  --smax-success: #00c853;
+-  --smax-warning: #ff9100;
+-  --smax-info: #2196f3;
+-  --smax-error: #ff3d00;
++  --gold-bg: #070a12;
++  --gold-surface: #101522;
++  --gold-surface-elevated: #171d2e;
++  --gold-surface-glass: rgba(23, 29, 46, 0.72);
++  --gold-primary: #d6a84f;
++  --gold-primary-hover: #f0c76a;
++  --gold-primary-soft: rgba(214, 168, 79, 0.14);
++  --gold-accent-cyan: #38bdf8;
++  --gold-success: #22c55e;
++  --gold-warning: #f59e0b;
++  --gold-error: #ef4444;
++  --gold-text: #f8fafc;
++  --gold-text-secondary: #cbd5e1;
++  --gold-text-muted: #94a3b8;
++  --gold-border: rgba(148, 163, 184, 0.18);
++  --gold-focus-ring: rgba(214, 168, 79, 0.28);
+ 
+-  /* Grey scale */
+-  --smax-grey-50: #fafbfc;
+-  --smax-grey-100: #f5f6fa;
+-  --smax-grey-200: #ebedf0;
+-  --smax-grey-300: #d4d8de;
+-  --smax-grey-700: #5a6478;
+-  --smax-text: #212121;
+-
+-  /* Surfaces */
+-  --smax-bg: #ffffff;
+-  --smax-header-bg: #1f2330;
+-  --smax-bubble-self: #d0e6ff;
+-  --smax-group-bg: #ffeae3;
+-
+-  /* Gender */
+-  --smax-female: #e91e63;
+-  --smax-male: #1e88e5;
+-
+-  /* CRM label chip colors */
+-  --smax-chip-red: #ef5350;            --smax-chip-red-text: #c62828;
+-  --smax-chip-red-active: #ef5350;
+-  --smax-chip-purple: #ab47bc;         --smax-chip-purple-text: #6a1b9a;
+-  --smax-chip-purple-active: #6a1b9a;
+-  --smax-chip-orange: #ffa726;         --smax-chip-orange-text: #ef6c00;
+-  --smax-chip-orange-active: #ff9800;
+-  --smax-chip-green: #66bb6a;          --smax-chip-green-text: #2e7d32;
+-  --smax-chip-green-active: #43a047;
+-  --smax-chip-blue: #42a5f5;           --smax-chip-blue-text: #1565c0;
+-  --smax-chip-blue-active: #1976d2;
+-  --smax-chip-yellow: #fbc02d;         --smax-chip-yellow-text: #f57f17;
+-  --smax-chip-yellow-active: #f9a825;
+-
+-  /* Typography (mockup uses 14.3px base — +10% from 13px) */
++  --smax-primary: var(--gold-primary);
++  --smax-primary-hover: var(--gold-primary-hover);
++  --smax-primary-soft: var(--gold-primary-soft);
++  --smax-success: var(--gold-success);
++  --smax-warning: var(--gold-warning);
++  --smax-info: var(--gold-accent-cyan);
++  --smax-error: var(--gold-error);
++  --smax-grey-50: #111827;
++  --smax-grey-100: var(--gold-bg);
++  --smax-grey-200: var(--gold-border);
++  --smax-grey-300: rgba(148, 163, 184, 0.32);
++  --smax-grey-700: var(--gold-text-muted);
++  --smax-text: var(--gold-text);
++  --smax-bg: var(--gold-surface);
++  --smax-header-bg: rgba(7, 10, 18, 0.92);
++  --smax-bubble-self: rgba(214, 168, 79, 0.18);
++  --smax-group-bg: rgba(56, 189, 248, 0.12);
++  --smax-female: #e879f9;
++  --smax-male: #38bdf8;
++  --smax-chip-red: #ef4444;            --smax-chip-red-text: #fecaca;
++  --smax-chip-red-active: #dc2626;
++  --smax-chip-purple: #a855f7;         --smax-chip-purple-text: #e9d5ff;
++  --smax-chip-purple-active: #7e22ce;
++  --smax-chip-orange: #f59e0b;         --smax-chip-orange-text: #fde68a;
++  --smax-chip-orange-active: #d97706;
++  --smax-chip-green: #22c55e;          --smax-chip-green-text: #bbf7d0;
++  --smax-chip-green-active: #16a34a;
++  --smax-chip-blue: #38bdf8;           --smax-chip-blue-text: #bae6fd;
++  --smax-chip-blue-active: #0284c7;
++  --smax-chip-yellow: #d6a84f;         --smax-chip-yellow-text: #fef3c7;
++  --smax-chip-yellow-active: #b8872e;
+   --smax-font-base: 14.3px;
+   --smax-font-small: 12px;
+   --smax-font-tiny: 11px;
+-  --smax-line-height: 1.45;
++  --smax-line-height: 1.5;
++  --smax-radius-sm: 6px;
++  --smax-radius-md: 9px;
++  --smax-radius-lg: 12px;
++  --smax-radius-xl: 16px;
++  --smax-topnav-h: 56px;
++}
+ 
+-  /* Spacing & radii (mockup-derived) */
+-  --smax-radius-sm: 4px;
+-  --smax-radius-md: 7px;
+-  --smax-radius-lg: 9px;
+-  --smax-radius-xl: 13px;
+-  --smax-topnav-h: 52px;
++.v-theme--smax-light {
++  --gold-bg: #f8f5ef;
++  --gold-surface: #ffffff;
++  --gold-surface-elevated: #fffdf8;
++  --gold-surface-glass: rgba(255, 255, 255, 0.86);
++  --gold-primary: #b8872e;
++  --gold-primary-hover: #94691f;
++  --gold-primary-soft: rgba(184, 135, 46, 0.12);
++  --gold-accent-cyan: #0284c7;
++  --gold-text: #111827;
++  --gold-text-secondary: #475569;
++  --gold-text-muted: #64748b;
++  --gold-border: #e5e1d8;
++  --gold-focus-ring: rgba(184, 135, 46, 0.24);
++  --smax-grey-50: #fffdf8;
++  --smax-grey-100: #f8f5ef;
++  --smax-grey-200: #e5e1d8;
++  --smax-grey-300: #d8d1c3;
++  --smax-grey-700: #475569;
++  --smax-text: #111827;
++  --smax-bg: #ffffff;
++  --smax-header-bg: #171d2e;
++  --smax-bubble-self: rgba(184, 135, 46, 0.16);
++  --smax-group-bg: rgba(2, 132, 199, 0.10);
+ }
+ 
+ /* ════════ Helper utility classes ════════ */
+diff --git a/frontend/src/components/BottomNav.vue b/frontend/src/components/BottomNav.vue
+index a08314c..c617ff0 100644
+--- a/frontend/src/components/BottomNav.vue
++++ b/frontend/src/components/BottomNav.vue
+@@ -1,5 +1,5 @@
+ <template>
+-  <v-bottom-navigation grow :model-value="activeTab" @update:model-value="navigate" style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; padding-bottom: env(safe-area-inset-bottom);">
++  <v-bottom-navigation grow :model-value="activeTab" @update:model-value="navigate" class="golden-bottom-nav" style="position: fixed; bottom: 0; left: 0; right: 0; z-index: 100; padding-bottom: env(safe-area-inset-bottom);">
+     <v-btn v-for="tab in tabs" :key="tab.path" :value="tab.path">
+       <v-icon>{{ tab.icon }}</v-icon>
+       <span class="text-caption">{{ tab.title }}</span>
+@@ -29,3 +29,21 @@ function navigate(path: string) {
+   router.push(path);
+ }
+ </script>
++
++
++<style scoped>
++.golden-bottom-nav {
++  background: rgba(16, 21, 34, 0.96) !important;
++  border-top: 1px solid var(--gold-border);
++  color: var(--gold-text-secondary) !important;
++  backdrop-filter: blur(14px);
++}
++
++.golden-bottom-nav :deep(.v-btn--active) {
++  color: var(--gold-primary) !important;
++}
++
++.golden-bottom-nav :deep(.v-btn) {
++  min-width: 64px;
++}
++</style>
+diff --git a/frontend/src/components/MobileQuickActions.vue b/frontend/src/components/MobileQuickActions.vue
+index 68a3cce..f5dcc61 100644
+--- a/frontend/src/components/MobileQuickActions.vue
++++ b/frontend/src/components/MobileQuickActions.vue
+@@ -1,8 +1,8 @@
+ <template>
+-  <div style="position: fixed; bottom: 80px; right: 16px; z-index: 50;">
++  <div class="mobile-quick-actions">
+     <v-menu location="top" :close-on-content-click="true">
+       <template #activator="{ props }">
+-        <v-btn icon color="primary" size="large" v-bind="props" elevation="4">
++        <v-btn icon color="primary" size="large" v-bind="props" elevation="4" class="golden-fab">
+           <v-icon>mdi-plus</v-icon>
+         </v-btn>
+       </template>
+@@ -13,3 +13,18 @@
+     </v-menu>
+   </div>
+ </template>
++
++
++<style scoped>
++.mobile-quick-actions {
++  position: fixed;
++  bottom: calc(80px + env(safe-area-inset-bottom));
++  right: 16px;
++  z-index: 50;
++}
++
++.golden-fab {
++  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover)) !important;
++  color: #070a12 !important;
++}
++</style>
+diff --git a/frontend/src/layouts/DefaultLayout.vue b/frontend/src/layouts/DefaultLayout.vue
+index 081704f..277b926 100644
+--- a/frontend/src/layouts/DefaultLayout.vue
++++ b/frontend/src/layouts/DefaultLayout.vue
+@@ -31,13 +31,13 @@
+           class="nav-tab"
+           :class="{ active: isActive(tab) }"
+         >
+-          <span class="ic">{{ tab.icon }}</span>{{ tab.label }}
++          <v-icon class="ic" size="16">{{ tab.icon }}</v-icon>{{ tab.label }}
+         </RouterLink>
+ 
+         <v-menu open-on-hover>
+           <template #activator="{ props: act }">
+             <button class="nav-tab" :class="{ active: isPathPrefix('/automation') }" v-bind="act">
+-              <span class="ic">⚡</span>Automation<span class="caret">▾</span>
++              <v-icon class="ic" size="16">mdi-lightning-bolt-outline</v-icon>Automation<span class="caret">▾</span>
+             </button>
+           </template>
+           <v-list density="compact" min-width="220">
+@@ -51,7 +51,7 @@
+         <v-menu open-on-hover>
+           <template #activator="{ props: act }">
+             <button class="nav-tab" :class="{ active: isSettingsActive }" v-bind="act">
+-              <span class="ic">⚙</span>Cài đặt<span class="caret">▾</span>
++              <v-icon class="ic" size="16">mdi-cog-outline</v-icon>Cài đặt<span class="caret">▾</span>
+             </button>
+           </template>
+           <v-list density="compact" min-width="220">
+@@ -94,7 +94,7 @@
+           <v-list-item :title="authStore.user?.fullName || ''" :subtitle="authStore.user?.email || ''" />
+           <v-divider />
+           <v-list-item to="/profile" title="Hồ sơ" prepend-icon="mdi-account-circle-outline" />
+-          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối (legacy)'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
++          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối golden'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
+           <v-divider />
+           <v-list-item @click="logout" title="Đăng xuất" prepend-icon="mdi-logout" />
+         </v-list>
+@@ -125,12 +125,12 @@ const route = useRoute();
+ const authStore = useAuthStore();
+ const router = useRouter();
+ 
+-const isDark = ref((localStorage.getItem('theme') || 'smax-light') === 'legacy-dark');
++const isDark = ref((localStorage.getItem('theme') || 'golden-dark') === 'golden-dark');
+ 
+ onMounted(() => {
+-  const saved = localStorage.getItem('theme') || 'smax-light';
++  const saved = localStorage.getItem('theme') || 'golden-dark';
+   theme.global.name.value = saved;
+-  isDark.value = saved === 'legacy-dark';
++  isDark.value = saved === 'golden-dark';
+ });
+ 
+ interface NavTab {
+@@ -142,13 +142,13 @@ interface NavTab {
+ 
+ // Excel-driven menu (cấp 1) — Automation/Cài đặt được render riêng với dropdown.
+ const primaryTabs: NavTab[] = [
+-  { path: '/',             label: 'Dashboard',  icon: '🏠', matchPrefix: '/$' },
+-  { path: '/chat',         label: 'Tin nhắn',   icon: '💬' },
+-  { path: '/friends',      label: 'Bạn bè',     icon: '👥' },
+-  { path: '/contacts',     label: 'Khách hàng', icon: '🧑' },
+-  { path: '/appointments', label: 'Lịch hẹn',   icon: '📅' },
+-  { path: '/analytics',    label: 'Phân tích',  icon: '📈' },
+-  { path: '/reports',      label: 'Báo cáo',    icon: '📊' },
++  { path: '/',             label: 'Dashboard',  icon: 'mdi-view-dashboard-outline', matchPrefix: '/$' },
++  { path: '/chat',         label: 'Tin nhắn',   icon: 'mdi-message-text-outline' },
++  { path: '/friends',      label: 'Bạn bè',     icon: 'mdi-account-heart-outline' },
++  { path: '/contacts',     label: 'Khách hàng', icon: 'mdi-account-group-outline' },
++  { path: '/appointments', label: 'Lịch hẹn',   icon: 'mdi-calendar-clock-outline' },
++  { path: '/analytics',    label: 'Phân tích',  icon: 'mdi-chart-line' },
++  { path: '/reports',      label: 'Báo cáo',    icon: 'mdi-file-chart-outline' },
+ ];
+ 
+ function isActive(tab: NavTab): boolean {
+@@ -179,7 +179,7 @@ const initials = computed(() => {
+ });
+ 
+ function toggleTheme() {
+-  const next = isDark.value ? 'smax-light' : 'legacy-dark';
++  const next = isDark.value ? 'smax-light' : 'golden-dark';
+   isDark.value = !isDark.value;
+   theme.global.name.value = next;
+   localStorage.setItem('theme', next);
+@@ -193,23 +193,26 @@ function logout() {
+ 
+ <style scoped>
+ .smax-topnav {
+-  background: var(--smax-header-bg);
+-  color: white;
++  background: linear-gradient(180deg, rgba(16, 21, 34, 0.96), rgba(7, 10, 18, 0.92));
++  color: var(--gold-text);
+   height: var(--smax-topnav-h);
+   display: flex; align-items: center;
+-  padding: 0 13px; gap: 4px;
++  padding: 0 14px; gap: 6px;
+   flex-shrink: 0;
+   position: sticky; top: 0; z-index: 100;
++  border-bottom: 1px solid var(--gold-border);
++  backdrop-filter: blur(14px);
+ }
+ 
+ .logo {
+-  width: 35px; height: 35px;
+-  background: white; border-radius: 7px;
++  width: 36px; height: 36px;
++  background: var(--gold-surface-elevated); border-radius: 10px;
+   display: flex; align-items: center; justify-content: center;
+   margin-right: 4px;
+   text-decoration: none;
+   overflow: hidden;
+   padding: 2px;
++  border: 1px solid var(--gold-border);
+ }
+ .logo img {
+   width: 100%; height: 100%;
+@@ -217,21 +220,21 @@ function logout() {
+ }
+ 
+ .workspace {
+-  background: rgba(255,255,255,0.06);
+-  border: none;
++  background: rgba(255,255,255,0.05);
++  border: 1px solid var(--gold-border);
+   display: flex; align-items: center; gap: 7px;
+-  padding: 7px 11px; border-radius: 7px;
++  padding: 7px 11px; border-radius: 10px;
+   margin-right: 13px;
+-  cursor: pointer; color: white;
++  cursor: pointer; color: var(--gold-text);
+   font-size: 13px;
+ }
+-.workspace:hover { background: rgba(255,255,255,0.10); }
++.workspace:hover { background: var(--gold-primary-soft); border-color: rgba(214, 168, 79, 0.34); }
+ .ws-logo {
+   width: 24px; height: 24px;
+-  background: linear-gradient(135deg, #ff5722, #d84315);
++  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover));
+   border-radius: 5px;
+   display: flex; align-items: center; justify-content: center;
+-  color: white; font-size: 11px; font-weight: 600;
++  color: #070a12; font-size: 11px; font-weight: 600;
+ }
+ .opacity-50 { opacity: 0.5; }
+ 
+@@ -244,9 +247,9 @@ function logout() {
+   display: inline-flex; align-items: center; gap: 5px;
+   padding: 9px 13px; border-radius: 7px;
+   cursor: pointer;
+-  color: rgba(255,255,255,0.75);
++  color: var(--gold-text-secondary);
+   font-size: 13px;
+-  background: transparent; border: none;
++  background: transparent; border: 1px solid transparent;
+   white-space: nowrap;
+   text-decoration: none;
+ }
+@@ -267,8 +270,17 @@ function logout() {
+ }
+ .nav-tab .ic { font-size: 14px; line-height: 1; }
+ .nav-tab .caret { font-size: 10px; opacity: 0.7; margin-left: 2px; }
+-.nav-tab:hover { background: rgba(255,255,255,0.06); color: white; }
+-.nav-tab.active { background: rgba(255,255,255,0.12); color: white; font-weight: 500; }
++.nav-tab:hover {
++  color: var(--gold-text);
++  background: rgba(255,255,255,0.05);
++  border-color: var(--gold-border);
++}
++.nav-tab.active {
++  color: var(--gold-primary);
++  background: var(--gold-primary-soft);
++  border-color: rgba(214, 168, 79, 0.32);
++  font-weight: 500;
++}
+ 
+ .topnav-spacer { flex: 1; min-width: 0; }
+ 
+@@ -360,7 +372,10 @@ function logout() {
+ }
+ 
+ .smax-main {
+-  background: var(--smax-grey-100);
++  background:
++    radial-gradient(circle at top left, rgba(214, 168, 79, 0.14), transparent 30rem),
++    var(--gold-bg);
++  color: var(--gold-text);
+ }
+ .smax-main :deep(.v-main__wrap) { min-height: calc(100vh - var(--smax-topnav-h)); }
+ 
+diff --git a/frontend/src/layouts/MobileLayout.vue b/frontend/src/layouts/MobileLayout.vue
+index 5d44560..378c190 100644
+--- a/frontend/src/layouts/MobileLayout.vue
++++ b/frontend/src/layouts/MobileLayout.vue
+@@ -3,12 +3,12 @@
+     <OfflineIndicator />
+ 
+     <!-- Slim mobile app bar -->
+-    <v-app-bar density="compact" flat>
++    <v-app-bar density="compact" flat class="mobile-golden-appbar">
+       <div class="d-flex align-center ml-3" style="gap: 8px;">
+-        <div class="d-flex align-center justify-center" style="width: 28px; height: 28px; background: linear-gradient(135deg, #00F2FF, #0077B6); border-radius: 8px;">
+-          <v-icon size="16" color="white">mdi-robot</v-icon>
++        <div class="d-flex align-center justify-center mobile-brand-mark">
++          <v-icon size="16">mdi-robot</v-icon>
+         </div>
+-        <span class="font-weight-bold text-body-1">Zalo<span style="color: #00F2FF;">CRM</span></span>
++        <span class="font-weight-bold text-body-1">Zalo<span class="mobile-brand-accent">CRM</span></span>
+       </div>
+ 
+       <v-spacer />
+@@ -45,16 +45,19 @@ import OfflineIndicator from '@/components/OfflineIndicator.vue';
+ const theme = useTheme();
+ const authStore = useAuthStore();
+ const router = useRouter();
+-const isDark = ref(localStorage.getItem('theme') !== 'light');
++const isDark = ref((localStorage.getItem('theme') || 'golden-dark') === 'golden-dark');
+ 
+ onMounted(() => {
+-  theme.global.name.value = isDark.value ? 'dark' : 'light';
++  const saved = localStorage.getItem('theme') || 'golden-dark';
++  theme.global.name.value = saved;
++  isDark.value = saved === 'golden-dark';
+ });
+ 
+ function toggleTheme() {
++  const next = isDark.value ? 'smax-light' : 'golden-dark';
+   isDark.value = !isDark.value;
+-  theme.global.name.value = isDark.value ? 'dark' : 'light';
+-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light');
++  theme.global.name.value = next;
++  localStorage.setItem('theme', next);
+ }
+ 
+ function logout() {
+@@ -62,3 +65,25 @@ function logout() {
+   router.push('/login');
+ }
+ </script>
++
++
++<style scoped>
++.mobile-golden-appbar {
++  background: linear-gradient(180deg, rgba(16, 21, 34, 0.96), rgba(7, 10, 18, 0.92)) !important;
++  border-bottom: 1px solid var(--gold-border);
++  color: var(--gold-text) !important;
++  padding-top: env(safe-area-inset-top);
++}
++
++.mobile-brand-mark {
++  width: 28px;
++  height: 28px;
++  background: linear-gradient(135deg, var(--gold-primary), var(--gold-primary-hover));
++  border-radius: 8px;
++  color: #070a12;
++}
++
++.mobile-brand-accent {
++  color: var(--gold-primary);
++}
++</style>
+diff --git a/frontend/src/plugins/vuetify.ts b/frontend/src/plugins/vuetify.ts
+index 10b2ea8..81c96a4 100644
+--- a/frontend/src/plugins/vuetify.ts
++++ b/frontend/src/plugins/vuetify.ts
+@@ -4,52 +4,51 @@ import { createVuetify } from 'vuetify';
+ import * as components from 'vuetify/components';
+ import * as directives from 'vuetify/directives';
+ 
+-/**
+- * Vuetify theme — palette từ design tokens Smax (mockup chat-smax-v3.html).
+- * `smax-light` (default) khớp mockup. `legacy-dark` giữ lại để fallback nếu
+- * có view nào còn phụ thuộc bảng màu cũ; sẽ rút khi mọi view đã migrate.
+- */
++const savedTheme = localStorage.getItem('theme');
++const defaultTheme = savedTheme === 'smax-light' ? 'smax-light' : 'golden-dark';
++
+ export const vuetify = createVuetify({
+   components,
+   directives,
+   theme: {
+-    defaultTheme: localStorage.getItem('theme') || 'smax-light',
++    defaultTheme,
+     themes: {
+-      'smax-light': {
+-        dark: false,
++      'golden-dark': {
++        dark: true,
+         colors: {
+-          background: '#f5f6fa',
+-          surface: '#ffffff',
+-          'surface-variant': '#fafbfc',
+-          primary: '#2962ff',
+-          secondary: '#1f2330',
+-          accent: '#2962ff',
+-          error: '#ff3d00',
+-          warning: '#ff9100',
+-          success: '#00c853',
+-          info: '#2196f3',
+-          'on-background': '#212121',
+-          'on-surface': '#212121',
+-          'on-primary': '#ffffff',
+-          'on-secondary': '#ffffff',
++          background: '#070A12',
++          surface: '#101522',
++          'surface-variant': '#171D2E',
++          primary: '#D6A84F',
++          secondary: '#CBD5E1',
++          accent: '#38BDF8',
++          error: '#EF4444',
++          warning: '#F59E0B',
++          success: '#22C55E',
++          info: '#38BDF8',
++          'on-background': '#F8FAFC',
++          'on-surface': '#F8FAFC',
++          'on-primary': '#070A12',
++          'on-secondary': '#070A12',
+         },
+       },
+-      'legacy-dark': {
+-        dark: true,
++      'smax-light': {
++        dark: false,
+         colors: {
+-          background: '#0A192F',
+-          surface: '#112240',
+-          'surface-variant': '#1D2D50',
+-          primary: '#00F2FF',
+-          secondary: '#E6F1FF',
+-          accent: '#00F2FF',
+-          error: '#FF5252',
+-          warning: '#FFB74D',
+-          success: '#4CAF50',
+-          info: '#00F2FF',
+-          'on-background': '#E6F1FF',
+-          'on-surface': '#E6F1FF',
+-          'on-primary': '#0A192F',
++          background: '#F8F5EF',
++          surface: '#FFFFFF',
++          'surface-variant': '#FFFDF8',
++          primary: '#B8872E',
++          secondary: '#475569',
++          accent: '#B8872E',
++          error: '#DC2626',
++          warning: '#D97706',
++          success: '#16A34A',
++          info: '#0284C7',
++          'on-background': '#111827',
++          'on-surface': '#111827',
++          'on-primary': '#FFFFFF',
++          'on-secondary': '#FFFFFF',
+         },
+       },
+     },
+@@ -60,7 +59,7 @@ export const vuetify = createVuetify({
+     VSelect: { variant: 'outlined', density: 'compact' },
+     VAutocomplete: { variant: 'outlined', density: 'compact' },
+     VTextarea: { variant: 'outlined', density: 'compact' },
+-    VCard: { rounded: 'md', variant: 'flat' },
++    VCard: { rounded: 'lg', variant: 'flat' },
+     VChip: { rounded: 'lg', size: 'small' },
+     VDialog: { maxWidth: 600 },
+   },
+diff --git a/frontend/src/views/LoginView.vue b/frontend/src/views/LoginView.vue
+index 9c55487..f76849f 100644
+--- a/frontend/src/views/LoginView.vue
++++ b/frontend/src/views/LoginView.vue
+@@ -54,7 +54,9 @@ onMounted(async () => {
+   try {
+     const needs = await authStore.checkSetup();
+     if (needs) router.replace('/setup');
+-  } catch {}
++  } catch (err: any) {
++    error.value = err.response?.data?.error || 'Không kiểm tra được trạng thái thiết lập';
++  }
+ });
+ 
+ async function handleLogin() {
+-- 
+2.43.0
+
