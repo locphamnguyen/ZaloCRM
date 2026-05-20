@@ -73,6 +73,7 @@ const navItems = [
   { to: '/automation/bot/blocks',     label: 'Thư viện block',            icon: 'mdi-puzzle' },
   { to: '/automation/bot/sequences',  label: 'Kịch bản chăm sóc',         icon: 'mdi-format-list-numbered' },
   { to: '/automation/bot/broadcasts', label: 'Broadcast & Re-marketing',  icon: 'mdi-bullhorn' },
+  { to: '/automation/bot/lists',      label: 'Tệp khách hàng',            icon: 'mdi-folder-account' },
 ];
 
 const activeNavLabel = computed(() => {

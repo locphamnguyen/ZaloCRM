@@ -301,6 +301,20 @@ model Contact {
   // Nếu có ít nhất 1 Friend không stuck → null (KH vẫn có "đường" qua nick khác).
   stuckSinceAggregate     DateTime? @map("stuck_since_aggregate")
 
+  // ── Phase 8: Engagement Heatmap Timeline ────────────────────────────────
+  // Pattern classification derived từ ContactEngagementDaily 4-week rolling window.
+  // Updated bởi daily cron 02:30 VN time.
+  // Values: hot | champion | stable | cooling | cold | noise (chưa đủ data)
+  engagementPattern   String?   @map("engagement_pattern")
+  // Trend % change tuần này vs tuần trước (-100 to +∞, clamp display -100..200)
+  engagementTrend     Int?      @map("engagement_trend")
+  // Avg dailyIntensity 28 days (0-100). Snapshot quality.
+  engagementScore     Int?      @map("engagement_score")
+  engagementUpdatedAt DateTime? @map("engagement_updated_at")
+
+  // Daily engagement aggregate rows (cascade delete)
+  engagementDaily ContactEngagementDaily[]
+
   @@unique([orgId, zaloGlobalId])
   @@index([orgId, phone])
   @@index([orgId, phoneNormalized])
@@ -1580,4 +1594,152 @@ model AutomationTask {
   @@index([assignedNickId, executedAt]) // per-nick cap check
   @@index([contactId, state]) // dashboard query
   @@map("automation_tasks")
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase 8 — ContactEngagementDaily
+// ════════════════════════════════════════════════════════════════════════
+// 1 row per (Contact × date). Aggregate per-day engagement signals cho
+// heatmap UI 4-week timeline + pattern classification (hot/champion/etc).
+//
+// Write path:
+//   - Real-time: message-handler hook (incrementDailyAggregate) on every
+//     inbound/outbound message + reaction event. Upsert today's row.
+//   - Daily 02:30 VN cron: recompute Contact.engagementPattern/Trend dựa
+//     trên 28-day window, cleanup rows >12 tuần (rolling).
+//
+// Read path:
+//   - GET /api/v1/contacts/:id/engagement-timeline → return 28 days
+//   - Filter: conversation list lọc theo Contact.engagementPattern
+//
+// Daily intensity formula (capped 0-100):
+//   30 × reaction + 30 × voiceMsg + 20 × customerInitiated +
+//   15 × mediaShare + 5 × inbound + 5 × outbound (with seen)
+model ContactEngagementDaily {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  contactId String   @map("contact_id")
+  date      DateTime @db.Date
+
+  // Aggregates per day
+  inboundMsgCount   Int     @default(0) @map("inbound_msg_count")
+  outboundMsgCount  Int     @default(0) @map("outbound_msg_count")
+  reactionCount     Int     @default(0) @map("reaction_count")   // KH reaction trên tin sale
+  mediaShareCount   Int     @default(0) @map("media_share_count") // KH gửi ảnh/file/voice
+  voiceMsgCount     Int     @default(0) @map("voice_msg_count")  // KH gửi voice (subset của media)
+  customerInitiated Boolean @default(false) @map("customer_initiated") // KH nhắn trước trong ngày
+
+  // Derived intensity 0-100 (heatmap cell color)
+  dailyIntensity Int @default(0) @map("daily_intensity")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, contactId, date])
+  @@index([orgId, contactId, date(sort: Desc)])
+  @@index([orgId, date])
+  @@map("contact_engagement_daily")
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Tệp khách hàng (Customer Lists) — Phase 7 audience layer
+// ════════════════════════════════════════════════════════════════════════
+// Sale paste/upload danh sách SĐT → CustomerList row + N CustomerListEntry
+// rows. Enrichment async qua background worker + Phase 7 event bus.
+//
+// Reverse-update từ 3 nguồn (qua Phase 7 automationEventBus + phone_uid_resolved
+// event mới):
+//   1. campaign action handler request-friend → findUserByPhone resolved
+//   2. nick friend-sync alias-sync → Friend.phoneNormalized match contact
+//   3. Contact create với phone → check Friend table có nick nào friend
+//
+// Sequence/Broadcast/Campaign future feature reference customerListId làm
+// audience source.
+model CustomerList {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  createdById String   @map("created_by_id")
+  name        String
+  iconEmoji   String?  @map("icon_emoji") // optional emoji prefix (🏢, 📣, ❄️...)
+  sourceType  String   @map("source_type") // 'paste' | 'csv' | 'excel' | 'api'
+  rawText     String?  @map("raw_text") @db.Text // gốc để rerun parser/audit
+
+  // Stats counters — update qua reverse hook khi entries change
+  totalEntries          Int @default(0) @map("total_entries")
+  validEntries          Int @default(0) @map("valid_entries")
+  invalidEntries        Int @default(0) @map("invalid_entries")
+  dupInListEntries      Int @default(0) @map("dup_in_list_entries")
+  dupCrossListEntries   Int @default(0) @map("dup_cross_list_entries")
+  dupWithContactEntries Int @default(0) @map("dup_with_contact_entries")
+  hasZaloEntries        Int @default(0) @map("has_zalo_entries")
+  noZaloEntries         Int @default(0) @map("no_zalo_entries")
+  pendingLookupEntries  Int @default(0) @map("pending_lookup_entries")
+
+  // Lifecycle: 'processing' | 'done' | 'archived'
+  status     String    @default("processing")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  endedAt    DateTime? @map("ended_at")
+  archivedAt DateTime? @map("archived_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entries CustomerListEntry[]
+
+  @@index([orgId, status, createdAt(sort: Desc)])
+  @@index([orgId, archivedAt])
+  @@map("customer_lists")
+}
+
+model CustomerListEntry {
+  id             String       @id @default(uuid())
+  customerListId String       @map("customer_list_id")
+  customerList   CustomerList @relation(fields: [customerListId], references: [id], onDelete: Cascade)
+
+  rowIndex Int @map("row_index") // 1-based, original order in paste
+
+  // Raw input
+  phoneRaw String  @map("phone_raw") // gốc anh paste vào
+  nameRaw  String? @map("name_raw")  // cắt ra từ phoneRaw nếu có
+
+  // Normalized phone variants
+  phoneE164     String? @map("phone_e164")     // "+84908123456"
+  phoneLocal    String? @map("phone_local")    // "0908123456" — Vietnamese local format
+  phoneValid    Boolean @default(false) @map("phone_valid")
+  invalidReason String? @map("invalid_reason") // 'too_short' | 'invalid_format' | 'empty' | 'invalid_prefix'
+
+  // Linkage to created Contact (if hợp lệ + not skipped)
+  contactId String? @map("contact_id")
+
+  // Zalo enrichment — populated by reverse-update from 3 event sources
+  zaloUid          String? @map("zalo_uid")            // UID per nick
+  zaloGlobalId     String? @map("zalo_global_id")      // cross-nick identity
+  zaloName         String? @map("zalo_name")           // display name từ Zalo SDK
+  resolvedByNickId String? @map("resolved_by_nick_id") // ZaloAccount nào tìm ra UID này
+  multiNickCount   Int     @default(0) @map("multi_nick_count") // số nick khác cùng tìm ra
+  hasZalo          Boolean? @map("has_zalo")           // null=chưa scan, true/false=đã scan
+
+  // Dedup flags
+  dupInListWithEntryId String? @map("dup_in_list_with_entry_id")
+  dupWithListId        String? @map("dup_with_list_id")
+  dupWithListEntryId   String? @map("dup_with_list_entry_id")
+  dupWithContactId     String? @map("dup_with_contact_id")
+
+  // State machine:
+  //   pending → validated → [contact_created | dup_in_list | dup_cross_list |
+  //   dup_with_crm | invalid] → enriched (has_zalo true/false)
+  status       String    @default("pending")
+  errorMessage String?   @map("error_message")
+  enrichedAt   DateTime? @map("enriched_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([customerListId, rowIndex])
+  @@index([customerListId, status])
+  @@index([phoneE164]) // hot index for cross-list dedup + reverse update
+  @@index([phoneLocal])
+  @@map("customer_list_entries")
 }

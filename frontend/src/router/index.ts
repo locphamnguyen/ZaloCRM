@@ -157,6 +157,8 @@ const routes = [
       { path: 'blocks',     name: 'BotAuto.Blocks',     component: () => import('@/views/automation/BlocksView.vue') },
       { path: 'sequences',  name: 'BotAuto.Sequences',  component: () => import('@/views/automation/SequencesView.vue') },
       { path: 'broadcasts', name: 'BotAuto.Broadcasts', component: () => import('@/views/automation/BroadcastsView.vue') },
+      { path: 'lists',      name: 'BotAuto.Lists',      component: () => import('@/views/automation/ListsView.vue') },
+      { path: 'lists/:id',  name: 'BotAuto.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
     ],
   },
   {
