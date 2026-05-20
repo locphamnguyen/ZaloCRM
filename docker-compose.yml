@@ -19,6 +19,9 @@ services:
       - S3_BUCKET=${S3_BUCKET:-zalocrm-attachments}
       - S3_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
       - S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Phase 7 overnight test: STUB mode prevents Zalo SDK calls.
+      # Set to 'false' or remove for REAL mode.
+      - AUTOMATION_STUB_MODE=${AUTOMATION_STUB_MODE:-false}
     depends_on:
       db:
         condition: service_healthy

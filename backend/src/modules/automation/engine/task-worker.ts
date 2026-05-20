@@ -179,12 +179,15 @@ async function processTask(taskId: string): Promise<void> {
     return;
   }
 
-  // 4. Stop-on-accept (sequence-level rule)
-  const stopCheck = checkStopOnAccept(rules, task.contact.acceptedNicksCount);
-  if (!stopCheck.passed) {
-    await markSkipped(taskId, stopCheck.failedGate!, stopCheck.detail);
-    // Also terminate the entire campaign for this contact (no further steps)
-    return;
+  // 4. Stop-on-accept — semantic ONLY applies to request_friend action.
+  //    For send_message + update_status, sending to existing-friend is the
+  //    whole point, so this gate would be wrong. (Bug found overnight test.)
+  if (actionType === 'request_friend') {
+    const stopCheck = checkStopOnAccept(rules, task.contact.acceptedNicksCount);
+    if (!stopCheck.passed) {
+      await markSkipped(taskId, stopCheck.failedGate!, stopCheck.detail);
+      return;
+    }
   }
 
   // 5. Cross-nick recency — query latest activity from OTHER nicks for this contact

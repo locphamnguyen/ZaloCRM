@@ -114,12 +114,116 @@ export async function materializeFromEvent(
       continue;
     }
 
-    // 2. Currently only sequence-bound triggers handled in this materializer.
-    //    Block-bound and broadcast-bound triggers ship in Phase F (broadcast)
-    //    and Phase E2 (block) respectively.
-    if (trigger.bindingKind !== 'sequence' || !trigger.sequenceId || !trigger.sequence) {
+    // 2. Branch by bindingKind. Broadcast-bound triggers are out of scope here
+    //    (Broadcast routes have their own dedicated materializer via fire-broadcast).
+    if (trigger.bindingKind === 'broadcast') {
       result.skipped++;
-      result.reasons.push(`trigger ${trigger.id}: bindingKind '${trigger.bindingKind}' not yet handled`);
+      result.reasons.push(`trigger ${trigger.id}: broadcast bindingKind handled by broadcast-scheduler`);
+      continue;
+    }
+
+    // ── Block-bound: single-task campaign that runs the block directly ────
+    // FIX (overnight test bug): block-bound triggers were silently skipped
+    // before — only sequences materialized. Now we create a single-block
+    // campaign + 1 Task per resolved contact.
+    if (trigger.bindingKind === 'block') {
+      if (!trigger.blockId) {
+        result.skipped++;
+        result.reasons.push(`trigger ${trigger.id}: block bindingKind but no blockId`);
+        continue;
+      }
+      const block = await prisma.block.findFirst({
+        where: { id: trigger.blockId, orgId: event.orgId },
+        select: { id: true, content: true, archivedAt: true },
+      });
+      if (!block || block.archivedAt) {
+        result.skipped++;
+        result.reasons.push(`trigger ${trigger.id}: block missing or archived`);
+        continue;
+      }
+
+      const contactIds = await resolveSegmentContactIds(
+        event.orgId,
+        trigger.segmentSpec ?? event.segmentHint,
+        event.contactId ?? null,
+      );
+      if (contactIds.length === 0) {
+        result.skipped++;
+        result.reasons.push(`trigger ${trigger.id}: no contacts resolved (block-bound)`);
+        continue;
+      }
+
+      const rulesSnapshot = {
+        ...DEFAULT_RUNTIME_RULES,
+        ...((trigger.ruleOverrides as object) ?? {}),
+      };
+
+      // 1 campaign per trigger + 1 task per contact
+      let blockCampaign = await prisma.automationCampaign.findFirst({
+        where: {
+          orgId: event.orgId,
+          triggerId: trigger.id,
+          blockId: trigger.blockId,
+          state: 'active',
+        },
+        select: { id: true },
+      });
+      if (!blockCampaign) {
+        blockCampaign = await prisma.automationCampaign.create({
+          data: {
+            id: randomUUID(),
+            orgId: event.orgId,
+            triggerId: trigger.id,
+            executionKind: 'single_block',
+            blockId: trigger.blockId,
+            segmentSnapshot: { contactIds } as object,
+            rulesSnapshot: rulesSnapshot as object,
+            state: 'active',
+          },
+          select: { id: true },
+        });
+        result.campaignsCreated++;
+      }
+
+      // Apply jitter window for scheduling
+      const jitterMin = (rulesSnapshot.randomDelayPerSend?.min ?? 0) * 60 * 1000;
+      const jitterMax = (rulesSnapshot.randomDelayPerSend?.max ?? 0) * 60 * 1000;
+      const baseNow = Date.now();
+
+      for (const contactId of contactIds) {
+        const existing = await prisma.automationTask.findFirst({
+          where: { campaignId: blockCampaign.id, contactId },
+          select: { id: true },
+        });
+        if (existing) {
+          result.skipped++;
+          result.reasons.push(`contact ${contactId}: already in block campaign ${blockCampaign.id}`);
+          continue;
+        }
+        const jitter = jitterMin + Math.random() * Math.max(0, jitterMax - jitterMin);
+        const scheduledAt = new Date(baseNow + jitter);
+        await prisma.automationTask.create({
+          data: {
+            id: randomUUID(),
+            orgId: event.orgId,
+            campaignId: blockCampaign.id,
+            contactId,
+            // No sequence — block-bound tasks have currentStepIdx=null
+            currentBlockId: block.id,
+            blockSnapshot: block.content as object,
+            scheduledAt,
+            state: 'queued',
+          },
+        });
+        result.tasksEnqueued++;
+      }
+      continue; // done with this trigger
+    }
+
+    // ── Sequence-bound: existing multi-step flow ──────────────────────────
+    if (!trigger.sequenceId || !trigger.sequence) {
+      result.skipped++;
+      result.reasons.push(`trigger ${trigger.id}: sequence bindingKind but no sequenceId`);
       continue;
     }
     if (!trigger.sequence.enabled) {
