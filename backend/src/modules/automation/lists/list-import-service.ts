@@ -215,6 +215,106 @@ export function detectInternalDup(lines: ParsedLine[]): Map<number, number> {
 }
 
 /**
+ * Re-validate + re-dedup 1 phoneRaw input → trả về state mới cho entry.
+ * Dùng cho edit-in-place và add-manual flow.
+ *
+ * - Excludes current entryId khỏi internal dedup (tránh tự dup với chính mình).
+ * - Trả về dupListName để FE hiện toast cảnh báo dup.
+ */
+export async function revalidatePhone(
+  phoneRaw: string,
+  orgId: string,
+  customerListId: string,
+  selfEntryId: string | null,
+): Promise<{
+  parsed: ParsedLine;
+  status: string;
+  dupInListWithEntryId: string | null;
+  dupWithListId: string | null;
+  dupWithListEntryId: string | null;
+  dupWithContactId: string | null;
+  dupWithListName: string | null;
+}> {
+  const lines = parseRawText(phoneRaw);
+  const parsed = lines[0] ?? {
+    rowIndex: 1,
+    phoneRaw,
+    phoneE164: null,
+    phoneLocal: null,
+    nameRaw: null,
+    personalNote: null,
+    valid: false,
+    invalidReason: 'empty',
+  };
+
+  let status: string = parsed.valid ? 'validated' : 'invalid';
+  let dupInListWithEntryId: string | null = null;
+  let dupWithListId: string | null = null;
+  let dupWithListEntryId: string | null = null;
+  let dupWithContactId: string | null = null;
+  let dupWithListName: string | null = null;
+
+  if (parsed.valid && parsed.phoneE164) {
+    // Dup trong cùng list (loại bỏ chính nó)
+    const sameList = await prisma.customerListEntry.findFirst({
+      where: {
+        customerListId,
+        phoneE164: parsed.phoneE164,
+        ...(selfEntryId && { id: { not: selfEntryId } }),
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (sameList) {
+      status = 'dup_in_list';
+      dupInListWithEntryId = sameList.id;
+    } else {
+      // Dup list khác cùng org
+      const cross = await prisma.customerListEntry.findFirst({
+        where: {
+          phoneE164: parsed.phoneE164,
+          customerListId: { not: customerListId },
+          customerList: { orgId, archivedAt: null },
+        },
+        select: {
+          id: true,
+          customerListId: true,
+          customerList: { select: { name: true } },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (cross) {
+        status = 'dup_cross_list';
+        dupWithListId = cross.customerListId;
+        dupWithListEntryId = cross.id;
+        dupWithListName = cross.customerList?.name ?? null;
+      } else {
+        // Dup Contact CRM
+        const noPlus = parsed.phoneE164.replace(/^\+/, '');
+        const contact = await prisma.contact.findFirst({
+          where: { orgId, phoneNormalized: noPlus },
+          select: { id: true },
+        });
+        if (contact) {
+          status = 'dup_with_crm';
+          dupWithContactId = contact.id;
+        }
+      }
+    }
+  }
+
+  return {
+    parsed,
+    status,
+    dupInListWithEntryId,
+    dupWithListId,
+    dupWithListEntryId,
+    dupWithContactId,
+    dupWithListName,
+  };
+}
+
+/**
  * Detect duplicates with entries in OTHER CustomerLists in same org.
  * Returns map: rowIndex → { dupListId, dupEntryId }.
  *

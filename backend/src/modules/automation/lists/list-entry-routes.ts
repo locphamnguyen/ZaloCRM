@@ -1,9 +1,11 @@
 /**
- * automation/lists/list-entry-routes.ts — Entries query + bulk action.
+ * automation/lists/list-entry-routes.ts — Entries query + bulk action + CRUD.
  *
  * Endpoints:
  *   GET    /api/v1/customer-lists/:id/entries           — paginated entries with tab filter
+ *   POST   /api/v1/customer-lists/:id/entries           — append entries (single line or bulk paste)
  *   POST   /api/v1/customer-lists/:id/entries/bulk      — bulk resolve dup (skip/overwrite/keep)
+ *   PATCH  /api/v1/customer-lists/:id/entries/:entryId  — edit phoneRaw/nameRaw/personalNote
  *   DELETE /api/v1/customer-lists/:id/entries/:entryId  — delete 1 entry
  */
 
@@ -11,6 +13,9 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { revalidatePhone, parseAndDedup } from './list-import-service.js';
+import { kickoffEnrichment } from './list-enrichment-service.js';
+import { randomUUID } from 'node:crypto';
 
 type EntryStatusTab =
   | 'all'
@@ -192,6 +197,234 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
       return { ok: true, affected };
     } catch (err) {
       logger.error({ err, id, action }, '[list-entries] bulk failed');
+      return reply.status(500).send({ error: 'internal_error' });
+    }
+  });
+
+  // ─── PATCH /customer-lists/:id/entries/:entryId — edit + re-validate + re-dedup ───
+  // Cells editable: phoneRaw (re-parse + re-dedup + reset enrichment), nameRaw, personalNote.
+  // Cột phoneE164/phoneLocal auto-derive — KHÔNG cho client gửi.
+  app.patch<{
+    Params: { id: string; entryId: string };
+    Body: { phoneRaw?: string; nameRaw?: string | null; personalNote?: string | null };
+  }>('/api/v1/customer-lists/:id/entries/:entryId', async (request, reply) => {
+    const user = request.user!;
+    const { id, entryId } = request.params;
+    const { phoneRaw, nameRaw, personalNote } = request.body ?? {};
+
+    const list = await prisma.customerList.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true, orgId: true },
+    });
+    if (!list) return reply.status(404).send({ error: 'list_not_found' });
+
+    const existing = await prisma.customerListEntry.findFirst({
+      where: { id: entryId, customerListId: id },
+    });
+    if (!existing) return reply.status(404).send({ error: 'entry_not_found' });
+
+    try {
+      const data: Record<string, unknown> = {};
+      let dupWithListName: string | null = null;
+      let conflictWarn = false;
+
+      // ── phoneRaw edit: re-parse + re-dedup + reset enrichment ──
+      if (typeof phoneRaw === 'string' && phoneRaw !== existing.phoneRaw) {
+        const re = await revalidatePhone(phoneRaw, list.orgId, id, entryId);
+        data.phoneRaw = phoneRaw.slice(0, 500);
+        data.phoneE164 = re.parsed.phoneE164;
+        data.phoneLocal = re.parsed.phoneLocal;
+        data.phoneValid = re.parsed.valid;
+        data.invalidReason = re.parsed.invalidReason;
+        data.status = re.status;
+        data.dupInListWithEntryId = re.dupInListWithEntryId;
+        data.dupWithListId = re.dupWithListId;
+        data.dupWithListEntryId = re.dupWithListEntryId;
+        data.dupWithContactId = re.dupWithContactId;
+        // Reset enrichment — số mới chưa biết Zalo gì
+        data.hasZalo = null;
+        data.zaloUid = null;
+        data.zaloGlobalId = null;
+        data.zaloName = null;
+        data.resolvedByNickId = null;
+        data.multiNickCount = 0;
+        data.enrichedAt = null;
+        data.contactId = null;
+        dupWithListName = re.dupWithListName;
+        conflictWarn = re.status.startsWith('dup_') || re.status === 'invalid';
+      }
+
+      if (nameRaw !== undefined) {
+        data.nameRaw = nameRaw ? String(nameRaw).slice(0, 200) : null;
+      }
+      if (personalNote !== undefined) {
+        data.personalNote = personalNote ? String(personalNote).slice(0, 2000) : null;
+      }
+
+      if (Object.keys(data).length === 0) {
+        return reply.status(400).send({ error: 'no_fields' });
+      }
+
+      const updated = await prisma.customerListEntry.update({
+        where: { id: entryId },
+        data,
+      });
+
+      // Recompute counters + re-kick enrichment nếu phone đổi
+      await recomputeListCounters(id);
+      if ('phoneRaw' in data && updated.phoneValid && updated.status === 'validated') {
+        void kickoffEnrichment(id);
+      }
+
+      return {
+        entry: updated,
+        conflictWarn,
+        dupWithListName,
+      };
+    } catch (err) {
+      logger.error({ err, id, entryId }, '[list-entries] patch failed');
+      return reply.status(500).send({ error: 'internal_error' });
+    }
+  });
+
+  // ─── POST /customer-lists/:id/entries — append entries (single or bulk paste) ───
+  // Body: { rawText } — sale paste 1 hoặc nhiều dòng vào ô "Thêm SĐT".
+  //   - Mỗi dòng được parse + dedup tương tự create-list path.
+  //   - rowIndex tiếp theo MAX(rowIndex) + 1.
+  //   - Enrichment kick off async.
+  app.post<{
+    Params: { id: string };
+    Body: { rawText: string };
+  }>('/api/v1/customer-lists/:id/entries', async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params;
+    const { rawText } = request.body ?? { rawText: '' };
+
+    if (!rawText?.trim()) {
+      return reply.status(400).send({ error: 'rawText_required' });
+    }
+
+    const list = await prisma.customerList.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true, orgId: true },
+    });
+    if (!list) return reply.status(404).send({ error: 'list_not_found' });
+
+    try {
+      const { lines, internalDup, crossListDup, crmContactDup } = await parseAndDedup(
+        rawText,
+        list.orgId,
+      );
+      if (lines.length === 0) {
+        return reply.status(400).send({ error: 'no_lines_parsed' });
+      }
+
+      // Find next rowIndex
+      const lastRow = await prisma.customerListEntry.findFirst({
+        where: { customerListId: id },
+        select: { rowIndex: true },
+        orderBy: { rowIndex: 'desc' },
+      });
+      const baseIdx = (lastRow?.rowIndex ?? 0);
+
+      // Cũng phải check dup với entries hiện có trong CHÍNH list này (parseAndDedup
+      // chỉ check internal-batch + cross-list). Build map phoneE164 → existingEntryId.
+      const validPhones = lines.filter((l) => l.valid && l.phoneE164).map((l) => l.phoneE164!);
+      const existingInList = validPhones.length
+        ? await prisma.customerListEntry.findMany({
+            where: { customerListId: id, phoneE164: { in: validPhones } },
+            select: { id: true, phoneE164: true },
+            orderBy: { createdAt: 'asc' },
+          })
+        : [];
+      const existingByPhone = new Map<string, string>();
+      for (const e of existingInList) {
+        if (e.phoneE164 && !existingByPhone.has(e.phoneE164)) {
+          existingByPhone.set(e.phoneE164, e.id);
+        }
+      }
+
+      const rowsToInsert: Array<Record<string, unknown>> = [];
+      for (const line of lines) {
+        let status: string = line.valid ? 'validated' : 'invalid';
+        let dupInListWithEntryId: string | null = null;
+        let dupWithListId: string | null = null;
+        let dupWithListEntryId: string | null = null;
+        let dupWithContactId: string | null = null;
+
+        if (line.valid && line.phoneE164) {
+          // Dup with existing in-list entry (ưu tiên cao nhất)
+          const sameList = existingByPhone.get(line.phoneE164);
+          if (sameList) {
+            status = 'dup_in_list';
+            dupInListWithEntryId = sameList;
+          } else if (internalDup.has(line.rowIndex)) {
+            status = 'dup_in_list';
+            // resolve trong second pass
+          } else if (crossListDup.has(line.rowIndex)) {
+            status = 'dup_cross_list';
+            const ref = crossListDup.get(line.rowIndex)!;
+            dupWithListId = ref.dupListId;
+            dupWithListEntryId = ref.dupEntryId;
+          } else if (crmContactDup.has(line.rowIndex)) {
+            status = 'dup_with_crm';
+            dupWithContactId = crmContactDup.get(line.rowIndex)!;
+          }
+        }
+
+        rowsToInsert.push({
+          id: randomUUID(),
+          customerListId: id,
+          rowIndex: baseIdx + line.rowIndex,
+          phoneRaw: line.phoneRaw.slice(0, 500),
+          nameRaw: line.nameRaw,
+          personalNote: line.personalNote ? line.personalNote.slice(0, 2000) : null,
+          phoneE164: line.phoneE164,
+          phoneLocal: line.phoneLocal,
+          phoneValid: line.valid,
+          invalidReason: line.invalidReason,
+          status,
+          dupInListWithEntryId,
+          dupWithListId,
+          dupWithListEntryId,
+          dupWithContactId,
+          hasZalo: null,
+          multiNickCount: 0,
+        });
+      }
+
+      await prisma.customerListEntry.createMany({ data: rowsToInsert as never });
+
+      // Resolve internal dup references — cùng batch
+      if (internalDup.size > 0) {
+        const created = await prisma.customerListEntry.findMany({
+          where: { customerListId: id, rowIndex: { in: rowsToInsert.map((r) => r.rowIndex as number) } },
+          select: { id: true, rowIndex: true },
+        });
+        const rowIdxToEntryId = new Map(created.map((e) => [e.rowIndex, e.id]));
+        for (const [dupRowIdx, firstRowIdx] of internalDup) {
+          const dupEntryId = rowIdxToEntryId.get(baseIdx + dupRowIdx);
+          const firstEntryId = rowIdxToEntryId.get(baseIdx + firstRowIdx);
+          if (dupEntryId && firstEntryId) {
+            await prisma.customerListEntry.update({
+              where: { id: dupEntryId },
+              data: { dupInListWithEntryId: firstEntryId },
+            });
+          }
+        }
+      }
+
+      await recomputeListCounters(id);
+      void kickoffEnrichment(id);
+
+      return reply.status(201).send({
+        ok: true,
+        added: rowsToInsert.length,
+        valid: lines.filter((l) => l.valid).length,
+        invalid: lines.filter((l) => !l.valid).length,
+      });
+    } catch (err) {
+      logger.error({ err, id }, '[list-entries] add failed');
       return reply.status(500).send({ error: 'internal_error' });
     }
   });

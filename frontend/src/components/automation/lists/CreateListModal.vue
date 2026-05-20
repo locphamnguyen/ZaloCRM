@@ -60,11 +60,11 @@
           </div>
         </div>
 
-        <!-- ───── TAB FILE (CSV/Excel) ───── -->
-        <div v-if="activeTab === 'file'">
+        <!-- ───── TAB EXCEL / CSV (cùng UI, khác accept) ───── -->
+        <div v-if="activeTab === 'excel' || activeTab === 'csv'">
           <!-- Step 1: chọn file -->
           <div v-if="!fileRows.length" class="field">
-            <label>Upload file (.csv, .xlsx, .xls)</label>
+            <label>{{ activeTab === 'excel' ? 'Upload Excel (.xlsx, .xls)' : 'Upload CSV (.csv)' }}</label>
             <div
               class="dropzone"
               :class="{ dragover: isDragOver }"
@@ -76,13 +76,15 @@
               <input
                 ref="filePickerRef"
                 type="file"
-                accept=".csv,.xlsx,.xls"
+                :accept="acceptForTab"
                 style="display:none"
                 @change="onFilePick"
               />
-              <div class="dz-icon">📂</div>
+              <div class="dz-icon">{{ activeTab === 'excel' ? '📊' : '📄' }}</div>
               <div class="dz-title">Kéo thả file vào đây hoặc <u>chọn file</u></div>
-              <div class="dz-sub">CSV / Excel (.xlsx, .xls) — tối đa 10MB</div>
+              <div class="dz-sub">
+                {{ activeTab === 'excel' ? '.xlsx hoặc .xls' : '.csv (UTF-8 khuyến nghị)' }} — tối đa 10MB
+              </div>
               <div v-if="fileError" class="dz-error">⚠️ {{ fileError }}</div>
             </div>
           </div>
@@ -210,10 +212,17 @@ const dryRunResult = ref<DryRunResult | null>(null);
 const ICON_CHOICES = ['🏢', '📣', '❄️', '🌊', '📋', '🎪', '📱', '🎵', '🔥', '⭐'];
 
 const TABS = [
-  { key: 'paste' as const, label: 'Paste danh sách', icon: '📋' },
-  { key: 'file' as const,  label: 'Upload CSV / Excel', icon: '📄' },
+  { key: 'paste' as const, label: 'Paste danh sách', icon: '📋', accept: '' },
+  { key: 'excel' as const, label: 'Upload Excel',    icon: '📊', accept: '.xlsx,.xls' },
+  { key: 'csv'   as const, label: 'Upload CSV',      icon: '📄', accept: '.csv' },
 ];
-const activeTab = ref<'paste' | 'file'>('paste');
+type TabKey = 'paste' | 'excel' | 'csv';
+const activeTab = ref<TabKey>('paste');
+
+const acceptForTab = computed(() => {
+  const t = TABS.find((x) => x.key === activeTab.value);
+  return t?.accept ?? '';
+});
 
 const defaultName = computed(() => {
   const d = new Date();
@@ -260,6 +269,16 @@ async function handleFile(file: File) {
   fileError.value = null;
   if (file.size > 10 * 1024 * 1024) {
     fileError.value = 'File > 10MB. Vui lòng tách nhỏ và upload lại.';
+    return;
+  }
+  // Validate extension theo tab đang active
+  const lo = file.name.toLowerCase();
+  if (activeTab.value === 'excel' && !(lo.endsWith('.xlsx') || lo.endsWith('.xls'))) {
+    fileError.value = 'Tab này chỉ nhận .xlsx / .xls. Đổi sang tab CSV nếu file là .csv.';
+    return;
+  }
+  if (activeTab.value === 'csv' && !lo.endsWith('.csv')) {
+    fileError.value = 'Tab này chỉ nhận .csv. Đổi sang tab Excel nếu file là .xlsx / .xls.';
     return;
   }
   try {
@@ -376,11 +395,10 @@ async function onSubmit() {
         rawText: rawText.value,
       });
     } else {
-      const ext = fileName.value.toLowerCase().endsWith('.csv') ? 'csv' : 'excel';
       result = await createList({
         name: name.value.trim() || undefined,
         iconEmoji: iconEmoji.value ?? undefined,
-        sourceType: ext,
+        sourceType: activeTab.value, // 'excel' | 'csv'
         rows: mappedRows.value,
       });
     }
@@ -410,6 +428,20 @@ watch(() => props.modelValue, (v) => {
   if (!v) {
     if (dryRunTimer) clearTimeout(dryRunTimer);
     if (fileDryRunTimer) clearTimeout(fileDryRunTimer);
+  }
+});
+
+// Khi switch tab: clear preview của tab cũ để không lẫn
+watch(activeTab, (newTab, oldTab) => {
+  if (oldTab === 'paste' && newTab !== 'paste') {
+    // Paste → File: giữ rawText nhưng clear preview, sẽ re-compute khi user upload file
+    dryRunResult.value = null;
+  } else if (oldTab !== 'paste' && newTab === 'paste') {
+    // File → Paste: clear file state để không gửi nhầm
+    resetFile();
+  } else if (oldTab !== newTab && oldTab !== 'paste' && newTab !== 'paste') {
+    // Excel ↔ CSV: clear file để pick lại đúng loại
+    resetFile();
   }
 });
 </script>

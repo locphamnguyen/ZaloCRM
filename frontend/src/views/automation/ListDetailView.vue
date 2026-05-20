@@ -12,10 +12,24 @@
     <!-- Hero: title + actions + stats -->
     <div v-if="currentList" class="detail-hero">
       <div class="hero-head">
-        <div>
+        <div style="min-width:0; flex:1;">
           <h2>
             <span>{{ currentList.iconEmoji || '📂' }}</span>
-            {{ currentList.name }}
+            <template v-if="!editingTitle">
+              <span class="title-text" @click="startEditTitle" title="Click để đổi tên">
+                {{ currentList.name }}
+              </span>
+            </template>
+            <input
+              v-else
+              ref="titleInputRef"
+              v-model="titleDraft"
+              class="title-input"
+              :disabled="savingTitle"
+              @keydown.enter="commitTitle"
+              @keydown.esc="cancelEditTitle"
+              @blur="commitTitle"
+            />
             <span v-if="currentList.archivedAt" class="archived-tag">
               <v-icon size="13">mdi-archive</v-icon> Lưu trữ
             </span>
@@ -224,21 +238,61 @@
               />
             </td>
             <td class="ix">#{{ entry.rowIndex }}</td>
-            <td class="phone-cell raw">{{ entry.phoneRaw }}</td>
-            <td class="phone-cell e164">{{ entry.phoneE164 || '—' }}</td>
-            <td class="phone-cell local">{{ entry.phoneLocal || '—' }}</td>
-            <td class="name">
-              <template v-if="entry.nameRaw">{{ entry.nameRaw }}</template>
-              <span v-else class="muted-italic">(không có)</span>
+            <!-- Editable phoneRaw — Enter sẽ re-validate + re-dedup -->
+            <td class="phone-cell raw editable" @click.stop="startEdit(entry.id, 'phoneRaw', entry.phoneRaw)">
+              <input
+                v-if="editing && editing.entryId === entry.id && editing.field === 'phoneRaw'"
+                v-model="editing.value"
+                class="cell-input"
+                :class="{ saving: savingEntryId === entry.id }"
+                :disabled="savingEntryId === entry.id"
+                ref="editInputRef"
+                @click.stop
+                @keydown.enter="commitEdit"
+                @keydown.esc="cancelEdit"
+                @blur="commitEdit"
+              />
+              <template v-else>{{ entry.phoneRaw }}</template>
             </td>
-            <td class="name-zalo" :class="entry.zaloName ? 'has' : 'no'">
+            <!-- Readonly: auto-derive từ phoneRaw -->
+            <td class="phone-cell e164 readonly" :title="'Tự derive từ Phone (paste). KHÔNG edit ở đây.'">{{ entry.phoneE164 || '—' }}</td>
+            <td class="phone-cell local readonly" :title="'Tự derive từ Phone (paste). KHÔNG edit ở đây.'">{{ entry.phoneLocal || '—' }}</td>
+            <!-- Editable nameRaw -->
+            <td class="name editable" @click.stop="startEdit(entry.id, 'nameRaw', entry.nameRaw ?? '')">
+              <input
+                v-if="editing && editing.entryId === entry.id && editing.field === 'nameRaw'"
+                v-model="editing.value"
+                class="cell-input"
+                :disabled="savingEntryId === entry.id"
+                ref="editInputRef"
+                @click.stop
+                @keydown.enter="commitEdit"
+                @keydown.esc="cancelEdit"
+                @blur="commitEdit"
+              />
+              <template v-else-if="entry.nameRaw">{{ entry.nameRaw }}</template>
+              <span v-else class="muted-italic">(click để thêm)</span>
+            </td>
+            <td class="name-zalo readonly" :class="entry.zaloName ? 'has' : 'no'">
               <template v-if="entry.zaloName">{{ entry.zaloName }}</template>
               <template v-else-if="entry.status === 'invalid'">—</template>
               <template v-else>(chưa có)</template>
             </td>
-            <td class="personal-note" :title="entry.personalNote || ''">
-              <template v-if="entry.personalNote">{{ entry.personalNote }}</template>
-              <span v-else class="muted-italic">—</span>
+            <!-- Editable personalNote -->
+            <td class="personal-note editable" :title="entry.personalNote || 'Click để thêm lời mời'" @click.stop="startEdit(entry.id, 'personalNote', entry.personalNote ?? '')">
+              <input
+                v-if="editing && editing.entryId === entry.id && editing.field === 'personalNote'"
+                v-model="editing.value"
+                class="cell-input"
+                :disabled="savingEntryId === entry.id"
+                ref="editInputRef"
+                @click.stop
+                @keydown.enter="commitEdit"
+                @keydown.esc="cancelEdit"
+                @blur="commitEdit"
+              />
+              <template v-else-if="entry.personalNote">{{ entry.personalNote }}</template>
+              <span v-else class="muted-italic">(click để thêm)</span>
             </td>
             <td>
               <span class="status-pill" :class="statusPillClass(entry.status, entry.hasZalo)">
@@ -284,14 +338,43 @@
               <button class="icon-btn" title="Mở Contact" v-if="entry.contactId">
                 <v-icon size="13">mdi-open-in-new</v-icon>
               </button>
-              <button class="icon-btn" title="Xoá entry">
+              <button class="icon-btn danger" title="Xoá entry (có thể hoàn tác trong 5s)" @click="onDeleteRow(entry)">
                 <v-icon size="13">mdi-delete-outline</v-icon>
               </button>
+            </td>
+          </tr>
+          <!-- Add row footer: cho phép paste 1 hoặc nhiều dòng -->
+          <tr class="add-row">
+            <td></td>
+            <td class="ix" style="color:#9CA3AF">➕</td>
+            <td colspan="11">
+              <input
+                v-model="addRowText"
+                class="add-input"
+                :placeholder="addingRows ? 'Đang thêm...' : 'Thêm SĐT thủ công — gõ 1 số hoặc paste nhiều dòng → Enter'"
+                :disabled="addingRows"
+                @keydown.enter="onAddRow"
+                @paste="onAddRowPaste"
+              />
+              <span class="add-hint">Format: <code>0908123456 Tên KH</code> hoặc nhiều dòng cùng lúc</span>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
+
+    <!-- Undo delete toast -->
+    <Transition name="toast-fade">
+      <div v-if="undoToast" class="undo-toast">
+        <span>🗑 Đã xoá <b>{{ undoToast.label }}</b></span>
+        <button class="undo-btn" @click="onUndoDelete">↶ Hoàn tác ({{ undoCountdown }}s)</button>
+      </div>
+    </Transition>
+
+    <!-- Flash info toast (cảnh báo dup / thêm xong / ...) -->
+    <Transition name="toast-fade">
+      <div v-if="flashMsg" class="flash-toast">{{ flashMsg }}</div>
+    </Transition>
 
     <!-- Pagination -->
     <div v-if="entriesTotal > entryLimit" class="pag">
@@ -320,9 +403,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, computed, watch } from 'vue';
+import { onMounted, computed, watch, ref, nextTick, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useCustomerLists, type CustomerListSummary } from '@/composables/use-customer-lists';
+import { useCustomerLists, type CustomerListSummary, type CustomerListEntry } from '@/composables/use-customer-lists';
 import '@/components/automation/phase7/airtable.css';
 
 const route = useRoute();
@@ -342,6 +425,10 @@ const {
   unarchiveList,
   rescanZalo,
   deleteList,
+  renameList,
+  updateEntry,
+  addEntries,
+  deleteEntry,
   bulkResolveEntries,
   selectedCount,
   toggleSelect,
@@ -446,6 +533,190 @@ async function onDelete() {
   await deleteList(listId.value);
   router.push('/automation/bot/lists');
 }
+
+// ───────── Inline edit: title ─────────
+const editingTitle = ref(false);
+const titleDraft = ref('');
+const savingTitle = ref(false);
+const titleInputRef = ref<HTMLInputElement | null>(null);
+
+function startEditTitle() {
+  if (!currentList.value || currentList.value.archivedAt) return;
+  editingTitle.value = true;
+  titleDraft.value = currentList.value.name;
+  nextTick(() => titleInputRef.value?.focus());
+}
+
+async function commitTitle() {
+  if (!editingTitle.value) return;
+  const newName = titleDraft.value.trim();
+  if (!newName || newName === currentList.value?.name) {
+    editingTitle.value = false;
+    return;
+  }
+  savingTitle.value = true;
+  const ok = await renameList(listId.value, newName);
+  savingTitle.value = false;
+  editingTitle.value = false;
+  if (!ok) alert('Đổi tên thất bại');
+}
+
+function cancelEditTitle() {
+  editingTitle.value = false;
+  titleDraft.value = '';
+}
+
+// ───────── Inline edit: cells (phoneRaw / nameRaw / personalNote) ─────────
+type EditField = 'phoneRaw' | 'nameRaw' | 'personalNote';
+const editing = ref<{ entryId: string; field: EditField; value: string; original: string } | null>(null);
+const editInputRef = ref<HTMLInputElement | null>(null);
+const savingEntryId = ref<string | null>(null);
+
+function startEdit(entryId: string, field: EditField, currentValue: string) {
+  if (editing.value) return; // đang edit cell khác
+  if (currentList.value?.archivedAt) return; // archived list = readonly
+  editing.value = { entryId, field, value: currentValue, original: currentValue };
+  nextTick(() => editInputRef.value?.focus());
+}
+
+async function commitEdit() {
+  if (!editing.value) return;
+  const { entryId, field, value, original } = editing.value;
+  if (value.trim() === original.trim()) {
+    editing.value = null;
+    return;
+  }
+  savingEntryId.value = entryId;
+  const result = await updateEntry(listId.value, entryId, { [field]: value });
+  savingEntryId.value = null;
+  editing.value = null;
+  if (!result) {
+    alert('Lưu thất bại — thử lại');
+    return;
+  }
+  // Toast cảnh báo dup nếu phoneRaw đổi sang số trùng
+  if (field === 'phoneRaw' && result.conflictWarn) {
+    if (result.entry.status === 'invalid') {
+      flashToast(`⚠️ Số mới không hợp lệ — đã đánh dấu "Lỗi format"`);
+    } else if (result.entry.status === 'dup_in_list') {
+      flashToast(`⚠️ Số mới TRÙNG entry khác trong list này`);
+    } else if (result.entry.status === 'dup_cross_list') {
+      flashToast(`⚠️ Số mới đã có ở list "${result.dupWithListName ?? 'khác'}"`);
+    } else if (result.entry.status === 'dup_with_crm') {
+      flashToast(`⚠️ Số mới đã có Contact trong CRM`);
+    }
+  }
+}
+
+function cancelEdit() {
+  editing.value = null;
+}
+
+// Flash info toast (separate from undo toast)
+const flashMsg = ref<string | null>(null);
+let flashTimer: ReturnType<typeof setTimeout> | null = null;
+function flashToast(msg: string) {
+  flashMsg.value = msg;
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => (flashMsg.value = null), 4000);
+}
+
+// ───────── Add row (manual / bulk) ─────────
+const addRowText = ref('');
+const addingRows = ref(false);
+
+async function onAddRow() {
+  const text = addRowText.value.trim();
+  if (!text || addingRows.value) return;
+  addingRows.value = true;
+  const result = await addEntries(listId.value, text);
+  addingRows.value = false;
+  if (result?.ok) {
+    addRowText.value = '';
+    if (result.invalid > 0) {
+      flashToast(`✓ Đã thêm ${result.added} dòng (${result.valid} hợp lệ, ${result.invalid} lỗi format)`);
+    } else {
+      flashToast(`✓ Đã thêm ${result.added} SĐT`);
+    }
+  } else {
+    alert('Thêm thất bại — thử lại');
+  }
+}
+
+function onAddRowPaste(e: ClipboardEvent) {
+  const pasted = e.clipboardData?.getData('text') ?? '';
+  // Nếu paste có \n (multi-line), thay vì insert vào input single-line → submit luôn
+  if (pasted.includes('\n')) {
+    e.preventDefault();
+    addRowText.value = pasted.trim();
+    nextTick(() => onAddRow());
+  }
+}
+
+// ───────── Delete row + undo ─────────
+interface UndoToastData {
+  label: string;        // hiển thị "SĐT 0908..."
+  expiresAt: number;    // timestamp ms khi expire
+  rawText: string;      // text để re-create nếu undo
+}
+const undoToast = ref<UndoToastData | null>(null);
+const undoCountdown = ref(5);
+let undoTimer: ReturnType<typeof setInterval> | null = null;
+
+async function onDeleteRow(entry: CustomerListEntry) {
+  // Tạo rawText để có thể re-add nếu undo
+  const rebuildText = [
+    entry.phoneRaw,
+    entry.nameRaw ? entry.nameRaw : null,
+    entry.personalNote ? `, ${entry.personalNote}` : null,
+  ].filter(Boolean).join(' ');
+  const ok = await deleteEntry(listId.value, entry.id);
+  if (!ok) {
+    alert('Xoá thất bại');
+    return;
+  }
+  await fetchEntries(listId.value);
+  await fetchListById(listId.value);
+  // Show undo toast 5s
+  undoToast.value = {
+    label: entry.phoneE164 ?? entry.phoneRaw,
+    expiresAt: Date.now() + 5000,
+    rawText: rebuildText,
+  };
+  undoCountdown.value = 5;
+  if (undoTimer) clearInterval(undoTimer);
+  undoTimer = setInterval(() => {
+    if (!undoToast.value) {
+      if (undoTimer) clearInterval(undoTimer);
+      return;
+    }
+    const remaining = Math.ceil((undoToast.value.expiresAt - Date.now()) / 1000);
+    if (remaining <= 0) {
+      undoToast.value = null;
+      if (undoTimer) clearInterval(undoTimer);
+    } else {
+      undoCountdown.value = remaining;
+    }
+  }, 250);
+}
+
+async function onUndoDelete() {
+  if (!undoToast.value) return;
+  const { rawText } = undoToast.value;
+  undoToast.value = null;
+  if (undoTimer) clearInterval(undoTimer);
+  const result = await addEntries(listId.value, rawText);
+  if (result?.ok) {
+    flashToast(`↶ Đã hoàn tác — entry sẽ append ở cuối list`);
+  } else {
+    alert('Hoàn tác thất bại');
+  }
+}
+
+onBeforeUnmount(() => {
+  if (undoTimer) clearInterval(undoTimer);
+  if (flashTimer) clearTimeout(flashTimer);
+});
 
 // ───────── Helpers ─────────
 function formatDate(iso: string): string {
@@ -675,6 +946,121 @@ function nickAvatarStyle(name: string): Record<string, string> {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: #4B5563; font-size: 12px;
 }
+
+/* ─── Editable cells ─── */
+.editable {
+  cursor: text;
+  transition: background .1s, box-shadow .1s;
+  position: relative;
+}
+.editable:hover {
+  background: #FFFBEB;
+  box-shadow: inset 0 0 0 1px #FBBF24;
+}
+.readonly {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.cell-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #6366F1;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+}
+.cell-input.saving { opacity: 0.6; }
+.phone-cell.editable .cell-input {
+  font-family: "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+/* ─── Inline editable title ─── */
+.title-text {
+  cursor: text;
+  padding: 2px 6px;
+  border-radius: 5px;
+  border: 1px dashed transparent;
+  transition: background .1s, border-color .1s;
+}
+.title-text:hover {
+  background: #FFFBEB;
+  border-color: #FBBF24;
+}
+.title-input {
+  font-size: 18px; font-weight: 700;
+  padding: 2px 6px;
+  border: 1px solid #6366F1; border-radius: 5px;
+  outline: none;
+  font-family: inherit;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+  min-width: 280px;
+}
+
+/* ─── Add-row footer ─── */
+.add-row { background: #FAFBFC; }
+.add-row td { padding: 8px 9px; border-bottom: none; }
+.add-input {
+  width: 60%;
+  padding: 6px 10px;
+  border: 1px dashed #D1D5DB;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: #fff;
+  outline: none;
+  color: #111827;
+}
+.add-input::placeholder { color: #9CA3AF; font-style: italic; }
+.add-input:focus { border-color: #6366F1; border-style: solid; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+.add-input:disabled { background: #F4F5F8; cursor: wait; }
+.add-hint {
+  margin-left: 12px;
+  font-size: 11px; color: #9CA3AF;
+}
+.add-hint code {
+  background: #F4F5F8; padding: 1px 4px; border-radius: 3px;
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ─── Undo + flash toast ─── */
+.undo-toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: #111827; color: #fff;
+  padding: 12px 16px;
+  border-radius: 10px;
+  display: flex; align-items: center; gap: 14px;
+  box-shadow: 0 12px 32px rgba(17,24,39,.32);
+  font-size: 13px; z-index: 1000;
+}
+.undo-toast b { font-family: "JetBrains Mono", monospace; }
+.undo-btn {
+  background: #6366F1; color: #fff;
+  border: none; padding: 6px 12px; border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-family: inherit;
+}
+.undo-btn:hover { background: #4F46E5; }
+
+.flash-toast {
+  position: fixed; bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  background: #1F2937; color: #fff;
+  padding: 10px 18px; border-radius: 10px;
+  font-size: 13px; z-index: 1000;
+  box-shadow: 0 10px 28px rgba(17,24,39,.28);
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active { transition: opacity .15s, transform .15s; }
+.toast-fade-enter-from,
+.toast-fade-leave-to { opacity: 0; transform: translateY(8px); }
+
+.icon-btn.danger:hover { color: #B91C1C; }
 
 .muted-italic { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
 

@@ -218,6 +218,20 @@ export function useCustomerLists() {
     }
   }
 
+  async function renameList(id: string, name: string) {
+    try {
+      await api.patch(`/customer-lists/${id}`, { name });
+      if (currentList.value?.id === id) currentList.value = { ...currentList.value, name };
+      // Refresh lists nếu đang ở list view
+      const inLists = lists.value.find((l) => l.id === id);
+      if (inLists) inLists.name = name;
+      return true;
+    } catch (err) {
+      console.error('[customer-lists] rename failed:', err);
+      return false;
+    }
+  }
+
   // ───────── Entries ─────────
   async function fetchEntries(listId: string) {
     loadingEntries.value = true;
@@ -238,6 +252,49 @@ export function useCustomerLists() {
       entriesTotal.value = 0;
     } finally {
       loadingEntries.value = false;
+    }
+  }
+
+  async function updateEntry(
+    listId: string,
+    entryId: string,
+    patch: { phoneRaw?: string; nameRaw?: string | null; personalNote?: string | null },
+  ): Promise<{ entry: CustomerListEntry; conflictWarn: boolean; dupWithListName: string | null } | null> {
+    try {
+      const res = await api.patch(`/customer-lists/${listId}/entries/${entryId}`, patch);
+      // Replace entry in-place trong state
+      const idx = entries.value.findIndex((e) => e.id === entryId);
+      if (idx !== -1 && res.data?.entry) {
+        entries.value[idx] = { ...entries.value[idx], ...res.data.entry, dupWithListName: res.data.dupWithListName ?? null };
+      }
+      // Refresh counters từ server
+      await fetchListById(listId);
+      return res.data;
+    } catch (err) {
+      console.error('[customer-lists] updateEntry failed:', err);
+      return null;
+    }
+  }
+
+  async function addEntries(listId: string, rawText: string) {
+    try {
+      const res = await api.post(`/customer-lists/${listId}/entries`, { rawText });
+      await fetchEntries(listId);
+      await fetchListById(listId);
+      return res.data as { ok: true; added: number; valid: number; invalid: number };
+    } catch (err) {
+      console.error('[customer-lists] addEntries failed:', err);
+      return null;
+    }
+  }
+
+  async function deleteEntry(listId: string, entryId: string) {
+    try {
+      await api.delete(`/customer-lists/${listId}/entries/${entryId}`);
+      return true;
+    } catch (err) {
+      console.error('[customer-lists] deleteEntry failed:', err);
+      return false;
     }
   }
 
@@ -296,6 +353,10 @@ export function useCustomerLists() {
     unarchiveList,
     rescanZalo,
     deleteList,
+    renameList,
+    updateEntry,
+    addEntries,
+    deleteEntry,
     // entries
     entries,
     entriesTotal,

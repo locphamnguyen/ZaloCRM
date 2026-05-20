@@ -311,6 +311,38 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ─── PATCH /customer-lists/:id — rename / update icon ───
+  app.patch<{
+    Params: { id: string };
+    Body: { name?: string; iconEmoji?: string | null };
+  }>('/api/v1/customer-lists/:id', async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params;
+    const { name, iconEmoji } = request.body ?? {};
+
+    const data: { name?: string; iconEmoji?: string | null } = {};
+    if (typeof name === 'string') {
+      const trimmed = name.trim();
+      if (!trimmed) return reply.status(400).send({ error: 'name_empty' });
+      if (trimmed.length > 200) return reply.status(400).send({ error: 'name_too_long' });
+      data.name = trimmed;
+    }
+    if (iconEmoji !== undefined) data.iconEmoji = iconEmoji || null;
+    if (Object.keys(data).length === 0) return reply.status(400).send({ error: 'no_fields' });
+
+    try {
+      const updated = await prisma.customerList.updateMany({
+        where: { id, orgId: user.orgId },
+        data,
+      });
+      if (updated.count === 0) return reply.status(404).send({ error: 'not_found' });
+      return { ok: true };
+    } catch (err) {
+      logger.error({ err, id }, '[customer-lists] patch failed');
+      return reply.status(500).send({ error: 'internal_error' });
+    }
+  });
+
   // ─── POST /customer-lists/:id/archive ───
   app.post<{ Params: { id: string } }>(
     '/api/v1/customer-lists/:id/archive',
