@@ -396,9 +396,16 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
         });
         if (!list) return reply.status(404).send({ error: 'not_found' });
 
-        // Reset hasZalo=null cho all entry valid → cho enrichment chạy lại
+        // Reset hasZalo=null cho entries CHƯA bị mark dup/skipped/invalid →
+        // worker enrich lại. KHÔNG đụng vào dup_in_list/dup_cross_list/dup_with_crm/
+        // skipped/invalid — chúng KHÔNG cần Zalo lookup (dedup là list-level decision,
+        // KHÔNG phải Zalo presence).
         await prisma.customerListEntry.updateMany({
-          where: { customerListId: id, phoneValid: true },
+          where: {
+            customerListId: id,
+            phoneValid: true,
+            status: { notIn: ['dup_in_list', 'dup_cross_list', 'dup_with_crm', 'skipped', 'invalid'] },
+          },
           data: { hasZalo: null, status: 'validated', enrichedAt: null },
         });
         await prisma.customerList.update({

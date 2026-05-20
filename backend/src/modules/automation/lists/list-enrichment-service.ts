@@ -59,11 +59,17 @@ async function enrichListOnce(listId: string): Promise<{ processed: number; enri
 
   // Process in chunks until no more pending
   while (true) {
+    // FIX 2026-05-20: chỉ pick entries 'validated' — KHÔNG đụng vào dup_in_list,
+    // dup_cross_list, dup_with_crm, invalid, skipped, enriched. Trước đó query
+    // chỉ filter `hasZalo: null` → chộp luôn dup_* entries (vì chúng cũng có
+    // hasZalo=null) → ghi đè status='enriched' làm mất marker dup → UI list
+    // detail mất pill "Đã có ở tệp X" / "Đã là khách CRM".
     const pending = await prisma.customerListEntry.findMany({
       where: {
         customerListId: listId,
         phoneValid: true,
         hasZalo: null,
+        status: 'validated',
       },
       select: { id: true, phoneE164: true, phoneLocal: true },
       take: CHUNK_SIZE,

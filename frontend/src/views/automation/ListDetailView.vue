@@ -295,8 +295,8 @@
               <span v-else class="muted-italic">(click để thêm)</span>
             </td>
             <td>
-              <span class="status-pill" :class="statusPillClass(entry.status, entry.hasZalo)">
-                {{ statusPillLabel(entry.status, entry.hasZalo, entry.dupWithListName) }}
+              <span class="status-pill" :class="statusPillClass(entry)">
+                {{ statusPillLabel(entry) }}
               </span>
             </td>
             <td class="uid-cell" :class="{ empty: !entry.zaloUid }">
@@ -756,33 +756,46 @@ function dupTotal(l: CustomerListSummary | null): number {
  *   🔒 Đã là khách CRM   — đã có Contact
  *   ⏭ Sale loại         — sale bulk-skip
  */
-function statusPillClass(status: string, hasZalo: boolean | null): string {
-  if (status === 'invalid') return 'invalid';
-  if (status === 'dup_in_list' || status === 'dup_cross_list') return 'dup';
-  if (status === 'dup_with_crm') return 'crm';
-  if (status === 'skipped') return 'skipped';
-  if (hasZalo === true) return 'has-zalo';
-  if (hasZalo === false) return 'no-zalo';
-  if (status === 'enriched' && hasZalo === null) return 'awaiting';
+/**
+ * Resolve effective status — defensive: nếu entry có dup_* field set, ưu tiên
+ * hiển thị dup pill BẤT KỂ status column. Trước đó có bug worker ghi đè status
+ * từ 'dup_cross_list' → 'enriched' nhưng giữ nguyên dup_with_list_id → UI
+ * mất pill dup. Logic này protect cả data cũ chưa migrate.
+ */
+function effectiveStatus(entry: { status: string; dupWithListId: string | null; dupInListWithEntryId: string | null; dupWithContactId: string | null }): string {
+  if (entry.status === 'invalid' || entry.status === 'skipped') return entry.status;
+  if (entry.dupInListWithEntryId) return 'dup_in_list';
+  if (entry.dupWithListId) return 'dup_cross_list';
+  if (entry.dupWithContactId) return 'dup_with_crm';
+  return entry.status;
+}
+
+function statusPillClass(entry: { status: string; hasZalo: boolean | null; dupWithListId: string | null; dupInListWithEntryId: string | null; dupWithContactId: string | null }): string {
+  const eff = effectiveStatus(entry);
+  if (eff === 'invalid') return 'invalid';
+  if (eff === 'dup_in_list' || eff === 'dup_cross_list') return 'dup';
+  if (eff === 'dup_with_crm') return 'crm';
+  if (eff === 'skipped') return 'skipped';
+  if (entry.hasZalo === true) return 'has-zalo';
+  if (entry.hasZalo === false) return 'no-zalo';
+  if (eff === 'enriched' && entry.hasZalo === null) return 'awaiting';
   return 'pending';
 }
 
 function statusPillLabel(
-  status: string,
-  hasZalo: boolean | null,
-  dupWithListName?: string | null,
+  entry: { status: string; hasZalo: boolean | null; dupWithListId: string | null; dupInListWithEntryId: string | null; dupWithContactId: string | null; dupWithListName?: string | null },
 ): string {
-  if (status === 'invalid') return '⚫ Số không hợp lệ';
-  if (status === 'dup_in_list') return '🟠 Trùng trong tệp';
-  if (status === 'dup_cross_list') {
-    return dupWithListName ? `🟠 Đã có ở tệp "${dupWithListName}"` : '🟠 Trùng tệp khác';
+  const eff = effectiveStatus(entry);
+  if (eff === 'invalid') return '⚫ Số không hợp lệ';
+  if (eff === 'dup_in_list') return '🟠 Trùng trong tệp';
+  if (eff === 'dup_cross_list') {
+    return entry.dupWithListName ? `🟠 Đã có ở tệp "${entry.dupWithListName}"` : '🟠 Trùng tệp khác';
   }
-  if (status === 'dup_with_crm') return '🔒 Đã là khách CRM';
-  if (status === 'skipped') return '⏭ Sale loại';
-  if (hasZalo === true) return '🟢 Đã có Zalo';
-  if (hasZalo === false) return '🔴 Không có Zalo';
-  // hasZalo=null branch
-  if (status === 'enriched') return '🟡 Đang chờ CRM';
+  if (eff === 'dup_with_crm') return '🔒 Đã là khách CRM';
+  if (eff === 'skipped') return '⏭ Sale loại';
+  if (entry.hasZalo === true) return '🟢 Đã có Zalo';
+  if (entry.hasZalo === false) return '🔴 Không có Zalo';
+  if (eff === 'enriched') return '🟡 Đang chờ CRM';
   return '⏳ Đang quét';
 }
 
