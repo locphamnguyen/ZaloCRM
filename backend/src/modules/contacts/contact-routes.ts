@@ -20,6 +20,24 @@ import { logActivity, computeDiff } from '../activity/activity-logger.js';
 
 type QueryParams = Record<string, string>;
 
+const CUSTOMER_STAGES = [
+  'new_lead',
+  'engaged',
+  'sales_ready',
+  'ordered',
+  'paid',
+  'cskh',
+  'repeat',
+  'lost',
+  'opt_out',
+] as const;
+
+type CustomerStage = (typeof CUSTOMER_STAGES)[number];
+
+function isCustomerStage(value: unknown): value is CustomerStage {
+  return typeof value === 'string' && CUSTOMER_STAGES.includes(value as CustomerStage);
+}
+
 export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
@@ -290,6 +308,112 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(500).send({ error: 'Failed to fetch contact' });
     }
   });
+
+  async function updateCustomerStage(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const body = (request.body || {}) as {
+        stage?: string;
+        new_stage?: string;
+        reason?: string;
+        operator?: string;
+        metadata?: Record<string, unknown>;
+      };
+      const nextStage = body.stage ?? body.new_stage;
+      if (!isCustomerStage(nextStage)) {
+        return reply.status(400).send({
+          ok: false,
+          error: `stage must be one of: ${CUSTOMER_STAGES.join(', ')}`,
+        });
+      }
+
+      const existing = await prisma.contact.findFirst({
+        where: { id, orgId: user.orgId, mergedInto: null },
+        select: { id: true, currentStage: true },
+      });
+      if (!existing) return reply.status(404).send({ ok: false, error: 'Customer not found' });
+
+      if (existing.currentStage === nextStage) {
+        return reply.send({
+          ok: true,
+          data: {
+            changed: false,
+            contact: { id: existing.id, currentStage: existing.currentStage },
+            history: null,
+          },
+        });
+      }
+
+      const [updated, history] = await prisma.$transaction([
+        prisma.contact.update({
+          where: { id: existing.id },
+          data: { currentStage: nextStage },
+          select: { id: true, currentStage: true, fullName: true, phone: true, source: true },
+        }),
+        prisma.customerStageHistory.create({
+          data: {
+            orgId: user.orgId,
+            contactId: existing.id,
+            oldStage: existing.currentStage,
+            newStage: nextStage,
+            reason: body.reason,
+            operator: body.operator ?? user.email,
+            operatorUserId: user.id,
+            metadata: body.metadata ?? {},
+          },
+        }),
+      ]);
+
+      logActivity({
+        orgId: user.orgId,
+        userId: user.id,
+        action: 'customer_stage_change',
+        entityType: 'contact',
+        entityId: updated.id,
+        category: 'status_care',
+        details: {
+          old_stage: existing.currentStage,
+          new_stage: nextStage,
+          reason: body.reason,
+        },
+      });
+
+      return reply.send({ ok: true, data: { changed: true, contact: updated, history } });
+    } catch (err) {
+      logger.error('[contacts] Update customer stage error:', err);
+      return reply.status(500).send({ ok: false, error: 'Failed to update customer stage' });
+    }
+  }
+
+  async function listCustomerStageHistory(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const contact = await prisma.contact.findFirst({
+        where: { id, orgId: user.orgId, mergedInto: null },
+        select: { id: true },
+      });
+      if (!contact) return reply.status(404).send({ ok: false, error: 'Customer not found' });
+
+      const history = await prisma.customerStageHistory.findMany({
+        where: { orgId: user.orgId, contactId: id },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+      return reply.send({ ok: true, data: history });
+    } catch (err) {
+      logger.error('[contacts] List customer stage history error:', err);
+      return reply.status(500).send({ ok: false, error: 'Failed to list customer stage history' });
+    }
+  }
+
+  app.patch('/api/customers/:id/stage', updateCustomerStage);
+  app.patch('/api/v1/customers/:id/stage', updateCustomerStage);
+  app.patch('/api/v1/contacts/:id/stage', updateCustomerStage);
+  app.get('/api/customers/:id/stage-history', listCustomerStageHistory);
+  app.get('/api/v1/customers/:id/stage-history', listCustomerStageHistory);
+  app.get('/api/v1/contacts/:id/stage-history', listCustomerStageHistory);
 
   // ── POST /api/v1/contacts — create new contact ────────────────────────────
   app.post('/api/v1/contacts', async (request: FastifyRequest, reply: FastifyReply) => {

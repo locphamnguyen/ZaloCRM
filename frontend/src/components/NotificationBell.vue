@@ -50,6 +50,8 @@ interface Notification {
   title: string;
   detail: string;
   priority: string;
+  status?: string;
+  conversationId?: string | null;
 }
 
 const notifications = ref<Notification[]>([]);
@@ -66,7 +68,9 @@ async function fetchNotifications() {
 }
 
 function handleClick(n: Notification) {
-  if (n.id === 'unreplied') router.push('/chat');
+  if (n.status === 'sent') api.patch(`/notifications/${n.id}`, { read: true }).catch(() => {});
+  if (n.conversationId) router.push(`/chat/${n.conversationId}`);
+  else if (n.id === 'unreplied') router.push('/chat');
   else if (n.id.startsWith('apt-')) router.push('/appointments');
   else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');
   else if (n.id === 'tmr-apts') router.push('/appointments');

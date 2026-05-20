@@ -62,6 +62,7 @@ import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js
 import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
 import { credentialRoutes } from './modules/zalo/credential-routes.js';
+import { zcaJsRoutes } from './modules/zca-js/zca-js-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -171,6 +172,7 @@ async function bootstrap() {
   await app.register(friendRoutes);
   await app.register(profileRoutes);
   await app.register(credentialRoutes);
+  await app.register(zcaJsRoutes);
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {

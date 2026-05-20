@@ -2,7 +2,7 @@
  * Notification routes — computed on-the-fly notifications for the authenticated user.
  * Sources: unreplied conversations, today/tomorrow appointments, disconnected Zalo accounts.
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
@@ -14,14 +14,54 @@ interface NotificationItem {
   detail: string;
   priority: string;
   createdAt: string;
+  status?: string;
+  readAt?: string | null;
+  resolvedAt?: string | null;
+  conversationId?: string | null;
+  contactId?: string | null;
+  accountId?: string | null;
+  threadId?: string | null;
+  metadata?: unknown;
 }
 
 export async function notificationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
-  app.get('/api/v1/notifications', async (request) => {
+  async function listNotifications(request: FastifyRequest) {
     const user = request.user!;
     const notifications: NotificationItem[] = [];
+
+    const persistedWhere: any = {
+      orgId: user.orgId,
+      status: { not: 'resolved' },
+    };
+    if (user.role === 'member') {
+      persistedWhere.OR = [{ ownerUserId: user.id }, { ownerUserId: null }];
+    }
+
+    const persisted = await prisma.notification.findMany({
+      where: persistedWhere,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    for (const n of persisted) {
+      notifications.push({
+        id: n.id,
+        type: n.type,
+        priority: n.priority,
+        title: n.title || n.type,
+        detail: n.message,
+        createdAt: n.createdAt.toISOString(),
+        status: n.status,
+        readAt: n.readAt?.toISOString() ?? null,
+        resolvedAt: n.resolvedAt?.toISOString() ?? null,
+        conversationId: n.conversationId,
+        contactId: n.contactId,
+        accountId: n.accountId,
+        threadId: n.threadId,
+        metadata: n.metadata,
+      });
+    }
 
     // 1. Unreplied conversations > 30 min
     const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
@@ -108,5 +148,54 @@ export async function notificationRoutes(app: FastifyInstance) {
     }
 
     return { notifications };
+  }
+
+  app.get('/api/v1/notifications', listNotifications);
+
+  app.patch('/api/v1/notifications/:id', async (request, reply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const body = (request.body || {}) as { read?: boolean; resolved?: boolean; status?: string };
+
+    const existing = await prisma.notification.findFirst({
+      where: {
+        id,
+        orgId: user.orgId,
+        ...(user.role === 'member' ? { OR: [{ ownerUserId: user.id }, { ownerUserId: null }] } : {}),
+      },
+      select: { id: true, status: true },
+    });
+    if (!existing) return reply.status(404).send({ error: 'Notification not found' });
+
+    const data: any = {};
+    const now = new Date();
+    if (body.status) {
+      if (!['sent', 'read', 'resolved', 'failed'].includes(body.status)) {
+        return reply.status(400).send({ error: 'Invalid notification status' });
+      }
+      data.status = body.status;
+      if (body.status === 'read' && existing.status !== 'read') data.readAt = now;
+      if (body.status === 'resolved') {
+        data.resolvedAt = now;
+        if (existing.status !== 'read') data.readAt = now;
+      }
+    }
+    if (body.read === true) {
+      data.status = data.status ?? 'read';
+      data.readAt = now;
+    }
+    if (body.resolved === true) {
+      data.status = 'resolved';
+      data.resolvedAt = now;
+      data.readAt = data.readAt ?? now;
+    }
+
+    if (Object.keys(data).length === 0) return reply.status(400).send({ error: 'No notification update requested' });
+
+    const updated = await prisma.notification.update({
+      where: { id },
+      data,
+    });
+    return { notification: updated };
   });
 }

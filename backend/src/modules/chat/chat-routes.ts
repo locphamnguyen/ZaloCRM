@@ -225,6 +225,19 @@ export async function chatRoutes(app: FastifyInstance) {
           contact: true,
           zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true } },
           pins: { select: { id: true } },
+          conversationEvents: {
+            take: 1,
+            orderBy: { occurredAt: 'desc' },
+            select: {
+              eventId: true,
+              sourceId: true,
+              campaignId: true,
+              templateId: true,
+              scriptId: true,
+              zaloCrmThreadUrl: true,
+              occurredAt: true,
+            },
+          },
           messages: {
             take: 1,
             orderBy: { sentAt: 'desc' },
@@ -267,11 +280,15 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     return {
-      conversations: conversations.map((c) => ({
-        ...c,
-        isPinned: c.pins.length > 0,
-        friendship: c.contactId ? friendMap.get(`${c.zaloAccountId}:${c.contactId}`) || null : null,
-      })),
+      conversations: conversations.map((c) => {
+        const { conversationEvents, ...conversation } = c;
+        return {
+          ...conversation,
+          isPinned: c.pins.length > 0,
+          friendship: c.contactId ? friendMap.get(`${c.zaloAccountId}:${c.contactId}`) || null : null,
+          phase1: conversationEvents[0] ?? null,
+        };
+      }),
       total,
       page: parseInt(page),
       limit: Math.min(parseInt(limit), 200),
@@ -289,6 +306,19 @@ export async function chatRoutes(app: FastifyInstance) {
         contact: true,
         zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true } },
         pins: { select: { id: true } },
+        conversationEvents: {
+          take: 1,
+          orderBy: { occurredAt: 'desc' },
+          select: {
+            eventId: true,
+            sourceId: true,
+            campaignId: true,
+            templateId: true,
+            scriptId: true,
+            zaloCrmThreadUrl: true,
+            occurredAt: true,
+          },
+        },
       },
     });
     if (!conversation) return reply.status(404).send({ error: 'Not found' });
@@ -331,7 +361,8 @@ export async function chatRoutes(app: FastifyInstance) {
       friendship = f;
     }
 
-    return { ...conversation, isPinned: conversation.pins.length > 0, friendship };
+    const { conversationEvents, ...conversationData } = conversation;
+    return { ...conversationData, isPinned: conversation.pins.length > 0, friendship, phase1: conversationEvents[0] ?? null };
   });
 
   // ── POST /conversations/:id/touch-profile — pull profile từ Zalo SDK on conv click.
