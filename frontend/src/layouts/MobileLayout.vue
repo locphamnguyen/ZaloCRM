@@ -93,7 +93,15 @@ function logout() {
 .mobile-content {
   height: 100%;
   min-height: 0;
+  overflow: auto;
+  box-sizing: border-box;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-content:has(> .mobile-chat) {
   overflow: hidden;
+  padding-bottom: 0;
 }
 
 .mobile-brand-mark {
