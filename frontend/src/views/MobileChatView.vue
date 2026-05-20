@@ -1,7 +1,6 @@
 <template>
-  <div class="mobile-chat" style="height: calc(100vh - 120px);">
-    <!-- Conversation list (shown when no conversation selected) -->
-    <div v-if="!selectedConvId" style="height: 100%;">
+  <div class="mobile-chat">
+    <div v-if="!selectedConvId" class="mobile-chat-pane">
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -12,15 +11,13 @@
       />
     </div>
 
-    <!-- Message thread (shown when conversation selected) -->
-    <div v-else style="height: 100%; display: flex; flex-direction: column;">
-      <!-- Back button bar -->
-      <div class="d-flex align-center pa-2" style="flex-shrink: 0;">
-        <v-btn icon variant="text" size="small" @click="goBack">
+    <div v-else class="mobile-chat-thread-shell">
+      <div class="mobile-thread-bar">
+        <v-btn icon variant="text" size="small" class="mobile-back-btn" @click="goBack">
           <v-icon>mdi-arrow-left</v-icon>
         </v-btn>
-        <span v-if="selectedConv" class="text-body-2 font-weight-medium ml-1">
-          {{ selectedConv.contact?.fullName || 'Chat' }}
+        <span v-if="selectedConv" class="mobile-thread-title">
+          {{ selectedConv.contact?.fullName || selectedConv.groupName || 'Chat' }}
         </span>
       </div>
 
@@ -30,12 +27,13 @@
         :loading="loadingMsgs"
         :sending="sendingMsg"
         :show-contact-panel="false"
-        :ai-suggestion="(null as any)"
-        :ai-suggestion-loading="false"
-        :ai-suggestion-error="(null as any)"
+        :ai-suggestion="aiSuggestion"
+        :ai-suggestion-loading="aiSuggestionLoading"
+        :ai-suggestion-error="aiSuggestionError"
+        class="mobile-message-thread"
         @send="handleSend"
+        @ask-ai="generateAiSuggestion"
         @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
-        style="flex: 1; min-height: 0;"
       />
     </div>
   </div>
@@ -51,7 +49,9 @@ import { useOfflineQueue } from '@/composables/use-offline-queue';
 const {
   conversations, selectedConvId, selectedConv, messages,
   loadingConvs, loadingMsgs, sendingMsg, searchQuery, accountFilter,
+  aiSuggestion, aiSuggestionLoading, aiSuggestionError,
   fetchConversations, fetchMessages, selectConversation, sendMessage, sendMessageTo,
+  generateAiSuggestion,
   initSocket, destroySocket,
 } = useChat();
 
@@ -123,3 +123,79 @@ watch(searchQuery, () => {
   searchTimeout = setTimeout(() => fetchConversations(), 300);
 });
 </script>
+
+<style scoped>
+.mobile-chat {
+  height: calc(100dvh - var(--v-layout-top) - 72px - env(safe-area-inset-bottom));
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--gold-bg);
+}
+
+@supports not (height: 100dvh) {
+  .mobile-chat {
+    height: calc(100vh - var(--v-layout-top) - 72px - env(safe-area-inset-bottom));
+  }
+}
+
+.mobile-chat-pane,
+.mobile-chat-thread-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mobile-chat-thread-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.mobile-thread-bar {
+  flex: 0 0 auto;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--gold-border);
+  background: rgba(16, 21, 34, 0.94);
+}
+
+.mobile-back-btn {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.mobile-thread-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gold-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mobile-message-thread {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.mobile-chat :deep(.conversation-list),
+.mobile-chat :deep(.message-thread) {
+  height: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mobile-chat :deep(.smax-contact-panel),
+.mobile-chat :deep(.chat-contact-panel),
+.mobile-chat :deep(.tag-crm-bar) {
+  display: none !important;
+}
+</style>
