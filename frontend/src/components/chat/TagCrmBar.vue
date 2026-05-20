@@ -353,22 +353,23 @@ onMounted(() => { void loadTagDefs(); });
 .tag-x:hover { opacity: 1; }
 
 .tag-add-btn {
-  background: #fff;
-  border: 1.4px dashed var(--smax-grey-300);
-  color: var(--smax-grey-600);
+  background: rgba(214, 168, 79, 0.14);
+  border: 1.4px dashed rgba(214, 168, 79, 0.72);
+  color: var(--gold-primary, #d6a84f);
   border-radius: 12px;
+  padding: 4px 10px;
   font-size: 12px;
-  font-weight: 500;
-  padding: 3px 11px;
+  font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
+  height: 28px;
   flex-shrink: 0;
-  transition: all 0.12s;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 .tag-add-btn:hover {
-  background: var(--smax-primary-soft, #e3f2fd);
-  color: var(--smax-primary);
-  border-color: var(--smax-primary);
-  border-style: solid;
+  background: var(--gold-primary, #d6a84f);
+  color: var(--gold-on-primary, #070a12);
+  border-color: var(--gold-primary, #d6a84f);
 }
 
 /* ── Dropdown popup (Zalo-native style, opens upward) ────────────────── */

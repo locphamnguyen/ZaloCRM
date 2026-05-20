@@ -12,7 +12,7 @@
           @input="onSearchInput"
         />
         <button class="cl-new-msg" title="Bắt đầu cuộc trò chuyện mới" @click="newMsgOpen = true">
-          <v-icon size="18">mdi-message-plus</v-icon>
+          <v-icon size="18">mdi-message-plus-outline</v-icon>
           <span>Tin nhắn mới</span>
         </button>
       </div>
@@ -155,14 +155,14 @@
       <v-list density="compact">
         <v-list-item
           v-if="activeTab === 'main'"
-          prepend-icon="mdi-archive-arrow-down-outline"
+          prepend-icon="mdi-tray-arrow-down"
           @click="moveConversation(contextMenu.convId, 'other')"
         >
           <v-list-item-title>Chuyển sang tab Khác</v-list-item-title>
         </v-list-item>
         <v-list-item
           v-else
-          prepend-icon="mdi-archive-arrow-up-outline"
+          prepend-icon="mdi-tray-arrow-up"
           @click="moveConversation(contextMenu.convId, 'main')"
         >
           <v-list-item-title>Chuyển sang tab Chính</v-list-item-title>
@@ -437,20 +437,20 @@ function lastMessagePreview(conv: Conversation): string {
       : (parsed?.params as Record<string, unknown> | undefined);
     const isVideo = params?.calltype === 1;
     const isMissed = action.includes('misscall');
-    const icon = isVideo ? '📹' : '📞';
-    if (isMissed) return prefix + `${icon} Cuộc gọi nhỡ`;
+    const callLabel = isVideo ? 'Video call' : 'Cuộc gọi';
+    if (isMissed) return prefix + `${callLabel} nhỡ`;
     const dur = Number(params?.duration ?? 0);
     if (dur > 0) {
       const m = Math.floor(dur / 60);
       const s = dur % 60;
-      return prefix + `${icon} Cuộc gọi ${m}:${s.toString().padStart(2, '0')}`;
+      return prefix + `${callLabel} ${m}:${s.toString().padStart(2, '0')}`;
     }
-    return prefix + `${icon} Cuộc gọi`;
+    return prefix + callLabel;
   }
 
   // Reminder (action-based)
   if (action === 'msginfo.actionlist' && titleText) {
-    return prefix + '📅 ' + truncate(titleText, 50);
+    return prefix + truncate(titleText, 50);
   }
 
   // Rich content có title → preview bằng title thật, không phải "Tin đặc biệt"
@@ -460,27 +460,28 @@ function lastMessagePreview(conv: Conversation): string {
 
   // Per content-type
   switch (msg.contentType) {
-    case 'image': return prefix + '📷 Hình ảnh';
-    case 'sticker': return prefix + '🎴 Sticker';
-    case 'video': return prefix + '🎥 Video';
-    case 'voice': return prefix + '🎤 Voice';
-    case 'gif': return prefix + '🎞️ GIF';
-    case 'file': return prefix + '📎 ' + (titleText ? truncate(titleText, 40) : 'Tệp đính kèm');
-    case 'link': return prefix + '🔗 ' + (titleText ? truncate(titleText, 40) : 'Liên kết');
-    case 'bank_transfer': return prefix + '🏦 Tài khoản ngân hàng';
-    case 'call': return prefix + '📞 Cuộc gọi';
-    case 'qr_code': return prefix + '📱 Mã QR';
-    case 'reminder': return prefix + '📅 ' + (titleText ? truncate(titleText, 40) : 'Nhắc hẹn');
-    case 'poll': return prefix + '📊 ' + (titleText ? truncate(titleText, 40) : 'Bình chọn');
-    case 'note': return prefix + '📝 ' + (titleText ? truncate(titleText, 40) : 'Ghi chú');
-    case 'forwarded': return prefix + '↩️ ' + (titleText ? truncate(titleText, 40) : 'Chuyển tiếp');
+    case 'image':
+    case 'photo': return prefix + 'Hình ảnh';
+    case 'sticker': return prefix + 'Sticker';
+    case 'video': return prefix + 'Video';
+    case 'voice': return prefix + 'Tin nhắn thoại';
+    case 'gif': return prefix + 'GIF';
+    case 'file': return prefix + (titleText ? truncate(titleText, 40) : 'Tệp đính kèm');
+    case 'link': return prefix + (titleText ? truncate(titleText, 40) : 'Liên kết');
+    case 'bank_transfer': return prefix + 'Tài khoản ngân hàng';
+    case 'call': return prefix + 'Cuộc gọi';
+    case 'qr_code': return prefix + 'Mã QR';
+    case 'reminder': return prefix + (titleText ? truncate(titleText, 40) : 'Nhắc hẹn');
+    case 'poll': return prefix + (titleText ? truncate(titleText, 40) : 'Bình chọn');
+    case 'note': return prefix + (titleText ? truncate(titleText, 40) : 'Ghi chú');
+    case 'forwarded': return prefix + (titleText ? truncate(titleText, 40) : 'Tin nhắn chuyển tiếp');
     case 'location': {
       const desc = typeof parsed?.description === 'string' ? parsed.description.trim() : '';
       const label = titleText || desc || 'Vị trí';
-      return prefix + '📍 ' + truncate(label, 50);
+      return prefix + truncate(label, 50);
     }
-    case 'contact_card': return prefix + (titleText ? truncate(titleText, 40) : '👤 Danh thiếp');
-    case 'rich': return prefix + '📋 Tin đặc biệt';
+    case 'contact_card': return prefix + (titleText ? truncate(titleText, 40) : 'Danh thiếp');
+    case 'rich': return prefix + 'Tin đặc biệt';
   }
 
   // Plain text
@@ -751,7 +752,7 @@ function formatTime(dateStr: string | null): string {
   line-height: 1;
 }
 .ci-preview {
-  font-size: 12px; color: var(--smax-grey-700);
+  font-size: 14px; color: var(--smax-grey-700);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   margin-top: 2px;
   height: 16px; line-height: 16px;

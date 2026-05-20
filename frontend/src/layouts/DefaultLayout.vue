@@ -37,30 +37,30 @@
         <v-menu open-on-hover>
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isPathPrefix('/automation') }" v-bind="act">
-              <v-icon class="ic" size="16">mdi-lightning-bolt-outline</v-icon>Automation<span class="caret">▾</span>
+              <v-icon class="ic" size="16">mdi-creation-outline</v-icon>Automation<span class="caret">▾</span>
             </button>
           </template>
           <v-list density="compact" min-width="220">
-            <v-list-item to="/automation" title="Tổng quan" prepend-icon="mdi-chart-box-outline" />
-            <v-list-item to="/automation?tab=send-message" title="Nhắn tin" prepend-icon="mdi-message-fast-outline" />
+            <v-list-item to="/automation" title="Tổng quan" prepend-icon="mdi-view-grid-outline" />
+            <v-list-item to="/automation?tab=send-message" title="Nhắn tin" prepend-icon="mdi-send-clock-outline" />
             <v-list-item to="/automation?tab=add-friend" title="Kết bạn" prepend-icon="mdi-account-plus-outline" />
-            <v-list-item to="/automation?tab=follow-up" title="Bám đuổi" prepend-icon="mdi-radar" />
+            <v-list-item to="/automation?tab=follow-up" title="Bám đuổi" prepend-icon="mdi-target-account" />
           </v-list>
         </v-menu>
 
         <v-menu open-on-hover>
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isSettingsActive }" v-bind="act">
-              <v-icon class="ic" size="16">mdi-cog-outline</v-icon>Cài đặt<span class="caret">▾</span>
+              <v-icon class="ic" size="16">mdi-tune-variant</v-icon>Cài đặt<span class="caret">▾</span>
             </button>
           </template>
           <v-list density="compact" min-width="220">
-            <v-list-item to="/zalo-accounts" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-link" />
-            <v-list-item to="/api-settings" title="API &amp; Webhook" prepend-icon="mdi-api" />
-            <v-list-item to="/integrations" title="Tích hợp" prepend-icon="mdi-connection" />
+            <v-list-item to="/zalo-accounts" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-cog" />
+            <v-list-item to="/api-settings" title="API &amp; Webhook" prepend-icon="mdi-cloud-braces" />
+            <v-list-item to="/integrations" title="Tích hợp" prepend-icon="mdi-transit-connection-variant" />
             <v-divider />
-            <v-list-item to="/settings" title="Nhân viên" prepend-icon="mdi-account-cog-outline" />
-            <v-list-item to="/settings?tab=roles" title="Phân quyền" prepend-icon="mdi-shield-account-outline" />
+            <v-list-item to="/settings" title="Nhân viên" prepend-icon="mdi-account-settings-outline" />
+            <v-list-item to="/settings?tab=roles" title="Phân quyền" prepend-icon="mdi-shield-key-outline" />
           </v-list>
         </v-menu>
       </nav>
@@ -79,7 +79,7 @@
 
       <!-- Right icon buttons -->
       <RouterLink to="/groups" class="icon-btn" title="Nhóm">
-        <v-icon size="18">mdi-account-group-outline</v-icon>
+        <v-icon size="18">mdi-account-group</v-icon>
       </RouterLink>
 
       <NotificationBell class="icon-btn-wrap" />
@@ -93,10 +93,10 @@
         <v-list density="compact" min-width="200">
           <v-list-item :title="authStore.user?.fullName || ''" :subtitle="authStore.user?.email || ''" />
           <v-divider />
-          <v-list-item to="/profile" title="Hồ sơ" prepend-icon="mdi-account-circle-outline" />
-          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối golden'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
+          <v-list-item to="/profile" title="Hồ sơ" prepend-icon="mdi-account-circle" />
+          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối golden'" :prepend-icon="isDark ? 'mdi-white-balance-sunny' : 'mdi-weather-night'" />
           <v-divider />
-          <v-list-item @click="logout" title="Đăng xuất" prepend-icon="mdi-logout" />
+          <v-list-item @click="logout" title="Đăng xuất" prepend-icon="mdi-logout-variant" />
         </v-list>
       </v-menu>
     </header>
@@ -143,11 +143,11 @@ interface NavTab {
 // Excel-driven menu (cấp 1) — Automation/Cài đặt được render riêng với dropdown.
 const primaryTabs: NavTab[] = [
   { path: '/',             label: 'Dashboard',  icon: 'mdi-view-dashboard-outline', matchPrefix: '/$' },
-  { path: '/chat',         label: 'Tin nhắn',   icon: 'mdi-message-text-outline' },
-  { path: '/friends',      label: 'Bạn bè',     icon: 'mdi-account-heart-outline' },
-  { path: '/contacts',     label: 'Khách hàng', icon: 'mdi-account-group-outline' },
-  { path: '/appointments', label: 'Lịch hẹn',   icon: 'mdi-calendar-clock-outline' },
-  { path: '/analytics',    label: 'Phân tích',  icon: 'mdi-chart-line' },
+  { path: '/chat',         label: 'Tin nhắn',   icon: 'mdi-chat-outline' },
+  { path: '/friends',      label: 'Bạn bè',     icon: 'mdi-account-multiple-plus-outline' },
+  { path: '/contacts',     label: 'Khách hàng', icon: 'mdi-card-account-details-outline' },
+  { path: '/appointments', label: 'Lịch hẹn',   icon: 'mdi-calendar-month-outline' },
+  { path: '/analytics',    label: 'Phân tích',  icon: 'mdi-chart-timeline-variant' },
   { path: '/reports',      label: 'Báo cáo',    icon: 'mdi-file-chart-outline' },
 ];
 
@@ -165,7 +165,7 @@ const isSettingsActive = computed(() =>
 );
 
 // Workspace — placeholder single-tenant cho Phase 1
-const workspaceName = computed(() => authStore.user?.fullName?.split(' ')[0] || 'hsholding');
+const workspaceName = computed(() => authStore.user?.fullName || 'Huy Tran');
 const workspaceShort = computed(() =>
   workspaceName.value.slice(0, 2).toUpperCase(),
 );
