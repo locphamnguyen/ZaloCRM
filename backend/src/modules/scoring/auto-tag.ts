@@ -21,6 +21,7 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { updateContactAggregateBatch } from './aggregate-contact.js';
+import { logActivity } from '../activity/activity-logger.js';
 import type { AutoTagKey } from './types.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -204,35 +205,30 @@ export async function updateFriendAutoTags(friendId: string): Promise<boolean> {
       data: { autoTags: newTags },
     });
 
-    // ActivityLog — ghi cho mỗi tag add/remove (1 entry/diff để timeline render rõ)
-    // Reason ngắn để sale hiểu tại sao hệ thống tự gắn/gỡ.
-    if (added.length || removed.length) {
-      try {
-        await prisma.activityLog.create({
-          data: {
-            orgId: friend.orgId,
-            entityType: 'friend',
-            entityId: friendId,
-            action: 'auto_tag_change',
-            details: {
-              contactId: friend.contactId,
-              added,
-              removed,
-              context: {
-                leadScore: friend.leadScore,
-                daysSilent: friend.lastInboundAt
-                  ? Math.floor((Date.now() - friend.lastInboundAt.getTime()) / DAY_MS)
-                  : null,
-                stuckSince: friend.stuckSince,
-                futureAppointmentCount,
-              },
-            },
+    // ActivityLog — log với entityType='contact' (timeline UI lọc theo contactId),
+    // actorType='bot' (qua botName), category='automation' (auto từ map).
+    // Diff added/removed để FE render chip thay đổi rõ.
+    if ((added.length || removed.length) && friend.contactId) {
+      logActivity({
+        orgId: friend.orgId,
+        botName: 'AutoTag Bot',
+        action: 'auto_tag_change',
+        entityType: 'contact',
+        entityId: friend.contactId,
+        details: {
+          friendId,
+          added,
+          removed,
+          context: {
+            leadScore: friend.leadScore,
+            daysSilent: friend.lastInboundAt
+              ? Math.floor((Date.now() - friend.lastInboundAt.getTime()) / DAY_MS)
+              : null,
+            stuckSince: friend.stuckSince,
+            futureAppointmentCount,
           },
-        });
-      } catch (logErr) {
-        // Activity log fail không nên block tag update — log warn rồi tiếp tục
-        logger.warn({ friendId, err: logErr }, 'auto_tag_change activity log failed');
-      }
+        },
+      });
     }
 
     return true;

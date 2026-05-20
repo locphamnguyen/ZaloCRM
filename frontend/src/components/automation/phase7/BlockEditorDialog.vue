@@ -82,7 +82,7 @@
 
           <div class="text-subtitle-2 mt-4 mb-2">Đính kèm (optional)</div>
           <div v-for="(att, idx) in attachments" :key="idx" class="d-flex gap-2 mb-2 align-center">
-            <v-select :model-value="att.kind" :items="['image','file','link']" label="Kiểu" variant="outlined" density="compact" style="max-width: 100px" @update:model-value="att.kind = $event" />
+            <v-select :model-value="att.kind" :items="['image','video','file','link']" label="Kiểu" variant="outlined" density="compact" style="max-width: 110px" @update:model-value="att.kind = $event" />
             <v-text-field :model-value="att.url" label="URL" variant="outlined" density="compact" @update:model-value="att.url = $event" />
             <v-text-field :model-value="att.caption" label="Caption" variant="outlined" density="compact" @update:model-value="att.caption = $event" />
             <v-btn icon variant="text" size="small" @click="attachments.splice(idx, 1)"><v-icon size="small">mdi-close</v-icon></v-btn>

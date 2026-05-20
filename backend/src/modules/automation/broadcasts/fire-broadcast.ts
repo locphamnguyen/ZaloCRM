@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { sanitizeContactCriteria, sanitizeManualContactIds } from '../engine/segment-sanitizer.js';
 
 interface BroadcastRow {
   id: string;
@@ -16,7 +17,27 @@ interface BroadcastRow {
   pacing: unknown;
 }
 
-export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients: number }> {
+export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients: number; claimed: boolean }> {
+  // FIX A3 — Atomic claim. Prevents scheduler + manual /start + concurrent
+  // instances from double-firing. updateMany only matches if state ∈ {draft,
+  // scheduled, paused} AND no other process has already transitioned to running.
+  const claim = await prisma.automationBroadcast.updateMany({
+    where: {
+      id: bc.id,
+      orgId: bc.orgId,
+      state: { in: ['draft', 'scheduled', 'paused'] },
+    },
+    data: {
+      state: 'running',
+      startedAt: new Date(),
+    },
+  });
+  if (claim.count === 0) {
+    // Race lost or already running/completed/cancelled
+    logger.warn(`[broadcast] ${bc.id} claim failed — already running or terminal state`);
+    return { recipients: 0, claimed: false };
+  }
+
   // 1. Resolve segment → contactIds
   const allContactIds = await resolveSegmentContactIds(bc.orgId, bc.segmentSpec);
 
@@ -33,12 +54,10 @@ export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients:
       });
   const recipientIds = friendableContacts.map((c) => c.id);
 
-  // 3. Update broadcast state
+  // 3. Update broadcast totals (state already 'running' from atomic claim above)
   await prisma.automationBroadcast.update({
     where: { id: bc.id },
     data: {
-      state: 'running',
-      startedAt: new Date(),
       totalRecipients: recipientIds.length,
       sentCount: 0,
       deliveredCount: 0,
@@ -52,7 +71,7 @@ export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients:
       data: { state: 'completed', completedAt: new Date() },
     });
     logger.info(`[broadcast] ${bc.id} no friendable recipients → completed immediately`);
-    return { recipients: 0 };
+    return { recipients: 0, claimed: true };
   }
 
   // 4. Snapshot block content for task immutability
@@ -102,7 +121,7 @@ export async function resolveAndEnqueue(bc: BroadcastRow): Promise<{ recipients:
   }
 
   logger.info(`[broadcast] fired ${bc.id} — ${recipientIds.length} recipients enqueued`);
-  return { recipients: recipientIds.length };
+  return { recipients: recipientIds.length, claimed: true };
 }
 
 async function resolveSegmentContactIds(orgId: string, spec: unknown): Promise<string[]> {
@@ -110,11 +129,21 @@ async function resolveSegmentContactIds(orgId: string, spec: unknown): Promise<s
   const s = spec as Record<string, unknown>;
 
   if (s.kind === 'manual' && Array.isArray(s.contactIds)) {
-    return s.contactIds.filter((id): id is string => typeof id === 'string');
+    const safeIds = sanitizeManualContactIds(s.contactIds);
+    if (safeIds.length === 0) return [];
+    const verified = await prisma.contact.findMany({
+      where: { id: { in: safeIds }, orgId },
+      select: { id: true },
+    });
+    return verified.map((c) => c.id);
   }
   if (s.kind === 'filter' && typeof s.criteria === 'object' && s.criteria !== null) {
-    const where: Record<string, unknown> = { orgId, ...(s.criteria as Record<string, unknown>) };
-    const rows = await prisma.contact.findMany({ where, select: { id: true }, take: 10000 });
+    const result = sanitizeContactCriteria(orgId, s.criteria);
+    if (!result.ok || !result.where) return [];
+    if (result.rejected?.length) {
+      logger.warn(`[fire-broadcast] criteria rejected fields: ${result.rejected.join(', ')}`);
+    }
+    const rows = await prisma.contact.findMany({ where: result.where, select: { id: true }, take: 10000 });
     return rows.map((r) => r.id);
   }
   if (s.kind === 'customer-list' && typeof s.listId === 'string') {

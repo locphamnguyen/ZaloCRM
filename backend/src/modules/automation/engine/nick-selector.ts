@@ -29,20 +29,25 @@ export async function pickNickForTask(args: {
 }): Promise<NickSelection | null> {
   const { orgId, contactId, actionType } = args;
 
-  // ── send_message: must use an existing friend nick ─────────────────────
+  // ── send_message: prefer accepted friend; fallback to pending_sent ONLY if conversation exists ─
+  // FIX A5: previously returned pending_sent/pending_received nicks blindly,
+  // which Zalo policy may reject. Now strict: accepted only, or pending_sent
+  // WITH hasConversation=true (KH replied first, Zalo allows continued chat).
   if (actionType === 'send_message') {
     const friends = await prisma.friend.findMany({
       where: {
         orgId,
         contactId,
-        friendshipStatus: { in: ['accepted', 'pending_sent', 'pending_received'] },
+        OR: [
+          { friendshipStatus: 'accepted' },
+          { friendshipStatus: 'pending_sent', hasConversation: true },
+        ],
         zaloAccount: { status: 'connected' },
       },
       select: { zaloAccountId: true, friendshipStatus: true, lastInboundAt: true },
-      orderBy: [{ lastInboundAt: 'desc' }], // most recently active first
+      orderBy: [{ lastInboundAt: 'desc' }],
     });
     if (friends.length === 0) return null;
-    // Prefer accepted over pending
     const accepted = friends.find((f) => f.friendshipStatus === 'accepted');
     if (accepted) return { nickId: accepted.zaloAccountId, reason: 'existing_friend' };
     return { nickId: friends[0].zaloAccountId, reason: 'existing_friend' };

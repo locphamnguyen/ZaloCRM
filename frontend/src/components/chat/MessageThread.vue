@@ -834,9 +834,13 @@ function recomputeTags() {
   const ft = Array.isArray(ftRaw) ? ftRaw : [];
   const seen = new Set<string>();
   const merged: string[] = [];
+  // Zalo-mirror tags (🔵 X) là PER-NICK — CHỈ lấy từ Friend.crmTagsPerNick của nick này.
+  // Contact.tags có chứa 🔵 X = data drift legacy → bỏ qua để tránh "kẹt 2 Zalo tag"
+  // cross-nick (vd: nick A view thấy 🔵 tag của nick B do legacy aggregate sai).
   for (const t of ft) if (t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
   for (const t of ft) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
-  for (const t of ct) if (!seen.has(t)) { seen.add(t); merged.push(t); }
+  // Contact.tags chỉ contribute user-CRM tags (skip 🔵 X — không phải nguồn hợp lệ).
+  for (const t of ct) if (!t.startsWith('🔵 ') && !seen.has(t)) { seen.add(t); merged.push(t); }
   contactTags.value = merged;
 }
 watch(() => [

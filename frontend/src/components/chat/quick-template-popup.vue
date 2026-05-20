@@ -41,6 +41,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { formatInOrgTz } from '@/composables/use-org-timezone';
 
 interface Template {
   id: string;
@@ -95,8 +96,8 @@ function renderVariables(content: string): string {
     'contact.phone': contact?.phone ?? '',
     'contact.zaloName': contact?.fullName ?? '',
     'contact.tags': (contact?.tags ?? []).join(', '),
-    'date.today': new Intl.DateTimeFormat('vi-VN').format(now),
-    'date.now': new Intl.DateTimeFormat('vi-VN', { hour: '2-digit', minute: '2-digit' }).format(now),
+    'date.today': formatInOrgTz(now, undefined, { dateOnly: true }),
+    'date.now': formatInOrgTz(now, undefined, { timeOnly: true }),
   };
   return content.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, token: string) => vars[token] ?? '');
 }

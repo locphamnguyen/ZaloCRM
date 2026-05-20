@@ -21,6 +21,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
 import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { sanitizeContactCriteria, sanitizeManualContactIds } from '../engine/segment-sanitizer.js';
 
 const BASE = '/api/v1/automation/broadcasts';
 
@@ -38,15 +39,21 @@ async function resolveSegmentContactIds(orgId: string, spec: unknown): Promise<s
   const s = spec as Record<string, unknown>;
 
   if (s.kind === 'manual' && Array.isArray(s.contactIds)) {
-    return s.contactIds.filter((id): id is string => typeof id === 'string');
+    const safeIds = sanitizeManualContactIds(s.contactIds);
+    if (safeIds.length === 0) return [];
+    const verified = await prisma.contact.findMany({
+      where: { id: { in: safeIds }, orgId },
+      select: { id: true },
+    });
+    return verified.map((c) => c.id);
   }
   if (s.kind === 'filter' && typeof s.criteria === 'object' && s.criteria !== null) {
-    const where: Record<string, unknown> = { orgId, ...(s.criteria as Record<string, unknown>) };
-    const rows = await prisma.contact.findMany({
-      where,
-      select: { id: true },
-      take: 10000,
-    });
+    const result = sanitizeContactCriteria(orgId, s.criteria);
+    if (!result.ok || !result.where) return [];
+    if (result.rejected?.length) {
+      logger.warn(`[broadcast-routes] criteria rejected: ${result.rejected.join(', ')}`);
+    }
+    const rows = await prisma.contact.findMany({ where: result.where, select: { id: true }, take: 10000 });
     return rows.map((r) => r.id);
   }
   if (s.kind === 'customer-list' && typeof s.listId === 'string') {
@@ -239,7 +246,10 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
-  // Start — draft → running. Triggers materializer to enqueue tasks.
+  // Start — atomic-claim broadcast and enqueue tasks via shared fire helper.
+  // FIX A3: previously did find-then-update — concurrent scheduler + manual /start
+  // could double-fire. Now both code paths route through resolveAndEnqueue()
+  // which does updateMany({state: in [draft,scheduled,paused]}) → running atomically.
   app.post(`${BASE}/:id/start`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
@@ -247,64 +257,26 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
 
       const bc = await prisma.automationBroadcast.findFirst({
         where: { id, orgId: user.orgId },
+        select: { id: true, orgId: true, blockId: true, segmentSpec: true, pacing: true, state: true },
       });
       if (!bc) return reply.status(404).send({ error: 'broadcast not found' });
       if (!['draft', 'scheduled', 'paused'].includes(bc.state)) {
         return reply.status(409).send({ error: `cannot start from state '${bc.state}'` });
       }
 
-      // Resolve segment + filter to friendable contacts
-      const allContactIds = await resolveSegmentContactIds(user.orgId, bc.segmentSpec);
-      const friendableContacts = allContactIds.length === 0
-        ? []
-        : await prisma.contact.findMany({
-            where: {
-              id: { in: allContactIds },
-              orgId: user.orgId,
-              acceptedNicksCount: { gt: 0 },
-            },
-            select: { id: true },
-          });
-      const recipientIds = friendableContacts.map((c) => c.id);
-
-      // Update broadcast state + totals
-      await prisma.automationBroadcast.update({
-        where: { id },
-        data: {
-          state: 'running',
-          startedAt: new Date(),
-          totalRecipients: recipientIds.length,
-          sentCount: 0,
-          deliveredCount: 0,
-          failedCount: 0,
-        },
-      });
-
-      if (recipientIds.length === 0) {
-        // Mark completed immediately, no work to do
-        await prisma.automationBroadcast.update({
-          where: { id },
-          data: { state: 'completed', completedAt: new Date() },
-        });
-        return { ok: true, recipientsEnqueued: 0, note: 'no friendable recipients' };
-      }
-
-      // Emit start event so engine materializer creates Campaign + Tasks
-      // (similar pattern to manual_run but with broadcast binding)
-      const { automationEventBus } = await import('../engine/event-bus.js');
-      // For broadcast, we emit a special event per recipient so the existing
-      // materializer infrastructure handles the rest. Alternative: bulk-create
-      // tasks directly here. We pick bulk-create for efficiency.
-      await enqueueBroadcastTasks({
-        broadcastId: id,
-        orgId: user.orgId,
+      const { resolveAndEnqueue } = await import('./fire-broadcast.js');
+      const result = await resolveAndEnqueue({
+        id: bc.id,
+        orgId: bc.orgId,
         blockId: bc.blockId,
-        recipientIds,
-        pacing: bc.pacing as Record<string, unknown>,
+        segmentSpec: bc.segmentSpec,
+        pacing: bc.pacing,
       });
 
-      logger.info(`[broadcast] started ${id} — ${recipientIds.length} recipients enqueued`);
-      return { ok: true, recipientsEnqueued: recipientIds.length };
+      if (!result.claimed) {
+        return reply.status(409).send({ error: 'broadcast already claimed by another process' });
+      }
+      return { ok: true, recipientsEnqueued: result.recipients };
     } catch (error) {
       logger.error('[broadcast] start error:', error);
       return reply.status(500).send({ error: 'Failed to start broadcast' });
@@ -388,64 +360,5 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
-// ── Enqueue tasks for a broadcast run ─────────────────────────────────────
-// Creates 1 Campaign + N Tasks (one per recipient) with jittered scheduledAt
-// spread across the pacing window to respect maxPerNickPerHour.
-async function enqueueBroadcastTasks(args: {
-  broadcastId: string;
-  orgId: string;
-  blockId: string;
-  recipientIds: string[];
-  pacing: Record<string, unknown>;
-}): Promise<void> {
-  const { broadcastId, orgId, blockId, recipientIds, pacing } = args;
-
-  // Snapshot block content for task immutability (anh chốt Q1)
-  const block = await prisma.block.findUnique({
-    where: { id: blockId },
-    select: { content: true },
-  });
-  if (!block) throw new Error('block not found at enqueue time');
-
-  // Create Campaign + bulk tasks in transaction
-  const campaign = await prisma.automationCampaign.create({
-    data: {
-      id: randomUUID(),
-      orgId,
-      broadcastId,
-      executionKind: 'broadcast',
-      blockId,
-      segmentSnapshot: { contactIds: recipientIds } as object,
-      rulesSnapshot: pacing as object,
-      state: 'active',
-    },
-  });
-
-  // Compute scheduledAt jitter: spread across the day per pacing
-  const delay = (pacing.randomDelayBetweenSends as { min: number; max: number }) ?? { min: 15, max: 45 };
-  const now = Date.now();
-
-  // Each task gets a random offset within (min..max) minutes — engine worker
-  // then re-spaces them via per-nick throttle gate when picking up
-  const tasksData = recipientIds.map((contactId) => {
-    const jitterMs = (delay.min + Math.random() * Math.max(0, delay.max - delay.min)) * 60 * 1000;
-    return {
-      id: randomUUID(),
-      orgId,
-      campaignId: campaign.id,
-      contactId,
-      currentBlockId: blockId,
-      blockSnapshot: block.content as object,
-      scheduledAt: new Date(now + jitterMs),
-      state: 'queued',
-    };
-  });
-
-  // Chunk-insert (Prisma createMany has no per-row return, batch 500 at a time)
-  const CHUNK = 500;
-  for (let i = 0; i < tasksData.length; i += CHUNK) {
-    await prisma.automationTask.createMany({
-      data: tasksData.slice(i, i + CHUNK),
-    });
-  }
-}
+// (enqueueBroadcastTasks moved to fire-broadcast.ts — single source of truth
+//  per FIX A3. Use resolveAndEnqueue() instead.)

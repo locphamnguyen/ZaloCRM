@@ -2,12 +2,35 @@
  * Centralized configuration loader.
  * All environment variables are read once at startup and typed here.
  */
+
+// SECURITY FIX (A2): JWT_SECRET and ENCRYPTION_KEY must NOT fall back to dev
+// defaults when NODE_ENV=production. Webhook signature forgery / token forgery
+// possible if dev defaults leak to a prod container with missing env vars.
+const isProd = process.env.NODE_ENV === 'production';
+
+const DEV_JWT_FALLBACK = 'dev-secret-change-me';
+const DEV_ENC_FALLBACK = 'dev-key-change-me-16b';
+
+function requireSecret(name: string, devFallback: string, value: string | undefined): string {
+  if (isProd) {
+    if (!value || value === devFallback || value.length < 32) {
+      // Fail-fast: better to crash boot than run prod with forgeable secrets.
+      throw new Error(
+        `[config] FATAL: ${name} must be set (≥32 chars, not the dev default) when NODE_ENV=production. ` +
+        `Set ${name} in environment before starting the server.`,
+      );
+    }
+    return value;
+  }
+  return value || devFallback;
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3000'),
   host: process.env.HOST || '0.0.0.0',
   nodeEnv: process.env.NODE_ENV || 'development',
-  jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-me',
-  encryptionKey: process.env.ENCRYPTION_KEY || 'dev-key-change-me-16b',
+  jwtSecret: requireSecret('JWT_SECRET', DEV_JWT_FALLBACK, process.env.JWT_SECRET),
+  encryptionKey: requireSecret('ENCRYPTION_KEY', DEV_ENC_FALLBACK, process.env.ENCRYPTION_KEY),
   databaseUrl: process.env.DATABASE_URL || 'postgresql://crmuser:password@localhost:5432/zalocrm',
   uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
   appUrl: process.env.APP_URL || 'http://localhost:3000',

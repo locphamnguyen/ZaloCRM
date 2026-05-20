@@ -18,6 +18,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { DEFAULT_RUNTIME_RULES, type SequenceStep } from '../sequences/types.js';
 import type { AutomationEvent } from './types.js';
+import { sanitizeContactCriteria, sanitizeManualContactIds } from './segment-sanitizer.js';
 
 export interface MaterializeResult {
   campaignsCreated: number;
@@ -60,15 +61,28 @@ async function resolveSegmentContactIds(
   const s = spec as Record<string, unknown>;
 
   if (s.kind === 'manual' && Array.isArray(s.contactIds)) {
-    return s.contactIds.filter((id): id is string => typeof id === 'string');
+    // SECURITY FIX (A1): validate ids belong to this org before returning.
+    const safeIds = sanitizeManualContactIds(s.contactIds);
+    if (safeIds.length === 0) return [];
+    const verified = await prisma.contact.findMany({
+      where: { id: { in: safeIds }, orgId },
+      select: { id: true },
+    });
+    return verified.map((c) => c.id);
   }
 
   if (s.kind === 'filter' && typeof s.criteria === 'object' && s.criteria !== null) {
-    const where: Record<string, unknown> = { orgId, ...(s.criteria as Record<string, unknown>) };
+    // SECURITY FIX (A1): force orgId AND-scope, strip non-whitelisted fields.
+    // Previously `{ orgId, ...criteria }` allowed criteria.orgId override → cross-tenant leak.
+    const result = sanitizeContactCriteria(orgId, s.criteria);
+    if (!result.ok || !result.where) return [];
+    if (result.rejected?.length) {
+      logger.warn(`[materializer] segmentSpec criteria rejected fields: ${result.rejected.join(', ')}`);
+    }
     const rows = await prisma.contact.findMany({
-      where,
+      where: result.where,
       select: { id: true },
-      take: 10000, // hard cap defensive
+      take: 10000,
     });
     return rows.map((r) => r.id);
   }

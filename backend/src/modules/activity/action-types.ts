@@ -79,6 +79,7 @@ export const ACTION_CATEGORY: Record<string, ActivityCategory> = {
   bot_tag_auto: 'automation',
   bot_score_calc: 'automation',
   bot_status_suggest: 'automation',
+  auto_tag_change: 'automation', // Phase 6+ unified auto-tag system (scoring/auto-tag.ts)
 };
 
 export function categoryOf(action: string): ActivityCategory | null {

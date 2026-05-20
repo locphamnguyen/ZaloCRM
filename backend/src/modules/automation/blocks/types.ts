@@ -39,9 +39,12 @@ export interface RequestFriendContent {
 }
 
 export interface MessageAttachment {
-  kind: 'image' | 'file' | 'link';
+  kind: 'image' | 'video' | 'file' | 'link';
   url: string;
   caption?: string;
+  // Optional: thumbnail for video, alt text for image
+  thumbnailUrl?: string;
+  altText?: string;
 }
 
 export interface SendMessageContent {
@@ -102,8 +105,8 @@ export function validateBlockContent(
             return { ok: false, error: 'mỗi attachment phải là object' };
           }
           const a = att as Record<string, unknown>;
-          if (!['image', 'file', 'link'].includes(a.kind as string)) {
-            return { ok: false, error: 'attachment.kind phải là image | file | link' };
+          if (!['image', 'video', 'file', 'link'].includes(a.kind as string)) {
+            return { ok: false, error: 'attachment.kind phải là image | video | file | link' };
           }
           if (typeof a.url !== 'string' || !a.url) {
             return { ok: false, error: 'attachment.url phải là chuỗi không rỗng' };

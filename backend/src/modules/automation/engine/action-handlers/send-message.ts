@@ -27,7 +27,7 @@ const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
 export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResult> {
   const snap = ctx.blockSnapshot as {
     textVariants?: string[];
-    attachments?: Array<{ kind: string; url: string; caption?: string }>;
+    attachments?: Array<{ kind: string; url: string; caption?: string; thumbnailUrl?: string; altText?: string }>;
   };
 
   if (!Array.isArray(snap.textVariants) || snap.textVariants.length === 0) {
@@ -48,15 +48,13 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
   }
 
   const text = snap.textVariants[Math.floor(Math.random() * snap.textVariants.length)];
-  if (snap.attachments && snap.attachments.length > 0) {
-    logger.warn(`[send-message] block has ${snap.attachments.length} attachment(s) — text-only sent in v1, attachments deferred`);
-  }
+  const attachments = Array.isArray(snap.attachments) ? snap.attachments : [];
 
   if (STUB_MODE) {
-    logger.info(`[send-message STUB] would send "${text.slice(0, 40)}..." from nick ${ctx.assignedNickId} to contact ${ctx.contactId}`);
+    logger.info(`[send-message STUB] would send "${text.slice(0, 40)}..." + ${attachments.length} attachment(s) from nick ${ctx.assignedNickId} to contact ${ctx.contactId}`);
     return {
       outcome: 'success',
-      data: { stub: true, textUsed: text },
+      data: { stub: true, textUsed: text, attachmentCount: attachments.length },
     };
   }
 
@@ -84,15 +82,24 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
       retryable: false,
     };
   }
-  // Allow accepted (real friends) + chatting_stranger (Zalo cho phép gửi qua stranger,
-  // tuy nhiên rate limit nghiêm hơn). Reject removed/blocked/none.
-  if (!['accepted', 'pending_sent', 'pending_received', 'none'].includes(friend.friendshipStatus)) {
-    return {
-      outcome: 'failure',
-      errorCode: 'FRIENDSHIP_BLOCKED',
-      errorMessage: `Friend status '${friend.friendshipStatus}' không cho phép gửi tin`,
-      retryable: false,
-    };
+  // FIX A5: send_message restricted to friendshipStatus='accepted' ONLY.
+  // Previously allowed pending_sent/pending_received/none which Zalo policy
+  // either silently drops or marks as spam. send_message is for confirmed
+  // friends; cold-message via 'none' should use request_friend action instead.
+  // Exception: 'pending_sent' with hasConversation=true (KH đã reply qua stranger
+  // window) — Zalo allows that path. Worker check below.
+  if (friend.friendshipStatus !== 'accepted') {
+    if (friend.friendshipStatus === 'pending_sent' && friend.hasConversation) {
+      // Allow: KH replied while friend req pending — Zalo allows continued chat
+      logger.info(`[send-message] proceeding with pending_sent + hasConversation for contact=${ctx.contactId}`);
+    } else {
+      return {
+        outcome: 'failure',
+        errorCode: 'FRIENDSHIP_NOT_ACCEPTED',
+        errorMessage: `Friend status '${friend.friendshipStatus}' không cho phép gửi tin (cần 'accepted')`,
+        retryable: false,
+      };
+    }
   }
 
   const threadId = friend.zaloUidInNick;
@@ -117,11 +124,44 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
     });
   }
 
-  // Step 3: send via Zalo SDK
+  // Step 3: send via Zalo SDK — dispatch based on first attachment kind.
+  // FIX B1: previously attachments were logged-warn and dropped (text-only).
+  // Now supports image/video/file via dedicated zaloOps methods.
   let sdkResult: Record<string, unknown>;
   try {
-    const raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, { msg: text });
-    sdkResult = (raw as Record<string, unknown>) || {};
+    if (attachments.length > 0) {
+      const first = attachments[0];
+      const url = first.url;
+      const caption = first.caption || text;
+      let raw: unknown;
+      if (first.kind === 'image') {
+        // zaloOps.sendImage expects attachment object array
+        raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, [{ url, caption }]);
+      } else if (first.kind === 'video') {
+        // Video: zaloOps.sendVideo({ videoUrl, thumbnailUrl, msg })
+        raw = await zaloOps.sendVideo(ctx.assignedNickId, threadId, threadType, {
+          videoUrl: url,
+          thumbnailUrl: first.thumbnailUrl ?? url,
+          msg: caption,
+        });
+      } else if (first.kind === 'file') {
+        // sendFile expects file path array. If URL is http, the worker can't fetch
+        // server-side without download — currently passes URL string as path.
+        // Zalo SDK behavior: file path must exist on the running server.
+        // TODO: download URL → temp file for non-filesystem URLs.
+        raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [url], null, caption);
+      } else if (first.kind === 'link') {
+        // Link card uses sendLink with link payload
+        raw = await zaloOps.sendLink(ctx.assignedNickId, threadId, threadType, { href: url, title: caption, desc: text });
+      } else {
+        // Unknown kind: fall back to text-only with URL appended
+        raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, { msg: `${text}\n${url}` });
+      }
+      sdkResult = (raw as Record<string, unknown>) || {};
+    } else {
+      const raw = await zaloOps.sendMessage(ctx.assignedNickId, threadId, threadType, { msg: text });
+      sdkResult = (raw as Record<string, unknown>) || {};
+    }
   } catch (err: any) {
     const code = err?.code as string | undefined;
     const msg = err?.message ?? String(err);
@@ -145,6 +185,18 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
   const zaloMsgId = String(rawId || '');
 
   // Step 5: persist outbound Message row
+  // contentType reflects attachment kind for proper UI rendering
+  const persistContentType = attachments.length > 0
+    ? (attachments[0].kind === 'image' ? 'image'
+       : attachments[0].kind === 'video' ? 'video'
+       : attachments[0].kind === 'file' ? 'file'
+       : attachments[0].kind === 'link' ? 'link'
+       : 'text')
+    : 'text';
+  const persistContent = attachments.length > 0
+    ? JSON.stringify({ text, attachments })
+    : text;
+
   let messageRow: { id: string; content: string | null; contentType: string; sentAt: Date };
   try {
     messageRow = await prisma.message.create({
@@ -155,8 +207,8 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
         senderType: 'self',
         senderUid: '',
         senderName: 'Bot-Auto',
-        content: text,
-        contentType: 'text',
+        content: persistContent,
+        contentType: persistContentType,
         sentAt: new Date(),
       },
       select: { id: true, content: true, contentType: true, sentAt: true },

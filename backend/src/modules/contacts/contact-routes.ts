@@ -502,15 +502,20 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       if (!Array.isArray(tags)) return reply.status(400).send({ error: 'tags must be an array' });
 
+      // Defensive: strip Zalo-mirror tags (🔵 X) trước khi ghi Contact.tags.
+      // Zalo-mirror là per-nick, sống ở Friend.crmTagsPerNick — KHÔNG bao giờ
+      // được phép viết vào Contact.tags (cross-nick) qua endpoint này.
+      const filteredTags = tags.filter(t => typeof t === 'string' && !t.startsWith('🔵 '));
+
       const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true, tags: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
       const oldTags = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
-      const updated = await prisma.contact.update({ where: { id }, data: { tags } });
+      const updated = await prisma.contact.update({ where: { id }, data: { tags: filteredTags } });
 
-      // ── ACTIVITY LOG — diff tags added/removed ─────────────────────────────
-      const added = tags.filter(t => !oldTags.includes(t));
-      const removed = oldTags.filter(t => !tags.includes(t));
+      // ── ACTIVITY LOG — diff tags added/removed (so với filteredTags vì đó là DB state mới)
+      const added = filteredTags.filter(t => !oldTags.includes(t));
+      const removed = oldTags.filter(t => !filteredTags.includes(t));
       for (const t of added) {
         logActivity({
           orgId: user.orgId,

@@ -69,15 +69,44 @@ export async function tick(): Promise<void> {
   if (isRunning) return; // overlap protection
   isRunning = true;
   try {
+    const now = new Date();
+    const staleCutoff = new Date(now.getTime() - 24 * 3600 * 1000);
+
+    // FIX A7: lease recovery. Tasks stuck in 'running' state for > 5 minutes
+    // are assumed crashed (container died mid-execution) — reset to queued
+    // for retry. Uses updatedAt as the lease proxy (auto-updated by Prisma on
+    // state transition). No schema change needed.
+    const leaseExpiry = new Date(now.getTime() - 5 * 60 * 1000);
+    const reclaimed = await prisma.automationTask.updateMany({
+      where: {
+        state: TASK_STATES.RUNNING,
+        updatedAt: { lt: leaseExpiry },
+      },
+      data: { state: TASK_STATES.QUEUED },
+    });
+    if (reclaimed.count > 0) {
+      logger.warn(`[task-worker] reclaimed ${reclaimed.count} stuck-running tasks (lease expired)`);
+    }
     const tasks = await prisma.automationTask.findMany({
       where: {
         state: TASK_STATES.QUEUED,
-        scheduledAt: { lte: new Date() },
+        scheduledAt: { lte: now, gte: staleCutoff },
       },
       orderBy: [{ scheduledAt: 'asc' }],
       take: BATCH_SIZE,
     });
-    if (tasks.length === 0) return;
+    if (tasks.length === 0) {
+      // Cleanup stale tasks (any queued task scheduled > 24h ago is stale).
+      // Single-shot per tick — doesn't run if there's actual work to do.
+      await prisma.automationTask.updateMany({
+        where: {
+          state: TASK_STATES.QUEUED,
+          scheduledAt: { lt: staleCutoff },
+        },
+        data: { state: TASK_STATES.SKIPPED, skipReason: 'stale_scheduled_at' },
+      });
+      return;
+    }
 
     logger.debug('[task-worker] processing ' + tasks.length + ' tasks');
     for (const task of tasks) {
@@ -251,12 +280,28 @@ async function processTask(taskId: string): Promise<void> {
 
   const result = await dispatchAction(ctx);
 
+  // FIX A4: explicit outcome handling for all 4 ActionResult.outcome values.
+  // Previously only 'success' was terminal-done; 'no_zalo' and 'already_friend'
+  // fell through to retry+fail, burning quota on permanent failures.
   if (result.outcome === 'success') {
     await markDoneAndAdvance(task, result.data ?? null, assignedNickId, actionType, now);
     return;
   }
 
-  // Failure handling
+  if (result.outcome === 'no_zalo') {
+    // Permanent: phone has no Zalo. Skip — sequence can advance, broadcast counts as failed.
+    await markSkipped(taskId, 'no_zalo', result.errorMessage ?? 'Phone has no Zalo account');
+    return;
+  }
+
+  if (result.outcome === 'already_friend') {
+    // Idempotent: friendship already exists. Treat as success for sequence advance,
+    // but data records the dedup so analytics shows "skipped, already friend".
+    await markDoneAndAdvance(task, { ...(result.data ?? {}), alreadyFriend: true }, assignedNickId, actionType, now);
+    return;
+  }
+
+  // outcome === 'failure' (or unknown): retry path
   if (result.retryable && task.attemptCount < MAX_ATTEMPT_COUNT) {
     const backoffMin = RETRY_BACKOFF_MINUTES[Math.min(task.attemptCount - 1, RETRY_BACKOFF_MINUTES.length - 1)];
     const retryAt = new Date(now.getTime() + backoffMin * 60 * 1000);
