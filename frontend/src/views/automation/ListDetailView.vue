@@ -193,20 +193,21 @@
             <th title="Phone local VN (0xxx)">🇻🇳 Phone (local)</th>
             <th>Tên KH (file)</th>
             <th>Tên KH (Zalo)</th>
+            <th title="Lời mời / tin nhắn riêng cho KH này (chỉ có khi import từ CSV/Excel)">💬 Lời mời riêng</th>
             <th>Trạng thái</th>
             <th>Zalo UID</th>
             <th>Nick tìm ra</th>
             <th>Global ID</th>
-            <th>Ghi chú</th>
+            <th title="Thông báo hệ thống — lý do invalid, dup, error">⚙️ Thông báo hệ thống</th>
             <th class="right">Action</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="loadingEntries">
-            <td colspan="13" class="loading-cell">⏳ Đang tải...</td>
+            <td colspan="14" class="loading-cell">⏳ Đang tải...</td>
           </tr>
           <tr v-else-if="entries.length === 0">
-            <td colspan="13" class="empty-cell">Không có SĐT nào ở tab này</td>
+            <td colspan="14" class="empty-cell">Không có SĐT nào ở tab này</td>
           </tr>
           <tr
             v-for="entry in entries"
@@ -234,6 +235,10 @@
               <template v-if="entry.zaloName">{{ entry.zaloName }}</template>
               <template v-else-if="entry.status === 'invalid'">—</template>
               <template v-else>(chưa có)</template>
+            </td>
+            <td class="personal-note" :title="entry.personalNote || ''">
+              <template v-if="entry.personalNote">{{ entry.personalNote }}</template>
+              <span v-else class="muted-italic">—</span>
             </td>
             <td>
               <span class="status-pill" :class="statusPillClass(entry.status, entry.hasZalo)">
@@ -664,6 +669,12 @@ function nickAvatarStyle(name: string): Record<string, string> {
 }
 .name-zalo.has { color: #111827; font-weight: 500; }
 .name-zalo.no { color: #9CA3AF; font-style: italic; }
+
+.personal-note {
+  max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #4B5563; font-size: 12px;
+}
 
 .muted-italic { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
 

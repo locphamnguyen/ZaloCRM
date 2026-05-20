@@ -15,7 +15,18 @@
 
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { normalizePhone } from '../../../shared/utils/phone.js';
-import type { ParsedLine, ImportResult, InvalidReason } from './types.js';
+import type { ParsedLine, ImportResult, InvalidReason, MappedRow } from './types.js';
+
+/**
+ * Strip các prefix nhiễu phổ biến khi user copy từ Zalo/Excel:
+ *   "p:+84..."  → "+84..."   (Zalo SDK link copy)
+ *   "tel:"      → ""
+ *   "sđt:"      → ""
+ * Áp dụng case-insensitive ở đầu chuỗi, có thể có space sau prefix.
+ */
+function stripPhonePrefix(input: string): string {
+  return input.replace(/^\s*(?:p|tel|sđt|sdt|phone|đt|dt)\s*[:：]\s*/i, '').trim();
+}
 
 /**
  * Convert canonical "84908123456" → local "0908123456" (VN).
@@ -71,38 +82,73 @@ export function parseRawText(rawText: string): ParsedLine[] {
   return results;
 }
 
-function parseSingleLine(line: string, rowIndex: number): ParsedLine {
+/**
+ * Parse từ MappedRow[] (đã có cột phân biệt phone/name/personalNote từ frontend).
+ * Dùng cho CSV/Excel path — KHÔNG split-line-parse, mỗi row đã 1 phone candidate.
+ */
+export function parseMappedRows(rows: MappedRow[]): ParsedLine[] {
+  const results: ParsedLine[] = [];
+  for (const row of rows) {
+    if (!row.phone || !String(row.phone).trim()) continue; // skip rỗng
+    const rowIndex = results.length + 1;
+    const parsed = parseSingleLine(String(row.phone), rowIndex, {
+      name: row.name ?? null,
+      personalNote: row.personalNote ?? null,
+    });
+    results.push(parsed);
+  }
+  return results;
+}
+
+/**
+ * Parse 1 dòng. Override: nếu caller truyền explicit name/personalNote
+ * (CSV/Excel mapping path) thì KHÔNG tự cắt từ line.
+ */
+function parseSingleLine(
+  line: string,
+  rowIndex: number,
+  override?: { name: string | null; personalNote: string | null },
+): ParsedLine {
+  const original = line;
+  const cleaned = stripPhonePrefix(line.trim());
+
   // Cắt phần phone (digits + space + dot + dash + paren + plus) ở đầu line
-  // Match: optional +, digits separated by space/dot/dash/paren
-  const phoneMatch = line.match(/^[\s]*(\+?[\d\s.\-()]+)/);
+  const phoneMatch = cleaned.match(/^[\s]*(\+?[\d\s.\-()]+)/);
   if (!phoneMatch) {
     return {
       rowIndex,
-      phoneRaw: line,
+      phoneRaw: original,
       phoneE164: null,
       phoneLocal: null,
-      nameRaw: null,
+      nameRaw: override?.name?.trim() || null,
+      personalNote: override?.personalNote?.trim() || null,
       valid: false,
       invalidReason: 'invalid_format' satisfies InvalidReason,
     };
   }
 
   const phonePart = phoneMatch[1].trim();
-  const restRaw = line.slice(phoneMatch[0].length).trim();
+  const restRaw = cleaned.slice(phoneMatch[0].length).trim();
 
-  // Cắt note trong dấu ngoặc cuối line + cắt cột phía sau dấu phẩy/tab
-  let nameRaw: string | null = null;
-  if (restRaw) {
-    // Lấy phần đầu trước comma/tab nếu có
-    const namePart = restRaw.split(/[,\t]/)[0].trim();
-    // Strip dấu ngoặc cuối
-    nameRaw = namePart.replace(/\s*\([^)]*\)\s*$/, '').trim() || null;
+  // Name: nếu override thì dùng, ngược lại cắt từ phần sau phone
+  let nameRaw: string | null;
+  let personalNote: string | null;
+  if (override) {
+    nameRaw = override.name?.trim() || null;
+    personalNote = override.personalNote?.trim() || null;
+  } else {
+    // Paste path: chỉ lấy name (KHÔNG note) — cắt phần đầu trước comma/tab + strip ngoặc cuối
+    nameRaw = null;
+    personalNote = null;
+    if (restRaw) {
+      const namePart = restRaw.split(/[,\t]/)[0].trim();
+      nameRaw = namePart.replace(/\s*\([^)]*\)\s*$/, '').trim() || null;
+    }
   }
 
   // Normalize qua util sẵn có (84xxx canonical) + invalidate nếu null
   const canonical = normalizePhone(phonePart);
   if (!canonical) {
-    // Phân loại lý do invalid
     const digits = phonePart.replace(/[^\d]/g, '');
     let reason: InvalidReason = 'invalid_format';
     if (digits.length === 0) reason = 'empty';
@@ -110,24 +156,26 @@ function parseSingleLine(line: string, rowIndex: number): ParsedLine {
     else if (digits.length > 13) reason = 'too_long';
     return {
       rowIndex,
-      phoneRaw: line,
+      phoneRaw: original,
       phoneE164: null,
       phoneLocal: null,
       nameRaw,
+      personalNote,
       valid: false,
       invalidReason: reason,
     };
   }
 
-  // VN local format chỉ valid cho prefix 84xxx
+  // VN local format chỉ valid cho prefix 84xxx — v1 reject mọi country khác
   const local = toLocalFormat(canonical);
   if (!local) {
     return {
       rowIndex,
-      phoneRaw: line,
+      phoneRaw: original,
       phoneE164: toE164Format(canonical),
       phoneLocal: null,
       nameRaw,
+      personalNote,
       valid: false,
       invalidReason: 'invalid_prefix' satisfies InvalidReason,
     };
@@ -135,10 +183,11 @@ function parseSingleLine(line: string, rowIndex: number): ParsedLine {
 
   return {
     rowIndex,
-    phoneRaw: line,
+    phoneRaw: original,
     phoneE164: toE164Format(canonical),
     phoneLocal: local,
     nameRaw,
+    personalNote,
     valid: true,
     invalidReason: null,
   };
@@ -257,7 +306,7 @@ export async function detectCrmContactDup(
  * with dup metadata, ready for persistence.
  */
 export async function parseAndDedup(
-  rawText: string,
+  rawTextOrRows: string | MappedRow[],
   orgId: string,
 ): Promise<{
   lines: ParsedLine[];
@@ -265,7 +314,10 @@ export async function parseAndDedup(
   crossListDup: Map<number, { dupListId: string; dupEntryId: string }>;
   crmContactDup: Map<number, string>;
 }> {
-  const lines = parseRawText(rawText);
+  const lines =
+    typeof rawTextOrRows === 'string'
+      ? parseRawText(rawTextOrRows)
+      : parseMappedRows(rawTextOrRows);
   const internalDup = detectInternalDup(lines);
   const [crossListDup, crmContactDup] = await Promise.all([
     detectCrossListDup(lines, orgId),

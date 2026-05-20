@@ -30,12 +30,19 @@ export interface CustomerListSummary {
   pendingLookupEntries: number;
 }
 
+export interface MappedRow {
+  phone: string;
+  name?: string | null;
+  personalNote?: string | null;
+}
+
 export interface CustomerListEntry {
   id: string;
   customerListId: string;
   rowIndex: number;
   phoneRaw: string;
   nameRaw: string | null;
+  personalNote: string | null;
   phoneE164: string | null;
   phoneLocal: string | null;
   phoneValid: boolean;
@@ -140,9 +147,10 @@ export function useCustomerLists() {
     }
   }
 
-  async function dryRun(rawText: string): Promise<DryRunResult | null> {
+  async function dryRun(input: string | MappedRow[]): Promise<DryRunResult | null> {
     try {
-      const res = await api.post('/customer-lists/dry-run', { rawText });
+      const payload = typeof input === 'string' ? { rawText: input } : { rows: input };
+      const res = await api.post('/customer-lists/dry-run', payload);
       return res.data;
     } catch (err) {
       console.error('[customer-lists] dryRun failed:', err);
@@ -154,7 +162,8 @@ export function useCustomerLists() {
     name?: string;
     iconEmoji?: string;
     sourceType?: string;
-    rawText: string;
+    rawText?: string;
+    rows?: MappedRow[];
   }) {
     try {
       const res = await api.post('/customer-lists', payload);

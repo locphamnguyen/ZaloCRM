@@ -98,17 +98,21 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ─── POST /customer-lists/dry-run — preview parse stats, NO persist ───
-  app.post<{ Body: { rawText: string } }>(
+  // Body: { rawText } (paste path) HOẶC { rows: MappedRow[] } (CSV/Excel path)
+  app.post<{
+    Body: { rawText?: string; rows?: Array<{ phone: string; name?: string | null; personalNote?: string | null }> };
+  }>(
     '/api/v1/customer-lists/dry-run',
     async (request, reply) => {
       const user = request.user!;
-      const { rawText } = request.body ?? { rawText: '' };
-      if (!rawText?.trim()) {
-        return reply.status(400).send({ error: 'rawText required' });
+      const body = request.body ?? {};
+      const input = body.rows && body.rows.length ? body.rows : (body.rawText ?? '');
+      if (typeof input === 'string' ? !input.trim() : input.length === 0) {
+        return reply.status(400).send({ error: 'rawText_or_rows_required' });
       }
       try {
         const { lines, internalDup, crossListDup, crmContactDup } = await parseAndDedup(
-          rawText,
+          input,
           user.orgId,
         );
         return {
@@ -128,19 +132,31 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ─── POST /customer-lists — create + persist + async enrichment ───
+  // Body: 1 trong 2 dạng:
+  //   { name?, iconEmoji?, sourceType: 'paste', rawText }      ← paste path
+  //   { name?, iconEmoji?, sourceType: 'csv'|'excel', rows[] } ← CSV/Excel column-mapped
   app.post<{
-    Body: { name?: string; iconEmoji?: string; sourceType?: string; rawText: string };
+    Body: {
+      name?: string;
+      iconEmoji?: string;
+      sourceType?: string;
+      rawText?: string;
+      rows?: Array<{ phone: string; name?: string | null; personalNote?: string | null }>;
+    };
   }>('/api/v1/customer-lists', async (request, reply) => {
     const user = request.user!;
-    const { name, iconEmoji, sourceType = 'paste', rawText } = request.body ?? { rawText: '' };
+    const { name, iconEmoji, sourceType = 'paste', rawText, rows } = request.body ?? {};
 
-    if (!rawText?.trim()) {
-      return reply.status(400).send({ error: 'rawText required' });
+    const hasRows = Array.isArray(rows) && rows.length > 0;
+    const hasText = typeof rawText === 'string' && rawText.trim().length > 0;
+    if (!hasRows && !hasText) {
+      return reply.status(400).send({ error: 'rawText_or_rows_required' });
     }
 
     try {
+      const parseInput = hasRows ? rows! : rawText!;
       const { lines, internalDup, crossListDup, crmContactDup } = await parseAndDedup(
-        rawText,
+        parseInput,
         user.orgId,
       );
 
@@ -175,7 +191,11 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
             name: finalName,
             iconEmoji: iconEmoji ?? null,
             sourceType,
-            rawText: rawText.slice(0, 100_000), // cap 100KB raw
+            // rawText: cap 100KB. CSV/Excel path KHÔNG có raw paste, lưu JSON các mapped rows
+            // để debug/re-import sau này.
+            rawText: hasText
+              ? rawText!.slice(0, 100_000)
+              : JSON.stringify(rows ?? []).slice(0, 100_000),
             status: 'processing',
             totalEntries: lines.length,
             validEntries: valid,
@@ -220,6 +240,7 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
             rowIndex: line.rowIndex,
             phoneRaw: line.phoneRaw.slice(0, 500),
             nameRaw: line.nameRaw,
+            personalNote: line.personalNote ? line.personalNote.slice(0, 2000) : null,
             phoneE164: line.phoneE164,
             phoneLocal: line.phoneLocal,
             phoneValid: line.valid,
