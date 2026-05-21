@@ -1,9 +1,10 @@
 <template>
-  <!-- Phase A UI fix v2 (2026-05-21): flex-nowrap để chip xếp hàng NGANG.
-       P5 2026-05-21: thêm tooltip + click hint cho mỗi chip. Hover thấy ai react. -->
+  <!-- Phase A UI fix v3 (2026-05-21): cap 3 chip visible + "+N" overflow chip.
+       Trước fix: thả 5 reaction → tràn ra ngoài bubble → chat UI scroll ngang (bể UI).
+       Anh chốt: max 3 chip, dư thì hiện "+N" sau. Hover "+N" thấy list emoji còn lại. -->
   <div v-if="reactions.length > 0" class="d-flex ga-1 reaction-row">
     <v-chip
-      v-for="r in reactions"
+      v-for="r in visibleReactions"
       :key="r.emoji"
       size="x-small"
       :variant="r.reacted ? 'tonal' : 'outlined'"
@@ -15,13 +16,24 @@
     >
       {{ r.emoji }}&nbsp;{{ r.count }}
     </v-chip>
+    <v-chip
+      v-if="overflowCount > 0"
+      size="x-small"
+      variant="outlined"
+      class="reaction-chip reaction-chip--overflow"
+      :title="overflowTooltip"
+    >+{{ overflowCount }}</v-chip>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue';
+
 interface ReactionView { emoji: string; count: number; reacted: boolean }
 
-defineProps<{
+const MAX_VISIBLE_CHIPS = 3;
+
+const props = defineProps<{
   reactions: ReactionView[];
 }>();
 
@@ -29,8 +41,30 @@ const emit = defineEmits<{
   toggle: [emoji: string];
 }>();
 
-// Hover tooltip cho từng chip — anh chốt 2026-05-21: hiện "❤️ 3 người, click để (gỡ|thả) reaction".
-// Phase 2 (defer): popover hiện avatar list từng người. Hiện chỉ count + action hint.
+// Cap 3 chip visible. Ưu tiên giữ chip mà user đã react (mình thấy ngay icon mình thả).
+const visibleReactions = computed<ReactionView[]>(() => {
+  if (props.reactions.length <= MAX_VISIBLE_CHIPS) return props.reactions;
+  // Sort: reacted (mình thả) lên trước, sau đó theo count desc, sau đó giữ thứ tự gốc
+  const indexed = props.reactions.map((r, i) => ({ ...r, originalIdx: i }));
+  indexed.sort((a, b) => {
+    if (a.reacted !== b.reacted) return a.reacted ? -1 : 1;
+    if (a.count !== b.count) return b.count - a.count;
+    return a.originalIdx - b.originalIdx;
+  });
+  return indexed.slice(0, MAX_VISIBLE_CHIPS);
+});
+
+const overflowCount = computed(() => Math.max(0, props.reactions.length - MAX_VISIBLE_CHIPS));
+
+// Tooltip "+N" chip — list emoji còn lại để user biết ẩn gì.
+const overflowTooltip = computed(() => {
+  if (overflowCount.value === 0) return '';
+  const shown = new Set(visibleReactions.value.map(r => r.emoji));
+  const hidden = props.reactions.filter(r => !shown.has(r.emoji));
+  const list = hidden.map(r => `${r.emoji} ${r.count}`).join(' · ');
+  return `+${overflowCount.value} reaction khác: ${list}`;
+});
+
 function tooltipFor(r: ReactionView): string {
   const people = r.count === 1 ? '1 người' : `${r.count} người`;
   const verb = r.reacted ? 'gỡ' : 'thả';
@@ -53,5 +87,13 @@ function tooltipFor(r: ReactionView): string {
 }
 .reaction-chip--reacted {
   border-width: 1.5px;
+}
+/* "+N" overflow chip — slightly muted, không cursor pointer (chỉ tooltip) */
+.reaction-chip--overflow {
+  cursor: default;
+  opacity: 0.85;
+}
+.reaction-chip--overflow:hover {
+  transform: none;
 }
 </style>

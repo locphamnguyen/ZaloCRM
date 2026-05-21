@@ -2134,6 +2134,11 @@ watch(() => props.editingMessage?.id, async (id) => {
 .messages {
   flex: 1; min-height: 0;
   overflow-y: auto; overflow-anchor: auto;
+  /* Phase A UI fix v3 (2026-05-21): overflow-x hidden để reaction overlap chip
+     (absolute position) KHÔNG bao giờ gây scroll ngang. Đề phòng future overflow
+     từ msg content (URL dài, code block) cũng KHÔNG được scroll ngang.
+     Chat UI must NEVER scroll horizontally (anh chốt). */
+  overflow-x: hidden;
   padding: 14px 26px;
   display: flex; flex-direction: column; gap: 5px;
 }
