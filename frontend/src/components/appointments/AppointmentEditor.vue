@@ -110,94 +110,19 @@
           <div class="row-2">
             <div class="field">
               <span class="field-label">Ngày</span>
-              <button class="picker-display" :class="{ open: openDatePicker }" @click="toggleDatePicker">
+              <button ref="dateBtnRef" class="picker-display" :class="{ open: openDatePicker }" @click="toggleDatePicker">
                 <span class="ic">📅</span>
                 <span class="val">{{ dateLabel }}</span>
                 <span class="caret">{{ openDatePicker ? '▴' : '▾' }}</span>
               </button>
-              <!-- Date picker popup -->
-              <div v-if="openDatePicker" class="picker-popup date-popup" v-click-outside="closeDatePicker">
-                <div class="dp-head">
-                  <button type="button" @click="shiftCalMonth(-1)">‹</button>
-                  <span class="month">Tháng {{ calMonth.getMonth() + 1 }}, {{ calMonth.getFullYear() }}</span>
-                  <button type="button" @click="shiftCalMonth(1)">›</button>
-                </div>
-                <div class="dp-grid">
-                  <div v-for="w in ['CN','T2','T3','T4','T5','T6','T7']" :key="w" class="dp-wd">{{ w }}</div>
-                  <div
-                    v-for="cell in calCells"
-                    :key="cell.iso"
-                    class="dp-day"
-                    :class="{ muted: cell.muted, today: cell.isToday, selected: cell.iso === form.date }"
-                    @click="pickDate(cell.date)"
-                  >{{ cell.day }}</div>
-                </div>
-                <div class="dp-tip-divider"></div>
-                <div class="dp-tips">
-                  <button
-                    v-for="t in dateTips"
-                    :key="t.label"
-                    type="button"
-                    class="tip-chip"
-                    :class="{ active: isDateTipActive(t.offset) }"
-                    @click="pickDateOffset(t.offset)"
-                  >{{ t.label }}</button>
-                </div>
-                <div class="popup-foot">
-                  <button type="button" class="at-btn at-btn--primary popup-confirm" @click="closeDatePicker">✓ Xác nhận</button>
-                </div>
-              </div>
             </div>
             <div class="field">
               <span class="field-label">Giờ bắt đầu</span>
-              <button class="picker-display" :class="{ open: openTimePicker }" @click="toggleTimePicker">
+              <button ref="timeBtnRef" class="picker-display" :class="{ open: openTimePicker }" @click="toggleTimePicker">
                 <span class="ic">🕐</span>
                 <span class="val">{{ form.time || '--:--' }}</span>
                 <span class="caret">{{ openTimePicker ? '▴' : '▾' }}</span>
               </button>
-              <!-- Time picker dropdown (iOS wheel style) -->
-              <div v-if="openTimePicker" class="picker-popup time-popup" v-click-outside="closeTimePicker">
-                <div class="tp-wheels">
-                  <div class="tp-fade tp-fade--top"></div>
-                  <div class="tp-fade tp-fade--bot"></div>
-                  <!-- Hour wheel -->
-                  <div class="tp-wheel" @wheel.prevent="onHourWheel">
-                    <div class="tp-wheel-items" :style="{ transform: `translateY(${-hourWheelOffset}px)` }">
-                      <div
-                        v-for="h in HOURS"
-                        :key="h"
-                        class="tp-wheel-item"
-                        :class="{ selected: h === hourValue }"
-                        @click="setHour(h)"
-                      >{{ String(h).padStart(2, '0') }}</div>
-                    </div>
-                  </div>
-                  <div class="tp-separator">:</div>
-                  <!-- Minute wheel -->
-                  <div class="tp-wheel" @wheel.prevent="onMinuteWheel">
-                    <div class="tp-wheel-items" :style="{ transform: `translateY(${-minuteWheelOffset}px)` }">
-                      <div
-                        v-for="m in MINUTES"
-                        :key="m"
-                        class="tp-wheel-item"
-                        :class="{ selected: m === minuteValue }"
-                        @click="setMinute(m)"
-                      >{{ String(m).padStart(2, '0') }}</div>
-                    </div>
-                  </div>
-                </div>
-                <!-- 4 quick chips: 2x2 grid -->
-                <div class="tp-quick-grid">
-                  <button type="button" class="tip-chip" @click="randomTime('morning')">☀️ Sáng</button>
-                  <button type="button" class="tip-chip" @click="randomTime('noon')">🌤 Trưa</button>
-                  <button type="button" class="tip-chip" @click="randomTime('afternoon')">⛅ Chiều</button>
-                  <button type="button" class="tip-chip" @click="randomTime('evening')">🌙 Tối</button>
-                </div>
-                <div class="tp-helper">Bấm lại 1 khung để random giờ khác</div>
-                <div class="popup-foot">
-                  <button type="button" class="at-btn at-btn--primary popup-confirm" @click="closeTimePicker">✓ Xác nhận</button>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -205,7 +130,7 @@
           <div class="field">
             <div class="duration-header">
               <span class="field-label">Dự kiến dành thời gian</span>
-              <span class="duration-end">🏁 Dự kiến kết thúc: <b>{{ computedEndLabel }}</b> <em>(Tự tính toán)</em></span>
+              <span class="duration-end">🏁 Dự kiến kết thúc: <b class="end-bold">{{ computedEndLabel }}</b> <em>(Tự tính toán)</em></span>
             </div>
             <div class="duration-row">
               <button
@@ -296,6 +221,90 @@
           </div>
         </div>
       </div>
+
+      <!-- Date picker popup — position fixed bên ngoài modal (không push modal expand) -->
+      <div
+        v-if="openDatePicker"
+        class="picker-popup date-popup airtable-scope"
+        :style="datePopupStyle"
+        v-click-outside="closeDatePicker"
+      >
+        <div class="dp-head">
+          <button type="button" @click="shiftCalMonth(-1)">‹</button>
+          <span class="month">Tháng {{ calMonth.getMonth() + 1 }}, {{ calMonth.getFullYear() }}</span>
+          <button type="button" @click="shiftCalMonth(1)">›</button>
+        </div>
+        <div class="dp-grid">
+          <div v-for="w in ['CN','T2','T3','T4','T5','T6','T7']" :key="w" class="dp-wd">{{ w }}</div>
+          <div
+            v-for="cell in calCells"
+            :key="cell.iso"
+            class="dp-day"
+            :class="{ muted: cell.muted, today: cell.isToday, selected: cell.iso === form.date }"
+            @click="pickDate(cell.date)"
+          >{{ cell.day }}</div>
+        </div>
+        <div class="dp-tip-divider"></div>
+        <div class="dp-tips">
+          <button
+            v-for="t in dateTips"
+            :key="t.label"
+            type="button"
+            class="tip-chip dp-tip"
+            :class="{ active: isDateTipActive(t.offset) }"
+            @click="pickDateOffset(t.offset)"
+          >{{ t.label }}</button>
+        </div>
+        <div class="popup-foot">
+          <button type="button" class="at-btn at-btn--primary popup-confirm" @click="closeDatePicker">✓ Xác nhận</button>
+        </div>
+      </div>
+
+      <!-- Time picker popup -->
+      <div
+        v-if="openTimePicker"
+        class="picker-popup time-popup airtable-scope"
+        :style="timePopupStyle"
+        v-click-outside="closeTimePicker"
+      >
+        <div class="tp-wheels">
+          <div class="tp-fade tp-fade--top"></div>
+          <div class="tp-fade tp-fade--bot"></div>
+          <div class="tp-wheel" @wheel.prevent="onHourWheel">
+            <div class="tp-wheel-items" :style="{ transform: `translateY(${-hourWheelOffset}px)` }">
+              <div
+                v-for="h in HOURS"
+                :key="h"
+                class="tp-wheel-item"
+                :class="{ selected: h === hourValue }"
+                @click="setHour(h)"
+              >{{ String(h).padStart(2, '0') }}</div>
+            </div>
+          </div>
+          <div class="tp-separator">:</div>
+          <div class="tp-wheel" @wheel.prevent="onMinuteWheel">
+            <div class="tp-wheel-items" :style="{ transform: `translateY(${-minuteWheelOffset}px)` }">
+              <div
+                v-for="m in MINUTES"
+                :key="m"
+                class="tp-wheel-item"
+                :class="{ selected: m === minuteValue }"
+                @click="setMinute(m)"
+              >{{ String(m).padStart(2, '0') }}</div>
+            </div>
+          </div>
+        </div>
+        <div class="tp-quick-grid">
+          <button type="button" class="tip-chip" @click="randomTime('morning')">☀️ Sáng</button>
+          <button type="button" class="tip-chip" @click="randomTime('noon')">🌤 Trưa</button>
+          <button type="button" class="tip-chip" @click="randomTime('afternoon')">⛅ Chiều</button>
+          <button type="button" class="tip-chip" @click="randomTime('evening')">🌙 Tối</button>
+        </div>
+        <div class="tp-helper">Bấm lại 1 khung để random giờ khác</div>
+        <div class="popup-foot">
+          <button type="button" class="at-btn at-btn--primary popup-confirm" @click="closeTimePicker">✓ Xác nhận</button>
+        </div>
+      </div>
     </div>
   </Teleport>
 </template>
@@ -348,6 +357,27 @@ const emit = defineEmits<{
 
 const editorRef = ref<HTMLDivElement | null>(null);
 const titleInputRef = ref<HTMLInputElement | null>(null);
+const dateBtnRef = ref<HTMLButtonElement | null>(null);
+const timeBtnRef = ref<HTMLButtonElement | null>(null);
+
+// Computed popup position từ button bounding rect (vì popup TELEPORT ngoài modal,
+// không thể dùng absolute relative đến field nữa — modal sẽ KHÔNG bị popup
+// push expand vì popup overlay riêng).
+const datePopupStyle = ref<Record<string, string>>({});
+const timePopupStyle = ref<Record<string, string>>({});
+
+function computePopupPosition(btnRef: HTMLButtonElement | null, popupWidth = 280): Record<string, string> {
+  if (!btnRef) return {};
+  const rect = btnRef.getBoundingClientRect();
+  // Đặt popup ngay dưới button. Nếu tràn phải viewport → align right edge với button right.
+  const left = Math.min(rect.left, window.innerWidth - popupWidth - 16);
+  return {
+    position: 'fixed',
+    top: `${rect.bottom + 6}px`,
+    left: `${Math.max(8, left)}px`,
+    width: `${popupWidth}px`,
+  };
+}
 
 const isEdit = computed(() => !!props.appointment);
 
@@ -579,8 +609,9 @@ function toggleDatePicker() {
   if (openDatePicker.value) {
     openDatePicker.value = false;
   } else {
+    openTimePicker.value = false;
+    datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300);
     openDatePicker.value = true;
-    openTimePicker.value = false; // đóng time popup nếu đang mở
   }
 }
 function closeDatePicker() { openDatePicker.value = false; }
@@ -588,8 +619,9 @@ function toggleTimePicker() {
   if (openTimePicker.value) {
     openTimePicker.value = false;
   } else {
+    openDatePicker.value = false;
+    timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240);
     openTimePicker.value = true;
-    openDatePicker.value = false; // đóng date popup nếu đang mở
   }
 }
 function closeTimePicker() { openTimePicker.value = false; }
@@ -686,6 +718,7 @@ function randomTime(period: 'morning' | 'noon' | 'afternoon' | 'evening') {
 }
 
 // ───────── Duration ─────────
+// 2026-05-21 chốt: bỏ "3 ngày" — chỉ tới "1 ngày" là đủ cho domain BĐS sale.
 const DURATIONS = [
   { label: '5p',     value: 5 },
   { label: '10p',    value: 10 },
@@ -697,20 +730,31 @@ const DURATIONS = [
   { label: '8 giờ',  value: 480 },
   { label: '12 giờ', value: 720 },
   { label: '1 ngày', value: 1440 },
-  { label: '3 ngày', value: 4320 },
 ];
 
+/**
+ * Compute end label support multi-day. Trong ngày → "HH:mm". Qua ngày → "HH:mm DD/MM".
+ */
 const computedEndLabel = computed(() => {
-  if (!form.time || !form.durationMin) return '--:--';
+  if (!form.time || !form.durationMin || !form.date) return '--:--';
   const [h, m] = form.time.split(':').map((s) => parseInt(s, 10));
-  const startMin = h * 60 + m;
-  const endMin = startMin + form.durationMin;
-  const endH = Math.floor(endMin / 60) % 24;
-  const endM = endMin % 60;
-  const dayOffset = Math.floor(endMin / (24 * 60));
-  const base = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-  if (dayOffset > 0) return `${base} (+${dayOffset} ngày)`;
-  return base;
+  const startDate = new Date(form.date);
+  startDate.setHours(h, m, 0, 0);
+  const endDate = new Date(startDate.getTime() + form.durationMin * 60 * 1000);
+  const endH = String(endDate.getHours()).padStart(2, '0');
+  const endM = String(endDate.getMinutes()).padStart(2, '0');
+  const timeOnly = `${endH}:${endM}`;
+  // Same day → chỉ giờ. Khác ngày → kèm DD/MM
+  if (
+    endDate.getFullYear() === startDate.getFullYear() &&
+    endDate.getMonth() === startDate.getMonth() &&
+    endDate.getDate() === startDate.getDate()
+  ) {
+    return timeOnly;
+  }
+  const dd = String(endDate.getDate()).padStart(2, '0');
+  const mm = String(endDate.getMonth() + 1).padStart(2, '0');
+  return `${timeOnly} ${dd}/${mm}`;
 });
 
 // ───────── Smart location detection (regex từ title) ─────────
@@ -796,6 +840,14 @@ async function submit() {
 function close() {
   emit('update:modelValue', false);
 }
+
+// Re-compute popup position khi window resize
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    if (openDatePicker.value) datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300);
+    if (openTimePicker.value) timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240);
+  });
+}
 </script>
 
 <style scoped>
@@ -812,6 +864,9 @@ function close() {
 }
 .editor {
   width: 560px; max-width: 100%;
+  /* Fix size: chiều cao luôn 720px (hoặc 92vh nếu màn thấp). Modal KHÔNG expand
+     khi popup mở vì popup TELEPORT ra ngoài (position fixed). */
+  height: 720px;
   max-height: 92vh;
   background: var(--at-canvas);
   border-radius: var(--at-r-lg);
@@ -994,64 +1049,63 @@ function close() {
 .picker-display .val { font-weight: 500; flex: 1; text-align: left; }
 .picker-display .caret { color: var(--at-muted); font-size: 10px; }
 
-/* Picker popups — căn lọt trong ô field (max-width = field width).
-   Time picker hẹp hơn date picker (chỉ chứa 2 wheels 80px + chips). */
+/* Picker popups — TELEPORTED ra ngoài modal, position fixed.
+   Modal KHÔNG bị expand khi popup mở. Popup overlay đè modal. */
 .picker-popup {
-  position: absolute; top: calc(100% + 4px); left: 0;
-  z-index: 10;
+  z-index: 110; /* > modal z-index (100) */
   background: var(--at-canvas);
   border: 1px solid var(--at-hairline); border-radius: var(--at-r-lg);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
   padding: var(--at-s-sm);
 }
-.date-popup {
-  /* Date cần đủ rộng cho 7-col grid + tip chips */
-  width: 320px;
-  /* Nếu modal hẹp, fit theo field width */
-  max-width: calc(100vw - 48px);
-}
-.time-popup {
-  /* Time picker fit trong field width (~250px) */
-  width: 100%;
-  min-width: 240px;
-}
 
-/* Date picker grid */
+/* Date picker grid — shrinked (300px container) */
 .dp-head {
   display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: var(--at-s-sm);
+  margin-bottom: 4px;
 }
-.dp-head .month { font-size: 14px; font-weight: 500; color: var(--at-ink); }
+.dp-head .month { font-size: 13px; font-weight: 500; color: var(--at-ink); }
 .dp-head button {
-  width: 32px; height: 32px; border-radius: var(--at-r-md);
+  width: 26px; height: 26px; border-radius: var(--at-r-sm);
   background: transparent; border: none; cursor: pointer;
-  color: var(--at-body); font-size: 14px;
+  color: var(--at-body); font-size: 13px;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .dp-head button:active { background: var(--at-surface-soft); }
-.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
 .dp-wd {
-  font-size: 10.5px; color: var(--at-muted); text-align: center;
-  padding: 6px 0; font-weight: 500;
+  font-size: 10px; color: var(--at-muted); text-align: center;
+  padding: 4px 0; font-weight: 500;
 }
 .dp-day {
-  aspect-ratio: 1;
+  height: 32px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; color: var(--at-body); border-radius: var(--at-r-md);
+  font-size: 12px; color: var(--at-body); border-radius: var(--at-r-sm);
   cursor: pointer;
 }
 .dp-day:active { background: var(--at-surface-soft); }
 .dp-day.muted { color: var(--at-muted); opacity: 0.4; }
 .dp-day.today { background: var(--at-ink); color: var(--at-on-primary); font-weight: 500; }
+/* Selected nhưng KHÔNG phải today: bg coral đậm để dễ thấy */
 .dp-day.selected:not(.today) {
-  background: var(--at-coral-tint); color: var(--at-coral-text); font-weight: 500;
+  background: var(--at-coral); color: var(--at-on-primary); font-weight: 500;
 }
 .dp-tip-divider {
   height: 1px; background: var(--at-hairline);
-  margin: var(--at-s-sm) calc(-1 * var(--at-s-md));
+  margin: var(--at-s-sm) calc(-1 * var(--at-s-sm));
 }
-.dp-tips { display: flex; flex-wrap: wrap; gap: 5px; }
-.dp-tips .tip-chip { font-size: 11.5px; padding: 5px 9px; }
+/* Tip chips: 5-col grid (2 rows: 5+4 chips) — nhỏ gọn */
+.dp-tips {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+.dp-tip {
+  font-size: 10.5px;
+  padding: 4px 6px;
+  height: 26px;
+  justify-content: center;
+}
 
 /* Time picker wheels — compact để fit trong field 240-260px */
 .tp-wheels {
@@ -1152,12 +1206,13 @@ function close() {
 .duration-row::-webkit-scrollbar { height: 4px; }
 .duration-row::-webkit-scrollbar-thumb { background: var(--at-hairline); border-radius: 2px; }
 
+/* Duration tag — border-radius mềm md (10) thay pill, nhìn ít tròn hơn */
 .tag-chip {
   display: inline-flex; align-items: center; justify-content: center;
-  padding: 3px 9px;
+  padding: 4px 10px;
   background: var(--at-canvas);
   border: 1px solid var(--at-hairline);
-  border-radius: var(--at-r-pill);
+  border-radius: var(--at-r-md);
   font-size: 11.5px; font-weight: 500; color: var(--at-body);
   cursor: pointer; font-family: inherit;
   white-space: nowrap; flex-shrink: 0;
@@ -1166,6 +1221,13 @@ function close() {
 .tag-chip:active { background: var(--at-surface-soft); }
 .tag-chip.active {
   background: var(--at-ink); color: var(--at-on-primary); border-color: var(--at-ink);
+}
+
+/* End label bôi đậm số giờ + ngày */
+.end-bold {
+  color: var(--at-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Type chips */
