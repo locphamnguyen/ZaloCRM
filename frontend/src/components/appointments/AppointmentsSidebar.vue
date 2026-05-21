@@ -12,6 +12,19 @@
       </div>
     </div>
 
+    <!-- Nguồn — 3-tab segmented, same style as Phạm vi (no icon để không bể UI) -->
+    <div class="side-section">
+      <h4>Nguồn</h4>
+      <div class="scope-toggle">
+        <button
+          v-for="opt in sourceOptions"
+          :key="opt.value"
+          :class="{ active: source === opt.value }"
+          @click="$emit('update:source', opt.value)"
+        >{{ opt.label }}</button>
+      </div>
+    </div>
+
     <div v-if="scope !== 'me'" class="side-section">
       <h4>Sale phụ trách</h4>
       <div class="sale-list">
@@ -77,21 +90,6 @@
           <span class="pill type">{{ typeIcon(opt.value) }} {{ opt.text }}</span>
           <span class="count">{{ countByType[opt.value] || 0 }}</span>
         </label>
-      </div>
-    </div>
-
-    <div class="side-section">
-      <h4>Nguồn</h4>
-      <div class="source-row">
-        <button
-          v-for="opt in sourceOptions"
-          :key="opt.value"
-          class="source-btn"
-          :class="{ active: source === opt.value }"
-          @click="$emit('update:source', opt.value)"
-        >
-          {{ opt.label }}<span class="count">{{ opt.count }}</span>
-        </button>
       </div>
     </div>
 
@@ -206,15 +204,13 @@ const countByType = computed(() => {
   return m;
 });
 
-const sourceOptions = computed(() => {
-  const zalo = props.appointments.filter(a => a.source === 'zalo').length;
-  const manual = props.appointments.filter(a => a.source === 'manual').length;
-  return [
-    { value: 'all' as const, label: 'Tất cả', count: zalo + manual },
-    { value: 'zalo' as const, label: '🔔 Zalo', count: zalo },
-    { value: 'manual' as const, label: '✏️ Thủ công', count: manual },
-  ];
-});
+// 3-tab segmented giống Phạm vi — KHÔNG emoji/icon để label cân chiều ngang
+// (3 cột chia đều, tránh "🔔 Zalo" wide hơn "Tất cả" gây bể alignment).
+const sourceOptions = [
+  { value: 'all' as const,    label: 'Tất cả' },
+  { value: 'zalo' as const,   label: 'Zalo' },
+  { value: 'manual' as const, label: 'Thủ công' },
+];
 
 const miniMonthLabel = computed(() => `${VN_MONTHS[props.visibleMonth.getMonth()]}, ${props.visibleMonth.getFullYear()}`);
 
@@ -459,40 +455,6 @@ function fmtTime(a: Appointment): string {
   color: var(--at-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-
-/* Source row */
-.source-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.source-btn {
-  flex: 1;
-  min-width: 64px;
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
-  padding: 6px 10px;
-  border-radius: var(--at-r-pill);
-  background: var(--at-canvas);
-  border: 1px solid var(--at-hairline);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--at-body);
-  cursor: pointer;
-  font-family: inherit;
-}
-.source-btn.active {
-  background: var(--at-ink);
-  color: var(--at-on-primary);
-  border-color: var(--at-ink);
-}
-.source-btn .count {
-  background: rgba(255,255,255,0.18);
-  color: inherit;
-  padding: 0 6px;
-  border-radius: var(--at-r-pill);
-  font-size: 10px;
-  font-weight: 500;
-}
-.source-btn:not(.active) .count {
-  background: var(--at-surface-soft);
-  color: var(--at-muted);
 }
 
 /* Upcoming preview */

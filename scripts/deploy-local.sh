@@ -81,14 +81,19 @@ if [[ $SKIP_FRONTEND -eq 0 ]]; then
   ( cd "$ROOT/frontend" && npm run build 2>&1 | tail -3 )
   ok "dist/ updated"
 
-  step "Frontend: clean stale assets + copy dist/ → container /app/static/"
-  # Xoá assets/ cũ để tránh container giữ chunk JS/CSS old hash song song với
-  # bản mới — index.html reference hash mới nhưng container có thể serve cả 2 →
-  # browser cache hash cũ. Clear all rồi copy lại đảm bảo container chỉ có
-  # exactly những gì local dist/ vừa build.
-  docker exec "$CONTAINER" sh -c 'rm -rf /app/static/assets' >/dev/null 2>&1 || true
+  step "Frontend: clean stale + copy dist/ → container /app/static/"
+  # docker cp behaviors khó chịu:
+  #   1. `cp parent/. → /static/` KHÔNG xoá file cũ + KHÔNG overwrite index.html
+  #      (mtime preserved khiến server giữ bản cũ mặc dù content thay).
+  #   2. Vite build mỗi lần ra hash mới (index-XXX.js) → container tích luỹ
+  #      chunk cũ → index.html mới ref hash mới, nhưng nếu index.html không
+  #      được overwrite → browser load hash CŨ → MIME error trắng trang.
+  # Fix: wipe /app/static/ rồi copy lại sạch.
+  docker exec "$CONTAINER" sh -c 'find /app/static -mindepth 1 -delete' >/dev/null 2>&1 || true
   docker cp "$ROOT/frontend/dist/." "$CONTAINER:/app/static/" >/dev/null
-  ok "copied"
+  # docker cp `parent/.` không tự re-tạo subdir nếu vừa bị xoá → copy assets explicit
+  docker cp "$ROOT/frontend/dist/assets" "$CONTAINER:/app/static/" >/dev/null 2>&1 || true
+  ok "copied (clean replace)"
 fi
 
 # ─── 3. Restart ───
