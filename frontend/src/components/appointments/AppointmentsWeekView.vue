@@ -28,7 +28,7 @@
           v-for="ev in d.events"
           :key="ev.appt.id"
           class="event"
-          :class="[`state-${ev.appt.status}`, ev.appt.status === 'overdue' ? 'striped' : '']"
+          :class="[`tier-${ev.tier}`, `state-${ev.appt.status}`, ev.appt.status === 'overdue' ? 'striped' : '']"
           :style="{
             top: ev.top + 'px',
             height: ev.height + 'px',
@@ -38,9 +38,35 @@
           }"
           @click.stop="$emit('select-appointment', ev.appt)"
         >
-          <div class="ev-time">{{ ev.timeLabel }}</div>
-          <div class="ev-title">{{ ev.appt.contact?.fullName || 'KH' }}</div>
-          <div class="ev-meta">{{ typeIcon(ev.appt.type) }} {{ ev.appt.source === 'zalo' ? 'Zalo' : 'Thủ công' }}</div>
+          <!-- TIER: COMPACT (< 34px, ≤30p) — 1 dòng: icon + KH + giờ -->
+          <template v-if="ev.tier === 'compact'">
+            <span class="ev-ico">{{ typeIcon(ev.appt.type) }}</span>
+            <span class="ev-name">{{ ev.contactName }}</span>
+            <span class="ev-time-inline">{{ ev.startTime }}</span>
+          </template>
+          <!-- TIER: MEDIUM (34-57px, 45-60p) — 2 dòng -->
+          <template v-else-if="ev.tier === 'medium'">
+            <div class="ev-top">
+              <span class="ev-ico">{{ typeIcon(ev.appt.type) }}</span>
+              <span class="ev-name">{{ ev.contactName }}</span>
+            </div>
+            <div class="ev-bot">{{ ev.timeLabel }}</div>
+          </template>
+          <!-- TIER: FULL (≥ 58px, ≥75p) — 3 dòng + avatar -->
+          <template v-else>
+            <div class="ev-top">
+              <span class="ev-av" :class="{ 'has-img': !!ev.avatarUrl }">
+                <img v-if="ev.avatarUrl" :src="ev.avatarUrl" alt="" @error="onAvatarError" />
+                <template v-else>{{ initials(ev.contactName) }}</template>
+              </span>
+              <span class="ev-name">{{ ev.contactName }}</span>
+            </div>
+            <div v-if="ev.title" class="ev-title">{{ typeIcon(ev.appt.type) }} {{ ev.title }}</div>
+            <div class="ev-meta">
+              <span v-if="ev.appt.location" class="ev-loc">📍 {{ ev.appt.location }}</span>
+              <span class="ev-time-bottom">{{ ev.timeLabel }}</span>
+            </div>
+          </template>
         </div>
 
         <div v-if="d.isToday && nowOffset !== null" class="nowline" :style="{ top: nowOffset + 'px' }" />
@@ -54,6 +80,8 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import {
   saleColor,
   typeIcon,
+  initials,
+  resolveContactAvatar,
   appointmentOwnerId as ownerId,
   appointmentStart,
   appointmentEnd,
@@ -104,13 +132,19 @@ const days = computed(() => {
   });
 });
 
+type EventTier = 'compact' | 'medium' | 'full';
 type LaidOut = {
   appt: Appointment;
   top: number;
   height: number;
   left: string;
   width: string;
-  timeLabel: string;
+  tier: EventTier;
+  timeLabel: string;     // "12:00–12:30" (medium/full)
+  startTime: string;     // "12:00" (compact)
+  contactName: string;
+  title: string | null;
+  avatarUrl: string | null;
 };
 function layoutEvents(items: Appointment[]): LaidOut[] {
   const sorted = [...items].sort((a, b) => appointmentStart(a).getTime() - appointmentStart(b).getTime());
@@ -162,7 +196,13 @@ function buildLaidOut(a: Appointment, colIdx: number, nCols: number): LaidOut {
   const startH = start.getHours() + start.getMinutes() / 60;
   const endH = end.getHours() + end.getMinutes() / 60;
   const top = (startH - HOUR_START) * SLOT_PX;
-  const height = Math.max(18, (endH - startH) * SLOT_PX - 2);
+  // Min 30px để card 15-phút vẫn render được 1 dòng compact (icon + tên + giờ)
+  const height = Math.max(30, (endH - startH) * SLOT_PX - 2);
+  // Tier: compact ≤30p (<34px), medium 45-60p (34-57px), full ≥75p (≥58px)
+  let tier: EventTier = 'compact';
+  if (height >= 58) tier = 'full';
+  else if (height >= 34) tier = 'medium';
+
   const widthPct = 100 / nCols;
   return {
     appt: a,
@@ -170,8 +210,17 @@ function buildLaidOut(a: Appointment, colIdx: number, nCols: number): LaidOut {
     height,
     left: `calc(${colIdx * widthPct}% + 2px)`,
     width: `calc(${widthPct}% - 4px)`,
+    tier,
     timeLabel: `${fmtTime(start)}–${fmtTime(end)}`,
+    startTime: fmtTime(start),
+    contactName: a.contact?.fullName || 'KH chưa rõ',
+    title: (a as any).title || null,
+    avatarUrl: resolveContactAvatar(a.contact),
   };
+}
+
+function onAvatarError(e: Event) {
+  (e.target as HTMLImageElement).style.display = 'none';
 }
 
 function fmtTime(d: Date): string {
@@ -302,54 +351,126 @@ function onSlotClick(date: Date, hour: number, minute: number) {
 .daycol .slot .halfslot:active { background: rgba(170,45,0,0.04); }
 .daycol.today { background: rgba(170,45,0,0.018); }
 
-/* Event card — Airtable signature accents */
+/* Event card — saleColor bg (dark) + WHITE text. 3 tier theo height:
+   compact (<34px) 1 dòng · medium (34-57px) 2 dòng · full (≥58px) 3 dòng + avatar */
 .event {
   position: absolute;
-  border-radius: var(--at-r-sm);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  color: #fff;
+  border-left: 3px solid rgba(255,255,255,0.5);
+  box-shadow: 0 1px 3px rgba(24,29,38,0.18);
+  font-family: inherit;
+  line-height: 1.25;
+}
+.event:hover { box-shadow: 0 2px 6px rgba(24,29,38,0.28); z-index: 5; }
+.event:active { transform: translateY(1px); }
+
+/* ─── COMPACT (1 dòng: icon + tên + giờ, font 10.5px) ─── */
+.event.tier-compact {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.event.tier-compact .ev-ico { font-size: 11px; flex-shrink: 0; }
+.event.tier-compact .ev-name {
+  font-weight: 600;
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.event.tier-compact .ev-time-inline {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 10px; opacity: 0.9; flex-shrink: 0;
+}
+
+/* ─── MEDIUM (2 dòng) ─── */
+.event.tier-medium {
+  padding: 4px 7px;
+  font-size: 11px;
+}
+.event.tier-medium .ev-top {
+  display: flex; align-items: center; gap: 5px;
+  margin-bottom: 1px;
+  font-weight: 600;
+}
+.event.tier-medium .ev-ico { font-size: 12px; flex-shrink: 0; }
+.event.tier-medium .ev-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.event.tier-medium .ev-bot {
+  font-size: 10px; opacity: 0.88;
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+/* ─── FULL (3 dòng + avatar) ─── */
+.event.tier-full {
   padding: 5px 8px;
   font-size: 11px;
-  line-height: 1.3;
-  cursor: pointer;
+}
+.event.tier-full .ev-top {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 3px;
+}
+.event.tier-full .ev-av {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(255,255,255,0.22);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600;
+  flex-shrink: 0;
   overflow: hidden;
-  border-left: 3px solid;
-  background: var(--at-canvas);
-  box-shadow: 0 1px 3px rgba(24,29,38,0.06);
-  color: var(--at-ink);
 }
-.event:active { transform: translateY(1px); }
-.event .ev-time {
-  font-weight: 500;
-  font-size: 10px;
-  color: var(--at-muted);
-  letter-spacing: 0.06em;
+.event.tier-full .ev-av.has-img { background: transparent; }
+.event.tier-full .ev-av img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
+  display: block;
 }
-.event .ev-title {
-  font-weight: 500;
-  font-size: 11.5px;
-  color: var(--at-ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 1px;
+.event.tier-full .ev-name {
+  font-weight: 600; font-size: 12px;
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.event .ev-meta {
-  font-size: 10.5px;
-  color: var(--at-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.event.tier-full .ev-title {
+  font-size: 11px; opacity: 0.95;
+  margin-bottom: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.event.tier-full .ev-meta {
+  font-size: 10px; opacity: 0.88;
+  display: flex; gap: 8px; flex-wrap: wrap;
+  align-items: baseline;
+}
+.event.tier-full .ev-loc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.event.tier-full .ev-time-bottom {
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  margin-left: auto; flex-shrink: 0;
+}
+
+/* ─── State modifiers ─── */
 .event.striped {
-  background-image: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(24,29,38,0.06) 6px, rgba(24,29,38,0.06) 12px) !important;
+  background-image: repeating-linear-gradient(45deg,
+    transparent 0, transparent 5px,
+    rgba(255,255,255,0.18) 5px, rgba(255,255,255,0.18) 10px) !important;
+  border-left-color: #fbbf24 !important;
+}
+.event.striped::after {
+  content: '⏰';
+  position: absolute; top: 2px; right: 4px;
+  font-size: 9.5px; opacity: 0.95;
 }
 .event.state-completed { opacity: 0.55; }
+.event.state-completed .ev-name,
 .event.state-completed .ev-title { text-decoration: line-through; }
 .event.state-cancelled {
   opacity: 0.5;
-  background: var(--at-surface-soft) !important;
-  border-left-color: var(--at-border-strong) !important;
+  background: #94a3b8 !important;
+  border-left-color: rgba(255,255,255,0.4) !important;
 }
-.event.state-cancelled .ev-title { text-decoration: line-through; color: var(--at-muted); }
+.event.state-cancelled .ev-name,
+.event.state-cancelled .ev-title { text-decoration: line-through; }
 
 /* Now line — coral instead of red */
 .nowline {
