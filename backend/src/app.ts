@@ -57,6 +57,7 @@ import { startContactIntelligence } from './modules/contacts/contact-intelligenc
 import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
 import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
+import { facebookRoutes } from './modules/integrations/providers/facebook/facebook-routes.js';
 import { automationRoutes } from './modules/automation/automation-routes.js';
 import { templateRoutes } from './modules/automation/template-routes.js';
 // Phase 7 — Automation framework (Block / Sequence / Trigger / Broadcast)
@@ -185,6 +186,7 @@ async function bootstrap() {
   await app.register(analyticsRoutes);
   await app.register(savedReportRoutes);
   await app.register(integrationRoutes);
+  await app.register(facebookRoutes);
   await app.register(automationRoutes);
   await app.register(templateRoutes);
   // Phase 7 — Block authoring layer (must register BEFORE sequence/trigger/broadcast in later phases)
@@ -274,6 +276,9 @@ async function bootstrap() {
       // Tệp khách hàng — enrichment worker + reverse-update event handlers
       startListEnrichmentWorker();
       registerCustomerListEventHandlers();
+      // FB Lead Ingestion — BullMQ worker (Phase 04)
+      const { startFacebookLeadIngestionWorker } = await import('./modules/integrations/providers/facebook/facebook-lead-worker.js');
+      void startFacebookLeadIngestionWorker();
     }
   } catch (err) {
     logger.error('Failed to start server:', err);
