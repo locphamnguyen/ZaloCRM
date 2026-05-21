@@ -66,16 +66,19 @@
             <!-- KH -->
             <div class="field">
               <span class="field-label">Liên kết khách hàng</span>
-              <!-- Linked KH chip nếu đã có — 1 dòng: avatar + tên - sdt - (gợi nhớ) -->
+              <!-- Linked KH — 2 dòng: tên (lớn) + SĐT (phụ nhỏ), avatar load img thật nếu có -->
               <div v-if="selectedContact" class="linked-kh-row">
-                <span class="av" :style="{ background: contactColor(selectedContact.id) }">
-                  {{ initials(selectedContact.fullName) }}
+                <span
+                  class="av"
+                  :style="!selectedContact.avatarUrl ? { background: contactColor(selectedContact.id) } : {}"
+                >
+                  <img v-if="selectedContact.avatarUrl" :src="selectedContact.avatarUrl" alt="" @error="onAvatarError" />
+                  <template v-else>{{ initials(selectedContact.fullName) }}</template>
                 </span>
                 <div class="linked-info">
                   <span class="name">{{ selectedContact.fullName || 'Khách hàng' }}</span>
-                  <span v-if="selectedContact.phone" class="sep">·</span>
-                  <span v-if="selectedContact.phone" class="phone">{{ selectedContact.phone }}</span>
-                  <span v-if="selectedContact.zaloUsername" class="nick">({{ selectedContact.zaloUsername }})</span>
+                  <span v-if="selectedContact.phone" class="phone-row">{{ selectedContact.phone }}</span>
+                  <span v-else-if="selectedContact.zaloUsername" class="phone-row muted">{{ selectedContact.zaloUsername }}</span>
                 </div>
                 <button type="button" class="remove" @click="clearContact" title="Bỏ link KH">✕</button>
               </div>
@@ -97,7 +100,10 @@
                   class="cust-item"
                   @mousedown.prevent="pickContact(c)"
                 >
-                  <span class="av" :style="{ background: contactColor(c.id) }">{{ initials(c.fullName) }}</span>
+                  <span class="av" :style="!c.avatarUrl ? { background: contactColor(c.id) } : {}">
+                    <img v-if="c.avatarUrl" :src="c.avatarUrl" alt="" @error="(e) => { (e.target as HTMLImageElement).style.display = 'none' }" />
+                    <template v-else>{{ initials(c.fullName) }}</template>
+                  </span>
                   <div class="cust-info-1line">
                     <span class="name">{{ c.fullName || 'Khách hàng' }}</span>
                     <span v-if="c.phone" class="sep">·</span>
@@ -372,14 +378,24 @@ const custSearchInputRef = ref<HTMLInputElement | null>(null);
 const datePopupStyle = ref<Record<string, string>>({});
 const timePopupStyle = ref<Record<string, string>>({});
 
-function computePopupPosition(btnRef: HTMLButtonElement | null, popupWidth = 280): Record<string, string> {
+function computePopupPosition(
+  btnRef: HTMLButtonElement | null,
+  popupWidth = 280,
+  popupHeight = 400,
+): Record<string, string> {
   if (!btnRef) return {};
   const rect = btnRef.getBoundingClientRect();
-  // Đặt popup ngay dưới button. Nếu tràn phải viewport → align right edge với button right.
+  // Horizontal: prefer left-align với button, clamp khi tràn phải viewport
   const left = Math.min(rect.left, window.innerWidth - popupWidth - 16);
+  // Vertical: ưu tiên dưới button; nếu tràn dưới → place above button
+  let top = rect.bottom + 6;
+  if (top + popupHeight > window.innerHeight - 16) {
+    const above = rect.top - popupHeight - 6;
+    top = above >= 16 ? above : Math.max(16, window.innerHeight - popupHeight - 16);
+  }
   return {
     position: 'fixed',
-    top: `${rect.bottom + 6}px`,
+    top: `${top}px`,
     left: `${Math.max(8, left)}px`,
     width: `${popupWidth}px`,
   };
@@ -438,6 +454,13 @@ function pickContact(c: ContactLite) {
 
 function clearContact() {
   selectedContact.value = null;
+}
+
+/** Avatar img load fail → fallback initials (set avatarUrl=null trên copy) */
+function onAvatarError() {
+  if (selectedContact.value && selectedContact.value.avatarUrl) {
+    selectedContact.value = { ...selectedContact.value, avatarUrl: null };
+  }
 }
 
 // ───────── Form state ─────────
@@ -650,7 +673,7 @@ function toggleDatePicker() {
     openDatePicker.value = false;
   } else {
     openTimePicker.value = false;
-    datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300);
+    datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300, 470);
     openDatePicker.value = true;
   }
 }
@@ -660,7 +683,7 @@ function toggleTimePicker() {
     openTimePicker.value = false;
   } else {
     openDatePicker.value = false;
-    timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240);
+    timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240, 360);
     openTimePicker.value = true;
   }
 }
@@ -896,8 +919,8 @@ function close() {
 // Re-compute popup position khi window resize
 if (typeof window !== 'undefined') {
   window.addEventListener('resize', () => {
-    if (openDatePicker.value) datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300);
-    if (openTimePicker.value) timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240);
+    if (openDatePicker.value) datePopupStyle.value = computePopupPosition(dateBtnRef.value, 300, 470);
+    if (openTimePicker.value) timePopupStyle.value = computePopupPosition(timeBtnRef.value, 240, 360);
   });
 }
 </script>
@@ -994,31 +1017,44 @@ if (typeof window !== 'undefined') {
 }
 .title-input::placeholder { font-weight: 500; color: var(--at-muted); }
 
-/* Linked KH row — 1 dòng: avatar + tên - sdt - (gợi nhớ) + remove */
+/* Linked KH row — 2 dòng: tên (chính) + SĐT (phụ). Avatar img thật fallback initials. */
 .linked-kh-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 8px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
   background: var(--at-coral-tint);
   border-radius: var(--at-r-sm);
-  min-height: 40px;
+  min-height: 52px;
 }
 .linked-kh-row .av {
-  width: 28px; height: 28px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 50%;
   color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 500; flex-shrink: 0;
+  font-size: 12px; font-weight: 500; flex-shrink: 0;
+  overflow: hidden;
+}
+.linked-kh-row .av img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
+  display: block;
 }
 .linked-kh-row .linked-info {
-  display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0;
-  font-size: 13px; color: var(--at-coral-text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; flex-direction: column; gap: 1px;
+  flex: 1; min-width: 0;
+  color: var(--at-coral-text);
 }
-.linked-kh-row .name { font-weight: 500; }
-.linked-kh-row .sep { opacity: 0.5; }
-.linked-kh-row .phone { color: var(--at-ink); font-variant-numeric: tabular-nums; }
-.linked-kh-row .nick { color: var(--at-muted); font-style: italic; font-size: 12px; }
+.linked-kh-row .name {
+  font-weight: 500; font-size: 14px; color: var(--at-ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.25;
+}
+.linked-kh-row .phone-row {
+  font-size: 12px; color: var(--at-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.25;
+}
+.linked-kh-row .phone-row.muted { font-style: italic; }
 .linked-kh-row .remove {
-  width: 22px; height: 22px; border-radius: 50%;
+  width: 24px; height: 24px; border-radius: 50%;
   background: rgba(0, 0, 0, 0.08); border: none; cursor: pointer;
   font-size: 11px; color: inherit; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
@@ -1076,6 +1112,11 @@ if (typeof window !== 'undefined') {
   color: #fff;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 500; flex-shrink: 0;
+  overflow: hidden;
+}
+.cust-item .av img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 50%;
+  display: block;
 }
 .cust-item .name { font-weight: 500; color: var(--at-ink); }
 .cust-item .meta { font-size: 11.5px; color: var(--at-muted); }
@@ -1153,16 +1194,17 @@ if (typeof window !== 'undefined') {
   height: 1px; background: var(--at-hairline);
   margin: var(--at-s-sm) calc(-1 * var(--at-s-sm));
 }
-/* Tip chips: 4-col grid × 2 rows = 8 chips (đã bỏ "Hôm nay") */
+/* Tip chips: 2-col × 4-row (8 chips). 4-col bị tràn label "+10 ngày"/"+1 tháng"
+   → đổi 2-col cho mỗi chip rộng ~135px, đọc thoải mái. */
 .dp-tips {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
 }
 .dp-tip {
-  font-size: 10.5px;
-  padding: 4px 6px;
-  height: 26px;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  height: 28px;
   justify-content: center;
 }
 
