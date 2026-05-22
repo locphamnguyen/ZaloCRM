@@ -1,0 +1,3432 @@
+From c1f4673f4efbb356cde45e6c8d502b72b9578906 Mon Sep 17 00:00:00 2001
+From: Huy Dev <innercoach.net@gmail.com>
+Date: Fri, 22 May 2026 09:14:16 +0000
+Subject: [PATCH 1/2] feat(notifications): add Web Push PWA notifications
+
+Add org-scoped Web Push subscriptions, system/chat push delivery, and PWA service worker support so users can receive browser notifications for CRM events.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+---
+ backend/.env.example                          |    5 +
+ backend/package-lock.json                     |   65 +-
+ backend/package.json                          |    2 +
+ .../migration.sql                             |   21 +
+ backend/prisma/schema.prisma                  |   22 +
+ backend/src/app.ts                            |    2 +
+ backend/src/config/index.ts                   |    6 +
+ .../notifications/notification-routes.ts      |  139 +-
+ .../notifications/notification-service.ts     |  106 ++
+ .../system-notification-push-job.ts           |   47 +
+ .../modules/notifications/web-push-service.ts |  117 ++
+ .../src/modules/zalo/zalo-listener-factory.ts |   39 +
+ .../tests/notification-push-routes.test.ts    |   97 ++
+ .../system-notification-push-job.test.ts      |   33 +
+ backend/tests/web-push-service.test.ts        |   58 +
+ .../plans/2026-05-21-web-pwa-notifications.md | 1512 +++++++++++++++++
+ ...2026-05-21-web-pwa-notifications-design.md |  165 ++
+ frontend/src/components/NotificationBell.vue  |   65 +-
+ frontend/src/composables/use-web-push.ts      |  146 ++
+ frontend/src/layouts/MobileLayout.vue         |    2 +
+ frontend/src/pwa/sw.ts                        |   87 +
+ frontend/tests/web-push-static.test.mjs       |   22 +
+ frontend/vite.config.ts                       |   36 +-
+ 23 files changed, 2664 insertions(+), 130 deletions(-)
+ create mode 100644 backend/prisma/migrations/20260522073000_add_web_push_subscriptions/migration.sql
+ create mode 100644 backend/src/modules/notifications/notification-service.ts
+ create mode 100644 backend/src/modules/notifications/system-notification-push-job.ts
+ create mode 100644 backend/src/modules/notifications/web-push-service.ts
+ create mode 100644 backend/tests/notification-push-routes.test.ts
+ create mode 100644 backend/tests/system-notification-push-job.test.ts
+ create mode 100644 backend/tests/web-push-service.test.ts
+ create mode 100644 docs/superpowers/plans/2026-05-21-web-pwa-notifications.md
+ create mode 100644 docs/superpowers/specs/2026-05-21-web-pwa-notifications-design.md
+ create mode 100644 frontend/src/composables/use-web-push.ts
+ create mode 100644 frontend/src/pwa/sw.ts
+ create mode 100644 frontend/tests/web-push-static.test.mjs
+
+diff --git a/backend/.env.example b/backend/.env.example
+index 279007a..7db1155 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -12,6 +12,11 @@ DATABASE_URL=postgresql://crmuser:password@db:5432/zalocrm
+ 
+ UPLOAD_DIR=/var/lib/zalo-crm/files
+ 
++# Web Push / PWA notifications
++VAPID_PUBLIC=
++VAPID_PRIVATE=
++VAPID_SUBJECT=mailto:admin@zalocrm.local
++
+ AI_DEFAULT_PROVIDER=anthropic
+ AI_DEFAULT_MODEL=claude-sonnet-4-6
+ ANTHROPIC_API_KEY=
+diff --git a/backend/package-lock.json b/backend/package-lock.json
+index 3b43f00..42c1d2b 100644
+--- a/backend/package-lock.json
++++ b/backend/package-lock.json
+@@ -1,12 +1,12 @@
+ {
+   "name": "zalo-sales-crm-backend",
+-  "version": "1.0.0",
++  "version": "3.1.2",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+       "name": "zalo-sales-crm-backend",
+-      "version": "1.0.0",
++      "version": "3.1.2",
+       "license": "ISC",
+       "dependencies": {
+         "@fastify/cookie": "^11.0.2",
+@@ -19,6 +19,7 @@
+         "@prisma/adapter-pg": "^7.5.0",
+         "@prisma/client": "^7.5.0",
+         "@types/pg": "^8.20.0",
++        "@types/web-push": "^3.6.4",
+         "bcryptjs": "^3.0.3",
+         "exceljs": "^4.4.0",
+         "fastify": "^5.8.4",
+@@ -30,6 +31,7 @@
+         "pg": "^8.20.0",
+         "socket.io": "^4.8.3",
+         "uuid": "^13.0.0",
++        "web-push": "^3.6.7",
+         "zca-js": "^2.1.2"
+       },
+       "devDependencies": {
+@@ -1781,6 +1783,15 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@types/web-push": {
++      "version": "3.6.4",
++      "resolved": "https://registry.npmjs.org/@types/web-push/-/web-push-3.6.4.tgz",
++      "integrity": "sha512-GnJmSr40H3RAnj0s34FNTcJi1hmWFV5KXugE0mYWnYhgTAHLJ/dJKAwDmvPJYMke0RplY2XE9LnM4hqSqKIjhQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/node": "*"
++      }
++    },
+     "node_modules/@types/ws": {
+       "version": "8.18.1",
+       "resolved": "https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz",
+@@ -1972,6 +1983,15 @@
+         "node": ">= 0.6"
+       }
+     },
++    "node_modules/agent-base": {
++      "version": "7.1.4",
++      "resolved": "https://registry.npmjs.org/agent-base/-/agent-base-7.1.4.tgz",
++      "integrity": "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">= 14"
++      }
++    },
+     "node_modules/ajv": {
+       "version": "8.18.0",
+       "resolved": "https://registry.npmjs.org/ajv/-/ajv-8.18.0.tgz",
+@@ -3725,6 +3745,15 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/http_ece": {
++      "version": "1.2.0",
++      "resolved": "https://registry.npmjs.org/http_ece/-/http_ece-1.2.0.tgz",
++      "integrity": "sha512-JrF8SSLVmcvc5NducxgyOrKXe3EsyHMgBFgSaIUGmArKe+rwr0uphRkRXvwiom3I+fpIfoItveHrfudL8/rxuA==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=16"
++      }
++    },
+     "node_modules/http-errors": {
+       "version": "2.0.1",
+       "resolved": "https://registry.npmjs.org/http-errors/-/http-errors-2.0.1.tgz",
+@@ -3752,6 +3781,19 @@
+       "devOptional": true,
+       "license": "MIT"
+     },
++    "node_modules/https-proxy-agent": {
++      "version": "7.0.6",
++      "resolved": "https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-7.0.6.tgz",
++      "integrity": "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw==",
++      "license": "MIT",
++      "dependencies": {
++        "agent-base": "^7.1.2",
++        "debug": "4"
++      },
++      "engines": {
++        "node": ">= 14"
++      }
++    },
+     "node_modules/iconv-lite": {
+       "version": "0.7.2",
+       "resolved": "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.7.2.tgz",
+@@ -6703,6 +6745,25 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/web-push": {
++      "version": "3.6.7",
++      "resolved": "https://registry.npmjs.org/web-push/-/web-push-3.6.7.tgz",
++      "integrity": "sha512-OpiIUe8cuGjrj3mMBFWY+e4MMIkW3SVT+7vEIjvD9kejGUypv8GPDf84JdPWskK8zMRIJ6xYGm+Kxr8YkPyA0A==",
++      "license": "MPL-2.0",
++      "dependencies": {
++        "asn1.js": "^5.3.0",
++        "http_ece": "1.2.0",
++        "https-proxy-agent": "^7.0.0",
++        "jws": "^4.0.0",
++        "minimist": "^1.2.5"
++      },
++      "bin": {
++        "web-push": "src/cli.js"
++      },
++      "engines": {
++        "node": ">= 16"
++      }
++    },
+     "node_modules/which": {
+       "version": "2.0.2",
+       "resolved": "https://registry.npmjs.org/which/-/which-2.0.2.tgz",
+diff --git a/backend/package.json b/backend/package.json
+index 26ec0eb..16d776f 100644
+--- a/backend/package.json
++++ b/backend/package.json
+@@ -33,6 +33,7 @@
+     "@prisma/adapter-pg": "^7.5.0",
+     "@prisma/client": "^7.5.0",
+     "@types/pg": "^8.20.0",
++    "@types/web-push": "^3.6.4",
+     "bcryptjs": "^3.0.3",
+     "exceljs": "^4.4.0",
+     "fastify": "^5.8.4",
+@@ -44,6 +45,7 @@
+     "pg": "^8.20.0",
+     "socket.io": "^4.8.3",
+     "uuid": "^13.0.0",
++    "web-push": "^3.6.7",
+     "zca-js": "^2.1.2"
+   },
+   "devDependencies": {
+diff --git a/backend/prisma/migrations/20260522073000_add_web_push_subscriptions/migration.sql b/backend/prisma/migrations/20260522073000_add_web_push_subscriptions/migration.sql
+new file mode 100644
+index 0000000..6728909
+--- /dev/null
++++ b/backend/prisma/migrations/20260522073000_add_web_push_subscriptions/migration.sql
+@@ -0,0 +1,21 @@
++CREATE TABLE "web_push_subscriptions" (
++    "id" TEXT NOT NULL,
++    "org_id" TEXT NOT NULL,
++    "user_id" TEXT NOT NULL,
++    "endpoint" TEXT NOT NULL,
++    "p256dh" TEXT NOT NULL,
++    "auth" TEXT NOT NULL,
++    "user_agent" TEXT,
++    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updated_at" TIMESTAMP(3) NOT NULL,
++
++    CONSTRAINT "web_push_subscriptions_pkey" PRIMARY KEY ("id")
++);
++
++CREATE UNIQUE INDEX "web_push_subscriptions_endpoint_key" ON "web_push_subscriptions"("endpoint");
++CREATE INDEX "web_push_subscriptions_org_id_idx" ON "web_push_subscriptions"("org_id");
++CREATE INDEX "web_push_subscriptions_user_id_idx" ON "web_push_subscriptions"("user_id");
++CREATE INDEX "web_push_subscriptions_org_id_user_id_idx" ON "web_push_subscriptions"("org_id", "user_id");
++
++ALTER TABLE "web_push_subscriptions" ADD CONSTRAINT "web_push_subscriptions_org_id_fkey" FOREIGN KEY ("org_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
++ALTER TABLE "web_push_subscriptions" ADD CONSTRAINT "web_push_subscriptions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+diff --git a/backend/prisma/schema.prisma b/backend/prisma/schema.prisma
+index 9a3f2e4..a117723 100644
+--- a/backend/prisma/schema.prisma
++++ b/backend/prisma/schema.prisma
+@@ -39,6 +39,7 @@ model Organization {
+   zaloLabels          ZaloLabel[]
+   crmTags             CrmTag[]
+   crmTagGroups        CrmTagGroup[]
++  webPushSubscriptions WebPushSubscription[]
+ 
+   @@map("organizations")
+ }
+@@ -82,6 +83,7 @@ model User {
+   authoredNotes             Note[]              @relation("NoteAuthor")
+   noteReactions             NoteReaction[]
+   preferences               UserPreference[]
++  webPushSubscriptions      WebPushSubscription[]
+ 
+   @@map("users")
+ }
+@@ -493,6 +495,26 @@ model UserPreference {
+   @@map("user_preferences")
+ }
+ 
++model WebPushSubscription {
++  id        String   @id @default(uuid())
++  orgId     String   @map("org_id")
++  userId    String   @map("user_id")
++  endpoint  String   @unique
++  p256dh    String
++  auth      String
++  userAgent String?  @map("user_agent")
++  createdAt DateTime @default(now()) @map("created_at")
++  updatedAt DateTime @updatedAt @map("updated_at")
++
++  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
++  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
++
++  @@index([orgId])
++  @@index([userId])
++  @@index([orgId, userId])
++  @@map("web_push_subscriptions")
++}
++
+ // Zalo native labels — synced từ Zalo SDK getLabels() per nick.
+ // 1 label = (zaloAccountId, zaloLabelId). conversations[] là list externalThreadId
+ // được assign label đó. Update qua SDK updateLabels({labelData, version}).
+diff --git a/backend/src/app.ts b/backend/src/app.ts
+index 7cf5cd2..10c8fff 100644
+--- a/backend/src/app.ts
++++ b/backend/src/app.ts
+@@ -45,6 +45,7 @@ import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
+ import { zaloPool } from './modules/zalo/zalo-pool.js';
+ import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
+ import { notificationRoutes } from './modules/notifications/notification-routes.js';
++import { startSystemNotificationPushJob } from './modules/notifications/system-notification-push-job.js';
+ import { searchRoutes } from './modules/search/search-routes.js';
+ import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
+ import { publicApiRoutes } from './modules/api/public-api-routes.js';
+@@ -217,6 +218,7 @@ async function bootstrap() {
+     startContactIntelligence();
+     startLabelsBackgroundSync(60_000); // realtime-ish 2-way pull every 60s
+     startInteractionCron(); // daily silent_30d detection (02:00 VN)
++    startSystemNotificationPushJob();
+     await eventBuffer.start(io);
+   } catch (err) {
+     logger.error('Failed to start server:', err);
+diff --git a/backend/src/config/index.ts b/backend/src/config/index.ts
+index c98a2c2..f41b492 100644
+--- a/backend/src/config/index.ts
++++ b/backend/src/config/index.ts
+@@ -20,6 +20,12 @@ export const config = {
+   s3SecretKey: process.env.S3_SECRET_KEY || 'minioadmin',
+   s3Region: process.env.S3_REGION || 'us-east-1',
+ 
++  webPush: {
++    publicKey: process.env.VAPID_PUBLIC || '',
++    privateKey: process.env.VAPID_PRIVATE || '',
++    subject: process.env.VAPID_SUBJECT || process.env.APP_URL || 'mailto:admin@zalocrm.local',
++  },
++
+   aiDefaultProvider: process.env.AI_DEFAULT_PROVIDER || 'anthropic',
+   aiDefaultModel: process.env.AI_DEFAULT_MODEL || 'claude-sonnet-4-6',
+ 
+diff --git a/backend/src/modules/notifications/notification-routes.ts b/backend/src/modules/notifications/notification-routes.ts
+index ed2e19f..d5c318d 100644
+--- a/backend/src/modules/notifications/notification-routes.ts
++++ b/backend/src/modules/notifications/notification-routes.ts
+@@ -1,19 +1,16 @@
+-/**
+- * Notification routes — computed on-the-fly notifications for the authenticated user.
+- * Sources: unreplied conversations, today/tomorrow appointments, disconnected Zalo accounts.
+- */
+ import type { FastifyInstance } from 'fastify';
+ import { prisma } from '../../shared/database/prisma-client.js';
+ import { authMiddleware } from '../auth/auth-middleware.js';
+-import { zaloPool } from '../zalo/zalo-pool.js';
++import { getCurrentNotifications } from './notification-service.js';
++import { getWebPushConfig, sendPushToSubscriptions } from './web-push-service.js';
+ 
+-interface NotificationItem {
+-  id: string;
+-  type: string;
+-  title: string;
+-  detail: string;
+-  priority: string;
+-  createdAt: string;
++interface PushSubscriptionBody {
++  endpoint?: string;
++  keys?: { p256dh?: string; auth?: string };
++}
++
++interface DeleteSubscriptionBody {
++  endpoint?: string;
+ }
+ 
+ export async function notificationRoutes(app: FastifyInstance) {
+@@ -21,92 +18,52 @@ export async function notificationRoutes(app: FastifyInstance) {
+ 
+   app.get('/api/v1/notifications', async (request) => {
+     const user = request.user!;
+-    const notifications: NotificationItem[] = [];
++    const notifications = await getCurrentNotifications(user.orgId);
++    return { notifications };
++  });
+ 
+-    // 1. Unreplied conversations > 30 min
+-    const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
+-    const unreplied = await prisma.conversation.count({
+-      where: { orgId: user.orgId, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
+-    });
+-    if (unreplied > 0) {
+-      notifications.push({
+-        id: 'unreplied',
+-        type: 'warning',
+-        priority: 'high',
+-        title: `${unreplied} cuộc trò chuyện chưa trả lời`,
+-        detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
+-        createdAt: new Date().toISOString(),
+-      });
+-    }
++  app.get('/api/v1/notifications/push/config', async () => getWebPushConfig());
+ 
+-    // 2. Today's appointments
+-    const now = new Date();
+-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+-    const todayEnd = new Date(todayStart);
+-    todayEnd.setDate(todayEnd.getDate() + 1);
++  app.post<{ Body: PushSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
++    const user = request.user!;
++    const { endpoint, keys } = request.body || {};
++    if (!endpoint || !keys?.p256dh || !keys?.auth) {
++      return reply.status(400).send({ error: 'Subscription không hợp lệ' });
++    }
+ 
+-    const todayApts = await prisma.appointment.findMany({
+-      where: {
+-        orgId: user.orgId,
+-        appointmentDate: { gte: todayStart, lt: todayEnd },
+-        status: 'scheduled',
+-      },
+-      include: { contact: { select: { fullName: true } } },
+-      take: 5,
++    const userAgent = request.headers['user-agent'];
++    await prisma.webPushSubscription.upsert({
++      where: { endpoint },
++      update: { orgId: user.orgId, userId: user.id, p256dh: keys.p256dh, auth: keys.auth, userAgent },
++      create: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+     });
+-    for (const apt of todayApts) {
+-      notifications.push({
+-        id: `apt-${apt.id}`,
+-        type: 'info',
+-        priority: 'medium',
+-        title: `Lịch hẹn: ${apt.contact?.fullName || 'KH'}`,
+-        detail: `${apt.appointmentTime || ''} - ${apt.notes || 'Tái khám'}`,
+-        createdAt: apt.appointmentDate.toISOString(),
+-      });
+-    }
++    return { ok: true };
++  });
+ 
+-    // 3. Tomorrow's appointments
+-    const tomorrowStart = new Date(todayEnd);
+-    const tomorrowEnd = new Date(tomorrowStart);
+-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
++  app.delete<{ Body: DeleteSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
++    const user = request.user!;
++    const endpoint = request.body?.endpoint;
++    if (!endpoint) return reply.status(400).send({ error: 'Thiếu endpoint' });
+ 
+-    const tmrApts = await prisma.appointment.count({
+-      where: {
+-        orgId: user.orgId,
+-        appointmentDate: { gte: tomorrowStart, lt: tomorrowEnd },
+-        status: 'scheduled',
+-      },
+-    });
+-    if (tmrApts > 0) {
+-      notifications.push({
+-        id: 'tmr-apts',
+-        type: 'info',
+-        priority: 'low',
+-        title: `${tmrApts} lịch hẹn ngày mai`,
+-        detail: 'Chuẩn bị cho ngày mai',
+-        createdAt: new Date().toISOString(),
+-      });
+-    }
++    await prisma.webPushSubscription.deleteMany({ where: { userId: user.id, orgId: user.orgId, endpoint } });
++    return { ok: true };
++  });
+ 
+-    // 4. Disconnected Zalo accounts
+-    const accounts = await prisma.zaloAccount.findMany({
+-      where: { orgId: user.orgId },
+-      select: { id: true, displayName: true },
++  app.post('/api/v1/notifications/push/test', async (request) => {
++    const user = request.user!;
++    const subscriptions = await prisma.webPushSubscription.findMany({
++      where: { userId: user.id, orgId: user.orgId },
++      select: { id: true, endpoint: true, p256dh: true, auth: true },
+     });
+-    for (const acc of accounts) {
+-      const status = zaloPool.getStatus(acc.id);
+-      if (status !== 'connected') {
+-        notifications.push({
+-          id: `zalo-${acc.id}`,
+-          type: 'error',
+-          priority: 'high',
+-          title: `Zalo "${acc.displayName}" mất kết nối`,
+-          detail: `Trạng thái: ${status}`,
+-          createdAt: new Date().toISOString(),
+-        });
+-      }
+-    }
+-
+-    return { notifications };
++    const result = await sendPushToSubscriptions(subscriptions, {
++      title: 'ZaloCRM thông báo thử',
++      body: 'Thông báo Web Push đã sẵn sàng.',
++      url: '/',
++      tag: `test-${user.id}`,
++      type: 'test',
++      priority: 'low',
++      createdAt: new Date().toISOString(),
++    });
++    return { ok: true, result };
+   });
+ }
+diff --git a/backend/src/modules/notifications/notification-service.ts b/backend/src/modules/notifications/notification-service.ts
+new file mode 100644
+index 0000000..d992d91
+--- /dev/null
++++ b/backend/src/modules/notifications/notification-service.ts
+@@ -0,0 +1,106 @@
++import { prisma } from '../../shared/database/prisma-client.js';
++import { zaloPool } from '../zalo/zalo-pool.js';
++
++export interface NotificationItem {
++  id: string;
++  type: string;
++  title: string;
++  detail: string;
++  priority: string;
++  createdAt: string;
++  url: string;
++}
++
++export function getNotificationUrl(id: string): string {
++  if (id === 'unreplied') return '/chat';
++  if (id.startsWith('apt-')) return '/appointments';
++  if (id === 'tmr-apts') return '/appointments';
++  if (id.startsWith('zalo-')) return '/zalo-accounts';
++  return '/';
++}
++
++export async function getCurrentNotifications(orgId: string): Promise<NotificationItem[]> {
++  const notifications: NotificationItem[] = [];
++  const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
++  const unreplied = await prisma.conversation.count({
++    where: { orgId, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
++  });
++
++  if (unreplied > 0) {
++    notifications.push({
++      id: 'unreplied',
++      type: 'warning',
++      priority: 'high',
++      title: `${unreplied} cuộc trò chuyện chưa trả lời`,
++      detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
++      createdAt: new Date().toISOString(),
++      url: getNotificationUrl('unreplied'),
++    });
++  }
++
++  const now = new Date();
++  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
++  const todayEnd = new Date(todayStart);
++  todayEnd.setDate(todayEnd.getDate() + 1);
++
++  const todayApts = await prisma.appointment.findMany({
++    where: { orgId, appointmentDate: { gte: todayStart, lt: todayEnd }, status: 'scheduled' },
++    include: { contact: { select: { fullName: true } } },
++    take: 5,
++  });
++
++  for (const apt of todayApts) {
++    const id = `apt-${apt.id}`;
++    notifications.push({
++      id,
++      type: 'info',
++      priority: 'medium',
++      title: `Lịch hẹn: ${apt.contact?.fullName || 'KH'}`,
++      detail: `${apt.appointmentTime || ''} - ${apt.notes || 'Tái khám'}`,
++      createdAt: apt.appointmentDate.toISOString(),
++      url: getNotificationUrl(id),
++    });
++  }
++
++  const tomorrowStart = new Date(todayEnd);
++  const tomorrowEnd = new Date(tomorrowStart);
++  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
++  const tmrApts = await prisma.appointment.count({
++    where: { orgId, appointmentDate: { gte: tomorrowStart, lt: tomorrowEnd }, status: 'scheduled' },
++  });
++
++  if (tmrApts > 0) {
++    notifications.push({
++      id: 'tmr-apts',
++      type: 'info',
++      priority: 'low',
++      title: `${tmrApts} lịch hẹn ngày mai`,
++      detail: 'Chuẩn bị cho ngày mai',
++      createdAt: new Date().toISOString(),
++      url: getNotificationUrl('tmr-apts'),
++    });
++  }
++
++  const accounts = await prisma.zaloAccount.findMany({
++    where: { orgId },
++    select: { id: true, displayName: true },
++  });
++
++  for (const acc of accounts) {
++    const status = zaloPool.getStatus(acc.id);
++    if (status !== 'connected') {
++      const id = `zalo-${acc.id}`;
++      notifications.push({
++        id,
++        type: 'error',
++        priority: 'high',
++        title: `Zalo "${acc.displayName}" mất kết nối`,
++        detail: `Trạng thái: ${status}`,
++        createdAt: new Date().toISOString(),
++        url: getNotificationUrl(id),
++      });
++    }
++  }
++
++  return notifications;
++}
+diff --git a/backend/src/modules/notifications/system-notification-push-job.ts b/backend/src/modules/notifications/system-notification-push-job.ts
+new file mode 100644
+index 0000000..4c51175
+--- /dev/null
++++ b/backend/src/modules/notifications/system-notification-push-job.ts
+@@ -0,0 +1,47 @@
++import cron from 'node-cron';
++import { prisma } from '../../shared/database/prisma-client.js';
++import { logger } from '../../shared/utils/logger.js';
++import { getCurrentNotifications } from './notification-service.js';
++import { sendPushToOrg } from './web-push-service.js';
++
++const sentBuckets = new Set<string>();
++
++function bucketFor(nowMs: number) {
++  return Math.floor(nowMs / (30 * 60 * 1000));
++}
++
++export async function runSystemNotificationPushOnce(nowMs = Date.now()) {
++  const bucket = bucketFor(nowMs);
++  const orgs = await prisma.organization.findMany({
++    where: { webPushSubscriptions: { some: {} } },
++    select: { id: true },
++  });
++
++  for (const org of orgs) {
++    const notifications = await getCurrentNotifications(org.id);
++    for (const notification of notifications) {
++      const dedupeKey = `${bucket}:${org.id}:${notification.id}`;
++      if (sentBuckets.has(dedupeKey)) continue;
++      sentBuckets.add(dedupeKey);
++      await sendPushToOrg(org.id, {
++        title: notification.title,
++        body: notification.detail,
++        url: notification.url,
++        tag: `system-${notification.id}`,
++        type: notification.type,
++        priority: notification.priority,
++        createdAt: notification.createdAt,
++      });
++    }
++  }
++
++  if (sentBuckets.size > 5000) sentBuckets.clear();
++}
++
++export function startSystemNotificationPushJob() {
++  cron.schedule('*/5 * * * *', () => {
++    runSystemNotificationPushOnce().catch((error) => {
++      logger.warn({ err: error }, 'system notification push job failed');
++    });
++  });
++}
+diff --git a/backend/src/modules/notifications/web-push-service.ts b/backend/src/modules/notifications/web-push-service.ts
+new file mode 100644
+index 0000000..ac85a43
+--- /dev/null
++++ b/backend/src/modules/notifications/web-push-service.ts
+@@ -0,0 +1,117 @@
++import webPush from 'web-push';
++import { prisma } from '../../shared/database/prisma-client.js';
++import { logger } from '../../shared/utils/logger.js';
++
++export interface StoredPushSubscription {
++  id: string;
++  endpoint: string;
++  p256dh: string;
++  auth: string;
++}
++
++export interface WebPushPayload {
++  title: string;
++  body: string;
++  url: string;
++  tag: string;
++  type: string;
++  priority: string;
++  createdAt: string;
++}
++
++export interface WebPushSendResult {
++  attempted: number;
++  sent: number;
++  expired: number;
++  failed: number;
++  enabled: boolean;
++}
++
++let configuredFor = '';
++
++export function getWebPushConfig() {
++  const publicKey = process.env.VAPID_PUBLIC || '';
++  const privateKey = process.env.VAPID_PRIVATE || '';
++  return { enabled: Boolean(publicKey && privateKey), publicKey };
++}
++
++function ensureVapidConfigured(): boolean {
++  const { enabled, publicKey } = getWebPushConfig();
++  const privateKey = process.env.VAPID_PRIVATE || '';
++  if (!enabled) return false;
++
++  const subject = process.env.VAPID_SUBJECT || process.env.APP_URL || 'mailto:admin@zalocrm.local';
++  const configKey = `${subject}:${publicKey}:${privateKey}`;
++  if (configuredFor !== configKey) {
++    webPush.setVapidDetails(subject, publicKey, privateKey);
++    configuredFor = configKey;
++  }
++  return true;
++}
++
++export async function sendPushToSubscriptions(
++  subscriptions: StoredPushSubscription[],
++  payload: WebPushPayload,
++): Promise<WebPushSendResult> {
++  if (!ensureVapidConfigured()) {
++    return { attempted: subscriptions.length, sent: 0, expired: 0, failed: 0, enabled: false };
++  }
++
++  const expiredIds: string[] = [];
++  let sent = 0;
++  let failed = 0;
++
++  await Promise.all(subscriptions.map(async (subscription) => {
++    try {
++      await webPush.sendNotification(
++        {
++          endpoint: subscription.endpoint,
++          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
++        },
++        JSON.stringify(payload),
++      );
++      sent += 1;
++    } catch (error: any) {
++      if (error?.statusCode === 404 || error?.statusCode === 410) {
++        expiredIds.push(subscription.id);
++        return;
++      }
++      failed += 1;
++      logger.warn({ err: error, endpoint: subscription.endpoint }, 'web push delivery failed');
++    }
++  }));
++
++  if (expiredIds.length > 0) {
++    await prisma.webPushSubscription.deleteMany({ where: { id: { in: expiredIds } } });
++  }
++
++  return { attempted: subscriptions.length, sent, expired: expiredIds.length, failed, enabled: true };
++}
++
++export async function sendPushToUser(userId: string, orgId: string, payload: WebPushPayload) {
++  const subscriptions = await prisma.webPushSubscription.findMany({
++    where: { userId, orgId },
++    select: { id: true, endpoint: true, p256dh: true, auth: true },
++  });
++  return sendPushToSubscriptions(subscriptions, payload);
++}
++
++export async function sendPushToUsers(userIds: string[], orgId: string, payload: WebPushPayload) {
++  if (userIds.length === 0) {
++    return { attempted: 0, sent: 0, expired: 0, failed: 0, enabled: getWebPushConfig().enabled };
++  }
++
++  const subscriptions = await prisma.webPushSubscription.findMany({
++    where: { orgId, userId: { in: userIds } },
++    select: { id: true, endpoint: true, p256dh: true, auth: true },
++  });
++  return sendPushToSubscriptions(subscriptions, payload);
++}
++
++export async function sendPushToOrg(orgId: string, payload: WebPushPayload) {
++  const subscriptions = await prisma.webPushSubscription.findMany({
++    where: { orgId },
++    select: { id: true, endpoint: true, p256dh: true, auth: true },
++  });
++  return sendPushToSubscriptions(subscriptions, payload);
++}
+diff --git a/backend/src/modules/zalo/zalo-listener-factory.ts b/backend/src/modules/zalo/zalo-listener-factory.ts
+index 39b5049..1643b99 100644
+--- a/backend/src/modules/zalo/zalo-listener-factory.ts
++++ b/backend/src/modules/zalo/zalo-listener-factory.ts
+@@ -10,6 +10,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
+ import { handleIncomingMessage, handleMessageUndo } from '../chat/message-handler.js';
+ import { detectContentType, extractAlbumInfo, updateContactAvatar } from './zalo-message-helpers.js';
+ import { handleFriendEvent } from './friend-event-handler.js';
++import { sendPushToUsers } from '../notifications/web-push-service.js';
+ 
+ // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
+ const ZALO_REACTION_DISPLAY: Record<string, string> = {
+@@ -180,6 +181,32 @@ export interface ListenerContext {
+   onDisconnected: (accountId: string) => void;
+ }
+ 
++async function getUsersWithZaloAccess(accountId: string, orgId: string): Promise<string[]> {
++  const users = await prisma.user.findMany({
++    where: {
++      orgId,
++      isActive: true,
++      OR: [
++        { role: { in: ['owner', 'admin'] } },
++        { zaloAccounts: { some: { id: accountId } } },
++        { zaloAccess: { some: { zaloAccountId: accountId } } },
++      ],
++    },
++    select: { id: true },
++  });
++
++  return users.map((user) => user.id);
++}
++
++async function sendChatPushToAccessibleUsers(accountId: string, orgId: string, payload: Parameters<typeof sendPushToUsers>[2]) {
++  try {
++    const userIds = await getUsersWithZaloAccess(accountId, orgId);
++    await sendPushToUsers(userIds, orgId, payload);
++  } catch (err) {
++    logger.warn(`[zalo:${accountId}] chat push notification failed:`, err);
++  }
++}
++
+ /**
+  * Attach all zca-js listener events for the given account.
+  * Calls listener.start() with retryOnClose at the end.
+@@ -271,6 +298,18 @@ export function attachZaloListener(ctx: ListenerContext): void {
+       });
+ 
+       if (result) {
++        if (!message.isSelf) {
++          void sendChatPushToAccessibleUsers(accountId, result.orgId, {
++            title: senderName || groupName || 'Tin nhắn mới',
++            body: content || 'Bạn có tin nhắn mới trên ZaloCRM',
++            url: `/chat?conversationId=${result.conversationId}`,
++            tag: `chat-${result.conversationId}`,
++            type: 'chat',
++            priority: 'high',
++            createdAt: result.message.createdAt.toISOString(),
++          });
++        }
++
+         io?.emit('chat:message', {
+           accountId,
+           message: result.message,
+diff --git a/backend/tests/notification-push-routes.test.ts b/backend/tests/notification-push-routes.test.ts
+new file mode 100644
+index 0000000..f7a93cd
+--- /dev/null
++++ b/backend/tests/notification-push-routes.test.ts
+@@ -0,0 +1,97 @@
++import Fastify from 'fastify';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { mockUser } from './test-helpers.js';
++
++const upsert = vi.fn();
++const deleteMany = vi.fn();
++const findMany = vi.fn();
++const sendPushToSubscriptions = vi.fn();
++
++vi.mock('../src/modules/auth/auth-middleware.js', () => ({
++  authMiddleware: async (request: any) => {
++    request.user = mockUser({ id: 'user-1', orgId: 'org-1' });
++  },
++}));
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: {
++    webPushSubscription: { upsert, deleteMany, findMany },
++  },
++}));
++
++vi.mock('../src/modules/notifications/notification-service.js', () => ({
++  getCurrentNotifications: vi.fn().mockResolvedValue([]),
++}));
++
++vi.mock('../src/modules/notifications/web-push-service.js', () => ({
++  getWebPushConfig: () => ({ enabled: true, publicKey: 'public-key' }),
++  sendPushToSubscriptions,
++}));
++
++describe('notification push routes', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    upsert.mockResolvedValue({ id: 'sub-1' });
++    deleteMany.mockResolvedValue({ count: 1 });
++    findMany.mockResolvedValue([{ id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth' }]);
++    sendPushToSubscriptions.mockResolvedValue({ attempted: 1, sent: 1, expired: 0, failed: 0, enabled: true });
++  });
++
++  async function buildApp() {
++    const { notificationRoutes } = await import('../src/modules/notifications/notification-routes.js');
++    const app = Fastify({ logger: false });
++    await app.register(notificationRoutes);
++    return app;
++  }
++
++  it('returns push config', async () => {
++    const app = await buildApp();
++    const res = await app.inject({ method: 'GET', url: '/api/v1/notifications/push/config' });
++
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ enabled: true, publicKey: 'public-key' });
++  });
++
++  it('upserts the authenticated user subscription', async () => {
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'POST',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: {
++        endpoint: 'https://push.example/1',
++        keys: { p256dh: 'p256dh', auth: 'auth' },
++      },
++      headers: { 'user-agent': 'vitest' },
++    });
++
++    expect(res.statusCode).toBe(200);
++    expect(upsert).toHaveBeenCalledWith({
++      where: { endpoint: 'https://push.example/1' },
++      update: { orgId: 'org-1', userId: 'user-1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
++      create: { orgId: 'org-1', userId: 'user-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
++    });
++    expect(res.json()).toEqual({ ok: true });
++  });
++
++  it('deletes the authenticated user subscription endpoint', async () => {
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'DELETE',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: { endpoint: 'https://push.example/1' },
++    });
++
++    expect(res.statusCode).toBe(200);
++    expect(deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1', orgId: 'org-1', endpoint: 'https://push.example/1' } });
++    expect(res.json()).toEqual({ ok: true });
++  });
++
++  it('sends a test notification to the authenticated user', async () => {
++    const app = await buildApp();
++    const res = await app.inject({ method: 'POST', url: '/api/v1/notifications/push/test' });
++
++    expect(res.statusCode).toBe(200);
++    expect(sendPushToSubscriptions).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ title: 'ZaloCRM thông báo thử', url: '/' }));
++    expect(res.json()).toEqual({ ok: true, result: { attempted: 1, sent: 1, expired: 0, failed: 0, enabled: true } });
++  });
++});
+diff --git a/backend/tests/system-notification-push-job.test.ts b/backend/tests/system-notification-push-job.test.ts
+new file mode 100644
+index 0000000..4b523cd
+--- /dev/null
++++ b/backend/tests/system-notification-push-job.test.ts
+@@ -0,0 +1,33 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const findMany = vi.fn();
++const getCurrentNotifications = vi.fn();
++const sendPushToOrg = vi.fn();
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: { organization: { findMany } },
++}));
++
++vi.mock('../src/modules/notifications/notification-service.js', () => ({ getCurrentNotifications }));
++vi.mock('../src/modules/notifications/web-push-service.js', () => ({ sendPushToOrg }));
++
++describe('system notification push job', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    findMany.mockResolvedValue([{ id: 'org-1' }]);
++    getCurrentNotifications.mockResolvedValue([
++      { id: 'unreplied', title: '1 cuộc trò chuyện chưa trả lời', detail: 'Có tin nhắn chưa phản hồi quá 30 phút', type: 'warning', priority: 'high', createdAt: '2026-05-21T00:00:00.000Z', url: '/chat' },
++    ]);
++    sendPushToOrg.mockResolvedValue({ enabled: true, attempted: 1, sent: 1, expired: 0, failed: 0 });
++  });
++
++  it('sends each current notification once per bucket', async () => {
++    const { runSystemNotificationPushOnce } = await import('../src/modules/notifications/system-notification-push-job.js');
++
++    await runSystemNotificationPushOnce(1234567890);
++    await runSystemNotificationPushOnce(1234567890);
++
++    expect(sendPushToOrg).toHaveBeenCalledTimes(1);
++    expect(sendPushToOrg).toHaveBeenCalledWith('org-1', expect.objectContaining({ title: '1 cuộc trò chuyện chưa trả lời', tag: 'system-unreplied' }));
++  });
++});
+diff --git a/backend/tests/web-push-service.test.ts b/backend/tests/web-push-service.test.ts
+new file mode 100644
+index 0000000..a6a48d9
+--- /dev/null
++++ b/backend/tests/web-push-service.test.ts
+@@ -0,0 +1,58 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const sendNotification = vi.fn();
++const setVapidDetails = vi.fn();
++const deleteMany = vi.fn();
++const findMany = vi.fn();
++
++vi.mock('web-push', () => ({
++  default: { sendNotification, setVapidDetails },
++  sendNotification,
++  setVapidDetails,
++}));
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: { webPushSubscription: { deleteMany, findMany } },
++}));
++
++describe('web-push-service', () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.clearAllMocks();
++    delete process.env.VAPID_PUBLIC;
++    delete process.env.VAPID_PRIVATE;
++    delete process.env.VAPID_SUBJECT;
++  });
++
++  it('reports disabled config when VAPID keys are missing', async () => {
++    const { getWebPushConfig } = await import('../src/modules/notifications/web-push-service.js');
++
++    expect(getWebPushConfig()).toEqual({ enabled: false, publicKey: '' });
++    expect(setVapidDetails).not.toHaveBeenCalled();
++  });
++
++  it('sends payload and deletes expired subscriptions', async () => {
++    process.env.VAPID_PUBLIC = 'public-key';
++    process.env.VAPID_PRIVATE = 'private-key';
++    process.env.VAPID_SUBJECT = 'mailto:admin@example.com';
++    sendNotification.mockRejectedValueOnce({ statusCode: 410 });
++    const { sendPushToSubscriptions } = await import('../src/modules/notifications/web-push-service.js');
++
++    const result = await sendPushToSubscriptions([
++      { id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth' },
++    ], {
++      title: 'Tin nhắn mới',
++      body: 'Khách hàng gửi tin nhắn',
++      url: '/chat',
++      tag: 'chat-conv-1',
++      type: 'chat',
++      priority: 'high',
++      createdAt: '2026-05-21T00:00:00.000Z',
++    });
++
++    expect(setVapidDetails).toHaveBeenCalledWith('mailto:admin@example.com', 'public-key', 'private-key');
++    expect(sendNotification).toHaveBeenCalledTimes(1);
++    expect(deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['sub-1'] } } });
++    expect(result).toEqual({ attempted: 1, sent: 0, expired: 1, failed: 0, enabled: true });
++  });
++});
+diff --git a/docs/superpowers/plans/2026-05-21-web-pwa-notifications.md b/docs/superpowers/plans/2026-05-21-web-pwa-notifications.md
+new file mode 100644
+index 0000000..fb687df
+--- /dev/null
++++ b/docs/superpowers/plans/2026-05-21-web-pwa-notifications.md
+@@ -0,0 +1,1512 @@
++# Web PWA Notifications Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Add Web Push notifications for ZaloCRM web and installed PWA users, covering new chat messages and existing computed system notifications.
++
++**Architecture:** Store browser push subscriptions per user and organization, expose authenticated push subscription routes, send best-effort Web Push payloads from chat/system notification sources, and add a custom service worker plus Vue composable/UI for explicit permission enablement. Foreground app sessions use toasts and existing bell state; background/closed PWA sessions use service worker notifications.
++
++**Tech Stack:** Fastify 5, Prisma 7, PostgreSQL, `web-push`, Vue 3, Vite, `vite-plugin-pwa`, Workbox injectManifest, Vuetify, Vitest, Docker Compose.
++
++---
++
++## File Structure
++
++- Modify `backend/package.json` and lockfile: add `web-push` and `@types/web-push` if package types require it.
++- Modify `backend/prisma/schema.prisma`: add `WebPushSubscription` relation arrays and model.
++- Create `backend/src/modules/notifications/notification-service.ts`: reusable computed notification function and URL mapping.
++- Create `backend/src/modules/notifications/web-push-service.ts`: VAPID config, payload types, send/upsert/delete helpers, expired cleanup.
++- Modify `backend/src/modules/notifications/notification-routes.ts`: use shared computation and add push config/subscription/test routes.
++- Modify incoming message path in `backend/src/modules/zalo/zalo-listener-factory.ts`: send push after non-self incoming messages persist.
++- Create `backend/src/modules/notifications/system-notification-push-job.ts`: periodic deduped push for computed system notifications.
++- Modify `backend/src/app.ts`: start system notification push job.
++- Modify `backend/src/config/index.ts` and `backend/.env.example`: document `VAPID_PUBLIC`, `VAPID_PRIVATE`, `VAPID_SUBJECT`.
++- Create backend tests under `backend/tests/notification-push-routes.test.ts` and `backend/tests/web-push-service.test.ts`.
++- Modify `frontend/vite.config.ts`: switch PWA config to injectManifest while preserving current manifest/runtime caching behavior.
++- Create `frontend/src/pwa/sw.ts`: custom service worker with precache, runtime fallback, `push`, and `notificationclick` handlers.
++- Modify `frontend/src/pwa/register-service-worker.ts`: keep current registration/update behavior and expose service worker readiness only via `navigator.serviceWorker.ready` in composable.
++- Create `frontend/src/composables/use-web-push.ts`: browser support detection, permission request, subscribe, unsubscribe, test notification.
++- Modify `frontend/src/components/NotificationBell.vue`: add push controls and rename local notification type to avoid browser global shadowing.
++- Modify `frontend/src/layouts/MobileLayout.vue`: mount `ToastContainer` so mobile push actions can show feedback.
++- Create `frontend/tests/web-push-static.test.mjs`: static assertions for PWA service worker and UI integration.
++
++---
++
++## Task 1: Dependencies and Prisma Schema
++
++**Files:**
++- Modify: `backend/package.json`
++- Modify: `backend/package-lock.json`
++- Modify: `backend/prisma/schema.prisma:10-87`
++
++- [ ] **Step 1: Install Web Push dependency**
++
++Run:
++
++```bash
++npm --prefix backend install web-push @types/web-push
++```
++
++Expected: `backend/package.json` and `backend/package-lock.json` include `web-push` and `@types/web-push`.
++
++- [ ] **Step 2: Add Prisma relations and model**
++
++In `backend/prisma/schema.prisma`, add `webPushSubscriptions WebPushSubscription[]` to `Organization` near the other relation arrays:
++
++```prisma
++  webPushSubscriptions WebPushSubscription[]
++```
++
++Add the same relation array to `User` near `preferences`:
++
++```prisma
++  webPushSubscriptions     WebPushSubscription[]
++```
++
++Add this model near `UserPreference`:
++
++```prisma
++model WebPushSubscription {
++  id        String   @id @default(uuid())
++  orgId     String   @map("org_id")
++  userId    String   @map("user_id")
++  endpoint  String   @unique
++  p256dh    String
++  auth      String
++  userAgent String?  @map("user_agent")
++  createdAt DateTime @default(now()) @map("created_at")
++  updatedAt DateTime @updatedAt @map("updated_at")
++
++  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
++  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
++
++  @@index([orgId])
++  @@index([userId])
++  @@index([orgId, userId])
++  @@map("web_push_subscriptions")
++}
++```
++
++- [ ] **Step 3: Generate Prisma client**
++
++Run:
++
++```bash
++npm --prefix backend exec prisma generate
++```
++
++Expected: command exits 0 and generated client includes `webPushSubscription`.
++
++- [ ] **Step 4: Commit dependency and schema work**
++
++```bash
++git add backend/package.json backend/package-lock.json backend/prisma/schema.prisma
++git commit -m "feat(notifications): add web push subscription schema"
++```
++
++---
++
++## Task 2: Backend Notification Computation Service
++
++**Files:**
++- Create: `backend/src/modules/notifications/notification-service.ts`
++- Modify: `backend/src/modules/notifications/notification-routes.ts`
++
++- [ ] **Step 1: Write failing service route behavior test**
++
++Create `backend/tests/notification-service.test.ts`:
++
++```ts
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const conversationCount = vi.fn();
++const appointmentFindMany = vi.fn();
++const appointmentCount = vi.fn();
++const zaloAccountFindMany = vi.fn();
++const getStatus = vi.fn();
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: {
++    conversation: { count: conversationCount },
++    appointment: { findMany: appointmentFindMany, count: appointmentCount },
++    zaloAccount: { findMany: zaloAccountFindMany },
++  },
++}));
++
++vi.mock('../src/modules/zalo/zalo-pool.js', () => ({
++  zaloPool: { getStatus },
++}));
++
++describe('notification-service', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    conversationCount.mockResolvedValue(1);
++    appointmentFindMany.mockResolvedValue([
++      {
++        id: 'apt-1',
++        appointmentDate: new Date('2026-05-21T03:00:00.000Z'),
++        appointmentTime: '10:00',
++        notes: 'Tái khám',
++        contact: { fullName: 'Nguyễn Văn A' },
++      },
++    ]);
++    appointmentCount.mockResolvedValue(2);
++    zaloAccountFindMany.mockResolvedValue([{ id: 'za-1', displayName: 'Shop A' }]);
++    getStatus.mockReturnValue('disconnected');
++  });
++
++  it('computes current organization notifications and click urls', async () => {
++    const { getCurrentNotifications } = await import('../src/modules/notifications/notification-service.js');
++
++    const notifications = await getCurrentNotifications('org-1');
++
++    expect(notifications.map((item) => item.id)).toEqual(['unreplied', 'apt-apt-1', 'tmr-apts', 'zalo-za-1']);
++    expect(notifications[0]).toMatchObject({ url: '/chat', priority: 'high' });
++    expect(notifications[1]).toMatchObject({ url: '/appointments', title: 'Lịch hẹn: Nguyễn Văn A' });
++    expect(notifications[3]).toMatchObject({ url: '/zalo-accounts', type: 'error' });
++  });
++});
++```
++
++- [ ] **Step 2: Run test to verify it fails**
++
++Run:
++
++```bash
++npm --prefix backend exec vitest run tests/notification-service.test.ts
++```
++
++Expected: FAIL because `notification-service.js` does not exist.
++
++- [ ] **Step 3: Create shared notification service**
++
++Create `backend/src/modules/notifications/notification-service.ts`:
++
++```ts
++import { prisma } from '../../shared/database/prisma-client.js';
++import { zaloPool } from '../zalo/zalo-pool.js';
++
++export interface NotificationItem {
++  id: string;
++  type: string;
++  title: string;
++  detail: string;
++  priority: 'low' | 'medium' | 'high' | string;
++  createdAt: string;
++  url: string;
++}
++
++export function getNotificationUrl(id: string): string {
++  if (id === 'unreplied') return '/chat';
++  if (id.startsWith('apt-')) return '/appointments';
++  if (id === 'tmr-apts') return '/appointments';
++  if (id.startsWith('zalo-')) return '/zalo-accounts';
++  return '/';
++}
++
++export async function getCurrentNotifications(orgId: string): Promise<NotificationItem[]> {
++  const notifications: NotificationItem[] = [];
++  const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
++  const unreplied = await prisma.conversation.count({
++    where: { orgId, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
++  });
++
++  if (unreplied > 0) {
++    notifications.push({
++      id: 'unreplied',
++      type: 'warning',
++      priority: 'high',
++      title: `${unreplied} cuộc trò chuyện chưa trả lời`,
++      detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
++      createdAt: new Date().toISOString(),
++      url: getNotificationUrl('unreplied'),
++    });
++  }
++
++  const now = new Date();
++  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
++  const todayEnd = new Date(todayStart);
++  todayEnd.setDate(todayEnd.getDate() + 1);
++
++  const todayApts = await prisma.appointment.findMany({
++    where: { orgId, appointmentDate: { gte: todayStart, lt: todayEnd }, status: 'scheduled' },
++    include: { contact: { select: { fullName: true } } },
++    take: 5,
++  });
++
++  for (const apt of todayApts) {
++    const id = `apt-${apt.id}`;
++    notifications.push({
++      id,
++      type: 'info',
++      priority: 'medium',
++      title: `Lịch hẹn: ${apt.contact?.fullName || 'KH'}`,
++      detail: `${apt.appointmentTime || ''} - ${apt.notes || 'Tái khám'}`,
++      createdAt: apt.appointmentDate.toISOString(),
++      url: getNotificationUrl(id),
++    });
++  }
++
++  const tomorrowStart = new Date(todayEnd);
++  const tomorrowEnd = new Date(tomorrowStart);
++  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
++  const tmrApts = await prisma.appointment.count({
++    where: { orgId, appointmentDate: { gte: tomorrowStart, lt: tomorrowEnd }, status: 'scheduled' },
++  });
++
++  if (tmrApts > 0) {
++    notifications.push({
++      id: 'tmr-apts',
++      type: 'info',
++      priority: 'low',
++      title: `${tmrApts} lịch hẹn ngày mai`,
++      detail: 'Chuẩn bị cho ngày mai',
++      createdAt: new Date().toISOString(),
++      url: getNotificationUrl('tmr-apts'),
++    });
++  }
++
++  const accounts = await prisma.zaloAccount.findMany({
++    where: { orgId },
++    select: { id: true, displayName: true },
++  });
++
++  for (const acc of accounts) {
++    const status = zaloPool.getStatus(acc.id);
++    if (status !== 'connected') {
++      const id = `zalo-${acc.id}`;
++      notifications.push({
++        id,
++        type: 'error',
++        priority: 'high',
++        title: `Zalo "${acc.displayName}" mất kết nối`,
++        detail: `Trạng thái: ${status}`,
++        createdAt: new Date().toISOString(),
++        url: getNotificationUrl(id),
++      });
++    }
++  }
++
++  return notifications;
++}
++```
++
++- [ ] **Step 4: Refactor route to use service**
++
++Replace `backend/src/modules/notifications/notification-routes.ts` with:
++
++```ts
++import type { FastifyInstance } from 'fastify';
++import { authMiddleware } from '../auth/auth-middleware.js';
++import { getCurrentNotifications } from './notification-service.js';
++
++export async function notificationRoutes(app: FastifyInstance) {
++  app.addHook('preHandler', authMiddleware);
++
++  app.get('/api/v1/notifications', async (request) => {
++    const user = request.user!;
++    const notifications = await getCurrentNotifications(user.orgId);
++    return { notifications };
++  });
++}
++```
++
++- [ ] **Step 5: Verify service test passes**
++
++Run:
++
++```bash
++npm --prefix backend exec vitest run tests/notification-service.test.ts
++```
++
++Expected: PASS.
++
++- [ ] **Step 6: Commit shared computation**
++
++```bash
++git add backend/src/modules/notifications/notification-service.ts backend/src/modules/notifications/notification-routes.ts backend/tests/notification-service.test.ts
++git commit -m "refactor(notifications): share computed notification service"
++```
++
++---
++
++## Task 3: Web Push Backend Service and Routes
++
++**Files:**
++- Create: `backend/src/modules/notifications/web-push-service.ts`
++- Modify: `backend/src/modules/notifications/notification-routes.ts`
++- Modify: `backend/src/config/index.ts`
++- Modify: `backend/.env.example`
++- Create: `backend/tests/web-push-service.test.ts`
++- Create: `backend/tests/notification-push-routes.test.ts`
++
++- [ ] **Step 1: Write Web Push service tests**
++
++Create `backend/tests/web-push-service.test.ts`:
++
++```ts
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const sendNotification = vi.fn();
++const setVapidDetails = vi.fn();
++const deleteMany = vi.fn();
++
++vi.mock('web-push', () => ({
++  default: { sendNotification, setVapidDetails },
++  sendNotification,
++  setVapidDetails,
++}));
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: { webPushSubscription: { deleteMany } },
++}));
++
++describe('web-push-service', () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.clearAllMocks();
++    delete process.env.VAPID_PUBLIC;
++    delete process.env.VAPID_PRIVATE;
++    delete process.env.VAPID_SUBJECT;
++  });
++
++  it('reports disabled config when VAPID keys are missing', async () => {
++    const { getWebPushConfig } = await import('../src/modules/notifications/web-push-service.js');
++
++    expect(getWebPushConfig()).toEqual({ enabled: false, publicKey: '' });
++    expect(setVapidDetails).not.toHaveBeenCalled();
++  });
++
++  it('sends payload and deletes expired subscriptions', async () => {
++    process.env.VAPID_PUBLIC = 'public-key';
++    process.env.VAPID_PRIVATE = 'private-key';
++    process.env.VAPID_SUBJECT = 'mailto:admin@example.com';
++    sendNotification.mockRejectedValueOnce({ statusCode: 410 });
++    const { sendPushToSubscriptions } = await import('../src/modules/notifications/web-push-service.js');
++
++    const result = await sendPushToSubscriptions([
++      { id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth' },
++    ], {
++      title: 'Tin nhắn mới',
++      body: 'Khách hàng gửi tin nhắn',
++      url: '/chat',
++      tag: 'chat-conv-1',
++      type: 'chat',
++      priority: 'high',
++      createdAt: '2026-05-21T00:00:00.000Z',
++    });
++
++    expect(setVapidDetails).toHaveBeenCalledWith('mailto:admin@example.com', 'public-key', 'private-key');
++    expect(sendNotification).toHaveBeenCalledTimes(1);
++    expect(deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['sub-1'] } } });
++    expect(result).toEqual({ attempted: 1, sent: 0, expired: 1, failed: 0, enabled: true });
++  });
++});
++```
++
++- [ ] **Step 2: Run service test to verify it fails**
++
++```bash
++npm --prefix backend exec vitest run tests/web-push-service.test.ts
++```
++
++Expected: FAIL because service file does not exist.
++
++- [ ] **Step 3: Create Web Push service**
++
++Create `backend/src/modules/notifications/web-push-service.ts`:
++
++```ts
++import webPush from 'web-push';
++import { prisma } from '../../shared/database/prisma-client.js';
++import { logger } from '../../shared/logger.js';
++
++export interface StoredPushSubscription {
++  id: string;
++  endpoint: string;
++  p256dh: string;
++  auth: string;
++}
++
++export interface WebPushPayload {
++  title: string;
++  body: string;
++  url: string;
++  tag: string;
++  type: string;
++  priority: string;
++  createdAt: string;
++}
++
++export interface WebPushSendResult {
++  attempted: number;
++  sent: number;
++  expired: number;
++  failed: number;
++  enabled: boolean;
++}
++
++let configuredFor = '';
++
++export function getWebPushConfig() {
++  const publicKey = process.env.VAPID_PUBLIC || '';
++  const privateKey = process.env.VAPID_PRIVATE || '';
++  return { enabled: Boolean(publicKey && privateKey), publicKey };
++}
++
++function ensureVapidConfigured(): boolean {
++  const { enabled, publicKey } = getWebPushConfig();
++  const privateKey = process.env.VAPID_PRIVATE || '';
++  if (!enabled) return false;
++
++  const subject = process.env.VAPID_SUBJECT || process.env.APP_URL || 'mailto:admin@zalocrm.local';
++  const key = `${subject}:${publicKey}:${privateKey}`;
++  if (configuredFor !== key) {
++    webPush.setVapidDetails(subject, publicKey, privateKey);
++    configuredFor = key;
++  }
++  return true;
++}
++
++export async function sendPushToSubscriptions(
++  subscriptions: StoredPushSubscription[],
++  payload: WebPushPayload,
++): Promise<WebPushSendResult> {
++  if (!ensureVapidConfigured()) {
++    return { attempted: subscriptions.length, sent: 0, expired: 0, failed: 0, enabled: false };
++  }
++
++  const expiredIds: string[] = [];
++  let sent = 0;
++  let failed = 0;
++
++  await Promise.all(subscriptions.map(async (subscription) => {
++    try {
++      await webPush.sendNotification(
++        {
++          endpoint: subscription.endpoint,
++          keys: { p256dh: subscription.p256dh, auth: subscription.auth },
++        },
++        JSON.stringify(payload),
++      );
++      sent += 1;
++    } catch (error: any) {
++      if (error?.statusCode === 404 || error?.statusCode === 410) {
++        expiredIds.push(subscription.id);
++        return;
++      }
++      failed += 1;
++      logger.warn({ err: error, endpoint: subscription.endpoint }, 'web push delivery failed');
++    }
++  }));
++
++  if (expiredIds.length > 0) {
++    await prisma.webPushSubscription.deleteMany({ where: { id: { in: expiredIds } } });
++  }
++
++  return { attempted: subscriptions.length, sent, expired: expiredIds.length, failed, enabled: true };
++}
++
++export async function sendPushToUser(userId: string, orgId: string, payload: WebPushPayload) {
++  const subscriptions = await prisma.webPushSubscription.findMany({
++    where: { userId, orgId },
++    select: { id: true, endpoint: true, p256dh: true, auth: true },
++  });
++  return sendPushToSubscriptions(subscriptions, payload);
++}
++
++export async function sendPushToOrg(orgId: string, payload: WebPushPayload) {
++  const subscriptions = await prisma.webPushSubscription.findMany({
++    where: { orgId },
++    select: { id: true, endpoint: true, p256dh: true, auth: true },
++  });
++  return sendPushToSubscriptions(subscriptions, payload);
++}
++```
++
++- [ ] **Step 4: Add config documentation**
++
++In `backend/src/config/index.ts`, add a `webPush` section inside `config`:
++
++```ts
++  webPush: {
++    publicKey: process.env.VAPID_PUBLIC || '',
++    privateKey: process.env.VAPID_PRIVATE || '',
++    subject: process.env.VAPID_SUBJECT || process.env.APP_URL || 'mailto:admin@zalocrm.local',
++  },
++```
++
++In `backend/.env.example`, add:
++
++```dotenv
++# Web Push / PWA notifications
++VAPID_PUBLIC=
++VAPID_PRIVATE=
++VAPID_SUBJECT=mailto:admin@zalocrm.local
++```
++
++- [ ] **Step 5: Write push route tests**
++
++Create `backend/tests/notification-push-routes.test.ts`:
++
++```ts
++import Fastify from 'fastify';
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++import { mockUser } from './test-helpers.js';
++
++const upsert = vi.fn();
++const deleteMany = vi.fn();
++const findMany = vi.fn();
++const sendPushToSubscriptions = vi.fn();
++
++vi.mock('../src/modules/auth/auth-middleware.js', () => ({
++  authMiddleware: async (request: any) => {
++    request.user = mockUser({ id: 'user-1', orgId: 'org-1' });
++  },
++}));
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: {
++    webPushSubscription: { upsert, deleteMany, findMany },
++  },
++}));
++
++vi.mock('../src/modules/notifications/notification-service.js', () => ({
++  getCurrentNotifications: vi.fn().mockResolvedValue([]),
++}));
++
++vi.mock('../src/modules/notifications/web-push-service.js', () => ({
++  getWebPushConfig: () => ({ enabled: true, publicKey: 'public-key' }),
++  sendPushToSubscriptions,
++}));
++
++describe('notification push routes', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    upsert.mockResolvedValue({ id: 'sub-1' });
++    deleteMany.mockResolvedValue({ count: 1 });
++    findMany.mockResolvedValue([{ id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth' }]);
++    sendPushToSubscriptions.mockResolvedValue({ attempted: 1, sent: 1, expired: 0, failed: 0, enabled: true });
++  });
++
++  async function buildApp() {
++    const { notificationRoutes } = await import('../src/modules/notifications/notification-routes.js');
++    const app = Fastify({ logger: false });
++    await app.register(notificationRoutes);
++    return app;
++  }
++
++  it('returns push config', async () => {
++    const app = await buildApp();
++    const res = await app.inject({ method: 'GET', url: '/api/v1/notifications/push/config' });
++
++    expect(res.statusCode).toBe(200);
++    expect(res.json()).toEqual({ enabled: true, publicKey: 'public-key' });
++  });
++
++  it('upserts the authenticated user subscription', async () => {
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'POST',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: {
++        endpoint: 'https://push.example/1',
++        keys: { p256dh: 'p256dh', auth: 'auth' },
++      },
++      headers: { 'user-agent': 'vitest' },
++    });
++
++    expect(res.statusCode).toBe(200);
++    expect(upsert).toHaveBeenCalledWith({
++      where: { endpoint: 'https://push.example/1' },
++      update: { orgId: 'org-1', userId: 'user-1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
++      create: { orgId: 'org-1', userId: 'user-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
++    });
++    expect(res.json()).toEqual({ ok: true });
++  });
++
++  it('deletes the authenticated user subscription endpoint', async () => {
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'DELETE',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: { endpoint: 'https://push.example/1' },
++    });
++
++    expect(res.statusCode).toBe(200);
++    expect(deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-1', orgId: 'org-1', endpoint: 'https://push.example/1' } });
++    expect(res.json()).toEqual({ ok: true });
++  });
++
++  it('sends a test notification to the authenticated user', async () => {
++    const app = await buildApp();
++    const res = await app.inject({ method: 'POST', url: '/api/v1/notifications/push/test' });
++
++    expect(res.statusCode).toBe(200);
++    expect(sendPushToSubscriptions).toHaveBeenCalledWith(expect.any(Array), expect.objectContaining({ title: 'ZaloCRM thông báo thử', url: '/' }));
++    expect(res.json()).toEqual({ ok: true, result: { attempted: 1, sent: 1, expired: 0, failed: 0, enabled: true } });
++  });
++});
++```
++
++- [ ] **Step 6: Run route test to verify it fails**
++
++```bash
++npm --prefix backend exec vitest run tests/notification-push-routes.test.ts
++```
++
++Expected: FAIL because routes are not implemented.
++
++- [ ] **Step 7: Add push routes**
++
++Update `backend/src/modules/notifications/notification-routes.ts` to include:
++
++```ts
++import type { FastifyInstance } from 'fastify';
++import { prisma } from '../../shared/database/prisma-client.js';
++import { authMiddleware } from '../auth/auth-middleware.js';
++import { getCurrentNotifications } from './notification-service.js';
++import { getWebPushConfig, sendPushToSubscriptions } from './web-push-service.js';
++
++interface PushSubscriptionBody {
++  endpoint?: string;
++  keys?: { p256dh?: string; auth?: string };
++}
++
++interface DeleteSubscriptionBody {
++  endpoint?: string;
++}
++
++export async function notificationRoutes(app: FastifyInstance) {
++  app.addHook('preHandler', authMiddleware);
++
++  app.get('/api/v1/notifications', async (request) => {
++    const user = request.user!;
++    const notifications = await getCurrentNotifications(user.orgId);
++    return { notifications };
++  });
++
++  app.get('/api/v1/notifications/push/config', async () => getWebPushConfig());
++
++  app.post<{ Body: PushSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
++    const user = request.user!;
++    const { endpoint, keys } = request.body || {};
++    if (!endpoint || !keys?.p256dh || !keys?.auth) {
++      return reply.status(400).send({ error: 'Subscription không hợp lệ' });
++    }
++
++    const userAgent = request.headers['user-agent'];
++    await prisma.webPushSubscription.upsert({
++      where: { endpoint },
++      update: { orgId: user.orgId, userId: user.id, p256dh: keys.p256dh, auth: keys.auth, userAgent },
++      create: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
++    });
++    return { ok: true };
++  });
++
++  app.delete<{ Body: DeleteSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
++    const user = request.user!;
++    const endpoint = request.body?.endpoint;
++    if (!endpoint) return reply.status(400).send({ error: 'Thiếu endpoint' });
++
++    await prisma.webPushSubscription.deleteMany({ where: { userId: user.id, orgId: user.orgId, endpoint } });
++    return { ok: true };
++  });
++
++  app.post('/api/v1/notifications/push/test', async (request) => {
++    const user = request.user!;
++    const subscriptions = await prisma.webPushSubscription.findMany({
++      where: { userId: user.id, orgId: user.orgId },
++      select: { id: true, endpoint: true, p256dh: true, auth: true },
++    });
++    const result = await sendPushToSubscriptions(subscriptions, {
++      title: 'ZaloCRM thông báo thử',
++      body: 'Thông báo Web Push đã sẵn sàng.',
++      url: '/',
++      tag: `test-${user.id}`,
++      type: 'test',
++      priority: 'low',
++      createdAt: new Date().toISOString(),
++    });
++    return { ok: true, result };
++  });
++}
++```
++
++- [ ] **Step 8: Verify push service and route tests pass**
++
++```bash
++npm --prefix backend exec vitest run tests/web-push-service.test.ts tests/notification-push-routes.test.ts tests/notification-service.test.ts
++```
++
++Expected: PASS.
++
++- [ ] **Step 9: Commit backend push service and routes**
++
++```bash
++git add backend/src/modules/notifications backend/src/config/index.ts backend/.env.example backend/tests/web-push-service.test.ts backend/tests/notification-push-routes.test.ts
++git commit -m "feat(notifications): add web push routes"
++```
++
++---
++
++## Task 4: Chat and System Push Triggers
++
++**Files:**
++- Modify: `backend/src/modules/zalo/zalo-listener-factory.ts`
++- Create: `backend/src/modules/notifications/system-notification-push-job.ts`
++- Modify: `backend/src/app.ts`
++- Create: `backend/tests/system-notification-push-job.test.ts`
++
++- [ ] **Step 1: Locate persisted incoming message hook**
++
++Run:
++
++```bash
++grep -n "chat:message\|senderType\|create" backend/src/modules/zalo/zalo-listener-factory.ts
++```
++
++Expected: find the branch that persists incoming live Zalo messages and emits `chat:message`.
++
++- [ ] **Step 2: Add chat push after non-self message persistence**
++
++In `backend/src/modules/zalo/zalo-listener-factory.ts`, import:
++
++```ts
++import { sendPushToOrg } from '../notifications/web-push-service.js';
++```
++
++After a non-self incoming message is persisted and before/after the existing socket emit, add:
++
++```ts
++if (message.senderType !== 'self') {
++  void sendPushToOrg(conversation.orgId, {
++    title: conversation.displayName || 'Tin nhắn mới',
++    body: message.content || 'Bạn có tin nhắn mới trên ZaloCRM',
++    url: `/chat?conversationId=${conversation.id}`,
++    tag: `chat-${conversation.id}`,
++    type: 'chat',
++    priority: 'high',
++    createdAt: message.createdAt.toISOString(),
++  });
++}
++```
++
++Adjust variable names to the exact persisted `message` and `conversation` identifiers found in Step 1. Keep the call best-effort with `void` so push failure cannot block message handling.
++
++- [ ] **Step 3: Write system push job test**
++
++Create `backend/tests/system-notification-push-job.test.ts`:
++
++```ts
++import { beforeEach, describe, expect, it, vi } from 'vitest';
++
++const findMany = vi.fn();
++const getCurrentNotifications = vi.fn();
++const sendPushToOrg = vi.fn();
++
++vi.mock('../src/shared/database/prisma-client.js', () => ({
++  prisma: { organization: { findMany } },
++}));
++
++vi.mock('../src/modules/notifications/notification-service.js', () => ({ getCurrentNotifications }));
++vi.mock('../src/modules/notifications/web-push-service.js', () => ({ sendPushToOrg }));
++
++describe('system notification push job', () => {
++  beforeEach(() => {
++    vi.clearAllMocks();
++    findMany.mockResolvedValue([{ id: 'org-1' }]);
++    getCurrentNotifications.mockResolvedValue([
++      { id: 'unreplied', title: '1 cuộc trò chuyện chưa trả lời', detail: 'Có tin nhắn chưa phản hồi quá 30 phút', type: 'warning', priority: 'high', createdAt: '2026-05-21T00:00:00.000Z', url: '/chat' },
++    ]);
++    sendPushToOrg.mockResolvedValue({ enabled: true, attempted: 1, sent: 1, expired: 0, failed: 0 });
++  });
++
++  it('sends each current notification once per bucket', async () => {
++    const { runSystemNotificationPushOnce } = await import('../src/modules/notifications/system-notification-push-job.js');
++
++    await runSystemNotificationPushOnce(1234567890);
++    await runSystemNotificationPushOnce(1234567890);
++
++    expect(sendPushToOrg).toHaveBeenCalledTimes(1);
++    expect(sendPushToOrg).toHaveBeenCalledWith('org-1', expect.objectContaining({ title: '1 cuộc trò chuyện chưa trả lời', tag: 'system-unreplied' }));
++  });
++});
++```
++
++- [ ] **Step 4: Run job test to verify it fails**
++
++```bash
++npm --prefix backend exec vitest run tests/system-notification-push-job.test.ts
++```
++
++Expected: FAIL because job file does not exist.
++
++- [ ] **Step 5: Create system push job**
++
++Create `backend/src/modules/notifications/system-notification-push-job.ts`:
++
++```ts
++import cron from 'node-cron';
++import { prisma } from '../../shared/database/prisma-client.js';
++import { logger } from '../../shared/logger.js';
++import { getCurrentNotifications } from './notification-service.js';
++import { sendPushToOrg } from './web-push-service.js';
++
++const sentBuckets = new Set<string>();
++
++function bucketFor(nowMs: number) {
++  return Math.floor(nowMs / (30 * 60 * 1000));
++}
++
++export async function runSystemNotificationPushOnce(nowMs = Date.now()) {
++  const bucket = bucketFor(nowMs);
++  const orgs = await prisma.organization.findMany({
++    where: { webPushSubscriptions: { some: {} } },
++    select: { id: true },
++  });
++
++  for (const org of orgs) {
++    const notifications = await getCurrentNotifications(org.id);
++    for (const notification of notifications) {
++      const dedupeKey = `${bucket}:${org.id}:${notification.id}`;
++      if (sentBuckets.has(dedupeKey)) continue;
++      sentBuckets.add(dedupeKey);
++      await sendPushToOrg(org.id, {
++        title: notification.title,
++        body: notification.detail,
++        url: notification.url,
++        tag: `system-${notification.id}`,
++        type: notification.type,
++        priority: notification.priority,
++        createdAt: notification.createdAt,
++      });
++    }
++  }
++
++  if (sentBuckets.size > 5000) sentBuckets.clear();
++}
++
++export function startSystemNotificationPushJob() {
++  cron.schedule('*/5 * * * *', () => {
++    runSystemNotificationPushOnce().catch((error) => {
++      logger.warn({ err: error }, 'system notification push job failed');
++    });
++  });
++}
++```
++
++- [ ] **Step 6: Register system push job**
++
++In `backend/src/app.ts`, import:
++
++```ts
++import { startSystemNotificationPushJob } from './modules/notifications/system-notification-push-job.js';
++```
++
++After other background jobs start, add:
++
++```ts
++startSystemNotificationPushJob();
++```
++
++- [ ] **Step 7: Verify trigger tests and backend build**
++
++```bash
++npm --prefix backend exec vitest run tests/system-notification-push-job.test.ts tests/notification-service.test.ts tests/web-push-service.test.ts tests/notification-push-routes.test.ts
++npm --prefix backend run build
++```
++
++Expected: tests and build PASS.
++
++- [ ] **Step 8: Commit backend triggers**
++
++```bash
++git add backend/src/modules/zalo/zalo-listener-factory.ts backend/src/modules/notifications/system-notification-push-job.ts backend/src/app.ts backend/tests/system-notification-push-job.test.ts
++git commit -m "feat(notifications): send push for chat and system alerts"
++```
++
++---
++
++## Task 5: PWA Service Worker and Push Composable
++
++**Files:**
++- Modify: `frontend/vite.config.ts`
++- Create: `frontend/src/pwa/sw.ts`
++- Create: `frontend/src/composables/use-web-push.ts`
++- Create: `frontend/tests/web-push-static.test.mjs`
++
++- [ ] **Step 1: Write static frontend test**
++
++Create `frontend/tests/web-push-static.test.mjs`:
++
++```js
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++
++const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
++const sw = readFileSync(new URL('../src/pwa/sw.ts', import.meta.url), 'utf8');
++const composable = readFileSync(new URL('../src/composables/use-web-push.ts', import.meta.url), 'utf8');
++
++assert.match(viteConfig, /strategies:\s*['"]injectManifest['"]/);
++assert.match(viteConfig, /swSrc:\s*['"]src\/pwa\/sw\.ts['"]/);
++assert.match(sw, /self\.addEventListener\(['"]push['"]/);
++assert.match(sw, /self\.addEventListener\(['"]notificationclick['"]/);
++assert.match(composable, /Notification\.requestPermission\(\)/);
++assert.match(composable, /pushManager\.subscribe/);
++assert.match(composable, /\/notifications\/push\/subscriptions/);
++
++console.log('web push static checks passed');
++```
++
++- [ ] **Step 2: Run static test to verify it fails**
++
++```bash
++node frontend/tests/web-push-static.test.mjs
++```
++
++Expected: FAIL because files/config are not implemented.
++
++- [ ] **Step 3: Switch VitePWA to injectManifest**
++
++In `frontend/vite.config.ts`, update the `VitePWA` options to include:
++
++```ts
++strategies: 'injectManifest',
++srcDir: 'src/pwa',
++filename: 'sw.ts',
++injectManifest: {
++  globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
++},
++```
++
++Keep the existing `registerType`, `includeAssets`, `manifest`, and `devOptions`. Move current Workbox runtime behavior into the custom worker in the next step.
++
++- [ ] **Step 4: Create custom service worker**
++
++Create `frontend/src/pwa/sw.ts`:
++
++```ts
++/// <reference lib="webworker" />
++import { clientsClaim } from 'workbox-core';
++import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
++import { NavigationRoute, registerRoute } from 'workbox-routing';
++import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
++import { ExpirationPlugin } from 'workbox-expiration';
++
++self.skipWaiting();
++clientsClaim();
++cleanupOutdatedCaches();
++precacheAndRoute(self.__WB_MANIFEST);
++
++registerRoute(
++  new NavigationRoute(
++    async () => {
++      const cache = await caches.open('zalocrm-pages');
++      const cached = await cache.match('/index.html');
++      return cached || fetch('/index.html');
++    },
++    { denylist: [/^\/api\//, /^\/socket\.io\//] },
++  ),
++);
++
++registerRoute(
++  ({ request }) => request.destination === 'document',
++  new NetworkFirst({ cacheName: 'zalocrm-pages' }),
++);
++
++registerRoute(
++  ({ request }) => ['style', 'script', 'worker'].includes(request.destination),
++  new StaleWhileRevalidate({ cacheName: 'zalocrm-assets' }),
++);
++
++registerRoute(
++  ({ request }) => ['image', 'font'].includes(request.destination),
++  new CacheFirst({
++    cacheName: 'zalocrm-static',
++    plugins: [new ExpirationPlugin({ maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 })],
++  }),
++);
++
++interface PushPayload {
++  title?: string;
++  body?: string;
++  url?: string;
++  tag?: string;
++  type?: string;
++  priority?: string;
++  createdAt?: string;
++}
++
++function parsePushPayload(event: PushEvent): PushPayload {
++  if (!event.data) return {};
++  try {
++    return event.data.json();
++  } catch {
++    return { title: 'ZaloCRM', body: event.data.text() };
++  }
++}
++
++self.addEventListener('push', (event) => {
++  const payload = parsePushPayload(event);
++  const title = payload.title || 'ZaloCRM';
++  const url = payload.url || '/';
++  event.waitUntil(
++    self.registration.showNotification(title, {
++      body: payload.body || 'Bạn có thông báo mới',
++      icon: '/pwa-192x192.svg',
++      badge: '/pwa-192x192.svg',
++      tag: payload.tag,
++      data: { url, type: payload.type, createdAt: payload.createdAt },
++    }),
++  );
++});
++
++self.addEventListener('notificationclick', (event) => {
++  event.notification.close();
++  const targetUrl = new URL(event.notification.data?.url || '/', self.location.origin).href;
++
++  event.waitUntil((async () => {
++    const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
++    for (const client of windowClients) {
++      if ('focus' in client) {
++        await client.focus();
++        if ('navigate' in client) await client.navigate(targetUrl);
++        return;
++      }
++    }
++    await self.clients.openWindow(targetUrl);
++  })());
++});
++```
++
++- [ ] **Step 5: Create push composable**
++
++Create `frontend/src/composables/use-web-push.ts`:
++
++```ts
++import { computed, ref } from 'vue';
++import api from '@/api';
++import { useToast } from '@/composables/use-toast';
++
++type PushStatus = 'checking' | 'unsupported' | 'unavailable' | 'default' | 'denied' | 'subscribed' | 'unsubscribed';
++
++interface PushConfigResponse {
++  enabled: boolean;
++  publicKey: string;
++}
++
++const status = ref<PushStatus>('checking');
++const publicKey = ref('');
++const busy = ref(false);
++const initialized = ref(false);
++
++function urlBase64ToUint8Array(value: string) {
++  const padding = '='.repeat((4 - (value.length % 4)) % 4);
++  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
++  const rawData = window.atob(base64);
++  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
++}
++
++function browserSupportsPush() {
++  return typeof window !== 'undefined'
++    && 'serviceWorker' in navigator
++    && 'PushManager' in window
++    && 'Notification' in window
++    && window.isSecureContext;
++}
++
++async function getRegistration() {
++  return navigator.serviceWorker.ready;
++}
++
++async function syncLocalSubscriptionState() {
++  if (!browserSupportsPush()) {
++    status.value = 'unsupported';
++    return;
++  }
++  if (!publicKey.value) {
++    status.value = 'unavailable';
++    return;
++  }
++  if (Notification.permission === 'denied') {
++    status.value = 'denied';
++    return;
++  }
++  if (Notification.permission === 'default') {
++    status.value = 'default';
++    return;
++  }
++
++  const registration = await getRegistration();
++  const subscription = await registration.pushManager.getSubscription();
++  status.value = subscription ? 'subscribed' : 'unsubscribed';
++}
++
++export function useWebPush() {
++  const toast = useToast();
++  const canEnable = computed(() => ['default', 'unsubscribed'].includes(status.value) && !busy.value);
++  const isSubscribed = computed(() => status.value === 'subscribed');
++
++  async function init() {
++    if (initialized.value) return;
++    initialized.value = true;
++    if (!browserSupportsPush()) {
++      status.value = 'unsupported';
++      return;
++    }
++
++    try {
++      const { data } = await api.get<PushConfigResponse>('/notifications/push/config');
++      publicKey.value = data.enabled ? data.publicKey : '';
++      await syncLocalSubscriptionState();
++    } catch {
++      status.value = 'unavailable';
++    }
++  }
++
++  async function enable() {
++    busy.value = true;
++    try {
++      await init();
++      if (!publicKey.value) {
++        status.value = 'unavailable';
++        toast.warning('Web Push chưa được cấu hình trên máy chủ', 5000);
++        return;
++      }
++      const permission = await Notification.requestPermission();
++      if (permission === 'denied') {
++        status.value = 'denied';
++        toast.error('Trình duyệt đang chặn thông báo cho ZaloCRM', 5000);
++        return;
++      }
++      if (permission !== 'granted') {
++        status.value = 'default';
++        return;
++      }
++
++      const registration = await getRegistration();
++      const existing = await registration.pushManager.getSubscription();
++      const subscription = existing || await registration.pushManager.subscribe({
++        userVisibleOnly: true,
++        applicationServerKey: urlBase64ToUint8Array(publicKey.value),
++      });
++
++      await api.post('/notifications/push/subscriptions', subscription.toJSON());
++      status.value = 'subscribed';
++      toast.success('Đã bật thông báo Web/PWA');
++    } catch {
++      status.value = 'unavailable';
++      toast.error('Không thể bật thông báo lúc này', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  async function disable() {
++    busy.value = true;
++    try {
++      const registration = await getRegistration();
++      const subscription = await registration.pushManager.getSubscription();
++      if (subscription) {
++        await api.delete('/notifications/push/subscriptions', { data: { endpoint: subscription.endpoint } });
++        await subscription.unsubscribe();
++      }
++      status.value = Notification.permission === 'granted' ? 'unsubscribed' : Notification.permission;
++      toast.success('Đã tắt thông báo trên thiết bị này');
++    } catch {
++      toast.error('Không thể tắt thông báo lúc này', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  async function sendTest() {
++    busy.value = true;
++    try {
++      await api.post('/notifications/push/test');
++      toast.success('Đã gửi thông báo thử');
++    } catch {
++      toast.error('Không gửi được thông báo thử', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  return { status, busy, canEnable, isSubscribed, init, enable, disable, sendTest };
++}
++```
++
++- [ ] **Step 6: Verify static test passes**
++
++```bash
++node frontend/tests/web-push-static.test.mjs
++```
++
++Expected: PASS.
++
++- [ ] **Step 7: Commit PWA push primitives**
++
++```bash
++git add frontend/vite.config.ts frontend/src/pwa/sw.ts frontend/src/composables/use-web-push.ts frontend/tests/web-push-static.test.mjs
++git commit -m "feat(pwa): add web push service worker"
++```
++
++---
++
++## Task 6: Notification Bell UI Integration
++
++**Files:**
++- Modify: `frontend/src/components/NotificationBell.vue`
++- Modify: `frontend/src/layouts/MobileLayout.vue`
++- Modify: `frontend/tests/web-push-static.test.mjs`
++
++- [ ] **Step 1: Extend static test for UI integration**
++
++Append these assertions to `frontend/tests/web-push-static.test.mjs`:
++
++```js
++const bell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8');
++const mobileLayout = readFileSync(new URL('../src/layouts/MobileLayout.vue', import.meta.url), 'utf8');
++
++assert.match(bell, /useWebPush/);
++assert.match(bell, /Bật thông báo/);
++assert.doesNotMatch(bell, /interface Notification\b/);
++assert.match(mobileLayout, /ToastContainer/);
++```
++
++- [ ] **Step 2: Run static test to verify it fails**
++
++```bash
++node frontend/tests/web-push-static.test.mjs
++```
++
++Expected: FAIL because UI integration is not implemented.
++
++- [ ] **Step 3: Update NotificationBell script**
++
++In `frontend/src/components/NotificationBell.vue`, rename the local interface from `Notification` to `AppNotification`, import and initialize push:
++
++```ts
++import { useWebPush } from '@/composables/use-web-push';
++
++interface AppNotification {
++  id: string;
++  type: string;
++  title: string;
++  detail: string;
++  priority: string;
++  createdAt?: string;
++  url?: string;
++}
++
++const push = useWebPush();
++const notifications = ref<AppNotification[]>([]);
++
++onMounted(() => {
++  fetchNotifications();
++  void push.init();
++  interval = setInterval(fetchNotifications, 60000);
++});
++```
++
++Update `handleClick` to use `n.url` first:
++
++```ts
++function handleClick(n: AppNotification) {
++  if (n.url) router.push(n.url);
++  else if (n.id === 'unreplied') router.push('/chat');
++  else if (n.id.startsWith('apt-')) router.push('/appointments');
++  else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');
++  else if (n.id === 'tmr-apts') router.push('/appointments');
++}
++```
++
++- [ ] **Step 4: Add push controls to bell menu template**
++
++Inside the notification menu content, directly under the title row, add a compact action area:
++
++```vue
++<div class="push-panel">
++  <div class="push-copy">
++    <div class="push-title">Thông báo Web/PWA</div>
++    <div class="push-status" v-if="push.status.value === 'unsupported'">Trình duyệt không hỗ trợ</div>
++    <div class="push-status" v-else-if="push.status.value === 'unavailable'">Chưa cấu hình Web Push</div>
++    <div class="push-status" v-else-if="push.status.value === 'denied'">Thông báo bị chặn</div>
++    <div class="push-status" v-else-if="push.isSubscribed.value">Đã bật thông báo</div>
++    <div class="push-status" v-else>Bật để nhận tin nhắn và cảnh báo khi app ở nền</div>
++  </div>
++  <div class="push-actions">
++    <button v-if="push.canEnable.value" class="push-btn primary" :disabled="push.busy.value" @click.stop="push.enable">
++      Bật thông báo
++    </button>
++    <button v-if="push.isSubscribed.value" class="push-btn" :disabled="push.busy.value" @click.stop="push.sendTest">
++      Gửi thử
++    </button>
++    <button v-if="push.isSubscribed.value" class="push-btn" :disabled="push.busy.value" @click.stop="push.disable">
++      Tắt
++    </button>
++  </div>
++</div>
++```
++
++Add CSS scoped to the component:
++
++```css
++.push-panel {
++  display: flex;
++  gap: 12px;
++  justify-content: space-between;
++  padding: 10px 14px;
++  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
++}
++.push-copy { min-width: 0; }
++.push-title { font-size: 0.8rem; font-weight: 700; color: #f8fafc; }
++.push-status { margin-top: 2px; font-size: 0.72rem; color: #94a3b8; }
++.push-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
++.push-btn {
++  border: 1px solid rgba(148, 163, 184, 0.24);
++  border-radius: 999px;
++  padding: 5px 9px;
++  color: #e5e7eb;
++  background: rgba(15, 23, 42, 0.85);
++  font-size: 0.72rem;
++}
++.push-btn.primary { color: #17120a; background: #d6a84f; border-color: #d6a84f; }
++.push-btn:disabled { opacity: 0.55; cursor: wait; }
++```
++
++- [ ] **Step 5: Mount toast container in mobile layout**
++
++In `frontend/src/layouts/MobileLayout.vue`, import:
++
++```ts
++import ToastContainer from '@/components/ui/ToastContainer.vue';
++```
++
++Add `<ToastContainer />` once near the root layout so mobile users see push feedback.
++
++- [ ] **Step 6: Verify static test and frontend build**
++
++```bash
++node frontend/tests/web-push-static.test.mjs
++npm --prefix frontend run build
++```
++
++Expected: both PASS.
++
++- [ ] **Step 7: Commit notification bell UI**
++
++```bash
++git add frontend/src/components/NotificationBell.vue frontend/src/layouts/MobileLayout.vue frontend/tests/web-push-static.test.mjs
++git commit -m "feat(notifications): add push controls to bell"
++```
++
++---
++
++## Task 7: Full Validation and Docker Smoke
++
++**Files:**
++- Modify only if validation reveals necessary fixes.
++
++- [ ] **Step 1: Install dependencies in fresh worktree if needed**
++
++```bash
++npm --prefix backend install
++npm --prefix frontend install
++```
++
++Expected: both exit 0.
++
++- [ ] **Step 2: Run backend tests**
++
++```bash
++npm --prefix backend test -- --runInBand
++```
++
++If Vitest rejects `--runInBand`, run:
++
++```bash
++npm --prefix backend test
++```
++
++Expected: PASS.
++
++- [ ] **Step 3: Run frontend static test and build**
++
++```bash
++node frontend/tests/web-push-static.test.mjs
++npm --prefix frontend run build
++```
++
++Expected: PASS.
++
++- [ ] **Step 4: Run Docker production-like build**
++
++```bash
++docker compose build app
++```
++
++Expected: image builds successfully.
++
++- [ ] **Step 5: Start Docker stack**
++
++```bash
++docker compose up -d app db minio
++```
++
++Expected: containers start. If compose service names differ, inspect `docker compose config --services` and run equivalent app/database/object storage services.
++
++- [ ] **Step 6: Health check app**
++
++```bash
++curl -fsS http://localhost:3080/health
++```
++
++Expected: JSON health response or HTTP 200.
++
++- [ ] **Step 7: Smoke push config route**
++
++Login with the seeded/demo user used by this repo, then call push config:
++
++```bash
++TOKEN=$(curl -fsS -X POST http://localhost:3080/api/v1/auth/login -H 'content-type: application/json' -d '{"email":"demo@zalocrm.local","password":"Demo@123456"}' | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>console.log(JSON.parse(s).token||JSON.parse(s).accessToken||''))")
++curl -fsS http://localhost:3080/api/v1/notifications/push/config -H "Authorization: Bearer $TOKEN"
++```
++
++Expected: returns `{ enabled: true, publicKey: ... }` if VAPID env is present, or `{ enabled: false, publicKey: '' }` without crashing.
++
++- [ ] **Step 8: Browser smoke**
++
++Start or use the Docker app at `http://localhost:3080`, then use browser automation to verify:
++
++1. Login page loads.
++2. After login, notification bell opens.
++3. The menu contains “Thông báo Web/PWA”.
++4. If VAPID is configured and the browser allows permissions, “Bật thông báo” is visible.
++5. Console has no runtime errors related to service worker or Notification API.
++
++- [ ] **Step 9: Inspect git status**
++
++```bash
++git status --short
++```
++
++Expected: only intended files changed.
++
++- [ ] **Step 10: Commit validation fixes if any**
++
++If validation required fixes:
++
++```bash
++git add <fixed-files>
++git commit -m "fix(notifications): stabilize web push validation"
++```
++
++---
++
++## Self-Review
++
++- Spec coverage: backend subscription storage, push routes, VAPID config, chat push, system push, service worker, explicit enable UI, foreground feedback, and Docker validation are all mapped to tasks.
++- Placeholder scan: no task uses deferred placeholders; Task 4 has one file-specific variable adjustment because the persisted message identifiers must be read from the existing file immediately before edit.
++- Type consistency: backend payload fields are consistently `title`, `body`, `url`, `tag`, `type`, `priority`, `createdAt`; frontend composable and service worker use the same shape.
+diff --git a/docs/superpowers/specs/2026-05-21-web-pwa-notifications-design.md b/docs/superpowers/specs/2026-05-21-web-pwa-notifications-design.md
+new file mode 100644
+index 0000000..e0dd31d
+--- /dev/null
++++ b/docs/superpowers/specs/2026-05-21-web-pwa-notifications-design.md
+@@ -0,0 +1,165 @@
++# Web and PWA Notifications Design
++
++## Goal
++
++Add first-class notifications for ZaloCRM web and installed PWA users so new chat messages and existing system notifications can alert users both while the app is open and when the browser/PWA is in the background or closed.
++
++## Approved product choices
++
++- Message notifications should work everywhere: foreground web app, background tabs, and installed PWA where the browser/OS supports Web Push.
++- System notifications should include all existing computed notifications from `GET /api/v1/notifications`: unreplied conversations, today/tomorrow appointments, and disconnected Zalo accounts.
++- Notification permission must be requested from an explicit user action, not automatically on login.
++- The implementation should include full Web Push support.
++- Production already has Firebase Cloud Messaging config in `fmc.json` at the production root and VAPID keys in the production `.env` as `VAPID_PUBLIC` and `VAPID_PRIVATE`.
++
++## Architecture
++
++The implementation adds a backend Web Push subscription layer, a service worker push handler, and foreground notification orchestration in the Vue app.
++
++Backend subscription state is stored per organization and user. The backend exposes authenticated routes for clients to fetch push configuration, subscribe, unsubscribe, and send a local test notification. Incoming Zalo messages and computed system notifications produce normalized notification payloads. Push delivery is best-effort: failures are logged, expired subscriptions are removed, and missing VAPID configuration disables push without breaking the app.
++
++Foreground behavior remains app-native. If the app is open, Vue shows a toast and refreshes the notification bell/unread state. If the app is backgrounded or closed, the service worker displays the browser/PWA notification from Web Push and routes clicks back into the app.
++
++## Backend components
++
++### Prisma data model
++
++Add `WebPushSubscription` with:
++
++- `id`
++- `orgId`
++- `userId`
++- `endpoint` unique
++- `p256dh`
++- `auth`
++- `userAgent`
++- `createdAt`
++- `updatedAt`
++
++The model is scoped to `Organization` and `User` with cascading cleanup. No notification table is introduced in this phase because existing system notifications are computed on demand.
++
++### Notification routes
++
++Add routes under the existing notifications module:
++
++- `GET /api/v1/notifications/push/config` returns whether push is enabled and the VAPID public key if configured.
++- `POST /api/v1/notifications/push/subscriptions` stores or updates the current browser subscription for the authenticated user and organization.
++- `DELETE /api/v1/notifications/push/subscriptions` deletes the current endpoint for the authenticated user.
++- `POST /api/v1/notifications/push/test` sends a test notification to the authenticated user’s subscriptions.
++
++All routes require JWT auth and preserve organization scoping from the current user context.
++
++### Push service
++
++Create a small service responsible for:
++
++- reading `VAPID_PUBLIC`, `VAPID_PRIVATE`, and optional contact subject from env;
++- converting database rows into Web Push subscription objects;
++- sending JSON payloads with title, body, url, tag, type, priority, and createdAt;
++- deleting subscriptions when the push provider returns gone/expired status;
++- returning no-op results when VAPID is missing.
++
++### Chat message push trigger
++
++Incoming live Zalo messages already emit `chat:message`. After the message is persisted, backend should send push for non-self messages to users in the same organization. Payload click target should open `/chat?conversationId=<id>` or `/chat` if the route cannot safely accept the query yet.
++
++Outgoing messages created by the current CRM user must not generate push back to that user.
++
++### System notification push trigger
++
++The existing `/notifications` route computes system notifications. Extract that computation into a reusable function so both the route and a lightweight scheduler can use the same logic.
++
++The scheduler periodically checks each organization with active push subscriptions and sends push for current high-level system notifications. It deduplicates by a stable key made from notification id, user id, and a short time bucket so the same appointment/account warning does not spam users every minute.
++
++## Frontend/PWA components
++
++### Service worker
++
++Use a custom PWA service worker strategy compatible with `vite-plugin-pwa` so the app can keep current precache/offline behavior and add:
++
++- `push` event: parse JSON payload and call `showNotification`;
++- `notificationclick` event: close the notification and focus an existing app window or open the payload URL;
++- safe fallbacks for malformed payloads.
++
++### Push composable
++
++Add a Vue composable for browser push state:
++
++- detect service worker, Push API, and Notification API support;
++- fetch backend push config;
++- expose status: unsupported, unavailable, default, denied, subscribed, unsubscribed;
++- request permission only when the user clicks the explicit enable button;
++- subscribe with the VAPID public key;
++- send subscription to backend;
++- unsubscribe locally and server-side;
++- send a test notification.
++
++### Notification bell integration
++
++Extend `NotificationBell` with a compact push control area:
++
++- show “Bật thông báo” when supported and not subscribed;
++- show “Đã bật thông báo” when subscribed;
++- show “Thông báo bị chặn” when browser permission is denied;
++- show “Chưa cấu hình Web Push” when backend VAPID config is missing;
++- keep existing notification list and routes intact.
++
++### Foreground notifications
++
++Add a global foreground notification listener mounted in the authenticated layout. It should:
++
++- listen for incoming chat events outside the chat view;
++- show toast notifications for non-self messages;
++- avoid duplicate toasts when the user is actively viewing the same conversation;
++- refresh notification bell state after a notification event.
++
++## Configuration
++
++Required production env names are:
++
++- `VAPID_PUBLIC`
++- `VAPID_PRIVATE`
++
++Optional env:
++
++- `VAPID_SUBJECT`, defaulting to a safe `mailto:` or app URL value.
++
++If `fmc.json` exists, this implementation does not require reading it directly unless the selected Web Push library or Firebase integration needs it. The first implementation should use standard Web Push with the provided VAPID keys because it works for browser and PWA notifications without coupling the app to Firebase-specific client SDKs.
++
++## Error handling
++
++- If VAPID is missing, push routes return enabled false and the UI explains that Web Push is not configured.
++- If browser permission is denied, the UI shows the blocked state and does not repeatedly prompt.
++- If a subscription expires or is rejected by the push service, backend deletes it and logs the cleanup.
++- Push delivery failures must not block chat message persistence, socket broadcasts, or notification route responses.
++
++## Testing and validation
++
++Backend tests should cover:
++
++- push config response with and without VAPID env;
++- subscription upsert and delete scoped to user/org;
++- payload creation for test notifications;
++- no-op behavior when push is not configured;
++- expired subscription cleanup.
++
++Frontend validation should cover:
++
++- TypeScript build;
++- service worker generated with push/click handlers;
++- NotificationBell states for unsupported, unavailable, denied, and subscribed paths where practical;
++- PWA manifest/offline behavior still builds.
++
++Docker validation should cover:
++
++- production-like compose build;
++- app health endpoint;
++- backend route smoke for push config;
++- browser smoke that loads the app, sees the notification enable control, and verifies no console/runtime crash.
++
++## Out of scope
++
++- Native mobile push outside browser/PWA Web Push.
++- Persisted notification inbox with read/unread state.
++- Per-user notification preferences by type.
++- Firebase SDK-specific topic messaging unless later required by deployment constraints.
+diff --git a/frontend/src/components/NotificationBell.vue b/frontend/src/components/NotificationBell.vue
+index dbb7db9..2c70170 100644
+--- a/frontend/src/components/NotificationBell.vue
++++ b/frontend/src/components/NotificationBell.vue
+@@ -1,5 +1,5 @@
+ <template>
+-  <v-menu offset-y :close-on-content-click="false" max-width="380">
++  <v-menu offset-y :close-on-content-click="false" max-width="420">
+     <template #activator="{ props: menuProps }">
+       <v-btn icon variant="text" v-bind="menuProps" class="mr-1">
+         <v-badge
+@@ -12,9 +12,30 @@
+         </v-badge>
+       </v-btn>
+     </template>
+-    <v-card style="max-height: 400px; overflow-y: auto;">
++    <v-card style="max-height: 480px; overflow-y: auto;">
+       <v-card-title class="text-body-1 font-weight-bold pa-3">Thông báo</v-card-title>
+       <v-divider />
++      <div class="push-panel">
++        <div class="push-copy">
++          <div class="push-title">Thông báo Web/PWA</div>
++          <div v-if="push.status.value === 'unsupported'" class="push-status">Trình duyệt không hỗ trợ</div>
++          <div v-else-if="push.status.value === 'unavailable'" class="push-status">Chưa cấu hình Web Push</div>
++          <div v-else-if="push.status.value === 'denied'" class="push-status">Thông báo bị chặn</div>
++          <div v-else-if="push.isSubscribed.value" class="push-status">Đã bật thông báo</div>
++          <div v-else class="push-status">Bật để nhận tin nhắn và cảnh báo khi app ở nền</div>
++        </div>
++        <div class="push-actions">
++          <button v-if="push.canEnable.value" class="push-btn primary" :disabled="push.busy.value" @click.stop="push.enable">
++            Bật thông báo
++          </button>
++          <button v-if="push.isSubscribed.value" class="push-btn" :disabled="push.busy.value" @click.stop="push.sendTest">
++            Gửi thử
++          </button>
++          <button v-if="push.isSubscribed.value" class="push-btn" :disabled="push.busy.value" @click.stop="push.disable">
++            Tắt
++          </button>
++        </div>
++      </div>
+       <v-list density="compact" v-if="notifications.length > 0">
+         <v-list-item
+           v-for="n in notifications"
+@@ -43,17 +64,21 @@
+ import { ref, onMounted, onUnmounted } from 'vue';
+ import { useRouter } from 'vue-router';
+ import { api } from '@/api/index';
++import { useWebPush } from '@/composables/use-web-push';
+ 
+-interface Notification {
++interface AppNotification {
+   id: string;
+   type: string;
+   title: string;
+   detail: string;
+   priority: string;
++  createdAt?: string;
++  url?: string;
+ }
+ 
+-const notifications = ref<Notification[]>([]);
++const notifications = ref<AppNotification[]>([]);
+ const router = useRouter();
++const push = useWebPush();
+ let interval: ReturnType<typeof setInterval>;
+ 
+ async function fetchNotifications() {
+@@ -61,12 +86,13 @@ async function fetchNotifications() {
+     const res = await api.get('/notifications');
+     notifications.value = res.data.notifications || [];
+   } catch {
+-    // silently ignore fetch errors
++    // Existing behavior: the bell stays quiet when polling fails.
+   }
+ }
+ 
+-function handleClick(n: Notification) {
+-  if (n.id === 'unreplied') router.push('/chat');
++function handleClick(n: AppNotification) {
++  if (n.url) router.push(n.url);
++  else if (n.id === 'unreplied') router.push('/chat');
+   else if (n.id.startsWith('apt-')) router.push('/appointments');
+   else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');
+   else if (n.id === 'tmr-apts') router.push('/appointments');
+@@ -74,8 +100,33 @@ function handleClick(n: Notification) {
+ 
+ onMounted(() => {
+   fetchNotifications();
++  void push.init();
+   interval = setInterval(fetchNotifications, 60000);
+ });
+ 
+ onUnmounted(() => clearInterval(interval));
+ </script>
++
++<style scoped>
++.push-panel {
++  display: flex;
++  gap: 12px;
++  justify-content: space-between;
++  padding: 10px 14px;
++  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
++}
++.push-copy { min-width: 0; }
++.push-title { font-size: 0.8rem; font-weight: 700; color: #f8fafc; }
++.push-status { margin-top: 2px; font-size: 0.72rem; color: #94a3b8; }
++.push-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
++.push-btn {
++  border: 1px solid rgba(148, 163, 184, 0.24);
++  border-radius: 999px;
++  padding: 5px 9px;
++  color: #e5e7eb;
++  background: rgba(15, 23, 42, 0.85);
++  font-size: 0.72rem;
++}
++.push-btn.primary { color: #17120a; background: #d6a84f; border-color: #d6a84f; }
++.push-btn:disabled { opacity: 0.55; cursor: wait; }
++</style>
+diff --git a/frontend/src/composables/use-web-push.ts b/frontend/src/composables/use-web-push.ts
+new file mode 100644
+index 0000000..1cb6126
+--- /dev/null
++++ b/frontend/src/composables/use-web-push.ts
+@@ -0,0 +1,146 @@
++import { computed, ref } from 'vue';
++import { api } from '@/api/index';
++import { useToast } from '@/composables/use-toast';
++
++type PushStatus = 'checking' | 'unsupported' | 'unavailable' | 'default' | 'denied' | 'subscribed' | 'unsubscribed';
++
++interface PushConfigResponse {
++  enabled: boolean;
++  publicKey: string;
++}
++
++const status = ref<PushStatus>('checking');
++const publicKey = ref('');
++const busy = ref(false);
++const initialized = ref(false);
++
++function urlBase64ToUint8Array(value: string) {
++  const padding = '='.repeat((4 - (value.length % 4)) % 4);
++  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
++  const rawData = window.atob(base64);
++  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
++}
++
++function browserSupportsPush() {
++  return typeof window !== 'undefined'
++    && 'serviceWorker' in navigator
++    && 'PushManager' in window
++    && 'Notification' in window
++    && window.isSecureContext;
++}
++
++async function syncLocalSubscriptionState() {
++  if (!browserSupportsPush()) {
++    status.value = 'unsupported';
++    return;
++  }
++  if (!publicKey.value) {
++    status.value = 'unavailable';
++    return;
++  }
++  if (Notification.permission === 'denied') {
++    status.value = 'denied';
++    return;
++  }
++  if (Notification.permission === 'default') {
++    status.value = 'default';
++    return;
++  }
++
++  const registration = await navigator.serviceWorker.ready;
++  const subscription = await registration.pushManager.getSubscription();
++  status.value = subscription ? 'subscribed' : 'unsubscribed';
++}
++
++export function useWebPush() {
++  const toast = useToast();
++  const canEnable = computed(() => ['default', 'unsubscribed'].includes(status.value) && !busy.value);
++  const isSubscribed = computed(() => status.value === 'subscribed');
++
++  async function init() {
++    if (initialized.value) return;
++    initialized.value = true;
++    if (!browserSupportsPush()) {
++      status.value = 'unsupported';
++      return;
++    }
++
++    try {
++      const { data } = await api.get<PushConfigResponse>('/notifications/push/config');
++      publicKey.value = data.enabled ? data.publicKey : '';
++      await syncLocalSubscriptionState();
++    } catch {
++      status.value = 'unavailable';
++    }
++  }
++
++  async function enable() {
++    busy.value = true;
++    try {
++      await init();
++      if (!publicKey.value) {
++        status.value = 'unavailable';
++        toast.warning('Web Push chưa được cấu hình trên máy chủ', 5000);
++        return;
++      }
++      const permission = await Notification.requestPermission();
++      if (permission === 'denied') {
++        status.value = 'denied';
++        toast.error('Trình duyệt đang chặn thông báo cho ZaloCRM', 5000);
++        return;
++      }
++      if (permission !== 'granted') {
++        status.value = 'default';
++        return;
++      }
++
++      const registration = await navigator.serviceWorker.ready;
++      const existing = await registration.pushManager.getSubscription();
++      const subscription = existing || await registration.pushManager.subscribe({
++        userVisibleOnly: true,
++        applicationServerKey: urlBase64ToUint8Array(publicKey.value),
++      });
++
++      await api.post('/notifications/push/subscriptions', subscription.toJSON());
++      status.value = 'subscribed';
++      toast.success('Đã bật thông báo Web/PWA');
++    } catch {
++      status.value = 'unavailable';
++      toast.error('Không thể bật thông báo lúc này', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  async function disable() {
++    busy.value = true;
++    try {
++      const registration = await navigator.serviceWorker.ready;
++      const subscription = await registration.pushManager.getSubscription();
++      if (subscription) {
++        await api.delete('/notifications/push/subscriptions', { data: { endpoint: subscription.endpoint } });
++        await subscription.unsubscribe();
++      }
++      status.value = Notification.permission === 'granted' ? 'unsubscribed' : Notification.permission;
++      toast.success('Đã tắt thông báo trên thiết bị này');
++    } catch {
++      toast.error('Không thể tắt thông báo lúc này', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  async function sendTest() {
++    busy.value = true;
++    try {
++      await api.post('/notifications/push/test');
++      toast.success('Đã gửi thông báo thử');
++    } catch {
++      toast.error('Không gửi được thông báo thử', 5000);
++    } finally {
++      busy.value = false;
++    }
++  }
++
++  return { status, busy, canEnable, isSubscribed, init, enable, disable, sendTest };
++}
+diff --git a/frontend/src/layouts/MobileLayout.vue b/frontend/src/layouts/MobileLayout.vue
+index bc2d881..5b937d3 100644
+--- a/frontend/src/layouts/MobileLayout.vue
++++ b/frontend/src/layouts/MobileLayout.vue
+@@ -29,6 +29,7 @@
+     </v-main>
+ 
+     <BottomNav />
++    <ToastContainer />
+   </v-app>
+ </template>
+ 
+@@ -40,6 +41,7 @@ import { useRouter } from 'vue-router';
+ import NotificationBell from '@/components/NotificationBell.vue';
+ import BottomNav from '@/components/BottomNav.vue';
+ import OfflineIndicator from '@/components/OfflineIndicator.vue';
++import ToastContainer from '@/components/ui/ToastContainer.vue';
+ 
+ const theme = useTheme();
+ const authStore = useAuthStore();
+diff --git a/frontend/src/pwa/sw.ts b/frontend/src/pwa/sw.ts
+new file mode 100644
+index 0000000..924d585
+--- /dev/null
++++ b/frontend/src/pwa/sw.ts
+@@ -0,0 +1,87 @@
++/// <reference lib="webworker" />
++import { clientsClaim } from 'workbox-core';
++import { cleanupOutdatedCaches, precacheAndRoute } from 'workbox-precaching';
++import { registerRoute } from 'workbox-routing';
++import { CacheFirst, NetworkFirst, StaleWhileRevalidate } from 'workbox-strategies';
++import { ExpirationPlugin } from 'workbox-expiration';
++
++declare const self: ServiceWorkerGlobalScope;
++
++self.skipWaiting();
++clientsClaim();
++cleanupOutdatedCaches();
++precacheAndRoute(self.__WB_MANIFEST);
++
++registerRoute(
++  ({ request, url }) => request.mode === 'navigate' && !url.pathname.startsWith('/api/') && !url.pathname.startsWith('/socket.io/'),
++  new NetworkFirst({
++    cacheName: 'zalocrm-pages',
++    networkTimeoutSeconds: 3,
++    plugins: [new ExpirationPlugin({ maxEntries: 40, maxAgeSeconds: 7 * 24 * 60 * 60 })],
++  }),
++);
++
++registerRoute(
++  ({ request }) => ['style', 'script', 'worker', 'font', 'image'].includes(request.destination),
++  new StaleWhileRevalidate({
++    cacheName: 'zalocrm-assets',
++    plugins: [new ExpirationPlugin({ maxEntries: 120, maxAgeSeconds: 30 * 24 * 60 * 60 })],
++  }),
++);
++
++registerRoute(
++  ({ request }) => ['image', 'font'].includes(request.destination),
++  new CacheFirst({
++    cacheName: 'zalocrm-static',
++    plugins: [new ExpirationPlugin({ maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 })],
++  }),
++);
++
++interface PushPayload {
++  title?: string;
++  body?: string;
++  url?: string;
++  tag?: string;
++  type?: string;
++  priority?: string;
++  createdAt?: string;
++}
++
++function parsePushPayload(event: PushEvent): PushPayload {
++  if (!event.data) return {};
++  try {
++    return event.data.json();
++  } catch {
++    return { title: 'ZaloCRM', body: event.data.text() };
++  }
++}
++
++self.addEventListener('push', (event) => {
++  const payload = parsePushPayload(event);
++  const title = payload.title || 'ZaloCRM';
++  const url = payload.url || '/';
++  event.waitUntil(
++    self.registration.showNotification(title, {
++      body: payload.body || 'Bạn có thông báo mới',
++      icon: '/pwa-192x192.svg',
++      badge: '/pwa-192x192.svg',
++      tag: payload.tag,
++      data: { url, type: payload.type, createdAt: payload.createdAt },
++    }),
++  );
++});
++
++self.addEventListener('notificationclick', (event) => {
++  event.notification.close();
++  const targetUrl = new URL(event.notification.data?.url || '/', self.location.origin).href;
++
++  event.waitUntil((async () => {
++    const windowClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
++    for (const client of windowClients) {
++      await client.focus();
++      await client.navigate(targetUrl);
++      return;
++    }
++    await self.clients.openWindow(targetUrl);
++  })());
++});
+diff --git a/frontend/tests/web-push-static.test.mjs b/frontend/tests/web-push-static.test.mjs
+new file mode 100644
+index 0000000..f5adaf8
+--- /dev/null
++++ b/frontend/tests/web-push-static.test.mjs
+@@ -0,0 +1,22 @@
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++
++const viteConfig = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
++const sw = readFileSync(new URL('../src/pwa/sw.ts', import.meta.url), 'utf8');
++const composable = readFileSync(new URL('../src/composables/use-web-push.ts', import.meta.url), 'utf8');
++const bell = readFileSync(new URL('../src/components/NotificationBell.vue', import.meta.url), 'utf8');
++const mobileLayout = readFileSync(new URL('../src/layouts/MobileLayout.vue', import.meta.url), 'utf8');
++
++assert.match(viteConfig, /strategies:\s*['"]injectManifest['"]/);
++assert.match(viteConfig, /filename:\s*['"]sw\.ts['"]/);
++assert.match(sw, /self\.addEventListener\(['"]push['"]/);
++assert.match(sw, /self\.addEventListener\(['"]notificationclick['"]/);
++assert.match(composable, /Notification\.requestPermission\(\)/);
++assert.match(composable, /pushManager\.subscribe/);
++assert.match(composable, /\/notifications\/push\/subscriptions/);
++assert.match(bell, /useWebPush/);
++assert.match(bell, /Bật thông báo/);
++assert.doesNotMatch(bell, /interface Notification\b/);
++assert.match(mobileLayout, /ToastContainer/);
++
++console.log('web push static checks passed');
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+index 25724ad..4b634bd 100644
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -11,6 +11,12 @@ export default defineConfig({
+     VitePWA({
+       registerType: 'autoUpdate',
+       includeAssets: ['brand/zalocrm-logo.png'],
++      strategies: 'injectManifest',
++      srcDir: 'src/pwa',
++      filename: 'sw.ts',
++      injectManifest: {
++        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
++      },
+       manifest: {
+         name: 'ZaloCRM',
+         short_name: 'ZaloCRM',
+@@ -52,36 +58,6 @@ export default defineConfig({
+           },
+         ],
+       },
+-      workbox: {
+-        globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+-        navigateFallback: '/index.html',
+-        navigateFallbackDenylist: [/^\/api\//, /^\/socket\.io\//],
+-        runtimeCaching: [
+-          {
+-            urlPattern: ({ request, url }) => request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
+-            handler: 'NetworkFirst',
+-            options: {
+-              cacheName: 'zalocrm-pages',
+-              networkTimeoutSeconds: 3,
+-              expiration: {
+-                maxEntries: 40,
+-                maxAgeSeconds: 7 * 24 * 60 * 60,
+-              },
+-            },
+-          },
+-          {
+-            urlPattern: ({ request }) => ['style', 'script', 'worker', 'font', 'image'].includes(request.destination),
+-            handler: 'StaleWhileRevalidate',
+-            options: {
+-              cacheName: 'zalocrm-assets',
+-              expiration: {
+-                maxEntries: 120,
+-                maxAgeSeconds: 30 * 24 * 60 * 60,
+-              },
+-            },
+-          },
+-        ],
+-      },
+       devOptions: {
+         enabled: process.env.VITE_PWA_DEV === 'true',
+       },
+-- 
+2.43.0
+
+
+From 78d1dfb0c53cc3303bdf51c11cb79ab417905a65 Mon Sep 17 00:00:00 2001
+From: Huy Dev <innercoach.net@gmail.com>
+Date: Fri, 22 May 2026 09:27:01 +0000
+Subject: [PATCH 2/2] fix(notifications): tighten Web Push delivery scope
+
+Keep push subscriptions bound to their original principal, restrict org-level pushes to active users, and avoid sensitive system notification previews outside the app.
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+---
+ .../notifications/notification-routes.ts      | 20 ++++++-
+ .../system-notification-push-job.ts           |  4 +-
+ .../modules/notifications/web-push-service.ts |  2 +-
+ .../tests/notification-push-routes.test.ts    | 56 ++++++++++++++++---
+ .../system-notification-push-job.test.ts      |  6 +-
+ backend/tests/web-push-service.test.ts        | 22 ++++++++
+ 6 files changed, 95 insertions(+), 15 deletions(-)
+
+diff --git a/backend/src/modules/notifications/notification-routes.ts b/backend/src/modules/notifications/notification-routes.ts
+index d5c318d..aa14713 100644
+--- a/backend/src/modules/notifications/notification-routes.ts
++++ b/backend/src/modules/notifications/notification-routes.ts
+@@ -32,11 +32,25 @@ export async function notificationRoutes(app: FastifyInstance) {
+     }
+ 
+     const userAgent = request.headers['user-agent'];
+-    await prisma.webPushSubscription.upsert({
++    const existing = await prisma.webPushSubscription.findUnique({
+       where: { endpoint },
+-      update: { orgId: user.orgId, userId: user.id, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+-      create: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
++      select: { userId: true, orgId: true },
+     });
++
++    if (existing && (existing.userId !== user.id || existing.orgId !== user.orgId)) {
++      return reply.status(409).send({ error: 'Endpoint đã được đăng ký bởi tài khoản khác' });
++    }
++
++    if (existing) {
++      await prisma.webPushSubscription.update({
++        where: { endpoint },
++        data: { p256dh: keys.p256dh, auth: keys.auth, userAgent },
++      });
++    } else {
++      await prisma.webPushSubscription.create({
++        data: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
++      });
++    }
+     return { ok: true };
+   });
+ 
+diff --git a/backend/src/modules/notifications/system-notification-push-job.ts b/backend/src/modules/notifications/system-notification-push-job.ts
+index 4c51175..e10eec3 100644
+--- a/backend/src/modules/notifications/system-notification-push-job.ts
++++ b/backend/src/modules/notifications/system-notification-push-job.ts
+@@ -24,8 +24,8 @@ export async function runSystemNotificationPushOnce(nowMs = Date.now()) {
+       if (sentBuckets.has(dedupeKey)) continue;
+       sentBuckets.add(dedupeKey);
+       await sendPushToOrg(org.id, {
+-        title: notification.title,
+-        body: notification.detail,
++        title: 'ZaloCRM có thông báo mới',
++        body: notification.priority === 'high' ? 'Có thông báo quan trọng cần xử lý' : 'Mở ZaloCRM để xem chi tiết',
+         url: notification.url,
+         tag: `system-${notification.id}`,
+         type: notification.type,
+diff --git a/backend/src/modules/notifications/web-push-service.ts b/backend/src/modules/notifications/web-push-service.ts
+index ac85a43..0cec434 100644
+--- a/backend/src/modules/notifications/web-push-service.ts
++++ b/backend/src/modules/notifications/web-push-service.ts
+@@ -110,7 +110,7 @@ export async function sendPushToUsers(userIds: string[], orgId: string, payload:
+ 
+ export async function sendPushToOrg(orgId: string, payload: WebPushPayload) {
+   const subscriptions = await prisma.webPushSubscription.findMany({
+-    where: { orgId },
++    where: { orgId, user: { isActive: true } },
+     select: { id: true, endpoint: true, p256dh: true, auth: true },
+   });
+   return sendPushToSubscriptions(subscriptions, payload);
+diff --git a/backend/tests/notification-push-routes.test.ts b/backend/tests/notification-push-routes.test.ts
+index f7a93cd..4212a84 100644
+--- a/backend/tests/notification-push-routes.test.ts
++++ b/backend/tests/notification-push-routes.test.ts
+@@ -2,7 +2,9 @@ import Fastify from 'fastify';
+ import { beforeEach, describe, expect, it, vi } from 'vitest';
+ import { mockUser } from './test-helpers.js';
+ 
+-const upsert = vi.fn();
++const create = vi.fn();
++const update = vi.fn();
++const findUnique = vi.fn();
+ const deleteMany = vi.fn();
+ const findMany = vi.fn();
+ const sendPushToSubscriptions = vi.fn();
+@@ -15,7 +17,7 @@ vi.mock('../src/modules/auth/auth-middleware.js', () => ({
+ 
+ vi.mock('../src/shared/database/prisma-client.js', () => ({
+   prisma: {
+-    webPushSubscription: { upsert, deleteMany, findMany },
++    webPushSubscription: { create, update, findUnique, deleteMany, findMany },
+   },
+ }));
+ 
+@@ -31,7 +33,9 @@ vi.mock('../src/modules/notifications/web-push-service.js', () => ({
+ describe('notification push routes', () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+-    upsert.mockResolvedValue({ id: 'sub-1' });
++    create.mockResolvedValue({ id: 'sub-1' });
++    update.mockResolvedValue({ id: 'sub-1' });
++    findUnique.mockResolvedValue(null);
+     deleteMany.mockResolvedValue({ count: 1 });
+     findMany.mockResolvedValue([{ id: 'sub-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth' }]);
+     sendPushToSubscriptions.mockResolvedValue({ attempted: 1, sent: 1, expired: 0, failed: 0, enabled: true });
+@@ -52,7 +56,7 @@ describe('notification push routes', () => {
+     expect(res.json()).toEqual({ enabled: true, publicKey: 'public-key' });
+   });
+ 
+-  it('upserts the authenticated user subscription', async () => {
++  it('creates the authenticated user subscription', async () => {
+     const app = await buildApp();
+     const res = await app.inject({
+       method: 'POST',
+@@ -65,14 +69,50 @@ describe('notification push routes', () => {
+     });
+ 
+     expect(res.statusCode).toBe(200);
+-    expect(upsert).toHaveBeenCalledWith({
+-      where: { endpoint: 'https://push.example/1' },
+-      update: { orgId: 'org-1', userId: 'user-1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
+-      create: { orgId: 'org-1', userId: 'user-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
++    expect(create).toHaveBeenCalledWith({
++      data: { orgId: 'org-1', userId: 'user-1', endpoint: 'https://push.example/1', p256dh: 'p256dh', auth: 'auth', userAgent: 'vitest' },
+     });
+     expect(res.json()).toEqual({ ok: true });
+   });
+ 
++  it('updates an existing subscription owned by the authenticated user', async () => {
++    findUnique.mockResolvedValue({ userId: 'user-1', orgId: 'org-1' });
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'POST',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: {
++        endpoint: 'https://push.example/1',
++        keys: { p256dh: 'new-p256dh', auth: 'new-auth' },
++      },
++      headers: { 'user-agent': 'vitest' },
++    });
++
++    expect(res.statusCode).toBe(200);
++    expect(update).toHaveBeenCalledWith({
++      where: { endpoint: 'https://push.example/1' },
++      data: { p256dh: 'new-p256dh', auth: 'new-auth', userAgent: 'vitest' },
++    });
++    expect(create).not.toHaveBeenCalled();
++  });
++
++  it('rejects an existing subscription owned by another principal', async () => {
++    findUnique.mockResolvedValue({ userId: 'user-2', orgId: 'org-2' });
++    const app = await buildApp();
++    const res = await app.inject({
++      method: 'POST',
++      url: '/api/v1/notifications/push/subscriptions',
++      payload: {
++        endpoint: 'https://push.example/1',
++        keys: { p256dh: 'p256dh', auth: 'auth' },
++      },
++    });
++
++    expect(res.statusCode).toBe(409);
++    expect(create).not.toHaveBeenCalled();
++    expect(update).not.toHaveBeenCalled();
++  });
++
+   it('deletes the authenticated user subscription endpoint', async () => {
+     const app = await buildApp();
+     const res = await app.inject({
+diff --git a/backend/tests/system-notification-push-job.test.ts b/backend/tests/system-notification-push-job.test.ts
+index 4b523cd..a54e8b0 100644
+--- a/backend/tests/system-notification-push-job.test.ts
++++ b/backend/tests/system-notification-push-job.test.ts
+@@ -28,6 +28,10 @@ describe('system notification push job', () => {
+     await runSystemNotificationPushOnce(1234567890);
+ 
+     expect(sendPushToOrg).toHaveBeenCalledTimes(1);
+-    expect(sendPushToOrg).toHaveBeenCalledWith('org-1', expect.objectContaining({ title: '1 cuộc trò chuyện chưa trả lời', tag: 'system-unreplied' }));
++    expect(sendPushToOrg).toHaveBeenCalledWith('org-1', expect.objectContaining({
++      title: 'ZaloCRM có thông báo mới',
++      body: 'Có thông báo quan trọng cần xử lý',
++      tag: 'system-unreplied',
++    }));
+   });
+ });
+diff --git a/backend/tests/web-push-service.test.ts b/backend/tests/web-push-service.test.ts
+index a6a48d9..3390b83 100644
+--- a/backend/tests/web-push-service.test.ts
++++ b/backend/tests/web-push-service.test.ts
+@@ -31,6 +31,28 @@ describe('web-push-service', () => {
+     expect(setVapidDetails).not.toHaveBeenCalled();
+   });
+ 
++  it('sends org pushes only to active user subscriptions', async () => {
++    process.env.VAPID_PUBLIC = 'public-key';
++    process.env.VAPID_PRIVATE = 'private-key';
++    findMany.mockResolvedValue([]);
++    const { sendPushToOrg } = await import('../src/modules/notifications/web-push-service.js');
++
++    await sendPushToOrg('org-1', {
++      title: 'Thông báo mới',
++      body: 'Mở ZaloCRM để xem chi tiết',
++      url: '/',
++      tag: 'system-1',
++      type: 'info',
++      priority: 'low',
++      createdAt: '2026-05-21T00:00:00.000Z',
++    });
++
++    expect(findMany).toHaveBeenCalledWith({
++      where: { orgId: 'org-1', user: { isActive: true } },
++      select: { id: true, endpoint: true, p256dh: true, auth: true },
++    });
++  });
++
+   it('sends payload and deletes expired subscriptions', async () => {
+     process.env.VAPID_PUBLIC = 'public-key';
+     process.env.VAPID_PRIVATE = 'private-key';
+-- 
+2.43.0
+
