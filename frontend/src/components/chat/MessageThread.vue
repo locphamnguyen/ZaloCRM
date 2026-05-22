@@ -348,21 +348,21 @@
           @cancel="onCancelReplyEdit"
         />
 
-        <!-- Compact toolbar (Zalo-style) — group dividers cho visual rhythm -->
+        <!-- Compact toolbar — Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ line 1.5px) -->
         <div class="input-toolbar-top">
           <!-- Group 1: Media -->
           <StickerPicker @select="onSendSticker" />
           <button class="icon-tool" title="Gửi ảnh" @click="onPickImage">
-            <v-icon size="18">mdi-image-outline</v-icon>
+            <ImageIcon :size="18" :stroke-width="1.5" />
           </button>
           <button class="icon-tool" title="Gửi file" @click="onPickFile">
-            <v-icon size="18">mdi-paperclip</v-icon>
+            <PaperclipIcon :size="18" :stroke-width="1.5" />
           </button>
           <span class="toolbar-divider"></span>
 
           <!-- Group 2: Contact / format -->
           <button class="icon-tool" title="Gửi danh thiếp" @click="todoToast('Danh thiếp')">
-            <v-icon size="18">mdi-account-box-outline</v-icon>
+            <ContactIcon :size="18" :stroke-width="1.5" />
           </button>
           <button
             class="icon-tool"
@@ -370,7 +370,7 @@
             :title="formatBarVisible ? 'Ẩn định dạng văn bản' : 'Hiện định dạng văn bản (B I U S ...)'"
             @click="toggleFormat"
           >
-            <v-icon size="18">mdi-format-text</v-icon>
+            <TypeIcon :size="18" :stroke-width="1.5" />
           </button>
           <span class="toolbar-divider"></span>
 
@@ -382,13 +382,13 @@
             :disabled="!conversation.contact"
             @click="showAppointmentDialog = true"
           >
-            <v-icon size="18">mdi-calendar-clock</v-icon>
+            <CalendarClockIcon :size="18" :stroke-width="1.5" />
           </button>
           <button class="icon-tool" title="Template tin nhắn (gõ /)" @click="openTemplatePopup">
-            <v-icon size="18">mdi-flash-outline</v-icon>
+            <ZapIcon :size="18" :stroke-width="1.5" />
           </button>
           <button class="icon-tool ai-btn" title="AI compose" :disabled="aiSuggestionLoading" @click="$emit('ask-ai')">
-            <v-icon size="18">mdi-creation</v-icon>
+            <SparklesIcon :size="18" :stroke-width="1.5" />
           </button>
         </div>
 
@@ -599,6 +599,17 @@ import MessageBubble from '@/components/chat/message-bubble.vue';
 import ReactionDetailPopup from '@/components/chat/reaction-detail-popup.vue';
 import { usePrivacyVisibility } from '@/composables/use-privacy-visibility';
 import NickAvatarLock from '@/components/privacy/NickAvatarLock.vue';
+
+// Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ thay MDI)
+import {
+  Image as ImageIcon,
+  Paperclip as PaperclipIcon,
+  Contact as ContactIcon,
+  Type as TypeIcon,
+  CalendarClock as CalendarClockIcon,
+  Zap as ZapIcon,
+  Sparkles as SparklesIcon,
+} from 'lucide-vue-next';
 
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
 const reactionPopupOpen = ref(false);
@@ -2484,7 +2495,9 @@ watch(() => props.editingMessage?.id, async (id) => {
 .icon-tool.ai-btn { color: #9c27b0; }
 
 .input-row {
-  display: flex; align-items: flex-end; gap: 8px;
+  /* Anh chốt 2026-05-22 (issue 3): sticker avatar căn giữa trục dọc với editor.
+     align-items:center thay vì flex-end → halo nick + input baseline cân đối. */
+  display: flex; align-items: center; gap: 8px;
   position: relative;
 }
 .editor-wrap {
@@ -2512,7 +2525,7 @@ watch(() => props.editingMessage?.id, async (id) => {
     #c62828 100%
   );
   animation: haloSpin 3s linear infinite;
-  margin-bottom: 4px;  /* căn đáy với editor (60px → 42px lệch 18px / 2 ≈ 4px) */
+  /* Bỏ margin-bottom vì .input-row giờ dùng align-items:center → tự cân đối */
   cursor: help;
   transition: filter 0.18s;
 }

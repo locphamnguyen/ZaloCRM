@@ -8,7 +8,7 @@
         title="Đậm (Ctrl+B)"
         @click="editor?.chain().focus().toggleBold().run()"
       >
-        <v-icon size="16">mdi-format-bold</v-icon>
+        <BoldIcon :size="16" :stroke-width="2" />
       </v-btn>
       <v-btn
         icon size="x-small" variant="text"
@@ -16,7 +16,7 @@
         title="Nghiêng (Ctrl+I)"
         @click="editor?.chain().focus().toggleItalic().run()"
       >
-        <v-icon size="16">mdi-format-italic</v-icon>
+        <ItalicIcon :size="16" :stroke-width="2" />
       </v-btn>
       <v-btn
         icon size="x-small" variant="text"
@@ -24,7 +24,7 @@
         title="Gạch chân (Ctrl+U)"
         @click="editor?.chain().focus().toggleUnderline().run()"
       >
-        <v-icon size="16">mdi-format-underline</v-icon>
+        <UnderlineIcon :size="16" :stroke-width="2" />
       </v-btn>
       <v-btn
         icon size="x-small" variant="text"
@@ -32,7 +32,7 @@
         title="Gạch ngang"
         @click="editor?.chain().focus().toggleStrike().run()"
       >
-        <v-icon size="16">mdi-format-strikethrough</v-icon>
+        <StrikethroughIcon :size="16" :stroke-width="2" />
       </v-btn>
 
       <v-divider vertical class="mx-1" />
@@ -79,7 +79,7 @@
             v-bind="actProps"
             title="Cỡ chữ"
           >
-            <v-icon size="14" class="mr-1">mdi-format-size</v-icon>
+            <TypeIcon :size="14" :stroke-width="2" class="mr-1" />
             <span class="size-trigger-label">{{ currentSizeLabel }}</span>
           </button>
         </template>
@@ -108,7 +108,7 @@
         title="Danh sách dấu chấm"
         @click="editor?.chain().focus().toggleBulletList().run()"
       >
-        <v-icon size="16">mdi-format-list-bulleted</v-icon>
+        <ListIcon :size="16" :stroke-width="2" />
       </v-btn>
       <v-btn
         icon size="x-small" variant="text"
@@ -116,7 +116,7 @@
         title="Danh sách số"
         @click="editor?.chain().focus().toggleOrderedList().run()"
       >
-        <v-icon size="16">mdi-format-list-numbered</v-icon>
+        <ListOrderedIcon :size="16" :stroke-width="2" />
       </v-btn>
 
       <v-divider vertical class="mx-1" />
@@ -127,7 +127,7 @@
         title="Khối code"
         @click="editor?.chain().focus().toggleCodeBlock().run()"
       >
-        <v-icon size="16">mdi-code-braces</v-icon>
+        <CodeIcon :size="16" :stroke-width="2" />
       </v-btn>
 
       <v-spacer />
@@ -142,7 +142,7 @@
         title="AI tự format đoạn text — bold tiêu đề, màu giá tiền, size lớn tiêu đề..."
         @click="onAiFormat"
       >
-        <v-icon v-if="!aiFormatLoading" size="14">mdi-creation</v-icon>
+        <SparklesIcon v-if="!aiFormatLoading" :size="14" :stroke-width="2" />
         <v-progress-circular v-else indeterminate size="12" width="2" />
         <span>{{ aiFormatLoading ? 'Đang format...' : 'AI Format' }}</span>
       </button>
@@ -161,6 +161,19 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import { api } from '@/api/index';
 import { useToast } from '@/composables/use-toast';
+
+// Lucide icons (anh chốt 2026-05-22 — bộ icon đồng bộ thay MDI)
+import {
+  Bold as BoldIcon,
+  Italic as ItalicIcon,
+  Underline as UnderlineIcon,
+  Strikethrough as StrikethroughIcon,
+  Type as TypeIcon,
+  List as ListIcon,
+  ListOrdered as ListOrderedIcon,
+  Code as CodeIcon,
+  Sparkles as SparklesIcon,
+} from 'lucide-vue-next';
 
 const toast = useToast();
 // Note: @tiptap/starter-kit v3+ đã bundle Underline + Strike trong default extensions.
@@ -530,6 +543,9 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
   background: var(--smax-bg, #fff);
   transition: border-color 0.2s, box-shadow 0.2s;
   position: relative;
+  /* Anh chốt 2026-05-22 (issue 1): overflow:hidden để border-radius CLIP content
+     (toolbar bg) theo bo viền → 2 góc trên không bị "đứt nét" khi focus. */
+  overflow: hidden;
 }
 .rich-text-editor.focused,
 .rich-text-editor:focus-within {

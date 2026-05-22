@@ -829,11 +829,32 @@ async function onCreatePresetFromPopover() {
 type SectionKey = 'tag' | 'score' | 'time' | 'event' | 'sale' | 'engagement';
 const SECTION_KEYS: SectionKey[] = ['tag', 'score', 'time', 'event', 'sale', 'engagement'];
 
+// Anh chốt 2026-05-22: default chỉ 'event' (Sự kiện sắp tới) + 'sale' (Sale phụ trách)
+// expand. Các section khác (tag/score/time/engagement) collapse → user click chevron để mở.
+// Spacing compact + tránh dồn UI.
+const DEFAULT_OPEN: Record<SectionKey, boolean> = {
+  tag: false,
+  score: false,
+  time: false,
+  event: true,
+  sale: true,
+  engagement: false,
+};
+const SECTION_DEFAULT_MIGRATION_KEY = 'chat-sidebar.section.v2-default-applied';
 function loadSectionState(): Record<SectionKey, boolean> {
+  // Migration 1-time: user trước fix có tất cả keys = '1' (legacy default). Reset
+  // 4 keys không phải event/sale về null để dùng DEFAULT_OPEN mới. User vẫn có
+  // thể override sau bằng click chevron — localStorage sẽ ghi lại.
+  if (!localStorage.getItem(SECTION_DEFAULT_MIGRATION_KEY)) {
+    for (const k of SECTION_KEYS) {
+      if (!DEFAULT_OPEN[k]) localStorage.removeItem(`chat-sidebar.section.${k}`);
+    }
+    localStorage.setItem(SECTION_DEFAULT_MIGRATION_KEY, '1');
+  }
   const result = {} as Record<SectionKey, boolean>;
   for (const k of SECTION_KEYS) {
     const raw = localStorage.getItem(`chat-sidebar.section.${k}`);
-    result[k] = raw === null ? true : raw === '1';
+    result[k] = raw === null ? DEFAULT_OPEN[k] : raw === '1';
   }
   return result;
 }
