@@ -1958,11 +1958,12 @@ watch(() => props.editingMessage?.id, async (id) => {
   filter: blur(10px) saturate(0.3);
 }
 
-/* Tag "🔒 Riêng tư" qua pseudo element trên .msg-row (parent flex của bubble)
-   - Self (gửi đi, bubble bên phải) → tag bên TRÁI bubble (::before, render trước)
-   - Other (gửi đến, bubble bên trái) → tag bên PHẢI bubble (::after, render sau) */
-.msg-privacy-blurred :deep(.msg-row.self)::before,
-.msg-privacy-blurred :deep(.msg-row):not(.self)::after {
+/* Tag "🔒 Riêng tư" qua pseudo element trên .msg-row (flex container của bubble).
+   .msg-row.self dùng flex-direction:row-reverse → DOM order đảo ngược trên visual:
+   ::after pseudo nằm CUỐI DOM order → khi reversed = ĐẦU visual = BÊN TRÁI bubble.
+   .msg-row non-self direction row normal → ::after nằm sau bubble = BÊN PHẢI bubble.
+   Anh chốt 2026-05-22 v5: self tag TRÁI, other tag PHẢI. */
+.msg-privacy-blurred :deep(.msg-row)::after {
   content: '🔒 Riêng tư';
   display: inline-flex;
   align-items: center;
@@ -1980,7 +1981,7 @@ watch(() => props.editingMessage?.id, async (id) => {
   pointer-events: none;
   box-shadow: 0 1px 2px rgba(170, 45, 0, 0.08);
 }
-.msg-privacy-blurred :deep(.msg-row.self)::before { margin-right: 8px; }
+.msg-privacy-blurred :deep(.msg-row.self)::after { margin-right: 8px; }
 .msg-privacy-blurred :deep(.msg-row):not(.self)::after { margin-left: 8px; }
 
 /* ════════ Privacy composer lock — chỉ phủ input editor ════════ */
