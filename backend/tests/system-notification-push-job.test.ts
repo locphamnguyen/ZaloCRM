@@ -29,8 +29,8 @@ describe('system notification push job', () => {
 
     expect(sendPushToOrg).toHaveBeenCalledTimes(1);
     expect(sendPushToOrg).toHaveBeenCalledWith('org-1', expect.objectContaining({
-      title: 'ZaloCRM có thông báo mới',
-      body: 'Có thông báo quan trọng cần xử lý',
+      title: '1 cuộc trò chuyện chưa trả lời',
+      body: 'Có tin nhắn chưa phản hồi quá 30 phút',
       tag: 'system-unreplied',
     }));
   });

@@ -24,8 +24,8 @@ export async function runSystemNotificationPushOnce(nowMs = Date.now()) {
       if (sentBuckets.has(dedupeKey)) continue;
       sentBuckets.add(dedupeKey);
       await sendPushToOrg(org.id, {
-        title: 'ZaloCRM có thông báo mới',
-        body: notification.priority === 'high' ? 'Có thông báo quan trọng cần xử lý' : 'Mở ZaloCRM để xem chi tiết',
+        title: notification.title,
+        body: notification.detail,
         url: notification.url,
         tag: `system-${notification.id}`,
         type: notification.type,
