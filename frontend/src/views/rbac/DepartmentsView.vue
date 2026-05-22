@@ -397,7 +397,8 @@ const OrgChartNode: Component = {
 };
 </script>
 
-<style scoped>
+<style>
+/* RBAC DepartmentsView — non-scoped vì recursive h() components không nhận data-v-* attribute */
 .dept-page {
   background: white;
   min-height: 100%;
