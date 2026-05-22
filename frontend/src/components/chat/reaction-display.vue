@@ -2,7 +2,7 @@
   <!-- Phase A UI fix v3 (2026-05-21): cap 3 chip visible + "+N" overflow chip.
        Trước fix: thả 5 reaction → tràn ra ngoài bubble → chat UI scroll ngang (bể UI).
        Anh chốt: max 3 chip, dư thì hiện "+N" sau. Hover "+N" thấy list emoji còn lại. -->
-  <div v-if="reactions.length > 0" class="d-flex ga-1 reaction-row">
+  <div v-if="reactions.length > 0" class="reaction-row">
     <v-chip
       v-for="r in visibleReactions"
       :key="r.emoji"
@@ -73,17 +73,33 @@ function tooltipFor(r: ReactionView): string {
 </script>
 
 <style scoped>
+/* Anh chốt 2026-05-22: compact reaction chips — 3 icon đầu tiên, gap nhỏ,
+   padding nhỏ. Icon KHÔNG được khuất ra ngoài bubble (overflow-x:hidden cắt). */
 .reaction-row {
+  display: flex;
   flex-wrap: nowrap;
   white-space: nowrap;
+  gap: 3px;
+  max-width: 100%;
+  align-items: center;
 }
 .reaction-chip {
   cursor: pointer;
   transition: transform 0.12s;
   flex-shrink: 0;
+  /* Compact override Vuetify v-chip x-small defaults */
+  height: 20px !important;
+  font-size: 11px !important;
+  font-weight: 500;
+  padding: 0 6px !important;
+  min-width: 0 !important;
+}
+:deep(.reaction-chip .v-chip__content) {
+  padding: 0 !important;
+  gap: 2px;
 }
 .reaction-chip:hover {
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 .reaction-chip--reacted {
   border-width: 1.5px;
@@ -92,6 +108,7 @@ function tooltipFor(r: ReactionView): string {
 .reaction-chip--overflow {
   cursor: default;
   opacity: 0.85;
+  font-weight: 600;
 }
 .reaction-chip--overflow:hover {
   transform: none;
