@@ -69,7 +69,7 @@
               <option value="leader">👑 Trưởng phòng</option>
             </select>
             <p v-if="deptIdLocal" class="hint-soft">
-              <strong>Lưu ý:</strong> Mỗi phòng chỉ có 1 trưởng + 1 phó. Nếu phòng đã có ai đang giữ chức vụ tương tự, người đó sẽ bị đổi xuống 'Nhân viên'.
+              <strong>Lưu ý:</strong> Mỗi phòng chỉ có 1 Trưởng phòng + 1 Phó phòng. Nếu vị trí đã có người giữ, bạn phải bỏ chức vụ của họ trước (tại trang Sơ đồ tổ chức) rồi mới gán cho người khác.
             </p>
           </section>
 

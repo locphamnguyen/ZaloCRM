@@ -295,6 +295,32 @@ export async function assignUserToDepartment(input: {
   });
   if (!user) throw new Error('User không tồn tại trong tổ chức');
 
+  // Pre-check uniqueness leader/deputy (2026-05-22 anh chốt BLOCK semantic):
+  // Trước fix: 2 UI (Sơ đồ tổ chức + Chi tiết NV) đều cho phép gán dup vì
+  // DB partial unique index bị drift. Giờ DB đã có index (migration 20260522)
+  // → upsert sẽ throw P2002. Em pre-check để trả error message rõ ràng kèm
+  // tên người đang giữ chức vụ thay vì raw P2002 generic.
+  if (input.deptRole === 'leader' || input.deptRole === 'deputy') {
+    const existing = await prisma.departmentMember.findFirst({
+      where: {
+        departmentId: input.departmentId,
+        deptRole: input.deptRole,
+        userId: { not: input.userId },
+      },
+      select: {
+        userId: true,
+        user: { select: { fullName: true, email: true } },
+      },
+    });
+    if (existing) {
+      const which = input.deptRole === 'leader' ? 'Trưởng phòng' : 'Phó phòng';
+      const name = existing.user.fullName || existing.user.email;
+      throw new Error(
+        `Vị trí ${which} đã được bổ nhiệm cho ${name} — bỏ chức vụ của họ trước khi gán cho người khác`,
+      );
+    }
+  }
+
   // Upsert (UNIQUE user_id sẽ trigger delete-then-create dạng move)
   await prisma.departmentMember.upsert({
     where: { userId: input.userId },
