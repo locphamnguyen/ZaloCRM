@@ -302,6 +302,7 @@
               :reply="item.msg.reply || null"
               :reactions="item.msg.reactions || []"
               :is-self="item.msg.senderType === 'self'"
+              :is-last-self="item.msg.id === lastSelfMessageId"
               :is-group="conversation.threadType === 'group'"
               :sender-avatar-url="resolveSenderAvatar(item.msg)"
               @contextmenu="onContextMenu($event, item.msg)"
@@ -597,7 +598,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick, computed, onMounted } from 'vue';
+import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
@@ -798,6 +799,17 @@ async function onLinkedParent() {
 }
 const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
 const currentTypers = computed(() => props.typingUsers || []);
+
+// 2026-05-22 anh chốt Zalo native UX: chỉ tin OUTGOING CUỐI CÙNG mới hiện
+// receipt indicator (delivered/seen). Tin cuối đã seen → ngầm hiểu tin trên cũng seen
+// (Zalo semantics). Tránh chèn vào timestamp + duplicate UI.
+const lastSelfMessageId = computed<string | null>(() => {
+  const list = props.messages;
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i]?.senderType === 'self' && !list[i]?.isDeleted) return list[i].id;
+  }
+  return null;
+});
 
 // ── Header derived data (Avatar handles initials/gradient/gender) ──────────
 // B7 fix — Contact stub "Unknown" fallback chain qua zaloDisplayName Friend.
@@ -1818,6 +1830,15 @@ async function loadTemplates() {
   } catch { /* non-critical */ }
 }
 onMounted(() => { loadTemplates(); });
+
+// Listener cho tab CRM (cột 4) — widget "AI Next Action" → emit insert-suggestion
+// qua window event để giảm prop drilling. Cùng pattern với 'zalo-labels-synced'.
+function onInsertSuggestionEvent(e: Event) {
+  const text = (e as CustomEvent<{ text: string }>).detail?.text;
+  if (text) void applySuggestion(text);
+}
+onMounted(() => window.addEventListener('chat:insert-suggestion', onInsertSuggestionEvent));
+onBeforeUnmount(() => window.removeEventListener('chat:insert-suggestion', onInsertSuggestionEvent));
 
 function onTypingEvent() {
   emit('typing');
