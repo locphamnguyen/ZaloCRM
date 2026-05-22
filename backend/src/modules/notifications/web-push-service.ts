@@ -110,7 +110,7 @@ export async function sendPushToUsers(userIds: string[], orgId: string, payload:
 
 export async function sendPushToOrg(orgId: string, payload: WebPushPayload) {
   const subscriptions = await prisma.webPushSubscription.findMany({
-    where: { orgId },
+    where: { orgId, user: { isActive: true } },
     select: { id: true, endpoint: true, p256dh: true, auth: true },
   });
   return sendPushToSubscriptions(subscriptions, payload);

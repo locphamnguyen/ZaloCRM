@@ -32,11 +32,25 @@ export async function notificationRoutes(app: FastifyInstance) {
     }
 
     const userAgent = request.headers['user-agent'];
-    await prisma.webPushSubscription.upsert({
+    const existing = await prisma.webPushSubscription.findUnique({
       where: { endpoint },
-      update: { orgId: user.orgId, userId: user.id, p256dh: keys.p256dh, auth: keys.auth, userAgent },
-      create: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+      select: { userId: true, orgId: true },
     });
+
+    if (existing && (existing.userId !== user.id || existing.orgId !== user.orgId)) {
+      return reply.status(409).send({ error: 'Endpoint đã được đăng ký bởi tài khoản khác' });
+    }
+
+    if (existing) {
+      await prisma.webPushSubscription.update({
+        where: { endpoint },
+        data: { p256dh: keys.p256dh, auth: keys.auth, userAgent },
+      });
+    } else {
+      await prisma.webPushSubscription.create({
+        data: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+      });
+    }
     return { ok: true };
   });
 

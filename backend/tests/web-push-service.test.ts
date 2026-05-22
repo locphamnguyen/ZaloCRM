@@ -31,6 +31,28 @@ describe('web-push-service', () => {
     expect(setVapidDetails).not.toHaveBeenCalled();
   });
 
+  it('sends org pushes only to active user subscriptions', async () => {
+    process.env.VAPID_PUBLIC = 'public-key';
+    process.env.VAPID_PRIVATE = 'private-key';
+    findMany.mockResolvedValue([]);
+    const { sendPushToOrg } = await import('../src/modules/notifications/web-push-service.js');
+
+    await sendPushToOrg('org-1', {
+      title: 'Thông báo mới',
+      body: 'Mở ZaloCRM để xem chi tiết',
+      url: '/',
+      tag: 'system-1',
+      type: 'info',
+      priority: 'low',
+      createdAt: '2026-05-21T00:00:00.000Z',
+    });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { orgId: 'org-1', user: { isActive: true } },
+      select: { id: true, endpoint: true, p256dh: true, auth: true },
+    });
+  });
+
   it('sends payload and deletes expired subscriptions', async () => {
     process.env.VAPID_PUBLIC = 'public-key';
     process.env.VAPID_PRIVATE = 'private-key';
