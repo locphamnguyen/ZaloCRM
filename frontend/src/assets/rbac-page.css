@@ -523,13 +523,17 @@
   padding: 20px 24px;
 }
 
-.section {
+/* Anh chốt 2026-05-22: scope .section vào .panel để KHÔNG leak ra global.
+   Trước fix: rule .section { margin-bottom: 28px; padding-bottom: 24px } leak ra
+   .section của ConversationFilterSidebar (chat cột 1) → khoảng cách giữa sections
+   bị thêm 28+24 = 52px dư + màu nền xám lạ. Fix: prefix .panel .section. */
+.panel .section {
   margin-bottom: 28px;
   padding-bottom: 24px;
   border-bottom: 1px solid #f0f1f3;
 }
-.section:last-child { border-bottom: 0; }
-.section-title {
+.panel .section:last-child { border-bottom: 0; }
+.panel .section-title {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -537,7 +541,7 @@
   color: #41454d;
   margin: 0 0 12px;
 }
-.section-title-row {
+.panel .section-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -545,7 +549,7 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-.section-title-row .section-title { margin: 0; }
+.panel .section-title-row .section-title { margin: 0; }
 
 .field-label {
   display: block;
@@ -724,15 +728,15 @@
   background: #f8fafc;
 }
 
-/* Danger */
-.section-danger {
+/* Danger — scope .panel để tránh leak */
+.panel .section-danger {
   background: #fbe6dc;
   border-radius: 10px;
   padding: 16px;
   border: 1px solid rgba(170,45,0,0.2);
   margin-top: 8px;
 }
-.section-danger .section-title { color: #7a2000; }
+.panel .section-danger .section-title { color: #7a2000; }
 .danger-title { margin: 0 0 8px; }
 .danger-desc {
   font-size: 12px;
