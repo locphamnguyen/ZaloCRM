@@ -41,6 +41,25 @@
       <div class="val">{{ stats?.uptimeTeam ?? '—' }}<span class="small" v-if="stats">%</span></div>
       <div class="delta">% thời gian connected trong 7 ngày</div>
     </div>
+
+    <!-- Phase metrics layer 2026-05-22 — 3 cards mới: Bot msg / Friend-add / Phone search -->
+    <div class="stat-card purple">
+      <div class="lab"><span class="d bot"></span>Bot msg today</div>
+      <div class="val">{{ formatNum(stats?.msgSentByBot ?? 0) }}</div>
+      <div class="delta">tin do automation engine gửi</div>
+    </div>
+
+    <div class="stat-card blue">
+      <div class="lab"><span class="d friend"></span>Friend-add today</div>
+      <div class="val">{{ formatNum(stats?.friendReqSent ?? 0) }}</div>
+      <div class="delta">tổng lời mời kết bạn gửi đi</div>
+    </div>
+
+    <div class="stat-card teal">
+      <div class="lab"><span class="d phone"></span>Phone search</div>
+      <div class="val">{{ formatNum(stats?.phoneSearchTotal ?? 0) }}</div>
+      <div class="delta">lượt tìm SĐT trên Zalo hôm nay</div>
+    </div>
   </div>
 </template>
 
@@ -60,8 +79,8 @@ function formatNum(n: number): string {
 <style scoped>
 .stats-cards {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 10px;
   margin-bottom: 16px;
 }
 .stat-card {
@@ -102,6 +121,9 @@ function formatNum(n: number): string {
 .stat-card.green .val { color: #047857 }
 .stat-card.red .val { color: #B91C1C }
 .stat-card.yellow .val { color: #B45309 }
+.stat-card.purple .val { color: #6D28D9 }
+.stat-card.blue .val { color: #1D4ED8 }
+.stat-card.teal .val { color: #0E7490 }
 .d {
   width: 6px;
   height: 6px;
@@ -112,6 +134,9 @@ function formatNum(n: number): string {
 .d.ok { background: #10B981 }
 .d.idle { background: #9CA3AF }
 .d.err { background: #EF4444 }
+.d.bot { background: #8B5CF6 }
+.d.friend { background: #3B82F6 }
+.d.phone { background: #06B6D4 }
 .bar-row {
   display: flex;
   align-items: center;
@@ -137,7 +162,10 @@ function formatNum(n: number): string {
   font-variant-numeric: tabular-nums;
 }
 
-@media (max-width: 1280px) {
+@media (max-width: 1480px) {
+  .stats-cards { grid-template-columns: repeat(5, 1fr) }
+}
+@media (max-width: 1100px) {
   .stats-cards { grid-template-columns: repeat(3, 1fr) }
 }
 @media (max-width: 640px) {

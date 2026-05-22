@@ -12,6 +12,7 @@
           <th>Phòng ban</th>
           <th>Đội ngũ chia sẻ</th>
           <th>Msg today</th>
+          <th>Hôm nay <span class="th-hint">📥📤🤖🤝🔍</span></th>
           <th>Hoạt động 7d</th>
           <th>Hoạt động cuối</th>
           <th class="th-actions">Action</th>
@@ -21,7 +22,7 @@
         <template v-for="group in rowGroups" :key="group.key">
           <!-- Group header (chỉ hiện khi groupByDept=true) -->
           <tr v-if="groupByDept && group.label" class="group-row">
-            <td colspan="9">
+            <td colspan="10">
               <div class="group-head">
                 <span class="group-name">{{ group.label }}</span>
                 <span class="group-count">{{ group.accounts.length }} nick</span>
@@ -128,6 +129,27 @@
             </div>
           </td>
           <td>
+            <!-- Phase metrics layer 2026-05-22: 5 mini-chips breakdown. Click row → detail drawer tab "Số liệu" -->
+            <div v-if="acct.metricsToday" class="metrics-chips">
+              <span class="mc-chip recv" :title="`Nhận: ${acct.metricsToday.msgReceivedFromFriends} bạn / ${acct.metricsToday.msgReceivedFromStrangers} lạ`">
+                📥 {{ acct.metricsToday.msgReceivedFromFriends + acct.metricsToday.msgReceivedFromStrangers }}
+              </span>
+              <span class="mc-chip sent" :title="`Sale gửi: ${acct.metricsToday.msgSentByUser}`">
+                📤 {{ acct.metricsToday.msgSentByUser }}
+              </span>
+              <span v-if="acct.metricsToday.msgSentByBot > 0" class="mc-chip bot" :title="`Bot gửi: ${acct.metricsToday.msgSentByBot}`">
+                🤖 {{ acct.metricsToday.msgSentByBot }}
+              </span>
+              <span v-if="acct.metricsToday.friendReqSent > 0" class="mc-chip friend" :title="`Friend-add: ${acct.metricsToday.friendReqSent} sent / ${acct.metricsToday.friendReqAccepted} accept`">
+                🤝 {{ acct.metricsToday.friendReqSent }}
+              </span>
+              <span v-if="acct.metricsToday.phoneSearchTotal > 0" class="mc-chip phone" :title="`Phone search: ${acct.metricsToday.phoneSearchTotal} total / ${acct.metricsToday.phoneSearchFoundZalo} found`">
+                🔍 {{ acct.metricsToday.phoneSearchTotal }}
+              </span>
+            </div>
+            <span v-else class="muted-italic">—</span>
+          </td>
+          <td>
             <!-- "Hoạt động 7d" = % ngày có message trong 7 ngày qua (không phải uptime kết nối) -->
             <span class="uptime" :class="uptimeColor(acct.uptime7d)" :title="`${acct.uptime7d}% (số ngày có message trong 7 ngày)`">
               {{ acct.uptime7d }}%
@@ -162,7 +184,7 @@
         </tr>
         </template>
         <tr v-if="!accounts.length">
-          <td colspan="9" class="empty-row">
+          <td colspan="10" class="empty-row">
             <div class="empty-msg">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>
               <div>Không có nick nào khớp bộ lọc</div>
@@ -551,6 +573,24 @@ tbody tr.alert:hover { background: #FFF5F5 }
 }
 .dept-role.leader { background: #DBEAFE; color: #1D4ED8; }
 .dept-role.deputy { background: #FEF3C7; color: #92400E; }
+
+/* Phase metrics layer 2026-05-22 — cột "Hôm nay" mini-chips */
+.th-hint { font-weight: 400; color: #9CA3AF; font-size: 11px; margin-left: 4px; letter-spacing: 1px; }
+.metrics-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.mc-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 11px; font-weight: 600;
+  padding: 2px 6px; border-radius: 9999px;
+  border: 1px solid transparent;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+  white-space: nowrap;
+}
+.mc-chip.recv  { background: #F1F5F9; color: #475569; border-color: #E2E8F0; }
+.mc-chip.sent  { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+.mc-chip.bot   { background: #F5F3FF; color: #6D28D9; border-color: #C4B5FD; }
+.mc-chip.friend{ background: #EFF6FF; color: #1D4ED8; border-color: #BFDBFE; }
+.mc-chip.phone { background: #ECFEFF; color: #0E7490; border-color: #A5F3FC; }
 
 /* Group row (groupByDept=true) */
 .group-row td {

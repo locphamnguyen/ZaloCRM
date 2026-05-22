@@ -40,6 +40,7 @@ export interface EnrichedAccount {
   crew: CrewMember[];
   crewCount: number;
   msgToday: number;
+  metricsToday: NickMetricsToday | null;
   quota: number;
   uptime7d: number;
   lastActivityAt: string | null;
@@ -52,9 +53,28 @@ export interface TeamStats {
   idle: number;
   error: number;
   msgToday: number;
+  // Phase metrics layer 2026-05-22 — breakdown org-wide today
+  msgSentByBot: number;
+  phoneSearchTotal: number;
+  friendReqSent: number;
   quota: number;
   uptimeTeam: number;
   needReloginIds: string[];
+}
+
+// Phase metrics layer 2026-05-22 — per-nick breakdown today (10 fields).
+// BE đã trả trong /enriched response.
+export interface NickMetricsToday {
+  msgReceivedFromFriends: number;
+  msgReceivedFromStrangers: number;
+  msgSentByUser: number;
+  msgSentByBot: number;
+  friendReqSent: number;
+  friendReqAccepted: number;
+  friendReqRejected: number;
+  phoneSearchTotal: number;
+  phoneSearchFoundZalo: number;
+  phoneSearchNoZalo: number;
 }
 
 export interface UptimeBucket {
