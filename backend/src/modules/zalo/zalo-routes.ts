@@ -51,14 +51,23 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'Invalid proxy URL format. Use: http://[user:pass@]host:port' });
       }
 
-      const account = await prisma.zaloAccount.create({
-        data: {
-          orgId: user.orgId,
-          ownerUserId: user.id,
-          displayName: displayName ?? null,
-          proxyUrl: proxyUrl ?? null,
-          status: 'qr_pending',
-        },
+      // FIX 2026-05-22 Bug A: tạo nick + auto-insert ZaloAccountAccess cho owner.
+      // Trước: owner KHÔNG hiện trong crew list (frontend đọc crew từ access table).
+      // Giờ: atomic create cả 2 trong tx, owner mặc định permission='admin'.
+      const account = await prisma.$transaction(async (tx) => {
+        const acc = await tx.zaloAccount.create({
+          data: {
+            orgId: user.orgId,
+            ownerUserId: user.id,
+            displayName: displayName ?? null,
+            proxyUrl: proxyUrl ?? null,
+            status: 'qr_pending',
+          },
+        });
+        await tx.zaloAccountAccess.create({
+          data: { zaloAccountId: acc.id, userId: user.id, permission: 'admin' },
+        });
+        return acc;
       });
 
       return reply.status(201).send(account);
