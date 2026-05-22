@@ -20,6 +20,12 @@ export const config = {
   s3SecretKey: process.env.S3_SECRET_KEY || 'minioadmin',
   s3Region: process.env.S3_REGION || 'us-east-1',
 
+  webPush: {
+    publicKey: process.env.VAPID_PUBLIC || '',
+    privateKey: process.env.VAPID_PRIVATE || '',
+    subject: process.env.VAPID_SUBJECT || process.env.APP_URL || 'mailto:admin@zalocrm.local',
+  },
+
   aiDefaultProvider: process.env.AI_DEFAULT_PROVIDER || 'anthropic',
   aiDefaultModel: process.env.AI_DEFAULT_MODEL || 'claude-sonnet-4-6',
 

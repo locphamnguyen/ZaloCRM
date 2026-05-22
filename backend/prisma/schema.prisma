@@ -39,6 +39,7 @@ model Organization {
   zaloLabels          ZaloLabel[]
   crmTags             CrmTag[]
   crmTagGroups        CrmTagGroup[]
+  webPushSubscriptions WebPushSubscription[]
 
   @@map("organizations")
 }
@@ -82,6 +83,7 @@ model User {
   authoredNotes             Note[]              @relation("NoteAuthor")
   noteReactions             NoteReaction[]
   preferences               UserPreference[]
+  webPushSubscriptions      WebPushSubscription[]
 
   @@map("users")
 }
@@ -491,6 +493,26 @@ model UserPreference {
   @@unique([userId, key])
   @@index([userId])
   @@map("user_preferences")
+}
+
+model WebPushSubscription {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  userId    String   @map("user_id")
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([orgId, userId])
+  @@map("web_push_subscriptions")
 }
 
 // Zalo native labels — synced từ Zalo SDK getLabels() per nick.

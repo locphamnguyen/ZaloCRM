@@ -45,6 +45,7 @@ import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
+import { startSystemNotificationPushJob } from './modules/notifications/system-notification-push-job.js';
 import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
@@ -217,6 +218,7 @@ async function bootstrap() {
     startContactIntelligence();
     startLabelsBackgroundSync(60_000); // realtime-ish 2-way pull every 60s
     startInteractionCron(); // daily silent_30d detection (02:00 VN)
+    startSystemNotificationPushJob();
     await eventBuffer.start(io);
   } catch (err) {
     logger.error('Failed to start server:', err);

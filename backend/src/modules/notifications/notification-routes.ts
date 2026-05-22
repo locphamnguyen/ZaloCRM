@@ -1,19 +1,16 @@
-/**
- * Notification routes — computed on-the-fly notifications for the authenticated user.
- * Sources: unreplied conversations, today/tomorrow appointments, disconnected Zalo accounts.
- */
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
+import { getCurrentNotifications } from './notification-service.js';
+import { getWebPushConfig, sendPushToSubscriptions } from './web-push-service.js';
 
-interface NotificationItem {
-  id: string;
-  type: string;
-  title: string;
-  detail: string;
-  priority: string;
-  createdAt: string;
+interface PushSubscriptionBody {
+  endpoint?: string;
+  keys?: { p256dh?: string; auth?: string };
+}
+
+interface DeleteSubscriptionBody {
+  endpoint?: string;
 }
 
 export async function notificationRoutes(app: FastifyInstance) {
@@ -21,92 +18,52 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   app.get('/api/v1/notifications', async (request) => {
     const user = request.user!;
-    const notifications: NotificationItem[] = [];
-
-    // 1. Unreplied conversations > 30 min
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
-    const unreplied = await prisma.conversation.count({
-      where: { orgId: user.orgId, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
-    });
-    if (unreplied > 0) {
-      notifications.push({
-        id: 'unreplied',
-        type: 'warning',
-        priority: 'high',
-        title: `${unreplied} cuộc trò chuyện chưa trả lời`,
-        detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    // 2. Today's appointments
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart);
-    todayEnd.setDate(todayEnd.getDate() + 1);
-
-    const todayApts = await prisma.appointment.findMany({
-      where: {
-        orgId: user.orgId,
-        appointmentDate: { gte: todayStart, lt: todayEnd },
-        status: 'scheduled',
-      },
-      include: { contact: { select: { fullName: true } } },
-      take: 5,
-    });
-    for (const apt of todayApts) {
-      notifications.push({
-        id: `apt-${apt.id}`,
-        type: 'info',
-        priority: 'medium',
-        title: `Lịch hẹn: ${apt.contact?.fullName || 'KH'}`,
-        detail: `${apt.appointmentTime || ''} - ${apt.notes || 'Tái khám'}`,
-        createdAt: apt.appointmentDate.toISOString(),
-      });
-    }
-
-    // 3. Tomorrow's appointments
-    const tomorrowStart = new Date(todayEnd);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-
-    const tmrApts = await prisma.appointment.count({
-      where: {
-        orgId: user.orgId,
-        appointmentDate: { gte: tomorrowStart, lt: tomorrowEnd },
-        status: 'scheduled',
-      },
-    });
-    if (tmrApts > 0) {
-      notifications.push({
-        id: 'tmr-apts',
-        type: 'info',
-        priority: 'low',
-        title: `${tmrApts} lịch hẹn ngày mai`,
-        detail: 'Chuẩn bị cho ngày mai',
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    // 4. Disconnected Zalo accounts
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId },
-      select: { id: true, displayName: true },
-    });
-    for (const acc of accounts) {
-      const status = zaloPool.getStatus(acc.id);
-      if (status !== 'connected') {
-        notifications.push({
-          id: `zalo-${acc.id}`,
-          type: 'error',
-          priority: 'high',
-          title: `Zalo "${acc.displayName}" mất kết nối`,
-          detail: `Trạng thái: ${status}`,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    }
-
+    const notifications = await getCurrentNotifications(user.orgId);
     return { notifications };
+  });
+
+  app.get('/api/v1/notifications/push/config', async () => getWebPushConfig());
+
+  app.post<{ Body: PushSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
+    const user = request.user!;
+    const { endpoint, keys } = request.body || {};
+    if (!endpoint || !keys?.p256dh || !keys?.auth) {
+      return reply.status(400).send({ error: 'Subscription không hợp lệ' });
+    }
+
+    const userAgent = request.headers['user-agent'];
+    await prisma.webPushSubscription.upsert({
+      where: { endpoint },
+      update: { orgId: user.orgId, userId: user.id, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+      create: { orgId: user.orgId, userId: user.id, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent },
+    });
+    return { ok: true };
+  });
+
+  app.delete<{ Body: DeleteSubscriptionBody }>('/api/v1/notifications/push/subscriptions', async (request, reply) => {
+    const user = request.user!;
+    const endpoint = request.body?.endpoint;
+    if (!endpoint) return reply.status(400).send({ error: 'Thiếu endpoint' });
+
+    await prisma.webPushSubscription.deleteMany({ where: { userId: user.id, orgId: user.orgId, endpoint } });
+    return { ok: true };
+  });
+
+  app.post('/api/v1/notifications/push/test', async (request) => {
+    const user = request.user!;
+    const subscriptions = await prisma.webPushSubscription.findMany({
+      where: { userId: user.id, orgId: user.orgId },
+      select: { id: true, endpoint: true, p256dh: true, auth: true },
+    });
+    const result = await sendPushToSubscriptions(subscriptions, {
+      title: 'ZaloCRM thông báo thử',
+      body: 'Thông báo Web Push đã sẵn sàng.',
+      url: '/',
+      tag: `test-${user.id}`,
+      type: 'test',
+      priority: 'low',
+      createdAt: new Date().toISOString(),
+    });
+    return { ok: true, result };
   });
 }

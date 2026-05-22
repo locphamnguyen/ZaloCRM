@@ -29,6 +29,7 @@
     </v-main>
 
     <BottomNav />
+    <ToastContainer />
   </v-app>
 </template>
 
@@ -40,6 +41,7 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import BottomNav from '@/components/BottomNav.vue';
 import OfflineIndicator from '@/components/OfflineIndicator.vue';
+import ToastContainer from '@/components/ui/ToastContainer.vue';
 
 const theme = useTheme();
 const authStore = useAuthStore();

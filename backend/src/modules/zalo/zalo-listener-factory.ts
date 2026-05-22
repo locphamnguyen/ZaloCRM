@@ -10,6 +10,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { handleIncomingMessage, handleMessageUndo } from '../chat/message-handler.js';
 import { detectContentType, extractAlbumInfo, updateContactAvatar } from './zalo-message-helpers.js';
 import { handleFriendEvent } from './friend-event-handler.js';
+import { sendPushToUsers } from '../notifications/web-push-service.js';
 
 // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
 const ZALO_REACTION_DISPLAY: Record<string, string> = {
@@ -180,6 +181,32 @@ export interface ListenerContext {
   onDisconnected: (accountId: string) => void;
 }
 
+async function getUsersWithZaloAccess(accountId: string, orgId: string): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      orgId,
+      isActive: true,
+      OR: [
+        { role: { in: ['owner', 'admin'] } },
+        { zaloAccounts: { some: { id: accountId } } },
+        { zaloAccess: { some: { zaloAccountId: accountId } } },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return users.map((user) => user.id);
+}
+
+async function sendChatPushToAccessibleUsers(accountId: string, orgId: string, payload: Parameters<typeof sendPushToUsers>[2]) {
+  try {
+    const userIds = await getUsersWithZaloAccess(accountId, orgId);
+    await sendPushToUsers(userIds, orgId, payload);
+  } catch (err) {
+    logger.warn(`[zalo:${accountId}] chat push notification failed:`, err);
+  }
+}
+
 /**
  * Attach all zca-js listener events for the given account.
  * Calls listener.start() with retryOnClose at the end.
@@ -271,6 +298,18 @@ export function attachZaloListener(ctx: ListenerContext): void {
       });
 
       if (result) {
+        if (!message.isSelf) {
+          void sendChatPushToAccessibleUsers(accountId, result.orgId, {
+            title: senderName || groupName || 'Tin nhắn mới',
+            body: content || 'Bạn có tin nhắn mới trên ZaloCRM',
+            url: `/chat?conversationId=${result.conversationId}`,
+            tag: `chat-${result.conversationId}`,
+            type: 'chat',
+            priority: 'high',
+            createdAt: result.message.createdAt.toISOString(),
+          });
+        }
+
         io?.emit('chat:message', {
           accountId,
           message: result.message,
