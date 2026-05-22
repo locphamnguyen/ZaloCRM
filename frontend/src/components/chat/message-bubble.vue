@@ -929,14 +929,18 @@ function openFile(href: string) {
   bottom: -12px;
   margin: 0;
   z-index: 2;
-  max-width: calc(100% - 12px);
+  /* FIX 2026-05-22: BỎ max-width — bubble nhỏ (vd tin "1") + 4 icons + total
+     "4" sẽ bị clip mất số count. Để box grow theo content, anchor right/left
+     edge tại bubble → grows về phía trong message area, vẫn fit trong
+     .messages overflow-x:hidden (chỉ extreme far ngoài thread mới bị cắt). */
+  width: max-content;
 }
-/* Tin self (gửi đi, bubble bên phải): align reaction box bên PHẢI bubble */
+/* Tin self (gửi đi, bubble bên phải): anchor phải bubble, content grows leftward */
 .bubble-wrapper > .bubble-reaction-overlap.reaction-align-right {
   right: 8px;
   left: auto;
 }
-/* Tin received (gửi đến, bubble bên trái): align reaction box bên TRÁI bubble */
+/* Tin received (gửi đến, bubble bên trái): anchor trái bubble, content grows rightward */
 .bubble-wrapper > .bubble-reaction-overlap.reaction-align-left {
   left: 8px;
   right: auto;
