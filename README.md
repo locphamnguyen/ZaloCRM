@@ -1,24 +1,53 @@
-# ZaloCRM v3.0 — Quản lý nhiều tài khoản Zalo cá nhân
+# ZaloCRM v3.3 — Quản lý nhiều tài khoản Zalo cá nhân
 
-Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, gửi ảnh/video/file qua MinIO, AI assistant, workflow tự động, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
+Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, gửi ảnh/video/audio/file qua MinIO/S3/R2, Facebook Lead Ingestion, AI assistant, workflow tự động, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
 
 **GitHub:** [https://github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM)
 
-## Ảnh chụp giao diện
+## Ảnh chụp giao diện v3.3
 
-| Dashboard | Tin nhắn |
+| Dashboard | Facebook Lead |
 |---|---|
-| ![Dashboard](docs/user-guide-images/02-dashboard.png) | ![Tin nhắn](docs/user-guide-images/03-chat.png) |
+| ![Dashboard v3.3](docs/release-images/v3.3/01-dashboard-v33.png) | ![Facebook Lead Ingestion](docs/release-images/v3.3/02-facebook-lead-ingestion.png) |
 
-| Bạn bè | Khách hàng |
+| Zalo Accounts | Chat media |
 |---|---|
-| ![Bạn bè](docs/user-guide-images/04-friends.png) | ![Khách hàng](docs/user-guide-images/05-contacts.png) |
+| ![Zalo Accounts](docs/release-images/v3.3/03-zalo-accounts-redesign.png) | ![Chat media forward](docs/release-images/v3.3/07-chat-media-forward.png) |
+
+| Privacy PIN | RBAC / Tệp khách hàng |
+|---|---|
+| ![Privacy PIN](docs/release-images/v3.3/04-privacy-pin.png) | ![Customer Lists](docs/release-images/v3.3/06-customer-lists.png) |
 
 > 📖 Xem hướng dẫn sử dụng đầy đủ tại [docs/HUONG-DAN-NGUOI-DUNG.md](docs/HUONG-DAN-NGUOI-DUNG.md).
+> 📣 Release note v3.3: [docs/announcements/v3.3-release-announcement.md](docs/announcements/v3.3-release-announcement.md). Changelog đầy đủ: [CHANGELOG.md](CHANGELOG.md).
 
 ## Tính năng
 
-### Mới trong v3.0
+### Mới trong v3.3
+- **Facebook Lead Ingestion** — Kết nối Meta OAuth/page, webhook verify + HMAC, queue lead, tự khám phá form và tự tạo Customer List theo page/form
+- **Media forward đầy đủ** — Chuyển tiếp hình ảnh, video, audio trong chat thay vì chỉ chuyển tiếp text
+- **Inbound media mirror** — Ảnh/video khách gửi đến được mirror/backfill từ Zalo CDN sang MinIO/S3/R2 để CRM kiểm soát file tốt hơn
+- **Cloudflare R2 support** — `.env.example` có block R2, dùng chung cấu hình S3-compatible với MinIO/Amazon S3
+- **Env parser chắc hơn** — Secret/password có ký tự `#` không còn bị hiểu nhầm là comment khi đọc `.env`
+- **Video thumbnail + drag/drop** — Sửa thumbnail video và khôi phục kéo thả file/hình/video vào màn hình chat
+- **Privacy/RBAC/Zalo redesign** — Hợp nhất upstream hsholding: Privacy PIN V2, RBAC phòng ban, Zalo Accounts metrics/status, reaction/read receipt/typing dots
+- **Fix issues #24/#25** — Fallback JSON lỗi từ `getFriendOnlines` và nhận diện message type `webchat`
+
+### v3.2 (21/05/2026)
+- **Bot-Auto framework** — Blocks, Sequences, Triggers, Broadcasts, Lists, engine gửi bằng Zalo SDK thật
+- **Lead Scoring** — Signal detector, auto-decay, 7 auto tag, stuck lead dashboard, scoring settings
+- **Customer Lists** — Import CSV/Excel, column mapping, inline edit, undo delete, 2-axis status
+- **UI redesigns** — Appointments, Friends, Zalo Accounts, Settings layout, Bot-Auto top-level tab
+- **Touch profile + alias sync** — Bổ sung thông tin khách từ SDK và đồng bộ alias Zalo Real ↔ CRM
+
+### v3.1 (04/2026)
+- **CrmTag system** — Quản lý tag riêng cho CRM, Settings tabs, optimistic UI
+- **Notes thread** — Ghi chú CRM-style trong tab Hồ Sơ, AI suggest lịch hẹn
+- **Zalo Labels 2-way sync** — Native dropdown, on-demand mode, auto-sync khi reconnect
+- **DM history backfill** — Endpoint `/sync-history` + nút đồng bộ lịch sử DM
+- **Duplicate review** — Dialog 3 cột để rà soát/gộp khách hàng trùng
+
+### v3.0 (2026)
 - **📎 Chat attachments** — Gửi/nhận hình ảnh, video, file (PDF, Excel, Word, ZIP…) qua composer chat, mirror lên MinIO để hiển thị trong CRM
 - **🎬 Video player inline** — Tin nhắn video render trực tiếp với controls trong bubble (không cần download)
 - **🎨 UI refactor 3 trang** — Chat / Contacts / Friends thiết kế Smax style, layout cố định, badge số tin chưa đọc
@@ -81,7 +110,7 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 | Hệ điều hành | Ubuntu 20.04+ | Ubuntu 22.04 LTS |
 | Phần mềm | Docker + Docker Compose | Docker 24+ |
 
-> v3.0 cần thêm MinIO container nên ổ cứng và RAM tăng so với v2.1.
+> v3.x dùng thêm Redis + object storage (MinIO/S3/R2) nên production nên có tối thiểu 4 GB RAM nếu chạy đủ service trên cùng VPS.
 
 ## Cài đặt mới
 
@@ -103,6 +132,70 @@ openssl rand -hex 32
 # ENCRYPTION_KEY (32 bytes = 64 hex chars)
 openssl rand -hex 32
 ```
+
+## Nâng cấp từ v3.x lên v3.3
+
+> ⚠️ **Backup database trước khi nâng cấp.** v3.3 đã merge upstream `hsholding/main` và `feat/fb-lead-ingestion`, có thêm Facebook Lead Ingestion, Privacy/RBAC/Zalo UI, media forward và object storage mirror. Không commit `.env` thật lên git.
+
+```bash
+# 1. Backup database
+docker exec zalo-crm-db pg_dump -U crmuser zalocrm > backup-v3.x-$(date +%Y%m%d-%H%M).sql
+
+# 2. Pull code mới nhất
+cd /path/to/ZaloCRM
+git fetch origin
+git checkout main
+git pull origin main
+
+# 3. Đồng bộ biến môi trường mới
+#    Mở .env.example mới và copy các biến còn thiếu sang .env thật.
+#    Nếu dùng Cloudflare R2, dùng endpoint/account/key của R2 trong block S3_*.
+diff .env .env.example
+
+# 4. Rebuild + restart app
+docker compose up -d --build app
+
+# 5. Verify
+curl http://localhost:3080/
+docker logs zalo-crm-app --tail 50 | grep -E "facebook|media|storage|listener|cron"
+```
+
+### Biến môi trường cần rà soát ở v3.3
+
+| Nhóm | Biến cần kiểm tra | Ghi chú |
+|---|---|---|
+| Object storage | `S3_ENDPOINT`, `S3_PUBLIC_URL`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Dùng được cho MinIO, Amazon S3 hoặc Cloudflare R2 |
+| MinIO local | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Chỉ dùng khi chạy service MinIO trong Docker Compose |
+| Facebook Lead | Các biến Meta/Facebook trong `.env.example` nếu bật kênh Facebook | Cấu hình app id/secret/webhook theo Meta app |
+| Security | `JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD` | Không để trống ở production |
+
+### Cloudflare R2 example
+
+```env
+S3_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
+S3_PUBLIC_URL=https://<public-r2-domain-or-custom-domain>
+S3_BUCKET=zalocrm-attachments
+S3_REGION=auto
+S3_ACCESS_KEY=<r2-access-key-id>
+S3_SECRET_KEY=<r2-secret-access-key>
+```
+
+`S3_PUBLIC_URL` phải là URL browser truy cập được để ảnh/video hiển thị trong CRM. Nếu bucket private, gắn custom domain/public access hoặc cơ chế signed URL phù hợp.
+
+### Backfill media cũ từ Zalo CDN
+
+Sau khi cấu hình storage đúng, chạy lại job/script backfill media của hệ thống nếu DB còn message có URL dạng `zpc.zdn.vn`. Mục tiêu là object mới xuất hiện trong MinIO/S3/R2 và message trong DB trỏ về URL storage mới.
+
+### Rollback về bản v3.x cũ
+
+```bash
+docker compose down
+git checkout <tag-v3.x-cu>
+docker exec zalo-crm-db psql -U crmuser -d zalocrm < backup-v3.x-<datetime>.sql
+docker compose up -d --build
+```
+
+---
 
 ## Nâng cấp từ v3.1 lên v3.2
 
