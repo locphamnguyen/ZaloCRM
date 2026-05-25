@@ -82,10 +82,64 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
         });
         const creatorMap = new Map(creators.map((c) => [c.id, c]));
 
+        // Fetch FB source info for all lists in 2 queries (avoid N+1)
+        const listIds = lists.map((l) => l.id);
+        const [fbMappings, fbLeadStats] = await Promise.all([
+          prisma.facebookFormMapping.findMany({
+            where: { customerListId: { in: listIds }, enabled: true },
+            select: {
+              customerListId: true,
+              formId: true,
+              formName: true,
+              pageConnection: { select: { pageName: true } },
+            },
+          }),
+          prisma.facebookLeadEvent.groupBy({
+            by: ['formId'],
+            where: {
+              formId: {
+                in: await prisma.facebookFormMapping.findMany({
+                  where: { customerListId: { in: listIds }, enabled: true },
+                  select: { formId: true },
+                }).then((rows) => rows.map((r) => r.formId)),
+              },
+              processedAt: { not: null },
+            },
+            _count: { id: true },
+            _max: { createdAt: true },
+          }),
+        ]);
+
+        // Build lookup: listId → fbSource
+        const fbStatsByFormId = new Map(
+          fbLeadStats.map((s) => [s.formId, { count: s._count.id, lastLeadAt: s._max.createdAt }]),
+        );
+        const fbSourceByListId = new Map<string, {
+          formId: string;
+          formName: string;
+          pageName: string | null;
+          lastLeadAt: Date | null;
+          totalFbLeads: number;
+        }>();
+        for (const m of fbMappings) {
+          // Use first enabled mapping per list (rare to have multiple forms → same list)
+          if (!fbSourceByListId.has(m.customerListId)) {
+            const stat = fbStatsByFormId.get(m.formId);
+            fbSourceByListId.set(m.customerListId, {
+              formId: m.formId,
+              formName: m.formName,
+              pageName: m.pageConnection?.pageName ?? null,
+              lastLeadAt: stat?.lastLeadAt ?? null,
+              totalFbLeads: stat?.count ?? 0,
+            });
+          }
+        }
+
         return {
           lists: lists.map((l) => ({
             ...l,
             createdBy: creatorMap.get(l.createdById) ?? null,
+            facebookSource: fbSourceByListId.get(l.id) ?? null,
           })),
           total,
           page: pageNum,
@@ -357,6 +411,20 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
     if (Object.keys(data).length === 0) return reply.status(400).send({ error: 'no_fields' });
 
     try {
+      // Block rename for auto-managed lists (source_type in api/webhook)
+      if (data.name !== undefined) {
+        const existingList = await prisma.customerList.findFirst({
+          where: { id, orgId: user.orgId },
+          select: { sourceType: true },
+        });
+        if (existingList && ['api', 'webhook'].includes(existingList.sourceType)) {
+          return reply.status(403).send({
+            error: 'CANNOT_RENAME_AUTO_MANAGED',
+            message: 'Tệp này được liên kết tự động từ Facebook (hoặc nền tảng khác). Không thể đổi tên.',
+          });
+        }
+      }
+
       const updated = await prisma.customerList.updateMany({
         where: { id, orgId: user.orgId },
         data,

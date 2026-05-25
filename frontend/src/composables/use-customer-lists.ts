@@ -7,6 +7,14 @@
 import { ref, computed } from 'vue';
 import { api } from '@/api/index';
 
+export interface FbSourceDto {
+  formId: string;
+  formName: string;
+  pageName: string | null;
+  lastLeadAt: string | null;
+  totalFbLeads: number;
+}
+
 export interface CustomerListSummary {
   id: string;
   name: string;
@@ -28,6 +36,7 @@ export interface CustomerListSummary {
   hasZaloEntries: number;
   noZaloEntries: number;
   pendingLookupEntries: number;
+  facebookSource: FbSourceDto | null;
 }
 
 export interface MappedRow {
@@ -86,6 +95,20 @@ export interface CustomerListEntry {
   status: string;
   errorMessage: string | null;
   enrichedAt: string | null;
+  // Facebook Lead Ads metadata (optional — only populated for FB-source entries)
+  fbLeadgenId?: string | null;
+  fbAdId?: string | null;
+  fbAdName?: string | null;
+  fbAdsetId?: string | null;
+  fbAdsetName?: string | null;
+  fbCampaignId?: string | null;
+  fbCampaignName?: string | null;
+  fbFormId?: string | null;
+  fbFormName?: string | null;
+  fbInboxUrl?: string | null;
+  fbPlatform?: string | null;
+  fbIsOrganic?: boolean | null;
+  fbCustomAnswers?: Array<{ question: string; answer: string }> | null;
   createdAt: string;
   updatedAt: string;
 }

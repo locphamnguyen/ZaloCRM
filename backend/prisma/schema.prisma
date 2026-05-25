@@ -16,41 +16,41 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  teams                Team[]
-  users                User[]
-  zaloAccounts         ZaloAccount[]
-  contacts             Contact[]
-  conversations        Conversation[]
-  appointments         Appointment[]
-  activityLogs         ActivityLog[]
-  dailyStats           DailyMessageStat[]
-  settings             AppSetting[]
-  duplicateGroups      DuplicateGroup[]
-  savedReports         SavedReport[]
-  integrations         Integration[]
-  automationRules      AutomationRule[]
-  messageTemplates     MessageTemplate[]
-  aiConfig             AiConfig?
-  aiSuggestions        AiSuggestion[]
-  pinnedConversations  PinnedConversation[]
-  groupPolls           GroupPoll[]
-  friendshipAttempts   FriendshipAttempt[]
-  friends              Friend[]
-  statuses             Status[]
-  parentCandidates     ParentCandidate[]
-  notes                Note[]
-  zaloLabels           ZaloLabel[]
-  crmTags              CrmTag[]
-  crmTagGroups         CrmTagGroup[]
+  teams                   Team[]
+  users                   User[]
+  zaloAccounts            ZaloAccount[]
+  contacts                Contact[]
+  conversations           Conversation[]
+  appointments            Appointment[]
+  activityLogs            ActivityLog[]
+  dailyStats              DailyMessageStat[]
+  settings                AppSetting[]
+  duplicateGroups         DuplicateGroup[]
+  savedReports            SavedReport[]
+  integrations            Integration[]
+  automationRules         AutomationRule[]
+  messageTemplates        MessageTemplate[]
+  aiConfig                AiConfig?
+  aiSuggestions           AiSuggestion[]
+  pinnedConversations     PinnedConversation[]
+  groupPolls              GroupPoll[]
+  friendshipAttempts      FriendshipAttempt[]
+  friends                 Friend[]
+  statuses                Status[]
+  parentCandidates        ParentCandidate[]
+  notes                   Note[]
+  zaloLabels              ZaloLabel[]
+  crmTags                 CrmTag[]
+  crmTagGroups            CrmTagGroup[]
   // Phase 6 — Lead Scoring Engine relations
-  scoringConfig        ScoringConfig?
-  scoreSignalRules     ScoreSignalRule[]
-  stageTransitionRules StageTransitionRule[]
-  stuckThresholds      StuckThreshold[]
-  nbaTemplates         NbaTemplate[]
+  scoringConfig           ScoringConfig?
+  scoreSignalRules        ScoreSignalRule[]
+  stageTransitionRules    StageTransitionRule[]
+  stuckThresholds         StuckThreshold[]
+  nbaTemplates            NbaTemplate[]
   // Phase 6+ — Inbox Triage Filter relations
-  accountFolders       AccountFolder[]
-  savedFilterPresets   SavedFilterPreset[]
+  accountFolders          AccountFolder[]
+  savedFilterPresets      SavedFilterPreset[]
   // Phase 7 — Automation framework (Block / Sequence / Trigger / Broadcast / Campaign / Task)
   blocks               Block[]
   blockFolders         BlockFolder[]
@@ -70,6 +70,9 @@ model Organization {
   // Admin pick bất kỳ nick connected. FK SET NULL khi nick bị xóa.
   systemNotifyZaloAccountId String?      @map("system_notify_zalo_account_id")
   systemNotifyNick          ZaloAccount? @relation("OrgSystemNotify", fields: [systemNotifyZaloAccountId], references: [id], onDelete: SetNull)
+  // Phase FB — Facebook Lead Ingestion
+  facebookPageConnections FacebookPageConnection[]
+  facebookFormMappings    FacebookFormMapping[]
 
   @@map("organizations")
 }
@@ -117,17 +120,17 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  org                       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  team                      Team?               @relation(fields: [teamId], references: [id])
+  org                       Organization                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  team                      Team?                        @relation(fields: [teamId], references: [id])
   zaloAccounts              ZaloAccount[]
   zaloAccess                ZaloAccountAccess[]
-  assignedContacts          Contact[]           @relation("AssignedContacts")
+  assignedContacts          Contact[]                    @relation("AssignedContacts")
   appointments              Appointment[]
-  statusChangedAppointments Appointment[]       @relation("AppointmentStatusChanger")
-  repliedMessages           Message[]           @relation("RepliedMessages")
+  statusChangedAppointments Appointment[]                @relation("AppointmentStatusChanger")
+  repliedMessages           Message[]                    @relation("RepliedMessages")
   activityLogs              ActivityLog[]
   messageTemplates          MessageTemplate[]
-  authoredNotes             Note[]              @relation("NoteAuthor")
+  authoredNotes             Note[]                       @relation("NoteAuthor")
   noteReactions             NoteReaction[]
   preferences               UserPreference[]
   // Phase 6+ — Inbox Triage Filter (per-user)
@@ -142,6 +145,8 @@ model User {
   createdBroadcasts         AutomationBroadcast[]  @relation("BroadcastCreatedBy")
   // Phase metrics layer 2026-05-22 — phone search by user
   phoneSearchEvents         PhoneSearchEvent[]
+  // Phase FB — Facebook Lead Ingestion
+  customerListAssignments   CustomerListSaleAssignment[]
 
   @@map("users")
 }
@@ -183,11 +188,11 @@ model ZaloAccount {
 
   // Phase 7 — Per-nick automation caps (configurable, default theo memory rule:
   //   300 msg/day/nick, 30-50 friend-add/day/nick)
-  dailyFriendAddCap  Int                   @default(30)  @map("daily_friend_add_cap")
-  dailyMessageCap    Int                   @default(300) @map("daily_message_cap")
+  dailyFriendAddCap   Int       @default(30) @map("daily_friend_add_cap")
+  dailyMessageCap     Int       @default(300) @map("daily_message_cap")
   // Per-nick throttle gate cross-campaign (memory: project_zalocrm_per_nick_throttle_gate)
-  lastFriendReqSentAt DateTime?            @map("last_friend_req_sent_at")
-  lastMessageSentAt   DateTime?            @map("last_message_sent_at")
+  lastFriendReqSentAt DateTime? @map("last_friend_req_sent_at")
+  lastMessageSentAt   DateTime? @map("last_message_sent_at")
 
   // Phase ZaloAccounts redesign 2026-05-22: status log để tính uptime thật.
   // Xem design doc: ~/.gstack/projects/zalocrm/EVO-THANH-private-hs-design-20260522-184345.md
@@ -1509,13 +1514,13 @@ model BlockFolder {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  parent      BlockFolder? @relation("BlockFolderNested", fields: [parentId], references: [id], onDelete: SetNull)
-  children    BlockFolder[] @relation("BlockFolderNested")
-  ownerNick   ZaloAccount? @relation("BlockFolderOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
-  ownerUser   User?        @relation("BlockFolderOwnerUser", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  createdBy   User         @relation("BlockFolderCreatedBy", fields: [createdById], references: [id])
-  blocks      Block[]
+  org       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  parent    BlockFolder?  @relation("BlockFolderNested", fields: [parentId], references: [id], onDelete: SetNull)
+  children  BlockFolder[] @relation("BlockFolderNested")
+  ownerNick ZaloAccount?  @relation("BlockFolderOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
+  ownerUser User?         @relation("BlockFolderOwnerUser", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  createdBy User          @relation("BlockFolderCreatedBy", fields: [createdById], references: [id])
+  blocks    Block[]
 
   @@index([orgId, ownerNickId])
   @@index([orgId, ownerUserId])
@@ -1533,21 +1538,21 @@ model BlockFolder {
 // `usageCount` cache để UI hiện badge "đang dùng trong N sequence/broadcast".
 // `archivedAt`: soft delete — block bị archive vẫn giữ snapshot trong task đang chạy.
 model Block {
-  id           String    @id @default(uuid())
-  orgId        String    @map("org_id")
-  folderId     String?   @map("folder_id")
-  name         String
-  channel      String    @default("zalo_user")
-  actionType   String    @map("action_type") // 'request_friend' | 'send_message' | 'update_status' | ...
-  content      Json      @default("{}")
-  ownerNickId  String?   @map("owner_nick_id")
-  isShared     Boolean   @default(true) @map("is_shared")
-  usageCount   Int       @default(0) @map("usage_count")
-  lastUsedAt   DateTime? @map("last_used_at")
-  archivedAt   DateTime? @map("archived_at")
-  createdById  String    @map("created_by_id")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id          String    @id @default(uuid())
+  orgId       String    @map("org_id")
+  folderId    String?   @map("folder_id")
+  name        String
+  channel     String    @default("zalo_user")
+  actionType  String    @map("action_type") // 'request_friend' | 'send_message' | 'update_status' | ...
+  content     Json      @default("{}")
+  ownerNickId String?   @map("owner_nick_id")
+  isShared    Boolean   @default(true) @map("is_shared")
+  usageCount  Int       @default(0) @map("usage_count")
+  lastUsedAt  DateTime? @map("last_used_at")
+  archivedAt  DateTime? @map("archived_at")
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
   org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   folder    BlockFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
@@ -1571,25 +1576,25 @@ model Block {
 //     crossNickRecencyDays: 30,
 //     stopOnAccept: true }
 model AutomationSequence {
-  id              String   @id @default(uuid())
-  orgId           String   @map("org_id")
-  name            String
-  description     String?
-  channel         String   @default("zalo_user")
-  steps           Json     @default("[]")
-  runtimeRules    Json     @default("{}") @map("runtime_rules")
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  name           String
+  description    String?
+  channel        String   @default("zalo_user")
+  steps          Json     @default("[]")
+  runtimeRules   Json     @default("{}") @map("runtime_rules")
   // Cached stats — refresh từ AutomationTask aggregate
-  enrolledCount   Int      @default(0) @map("enrolled_count")
-  completedCount  Int      @default(0) @map("completed_count")
-  failedCount     Int      @default(0) @map("failed_count")
-  enabled         Boolean  @default(true)
-  createdById     String   @map("created_by_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  enrolledCount  Int      @default(0) @map("enrolled_count")
+  completedCount Int      @default(0) @map("completed_count")
+  failedCount    Int      @default(0) @map("failed_count")
+  enabled        Boolean  @default(true)
+  createdById    String   @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  org       Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  createdBy User                @relation("SequenceCreatedBy", fields: [createdById], references: [id])
-  triggers  AutomationTrigger[] @relation("TriggerSequence")
+  org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User                 @relation("SequenceCreatedBy", fields: [createdById], references: [id])
+  triggers  AutomationTrigger[]  @relation("TriggerSequence")
   campaigns AutomationCampaign[] @relation("CampaignSequence")
 
   @@index([orgId, channel, enabled])
@@ -1602,22 +1607,22 @@ model AutomationSequence {
 // `ruleOverrides` JSON: override sequence.runtimeRules tại trigger level
 // (vd trigger sinh nhật chỉ chạy giờ 9-18).
 model AutomationTrigger {
-  id              String   @id @default(uuid())
-  orgId           String   @map("org_id")
-  name            String
-  category        String   @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai'
-  eventType       String   @map("event_type")
-  eventFilter     Json?    @map("event_filter")
-  bindingKind     String   @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
-  sequenceId      String?  @map("sequence_id")
-  blockId         String?  @map("block_id")
-  broadcastId     String?  @map("broadcast_id")
-  segmentSpec     Json?    @map("segment_spec")
-  ruleOverrides   Json?    @map("rule_overrides")
-  enabled         Boolean  @default(true)
-  createdById     String   @map("created_by_id")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  name          String
+  category      String   @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai'
+  eventType     String   @map("event_type")
+  eventFilter   Json?    @map("event_filter")
+  bindingKind   String   @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
+  sequenceId    String?  @map("sequence_id")
+  blockId       String?  @map("block_id")
+  broadcastId   String?  @map("broadcast_id")
+  segmentSpec   Json?    @map("segment_spec")
+  ruleOverrides Json?    @map("rule_overrides")
+  enabled       Boolean  @default(true)
+  createdById   String   @map("created_by_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   sequence  AutomationSequence?  @relation("TriggerSequence", fields: [sequenceId], references: [id], onDelete: SetNull)
@@ -1676,20 +1681,20 @@ model AutomationBroadcast {
 // `rulesSnapshot` frozen runtimeRules → task chạy trong campaign này dùng snapshot
 // này, không bị ảnh hưởng nếu Sequence.runtimeRules edit sau.
 model AutomationCampaign {
-  id               String    @id @default(uuid())
-  orgId            String    @map("org_id")
-  triggerId        String?   @map("trigger_id")
-  broadcastId      String?   @map("broadcast_id")
-  executionKind    String    @map("execution_kind") // 'sequence' | 'single_block' | 'broadcast'
-  sequenceId       String?   @map("sequence_id")
-  blockId          String?   @map("block_id")
-  segmentSnapshot  Json      @map("segment_snapshot")
-  rulesSnapshot    Json      @map("rules_snapshot")
-  state            String    @default("active") // 'active' | 'paused' | 'completed' | 'cancelled'
-  activatedAt      DateTime  @default(now()) @map("activated_at")
-  completedAt      DateTime? @map("completed_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  orgId           String    @map("org_id")
+  triggerId       String?   @map("trigger_id")
+  broadcastId     String?   @map("broadcast_id")
+  executionKind   String    @map("execution_kind") // 'sequence' | 'single_block' | 'broadcast'
+  sequenceId      String?   @map("sequence_id")
+  blockId         String?   @map("block_id")
+  segmentSnapshot Json      @map("segment_snapshot")
+  rulesSnapshot   Json      @map("rules_snapshot")
+  state           String    @default("active") // 'active' | 'paused' | 'completed' | 'cancelled'
+  activatedAt     DateTime  @default(now()) @map("activated_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   trigger   AutomationTrigger?   @relation("CampaignTrigger", fields: [triggerId], references: [id], onDelete: SetNull)
@@ -1711,33 +1716,33 @@ model AutomationCampaign {
 // `skipReason` enum: 'cap_hit' | 'recency_block' | 'hour_range' | 'stop_on_accept'
 //                  | 'already_friend' | 'no_zalo' | 'block_archived' | 'rule_disabled'
 model AutomationTask {
-  id              String    @id @default(uuid())
-  orgId           String    @map("org_id")
-  campaignId      String    @map("campaign_id")
-  contactId       String    @map("contact_id")
+  id             String    @id @default(uuid())
+  orgId          String    @map("org_id")
+  campaignId     String    @map("campaign_id")
+  contactId      String    @map("contact_id")
   // Sequence progress (null cho single_block / broadcast tasks)
-  sequenceId      String?   @map("sequence_id")
-  currentStepIdx  Int?      @map("current_step_idx")
-  currentBlockId  String?   @map("current_block_id")
-  blockSnapshot   Json      @map("block_snapshot")
+  sequenceId     String?   @map("sequence_id")
+  currentStepIdx Int?      @map("current_step_idx")
+  currentBlockId String?   @map("current_block_id")
+  blockSnapshot  Json      @map("block_snapshot")
   // Scheduling
-  scheduledAt     DateTime  @map("scheduled_at")
-  assignedNickId  String?   @map("assigned_nick_id")
+  scheduledAt    DateTime  @map("scheduled_at")
+  assignedNickId String?   @map("assigned_nick_id")
   // State machine
-  state           String    @default("queued") // 'queued' | 'running' | 'done' | 'failed' | 'skipped'
-  attemptCount    Int       @default(0) @map("attempt_count")
-  outcome         Json?
-  skipReason      String?   @map("skip_reason")
-  errorMessage    String?   @map("error_message")
-  executedAt      DateTime? @map("executed_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  state          String    @default("queued") // 'queued' | 'running' | 'done' | 'failed' | 'skipped'
+  attemptCount   Int       @default(0) @map("attempt_count")
+  outcome        Json?
+  skipReason     String?   @map("skip_reason")
+  errorMessage   String?   @map("error_message")
+  executedAt     DateTime? @map("executed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  org           Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  campaign      AutomationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact       Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  block         Block?             @relation(fields: [currentBlockId], references: [id], onDelete: SetNull)
-  assignedNick  ZaloAccount?       @relation("TaskAssignedNick", fields: [assignedNickId], references: [id], onDelete: SetNull)
+  org          Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  campaign     AutomationCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact      Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  block        Block?             @relation(fields: [currentBlockId], references: [id], onDelete: SetNull)
+  assignedNick ZaloAccount?       @relation("TaskAssignedNick", fields: [assignedNickId], references: [id], onDelete: SetNull)
 
   @@index([state, scheduledAt]) // worker pickup
   @@index([campaignId, contactId])
@@ -1811,13 +1816,13 @@ model ContactEngagementDaily {
 // Sequence/Broadcast/Campaign future feature reference customerListId làm
 // audience source.
 model CustomerList {
-  id          String   @id @default(uuid())
-  orgId       String   @map("org_id")
-  createdById String   @map("created_by_id")
+  id          String  @id @default(uuid())
+  orgId       String  @map("org_id")
+  createdById String  @map("created_by_id")
   name        String
-  iconEmoji   String?  @map("icon_emoji") // optional emoji prefix (🏢, 📣, ❄️...)
-  sourceType  String   @map("source_type") // 'paste' | 'csv' | 'excel' | 'api'
-  rawText     String?  @map("raw_text") @db.Text // gốc để rerun parser/audit
+  iconEmoji   String? @map("icon_emoji") // optional emoji prefix (🏢, 📣, ❄️...)
+  sourceType  String  @map("source_type") // 'paste' | 'csv' | 'excel' | 'api'
+  rawText     String? @map("raw_text") @db.Text // gốc để rerun parser/audit
 
   // Stats counters — update qua reverse hook khi entries change
   totalEntries          Int @default(0) @map("total_entries")
@@ -1839,7 +1844,11 @@ model CustomerList {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  entries CustomerListEntry[]
+  entries              CustomerListEntry[]
+  // Phase FB — Facebook Lead Ingestion
+  facebookFormMappings FacebookFormMapping[]
+  saleAssignments      CustomerListSaleAssignment[]
+  assignmentState      SaleAssignmentState?
 
   @@index([orgId, status, createdAt(sort: Desc)])
   @@index([orgId, archivedAt])
@@ -1855,7 +1864,7 @@ model CustomerListEntry {
 
   // Raw input
   phoneRaw String  @map("phone_raw") // gốc anh paste vào
-  nameRaw  String? @map("name_raw")  // cắt ra từ phoneRaw nếu có
+  nameRaw  String? @map("name_raw") // cắt ra từ phoneRaw nếu có
 
   // Lời mời / tin nhắn riêng cho entry này — dùng khi gửi friend-request hoặc message
   // Chỉ map từ CSV/Excel column "Ghi chú". Paste tab KHÔNG có (chỉ phone+name).
@@ -1877,8 +1886,8 @@ model CustomerListEntry {
   systemMessages Json @default("[]") @map("system_messages")
 
   // Normalized phone variants
-  phoneE164     String? @map("phone_e164")     // "+84908123456"
-  phoneLocal    String? @map("phone_local")    // "0908123456" — Vietnamese local format
+  phoneE164     String? @map("phone_e164") // "+84908123456"
+  phoneLocal    String? @map("phone_local") // "0908123456" — Vietnamese local format
   phoneValid    Boolean @default(false) @map("phone_valid")
   invalidReason String? @map("invalid_reason") // 'too_short' | 'invalid_format' | 'empty' | 'invalid_prefix'
 
@@ -1886,12 +1895,12 @@ model CustomerListEntry {
   contactId String? @map("contact_id")
 
   // Zalo enrichment — populated by reverse-update from 3 event sources
-  zaloUid          String? @map("zalo_uid")            // UID per nick
-  zaloGlobalId     String? @map("zalo_global_id")      // cross-nick identity
-  zaloName         String? @map("zalo_name")           // display name từ Zalo SDK
-  resolvedByNickId String? @map("resolved_by_nick_id") // ZaloAccount nào tìm ra UID này
-  multiNickCount   Int     @default(0) @map("multi_nick_count") // số nick khác cùng tìm ra
-  hasZalo          Boolean? @map("has_zalo")           // null=chưa scan, true/false=đã scan
+  zaloUid          String?  @map("zalo_uid") // UID per nick
+  zaloGlobalId     String?  @map("zalo_global_id") // cross-nick identity
+  zaloName         String?  @map("zalo_name") // display name từ Zalo SDK
+  resolvedByNickId String?  @map("resolved_by_nick_id") // ZaloAccount nào tìm ra UID này
+  multiNickCount   Int      @default(0) @map("multi_nick_count") // số nick khác cùng tìm ra
+  hasZalo          Boolean? @map("has_zalo") // null=chưa scan, true/false=đã scan
 
   // Dedup flags
   dupInListWithEntryId String? @map("dup_in_list_with_entry_id")
@@ -1906,11 +1915,28 @@ model CustomerListEntry {
   errorMessage String?   @map("error_message")
   enrichedAt   DateTime? @map("enriched_at")
 
+  // ── Facebook Lead Ads metadata (populated when source is FB form) ─────────
+  fbLeadgenId     String?  @map("fb_leadgen_id")
+  fbAdId          String?  @map("fb_ad_id")
+  fbAdName        String?  @map("fb_ad_name")
+  fbAdsetId       String?  @map("fb_adset_id")
+  fbAdsetName     String?  @map("fb_adset_name")
+  fbCampaignId    String?  @map("fb_campaign_id")
+  fbCampaignName  String?  @map("fb_campaign_name")
+  fbFormId        String?  @map("fb_form_id")
+  fbFormName      String?  @map("fb_form_name")
+  fbInboxUrl      String?  @map("fb_inbox_url")
+  fbPlatform      String?  @map("fb_platform")
+  fbIsOrganic     Boolean? @map("fb_is_organic")
+  fbCustomAnswers Json?    @map("fb_custom_answers") // Array<{question:string,answer:string}>
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([customerListId, rowIndex])
   @@index([customerListId, status])
+  @@index([customerListId, fbCampaignId])
+  @@index([customerListId, fbFormId])
   @@index([phoneE164]) // hot index for cross-list dedup + reverse update
   @@index([phoneLocal])
   @@map("customer_list_entries")
@@ -2014,4 +2040,92 @@ model UserPrivacySession {
   @@index([sessionToken])
   @@index([userId, expiresAt])
   @@map("user_privacy_sessions")
+}
+
+// ─── Phase FB: Facebook Lead Ingestion ───────────────────────────────────────
+
+model FacebookPageConnection {
+  id             String    @id @default(cuid())
+  orgId          String    @map("org_id")
+  pageId         String    @map("page_id")
+  pageName       String    @map("page_name")
+  accessTokenEnc String    @map("access_token_enc") // AES-256-GCM
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  subscribedAt   DateTime? @map("subscribed_at")
+  status         String    @default("connected") // connected | revoked | error
+  lastError      String?   @map("last_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  organization Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  mappings     FacebookFormMapping[]
+
+  @@unique([orgId, pageId])
+  @@map("facebook_page_connections")
+}
+
+model FacebookFormMapping {
+  id               String   @id @default(cuid())
+  orgId            String   @map("org_id")
+  pageConnectionId String   @map("page_connection_id")
+  formId           String   @map("form_id")
+  formName         String   @map("form_name")
+  customerListId   String   @map("customer_list_id")
+  fieldMap         Json     @default("{}") @map("field_map") // {"ten_day_du":"name","so_dien_thoai":"phone",...}
+  enabled          Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organization   Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  pageConnection FacebookPageConnection @relation(fields: [pageConnectionId], references: [id], onDelete: Cascade)
+  customerList   CustomerList           @relation(fields: [customerListId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, formId])
+  @@map("facebook_form_mappings")
+}
+
+model FacebookLeadEvent {
+  id          String    @id @default(cuid())
+  orgId       String    @map("org_id")
+  leadgenId   String    @unique @map("leadgen_id") // FB lead ID — idempotency
+  formId      String    @map("form_id")
+  pageId      String    @map("page_id")
+  rawPayload  Json      @map("raw_payload")
+  processedAt DateTime? @map("processed_at")
+  contactId   String?   @map("contact_id")
+  listEntryId String?   @map("list_entry_id") // CustomerListEntry.id
+  error       String?
+  retryCount  Int       @default(0) @map("retry_count")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([orgId, formId])
+  @@index([createdAt])
+  @@map("facebook_lead_events")
+}
+
+model CustomerListSaleAssignment {
+  id             String   @id @default(cuid())
+  customerListId String   @map("customer_list_id")
+  userId         String   @map("user_id")
+  weight         Int      @default(1) // round-robin weight; MVP all =1, future close-rate ratio
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  customerList CustomerList @relation(fields: [customerListId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([customerListId, userId])
+  @@map("customer_list_sale_assignments")
+}
+
+model SaleAssignmentState {
+  id                 String   @id @default(cuid())
+  orgId              String   @map("org_id")
+  customerListId     String   @unique @map("customer_list_id")
+  lastAssignedUserId String?  @map("last_assigned_user_id")
+  counter            Int      @default(0) // monotonic, modulo by pool size at pick time
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  customerList CustomerList @relation(fields: [customerListId], references: [id], onDelete: Cascade)
+
+  @@map("sale_assignment_states")
 }

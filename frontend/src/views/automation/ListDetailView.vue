@@ -14,11 +14,31 @@
       <div class="hero-head">
         <div style="min-width:0; flex:1;">
           <h2>
-            <span>{{ currentList.iconEmoji || '📂' }}</span>
+            <!-- Auto-managed FB list: show FB icon instead of emoji -->
+            <template v-if="['api', 'webhook'].includes(currentList.sourceType)">
+              <v-icon size="22" color="#1877F2" class="me-1" aria-hidden="true">mdi-facebook</v-icon>
+            </template>
+            <span v-else>{{ currentList.iconEmoji || '📂' }}</span>
             <template v-if="!editingTitle">
-              <span class="title-text" @click="startEditTitle" title="Click để đổi tên">
+              <span
+                class="title-text"
+                :class="{ 'title-locked': ['api', 'webhook'].includes(currentList.sourceType) }"
+                :title="['api', 'webhook'].includes(currentList.sourceType)
+                  ? '📘 Tệp được liên kết tự động từ Facebook. Không thể đổi tên.'
+                  : 'Click để đổi tên'"
+                @click="startEditTitle"
+              >
                 {{ currentList.name }}
               </span>
+              <v-icon
+                v-if="['api', 'webhook'].includes(currentList.sourceType)"
+                size="14"
+                color="blue-grey"
+                class="ms-1"
+                aria-hidden="true"
+              >
+                mdi-lock-outline
+              </v-icon>
             </template>
             <input
               v-else
@@ -195,18 +215,23 @@
           </button>
         </template>
         <v-list density="compact" min-width="240">
-          <v-list-item
-            v-for="col in ALL_COLUMNS"
-            :key="col.key"
-            @click="toggleColumn(col.key)"
-          >
-            <template #prepend>
-              <v-icon size="16" :color="isColVisible(col.key) ? '#6366F1' : '#9CA3AF'">
-                {{ isColVisible(col.key) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline' }}
-              </v-icon>
-            </template>
-            <v-list-item-title style="font-size:13px">{{ col.label }}</v-list-item-title>
-          </v-list-item>
+          <template v-for="(col, idx) in ALL_COLUMNS" :key="col.key">
+            <!-- Group header: show when first col in a group -->
+            <v-list-subheader
+              v-if="col.group && (idx === 0 || ALL_COLUMNS[idx - 1].group !== col.group)"
+              style="font-size:10.5px;font-weight:700;color:#6366F1;letter-spacing:.04em;padding:6px 16px 2px"
+            >
+              {{ col.group }}
+            </v-list-subheader>
+            <v-list-item @click="toggleColumn(col.key)">
+              <template #prepend>
+                <v-icon size="16" :color="isColVisible(col.key) ? '#6366F1' : '#9CA3AF'">
+                  {{ isColVisible(col.key) ? 'mdi-checkbox-marked' : 'mdi-checkbox-blank-outline' }}
+                </v-icon>
+              </template>
+              <v-list-item-title style="font-size:13px">{{ col.label }}</v-list-item-title>
+            </v-list-item>
+          </template>
           <v-divider />
           <v-list-item @click="resetColumns">
             <template #prepend>
@@ -244,6 +269,14 @@
             <th v-show="isColVisible('resolvedByNick')">Nick tìm ra</th>
             <th v-show="isColVisible('zaloGlobalId')">Global ID</th>
             <th v-show="isColVisible('systemMessages')" title="Stack thông báo hệ thống — trùng, sale loại, số sai cụ thể... (newest top, hover xem full)">📨 Thông báo hệ thống</th>
+            <!-- Facebook Lead columns -->
+            <th v-show="isColVisible('fbCampaignName')" style="min-width:160px">Chiến dịch FB</th>
+            <th v-show="isColVisible('fbFormName')"     style="min-width:160px">Form FB</th>
+            <th v-show="isColVisible('fbAdName')"       style="min-width:160px">Quảng cáo</th>
+            <th v-show="isColVisible('fbAdsetName')"    style="min-width:140px">Nhóm QC</th>
+            <th v-show="isColVisible('fbPlatform')"     style="min-width:80px" title="fb / ig">Nền tảng</th>
+            <th v-show="isColVisible('fbIsOrganic')"    style="min-width:80px">Organic</th>
+            <th v-show="isColVisible('fbCustomAnswers')" style="min-width:240px">Trả lời form</th>
             <th class="right">Action</th>
           </tr>
         </thead>
@@ -386,6 +419,60 @@
                   </div>
                 </div>
               </template>
+            </td>
+            <!-- Facebook Lead cells -->
+            <td v-show="isColVisible('fbCampaignName')" class="fb-text-cell cell-scroll">
+              <span class="cell-content">{{ entry.fbCampaignName || '—' }}</span>
+            </td>
+            <td v-show="isColVisible('fbFormName')" class="fb-text-cell cell-scroll">
+              <span class="cell-content">{{ entry.fbFormName || '—' }}</span>
+            </td>
+            <td v-show="isColVisible('fbAdName')" class="fb-text-cell cell-scroll">
+              <span class="cell-content">{{ entry.fbAdName || '—' }}</span>
+            </td>
+            <td v-show="isColVisible('fbAdsetName')" class="fb-text-cell cell-scroll">
+              <span class="cell-content">{{ entry.fbAdsetName || '—' }}</span>
+            </td>
+            <td v-show="isColVisible('fbPlatform')">
+              <span v-if="entry.fbPlatform" class="fb-platform-chip" :class="entry.fbPlatform">
+                {{ entry.fbPlatform }}
+              </span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbIsOrganic')">
+              <span v-if="entry.fbIsOrganic != null" class="fb-organic-badge" :class="entry.fbIsOrganic ? 'yes' : 'no'">
+                {{ entry.fbIsOrganic ? 'Organic' : 'Paid' }}
+              </span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbCustomAnswers')" class="fb-custom-answers-cell">
+              <template v-if="entry.fbCustomAnswers && entry.fbCustomAnswers.length > 0">
+                <div class="fb-qa-preview">
+                  <div
+                    v-for="(qa, qi) in entry.fbCustomAnswers.slice(0, 2)"
+                    :key="qi"
+                    class="fb-qa-item"
+                  >
+                    <span class="fb-qa-q">{{ qa.question }}:</span>
+                    <span class="fb-qa-a">{{ qa.answer }}</span>
+                  </div>
+                  <span v-if="entry.fbCustomAnswers.length > 2" class="fb-qa-more">
+                    +{{ entry.fbCustomAnswers.length - 2 }} nữa
+                  </span>
+                </div>
+                <div class="fb-qa-tooltip">
+                  <div class="fb-qa-tooltip-title">Câu trả lời form ({{ entry.fbCustomAnswers.length }})</div>
+                  <div
+                    v-for="(qa, qi) in entry.fbCustomAnswers"
+                    :key="qi"
+                    class="fb-qa-tooltip-item"
+                  >
+                    <div class="fb-qa-tooltip-q">{{ qa.question }}</div>
+                    <div class="fb-qa-tooltip-a">{{ qa.answer }}</div>
+                  </div>
+                </div>
+              </template>
+              <span v-else class="muted-italic">—</span>
             </td>
             <td class="row-actions" @click.stop>
               <button class="icon-btn" title="Mở Contact" v-if="entry.contactId">
@@ -596,6 +683,8 @@ const titleInputRef = ref<HTMLInputElement | null>(null);
 
 function startEditTitle() {
   if (!currentList.value || currentList.value.archivedAt) return;
+  // Block rename for auto-managed lists (api/webhook source type)
+  if (['api', 'webhook'].includes(currentList.value.sourceType)) return;
   editingTitle.value = true;
   titleDraft.value = currentList.value.name;
   nextTick(() => titleInputRef.value?.focus());
@@ -862,7 +951,7 @@ function formatMsgTs(ts: string): string {
 }
 
 // ───────── Column visibility (persist localStorage) ─────────
-interface ColumnDef { key: string; label: string; defaultVisible: boolean }
+interface ColumnDef { key: string; label: string; defaultVisible: boolean; group?: string }
 const ALL_COLUMNS: ColumnDef[] = [
   { key: 'phoneRaw',        label: '📋 Phone (paste)',        defaultVisible: true  },
   { key: 'phoneE164',       label: '🌐 Phone (+84)',          defaultVisible: true  },
@@ -875,15 +964,36 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'resolvedByNick',  label: 'Nick tìm ra',             defaultVisible: true  },
   { key: 'zaloGlobalId',    label: 'Global ID',               defaultVisible: false },
   { key: 'systemMessages',  label: '📨 Thông báo hệ thống',     defaultVisible: true  },
+  // Facebook Lead group
+  { key: 'fbCampaignName',  label: 'Chiến dịch FB',           defaultVisible: true,  group: 'Facebook Lead' },
+  { key: 'fbFormName',      label: 'Form FB',                 defaultVisible: true,  group: 'Facebook Lead' },
+  { key: 'fbAdName',        label: 'Quảng cáo',               defaultVisible: false, group: 'Facebook Lead' },
+  { key: 'fbAdsetName',     label: 'Nhóm QC',                 defaultVisible: false, group: 'Facebook Lead' },
+  { key: 'fbPlatform',      label: 'Nền tảng',                defaultVisible: false, group: 'Facebook Lead' },
+  { key: 'fbIsOrganic',     label: 'Organic',                 defaultVisible: false, group: 'Facebook Lead' },
+  { key: 'fbCustomAnswers', label: 'Trả lời form',            defaultVisible: false, group: 'Facebook Lead' },
 ];
-const COL_STORAGE_KEY = 'zalocrm:listDetail:visibleColumns:v1';
+// v2: bumped to re-initialize user prefs with new FB column defaults
+const COL_STORAGE_KEY = 'zalocrm:listDetail:visibleColumns:v2';
 
 function loadVisibleColumns(): Set<string> {
   try {
     const raw = localStorage.getItem(COL_STORAGE_KEY);
     if (raw) {
-      const arr = JSON.parse(raw) as string[];
-      if (Array.isArray(arr)) return new Set(arr);
+      const stored = JSON.parse(raw) as string[];
+      if (Array.isArray(stored)) {
+        // Merge: add any new columns not in stored set using their default visibility
+        const storedSet = new Set(stored);
+        const knownKeys = new Set(ALL_COLUMNS.map((c) => c.key));
+        // Add new columns that aren't in stored set yet
+        for (const col of ALL_COLUMNS) {
+          if (!knownKeys.has(col.key)) continue; // paranoia
+          if (!storedSet.has(col.key) && col.defaultVisible) {
+            storedSet.add(col.key);
+          }
+        }
+        return storedSet;
+      }
     }
   } catch (e) {
     console.warn('[list-detail] visibleColumns parse failed', e);
@@ -1168,6 +1278,13 @@ function nickAvatarStyle(name: string): Record<string, string> {
   background: #FFFBEB;
   border-color: #FBBF24;
 }
+.title-locked {
+  cursor: default;
+}
+.title-locked:hover {
+  background: transparent;
+  border-color: transparent;
+}
 .title-input {
   font-size: 18px; font-weight: 700;
   padding: 2px 6px;
@@ -1348,6 +1465,74 @@ function nickAvatarStyle(name: string): Record<string, string> {
   white-space: nowrap;
 }
 .global-id.empty { color: #9CA3AF; background: transparent; font-style: italic; }
+
+/* ─── Facebook Lead cells ─── */
+.fb-text-cell { color: #374151; font-size: 12px; max-width: 160px; }
+
+.fb-platform-chip {
+  display: inline-block;
+  padding: 1px 7px; border-radius: 99px;
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+  background: #DBEAFE; color: #1D4ED8;
+}
+.fb-platform-chip.instagram { background: #FCE7F3; color: #9D174D; }
+
+.fb-organic-badge {
+  display: inline-block;
+  padding: 1px 7px; border-radius: 99px;
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+}
+.fb-organic-badge.yes { background: #D1FAE5; color: #047857; }
+.fb-organic-badge.no  { background: #FEE2E2; color: #B91C1C; }
+
+.fb-custom-answers-cell {
+  position: relative;
+  max-width: 240px;
+  vertical-align: top;
+}
+.fb-qa-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 38px;
+  overflow: hidden;
+  cursor: help;
+}
+.fb-qa-item {
+  font-size: 11px; color: #6B7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; gap: 3px;
+}
+.fb-qa-q { font-weight: 600; color: #4B5563; flex-shrink: 0; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+.fb-qa-a { color: #111827; overflow: hidden; text-overflow: ellipsis; }
+.fb-qa-more { font-size: 10.5px; color: #6366F1; font-style: italic; }
+
+.fb-qa-tooltip {
+  display: none;
+  position: absolute;
+  top: 100%; left: 0;
+  z-index: 50;
+  background: #1F2937; color: #F9FAFB;
+  border-radius: 8px;
+  padding: 8px 10px;
+  min-width: 280px; max-width: 400px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  margin-top: 4px;
+}
+.fb-custom-answers-cell:hover .fb-qa-tooltip { display: block; }
+.fb-qa-tooltip-title {
+  font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em;
+  color: #9CA3AF; margin-bottom: 6px;
+}
+.fb-qa-tooltip-item {
+  padding: 5px 0;
+  border-bottom: 1px solid #374151;
+  font-size: 12px;
+}
+.fb-qa-tooltip-item:last-child { border-bottom: none; }
+.fb-qa-tooltip-q { color: #9CA3AF; font-size: 10.5px; margin-bottom: 2px; }
+.fb-qa-tooltip-a { color: #F9FAFB; }
 
 .dup-note {
   font-size: 10.5px; color: #B45309;

@@ -94,9 +94,26 @@
           >
             <td>
               <div class="list-name-cell">
-                <span class="icon-em">{{ list.iconEmoji || '📂' }}</span>
+                <!-- Auto-managed FB list: show mdi-facebook instead of emoji -->
+                <template v-if="list.sourceType === 'api' && list.facebookSource">
+                  <v-icon size="20" color="#1877F2" class="icon-em" aria-hidden="true">mdi-facebook</v-icon>
+                </template>
+                <span v-else class="icon-em">{{ list.iconEmoji || '📂' }}</span>
                 <div>
-                  <div class="nm">{{ list.name }}</div>
+                  <div class="nm">
+                    {{ list.name }}
+                    <v-tooltip
+                      v-if="['api', 'webhook'].includes(list.sourceType)"
+                      location="top"
+                      text="📘 Tệp được liên kết tự động từ Facebook (hoặc nguồn tự động khác). Không thể đổi tên."
+                    >
+                      <template #activator="{ props: tp }">
+                        <v-icon v-bind="tp" size="14" color="blue-grey" class="ms-1" aria-hidden="true">
+                          mdi-lock-outline
+                        </v-icon>
+                      </template>
+                    </v-tooltip>
+                  </div>
                   <div class="sub">{{ list.totalEntries.toLocaleString('vi-VN') }} SĐT</div>
                 </div>
               </div>
@@ -110,7 +127,17 @@
                 {{ list.createdBy?.fullName ?? list.createdBy?.email ?? '—' }}
               </span>
             </td>
-            <td><span class="source-chip">{{ sourceLabel(list.sourceType) }}</span></td>
+            <td>
+              <span class="source-chip">{{ sourceLabel(list.sourceType) }}</span>
+              <FacebookSourceBadge
+                v-if="list.facebookSource"
+                :form-name="list.facebookSource.formName"
+                :page-name="list.facebookSource.pageName"
+                :last-lead-at="list.facebookSource.lastLeadAt"
+                :total-leads="list.facebookSource.totalFbLeads"
+                style="margin-left: 6px;"
+              />
+            </td>
             <td class="num-cell">{{ list.totalEntries.toLocaleString('vi-VN') }}</td>
             <td class="num-cell green">{{ list.validEntries.toLocaleString('vi-VN') }}</td>
             <td class="num-cell" :class="list.invalidEntries > 0 ? 'red' : 'muted'">{{ list.invalidEntries.toLocaleString('vi-VN') }}</td>
@@ -194,6 +221,7 @@ import { useRouter } from 'vue-router';
 import { useCustomerLists, type CustomerListSummary, type ListStatusFilter } from '@/composables/use-customer-lists';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import CreateListModal from '@/components/automation/lists/CreateListModal.vue';
+import FacebookSourceBadge from '@/components/automation/lists/FacebookSourceBadge.vue';
 import '@/components/automation/phase7/airtable.css';
 
 const router = useRouter();

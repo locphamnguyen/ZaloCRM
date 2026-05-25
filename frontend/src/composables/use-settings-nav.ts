@@ -96,6 +96,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     permission: 'admin',
     items: [
       { id: 'zalo', label: 'Tài khoản Zalo', icon: '💬', route: '/settings/channels/zalo', permission: 'admin', aliases: ['nick', 'zalo account'] },
+      { id: 'facebook', label: 'Facebook Lead Ads', icon: '📘', route: '/settings/channels/facebook', permission: 'admin', aliases: ['facebook', 'fb', 'lead ads', 'meta'] },
       { id: 'rate-limit', label: 'Rate limit per nick', icon: '⏱', route: '/settings/channels/rate-limit', permission: 'admin', comingSoon: true },
       { id: 'automation', label: 'Automation rules', icon: '🤖', route: '/settings/channels/automation', permission: 'admin', comingSoon: true },
       { id: 'integrations', label: 'Tích hợp 3rd party', icon: '🔗', route: '/settings/channels/integrations', permission: 'admin' },
