@@ -32,7 +32,10 @@ export type GateName =
   | 'cross_nick_recency'
   | 'stop_on_accept'
   | 'block_archived'
-  | 'rule_disabled';
+  | 'rule_disabled'
+  // Wave 1 anti-pattern guards (chốt 2026-05-23)
+  | 'frequency_cap_per_contact'  // 3.1: max N tin/window cho 1 KH từ 1 Khối
+  | 'sequence_mutex';            // 3.2: KH đang trong Luồng khác → skip enroll
 
 export interface GateResult {
   passed: boolean;

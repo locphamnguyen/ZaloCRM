@@ -163,3 +163,37 @@ export function checkRuleEnabled(enabled: boolean): GateResult {
     detail: 'Sequence/Trigger đã bị disable',
   };
 }
+
+// ── Wave 1 — Frequency cap per contact on a Khối (chốt 2026-05-23) ────────
+//
+// Caller passes how many tasks for THIS contact × THIS block đã DONE trong
+// window (typically queried as: state=done, contactId+blockId, executedAt > now - windowDays).
+// Config từ Block.content.frequencyCapPerContact: { max: number, windowDays: number }.
+// null/missing = no cap (default).
+export function checkFrequencyCapPerContact(
+  doneCount: number,
+  cap: { max: number; windowDays: number } | null,
+): GateResult {
+  if (!cap || cap.max <= 0) return { passed: true };
+  if (doneCount < cap.max) return { passed: true };
+  return {
+    passed: false,
+    failedGate: 'frequency_cap_per_contact',
+    detail: `KH đã nhận ${doneCount} tin từ Khối này trong ${cap.windowDays} ngày (cap=${cap.max})`,
+  };
+}
+
+// Extract frequency cap from block.content. Returns null when missing/invalid.
+export function extractFrequencyCap(
+  blockContent: unknown,
+): { max: number; windowDays: number } | null {
+  if (!blockContent || typeof blockContent !== 'object') return null;
+  const c = (blockContent as Record<string, unknown>).frequencyCapPerContact;
+  if (!c || typeof c !== 'object') return null;
+  const obj = c as Record<string, unknown>;
+  const max = typeof obj.max === 'number' && Number.isInteger(obj.max) ? obj.max : null;
+  const windowDays = typeof obj.windowDays === 'number' && Number.isInteger(obj.windowDays) ? obj.windowDays : null;
+  if (max === null || windowDays === null) return null;
+  if (max <= 0 || windowDays <= 0) return null;
+  return { max, windowDays };
+}

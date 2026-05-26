@@ -27,6 +27,8 @@ import {
   checkCrossNickRecency,
   checkBlockArchived,
   checkRuleEnabled,
+  checkFrequencyCapPerContact,
+  extractFrequencyCap,
 } from './gate-evaluator.js';
 import { dispatchAction } from './action-dispatcher.js';
 import { pickNickForTask } from './nick-selector.js';
@@ -141,7 +143,7 @@ async function processTask(taskId: string): Promise<void> {
         },
       },
       contact: { select: { id: true, acceptedNicksCount: true, lastInboundAt: true, lastOutboundAt: true } },
-      block: { select: { id: true, archivedAt: true, actionType: true } },
+      block: { select: { id: true, archivedAt: true, actionType: true, content: true } },
     },
   });
   if (!task || !task.campaign || !task.block) {
@@ -186,6 +188,28 @@ async function processTask(taskId: string): Promise<void> {
     const stopCheck = checkStopOnAccept(rules, task.contact.acceptedNicksCount);
     if (!stopCheck.passed) {
       await markSkipped(taskId, stopCheck.failedGate!, stopCheck.detail);
+      return;
+    }
+  }
+
+  // 4.5. Wave 1 #3.1 — Frequency cap per KH on Khối
+  //      Check trước nick assignment vì cap là per-contact-per-block, không phụ thuộc nick.
+  //      Cap config trong block.content.frequencyCapPerContact: { max, windowDays }.
+  const freqCap = extractFrequencyCap(task.block.content);
+  if (freqCap) {
+    const windowStart = new Date(now.getTime() - freqCap.windowDays * 24 * 60 * 60 * 1000);
+    const doneCount = await prisma.automationTask.count({
+      where: {
+        contactId: task.contact.id,
+        currentBlockId: task.block.id,
+        state: TASK_STATES.DONE,
+        executedAt: { gte: windowStart },
+        id: { not: taskId }, // không đếm chính task này
+      },
+    });
+    const freqCheck = checkFrequencyCapPerContact(doneCount, freqCap);
+    if (!freqCheck.passed) {
+      await markSkipped(taskId, freqCheck.failedGate!, freqCheck.detail);
       return;
     }
   }

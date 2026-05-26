@@ -313,6 +313,26 @@ export async function materializeFromEvent(
         continue;
       }
 
+      // Wave 1 #3.2 — Sequence mutex: skip enroll nếu KH đang trong Luồng khác active.
+      // "Active" = task state in (queued, running) trong sequence-bound campaign khác (≠ campaign hiện tại)
+      // cùng org. Đảm bảo 1 KH không bị fire song song nhiều Luồng cùng lúc.
+      // Default: skip. Sau này có thể đổi sang queue nếu anh muốn override per-Sequence.
+      const activeInOther = await prisma.automationTask.findFirst({
+        where: {
+          orgId: event.orgId,
+          contactId,
+          campaignId: { not: campaign.id },
+          state: { in: ['queued', 'running'] },
+          sequenceId: { not: null }, // chỉ check Luồng kịch bản, block-bound 1-off không tính
+        },
+        select: { id: true, campaignId: true },
+      });
+      if (activeInOther) {
+        result.skipped++;
+        result.reasons.push(`contact ${contactId}: sequence_mutex — đang trong campaign ${activeInOther.campaignId}`);
+        continue;
+      }
+
       // Schedule first step. delayMinutes from step + jitter from runtime rule.
       const jitterMin = (rulesSnapshot.randomDelayPerSend?.min ?? 0) * 60 * 1000;
       const jitterMax = (rulesSnapshot.randomDelayPerSend?.max ?? 0) * 60 * 1000;
