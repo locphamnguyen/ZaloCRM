@@ -1,7 +1,7 @@
 <template>
   <div class="airtable-scope bot-auto-shell" :class="{ 'is-drawer-open': drawerOpen }">
     <!-- Mobile hamburger button (visible only on <768) -->
-    <button class="mobile-trigger" @click="drawerOpen = true" aria-label="Mở menu Bot-Auto">
+    <button class="mobile-trigger" @click="drawerOpen = true" aria-label="Mở menu Marketing">
       <v-icon size="20">mdi-menu</v-icon>
       <span class="mobile-trigger__label">{{ activeNavLabel }}</span>
       <v-icon size="18">mdi-chevron-down</v-icon>
@@ -17,11 +17,11 @@
     <aside class="bot-auto-sidebar">
       <div class="sidebar-header">
         <div class="sidebar-logo">
-          <v-icon size="20">mdi-robot-outline</v-icon>
+          <v-icon size="20">mdi-bullhorn-variant-outline</v-icon>
         </div>
         <div class="sidebar-header__body">
-          <div class="sidebar-title">Bot-Auto</div>
-          <div class="sidebar-subtitle">Automation framework</div>
+          <div class="sidebar-title">Marketing</div>
+          <div class="sidebar-subtitle">Phase 7 — Marketing engine</div>
         </div>
         <button class="drawer-close" @click="drawerOpen = false" aria-label="Đóng menu">
           <v-icon size="20">mdi-close</v-icon>
@@ -47,7 +47,7 @@
         <div class="sidebar-foot-card">
           <div class="sidebar-foot-card__title">Phase 7</div>
           <p class="sidebar-foot-card__desc">
-            Block · Sequence · Trigger · Broadcast.
+            Khối · Luồng kịch bản · Mục tiêu · Broadcast.
             Channel: Zalo cá nhân.
           </p>
         </div>
@@ -69,16 +69,16 @@ const route = useRoute();
 const drawerOpen = ref(false);
 
 const navItems = [
-  { to: '/automation/bot/triggers',   label: 'Kịch bản',                  icon: 'mdi-lightning-bolt' },
-  { to: '/automation/bot/blocks',     label: 'Thư viện block',            icon: 'mdi-puzzle' },
-  { to: '/automation/bot/sequences',  label: 'Kịch bản chăm sóc',         icon: 'mdi-format-list-numbered' },
-  { to: '/automation/bot/broadcasts', label: 'Broadcast & Re-marketing',  icon: 'mdi-bullhorn' },
-  { to: '/automation/bot/lists',      label: 'Tệp khách hàng',            icon: 'mdi-folder-account' },
+  { to: '/marketing/triggers',   label: 'Mục tiêu',          icon: 'mdi-target' },
+  { to: '/marketing/blocks',     label: 'Khối',              icon: 'mdi-puzzle' },
+  { to: '/marketing/sequences',  label: 'Luồng kịch bản',    icon: 'mdi-format-list-numbered' },
+  { to: '/marketing/broadcasts', label: 'Broadcast',         icon: 'mdi-bullhorn' },
+  { to: '/marketing/lists',      label: 'Tệp khách hàng',    icon: 'mdi-folder-account' },
 ];
 
 const activeNavLabel = computed(() => {
   const match = navItems.find((n) => route.path.startsWith(n.to));
-  return match?.label ?? 'Bot-Auto';
+  return match?.label ?? 'Marketing';
 });
 
 // Close drawer when route changes (in case user uses browser nav)

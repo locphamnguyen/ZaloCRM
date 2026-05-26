@@ -1,4 +1,4 @@
-// Phase 7 Bot-Auto — Airtable-design-analysis tokens (v=alpha).
+// Phase 7 Marketing — Airtable-design-analysis tokens (v=alpha).
 //
 // Source: DESIGN.md `Airtable-design-analysis` anh đính kèm 2026-05-20.
 // Memory: reference_design_airtable_inspiration.md.

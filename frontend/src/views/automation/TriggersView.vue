@@ -2,10 +2,10 @@
   <div class="triggers-view">
     <header class="at-page-header">
       <div>
-        <h1 class="at-page-title">Kịch bản</h1>
+        <h1 class="at-page-title">Mục tiêu</h1>
         <p class="at-page-subtitle">
-          Khi event xảy ra → engine tự động khởi động sequence/block bạn đã cấu hình.
-          Trigger là điểm vào — sequence/block là việc cần làm.
+          Khi sự kiện xảy ra → engine tự động khởi động Luồng kịch bản / Khối bạn đã cấu hình.
+          Mục tiêu là điểm vào — Luồng kịch bản / Khối là việc cần làm.
         </p>
       </div>
       <div class="header-actions">
@@ -27,7 +27,7 @@
           <input
             v-model="catalogSearch"
             class="catalog-search__input"
-            placeholder="Tìm trigger theo tên hoặc mô tả..."
+            placeholder="Tìm Mục tiêu theo tên hoặc mô tả..."
           />
         </div>
         <div class="catalog-filter">
@@ -108,8 +108,8 @@
 
       <div v-else class="configured-table">
         <div class="configured-row configured-row--head">
-          <div>Trigger</div>
-          <div>Event</div>
+          <div>Mục tiêu</div>
+          <div>Sự kiện</div>
           <div>Bind tới</div>
           <div class="cell-center">Bật</div>
           <div class="cell-right">Thao tác</div>
@@ -200,28 +200,28 @@
           </div>
 
           <div class="form-field">
-            <label class="form-label">Bind tới gì khi event fire</label>
+            <label class="form-label">Bind tới gì khi sự kiện fire</label>
             <select v-model="draft.bindingKind" class="at-input">
-              <option value="sequence">Sequence (multi-step flow)</option>
-              <option value="block">Block (1 action)</option>
+              <option value="sequence">Luồng kịch bản (multi-step flow)</option>
+              <option value="block">Khối (1 action)</option>
               <option value="broadcast" disabled>Broadcast (Phase F)</option>
             </select>
           </div>
 
           <div v-if="draft.bindingKind === 'sequence'" class="form-field">
-            <label class="form-label">Sequence sẽ chạy</label>
+            <label class="form-label">Luồng kịch bản sẽ chạy</label>
             <select v-model="draft.sequenceId" class="at-input">
-              <option :value="null">— Chọn sequence —</option>
+              <option :value="null">— Chọn Luồng kịch bản —</option>
               <option v-for="s in sequenceOptions" :key="s.value" :value="s.value">{{ s.title }}</option>
             </select>
             <p v-if="sequenceOptions.length === 0" class="at-caption form-hint">
-              Chưa có sequence enabled. Tạo ở tab Kịch bản chăm sóc trước.
+              Chưa có Luồng kịch bản enabled. Tạo ở tab Luồng kịch bản trước.
             </p>
           </div>
           <div v-if="draft.bindingKind === 'block'" class="form-field">
-            <label class="form-label">Block sẽ chạy</label>
+            <label class="form-label">Khối sẽ chạy</label>
             <select v-model="draft.blockId" class="at-input">
-              <option :value="null">— Chọn block —</option>
+              <option :value="null">— Chọn Khối —</option>
               <option v-for="b in blockOptions" :key="b.value" :value="b.value">{{ b.title }}</option>
             </select>
           </div>

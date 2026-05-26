@@ -161,21 +161,29 @@ const routes = [
     component: () => import('@/views/AutomationView.vue'),
     meta: { requiresAuth: true },
   },
-  // Phase 7 — Bot-Auto framework (Block / Sequence / Trigger / Broadcast)
+  // Phase 7 — Marketing framework (Khối / Luồng kịch bản / Mục tiêu / Broadcast)
   {
-    path: '/automation/bot',
+    path: '/marketing',
     component: () => import('@/views/automation/BotAutoShell.vue'),
     meta: { requiresAuth: true },
-    redirect: '/automation/bot/triggers',
+    redirect: '/marketing/triggers',
     children: [
-      { path: 'triggers',   name: 'BotAuto.Triggers',   component: () => import('@/views/automation/TriggersView.vue') },
-      { path: 'blocks',     name: 'BotAuto.Blocks',     component: () => import('@/views/automation/BlocksView.vue') },
-      { path: 'sequences',  name: 'BotAuto.Sequences',  component: () => import('@/views/automation/SequencesView.vue') },
-      { path: 'broadcasts', name: 'BotAuto.Broadcasts', component: () => import('@/views/automation/BroadcastsView.vue') },
-      { path: 'lists',      name: 'BotAuto.Lists',      component: () => import('@/views/automation/ListsView.vue') },
-      { path: 'lists/:id',  name: 'BotAuto.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
+      { path: 'triggers',   name: 'Marketing.Triggers',   component: () => import('@/views/automation/TriggersView.vue') },
+      { path: 'blocks',     name: 'Marketing.Blocks',     component: () => import('@/views/automation/BlocksView.vue') },
+      { path: 'sequences',  name: 'Marketing.Sequences',  component: () => import('@/views/automation/SequencesView.vue') },
+      { path: 'broadcasts', name: 'Marketing.Broadcasts', component: () => import('@/views/automation/BroadcastsView.vue') },
+      { path: 'lists',      name: 'Marketing.Lists',      component: () => import('@/views/automation/ListsView.vue') },
+      { path: 'lists/:id',  name: 'Marketing.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
     ],
   },
+  // Backward compat redirect — URL /automation/bot/* cũ vẫn hoạt động
+  { path: '/automation/bot',              redirect: '/marketing/triggers' },
+  { path: '/automation/bot/triggers',     redirect: '/marketing/triggers' },
+  { path: '/automation/bot/blocks',       redirect: '/marketing/blocks' },
+  { path: '/automation/bot/sequences',    redirect: '/marketing/sequences' },
+  { path: '/automation/bot/broadcasts',   redirect: '/marketing/broadcasts' },
+  { path: '/automation/bot/lists',        redirect: '/marketing/lists' },
+  { path: '/automation/bot/lists/:id',    redirect: (to) => `/marketing/lists/${to.params.id}` },
   {
     path: '/groups',
     name: 'Groups',

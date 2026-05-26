@@ -34,7 +34,7 @@
           <span class="ic">{{ tab.icon }}</span>{{ tab.label }}
         </RouterLink>
 
-        <!-- Legacy automation dropdown (kept for backward compat — Phase 7 Bot-Auto
+        <!-- Legacy automation dropdown (kept for backward compat — Phase 7 Marketing
              is now a top-level primary tab via primaryTabs array above) -->
         <v-menu open-on-hover>
           <template #activator="{ props: act }">
@@ -201,7 +201,7 @@ interface NavTab {
 }
 
 // Excel-driven menu (cấp 1) — Automation/Cài đặt được render riêng với dropdown.
-// Bot-Auto (Phase 7) là tab top-level riêng (giống smax.ai), tách hẳn khỏi
+// Marketing (Phase 7) là tab top-level riêng (giống smax.ai), tách hẳn khỏi
 // legacy Automation dropdown để user không bị nhầm 2 hệ thống.
 const primaryTabs: NavTab[] = [
   { path: '/',                       label: 'Dashboard',   icon: '🏠', matchPrefix: '/$' },
@@ -210,7 +210,7 @@ const primaryTabs: NavTab[] = [
   { path: '/contacts',               label: 'Khách hàng',  icon: '🧑' },
   { path: '/leads/stuck',            label: 'KH đình trệ', icon: '🚨' },
   { path: '/appointments',           label: 'Lịch hẹn',    icon: '📅' },
-  { path: '/automation/bot/triggers', label: 'Bot-Auto',   icon: '🤖', matchPrefix: '/automation/bot' },
+  { path: '/marketing/triggers',     label: 'Marketing',   icon: '📣', matchPrefix: '/marketing' },
   { path: '/analytics',              label: 'Phân tích',   icon: '📈' },
   { path: '/reports',                label: 'Báo cáo',     icon: '📊' },
 ];
@@ -226,9 +226,9 @@ const isSettingsActive = computed(() =>
   route.path === '/settings' || route.path.startsWith('/settings/'),
 );
 // Highlight legacy Automation dropdown ONLY when on /automation (exact) — do NOT
-// activate when on /automation/bot/* (that's the top-level Bot-Auto tab).
+// activate when on /marketing/* (that's the top-level Marketing tab).
 const isLegacyAutomationActive = computed(
-  () => route.path === '/automation' || (route.path.startsWith('/automation') && !route.path.startsWith('/automation/bot')),
+  () => route.path === '/automation' || (route.path.startsWith('/automation') && !route.path.startsWith('/marketing')),
 );
 
 // Workspace — placeholder single-tenant cho Phase 1

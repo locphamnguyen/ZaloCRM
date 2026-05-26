@@ -2,14 +2,14 @@
   <div class="sequences-view">
     <header class="at-page-header">
       <div>
-        <h1 class="at-page-title">Kịch bản chăm sóc</h1>
+        <h1 class="at-page-title">Luồng kịch bản</h1>
         <p class="at-page-subtitle">
-          Sequence ghép nhiều block thành chuỗi có delay. Mỗi KH được "enroll" sẽ trải qua từng bước theo thời gian.
+          Luồng kịch bản ghép nhiều Khối thành chuỗi có delay. Mỗi KH được "enroll" sẽ trải qua từng bước theo thời gian.
         </p>
       </div>
       <button class="at-btn at-btn--primary" @click="createNew">
         <v-icon size="18">mdi-plus</v-icon>
-        Sequence mới
+        Luồng mới
       </button>
     </header>
 
@@ -58,7 +58,7 @@
         <div v-if="!editing" class="seq-empty">
           <v-icon size="80" color="grey-lighten-1">mdi-format-list-numbered</v-icon>
           <h3 class="mt-3">Chọn sequence ở sidebar</h3>
-          <p class="text-body-2 text-medium-emphasis">hoặc bấm <strong>Sequence mới</strong> để tạo</p>
+          <p class="text-body-2 text-medium-emphasis">hoặc bấm <strong>Luồng mới</strong> để tạo</p>
         </div>
 
         <div v-else>

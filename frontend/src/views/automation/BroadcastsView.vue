@@ -2,10 +2,10 @@
   <div class="broadcasts-view">
     <header class="at-page-header">
       <div>
-        <h1 class="at-page-title">Broadcast &amp; Re-marketing</h1>
+        <h1 class="at-page-title">Broadcast</h1>
         <p class="at-page-subtitle">
           Mass send qua Zalo cá nhân với pacing per-nick (cap, hour range, throttle).
-          Mỗi broadcast = 1 block tin nhắn + 1 segment + lịch chạy.
+          Mỗi Broadcast = 1 Khối tin nhắn + 1 segment + lịch chạy.
         </p>
       </div>
       <button class="at-btn at-btn--primary" @click="openCreate">
@@ -131,13 +131,13 @@
           </div>
 
           <div class="form-field">
-            <label class="form-label">Block tin nhắn (send_message)</label>
+            <label class="form-label">Khối tin nhắn (send_message)</label>
             <select v-model="draft.blockId" class="at-input">
-              <option :value="''">— Chọn block —</option>
+              <option :value="''">— Chọn Khối —</option>
               <option v-for="b in sendMessageBlocks" :key="b.id" :value="b.id">{{ b.name }}</option>
             </select>
             <p v-if="sendMessageBlocks.length === 0" class="at-caption form-hint">
-              Chưa có block send_message. Tạo ở tab "Thư viện block" trước.
+              Chưa có Khối send_message. Tạo ở tab "Khối" trước.
             </p>
           </div>
 

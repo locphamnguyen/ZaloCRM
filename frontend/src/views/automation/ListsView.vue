@@ -226,12 +226,12 @@ function debouncedFetch() {
 }
 
 function goToDetail(id: string) {
-  router.push(`/automation/bot/lists/${id}`);
+  router.push(`/marketing/lists/${id}`);
 }
 
 function onCreated(payload: { id: string }) {
   // Navigate to detail of newly created list
-  router.push(`/automation/bot/lists/${payload.id}`);
+  router.push(`/marketing/lists/${payload.id}`);
 }
 
 async function onArchive(id: string) {

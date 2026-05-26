@@ -2,7 +2,7 @@
   <div class="list-detail-view">
     <!-- Breadcrumb -->
     <div class="breadcrumb">
-      <a @click="$router.push('/automation/bot/lists')">
+      <a @click="$router.push('/marketing/lists')">
         <v-icon size="14">mdi-folder-account-outline</v-icon> Tệp khách hàng
       </a>
       <span class="sep">›</span>
@@ -563,7 +563,7 @@ async function onBulk(action: 'skip' | 'keep_both' | 'delete') {
 async function onArchive() {
   if (!confirm('Lưu trữ tệp này?')) return;
   await archiveList(listId.value);
-  router.push('/automation/bot/lists');
+  router.push('/marketing/lists');
 }
 
 async function onUnarchive() {
@@ -585,7 +585,7 @@ async function onRescan() {
 async function onDelete() {
   if (!confirm('Xoá vĩnh viễn tệp này? Contact đã được tạo sẽ KHÔNG bị xoá.')) return;
   await deleteList(listId.value);
-  router.push('/automation/bot/lists');
+  router.push('/marketing/lists');
 }
 
 // ───────── Inline edit: title ─────────

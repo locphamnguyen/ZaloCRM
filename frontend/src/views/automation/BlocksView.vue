@@ -2,15 +2,15 @@
   <div class="blocks-view">
     <header class="at-page-header">
       <div>
-        <h1 class="at-page-title">Thư viện block</h1>
+        <h1 class="at-page-title">Khối</h1>
         <p class="at-page-subtitle">
-          Block là đơn vị action nhỏ nhất (gửi tin, kết bạn, đổi status...).
-          Tạo 1 lần, tái sử dụng trong nhiều Sequence và Broadcast.
+          Khối là đơn vị action nhỏ nhất (gửi tin, kết bạn, đổi status...).
+          Tạo 1 lần, tái sử dụng trong nhiều Luồng kịch bản và Broadcast.
         </p>
       </div>
       <button class="at-btn at-btn--primary" @click="openCreate">
         <v-icon size="18">mdi-plus</v-icon>
-        Tạo Block
+        Tạo Khối
       </button>
     </header>
 
@@ -88,7 +88,7 @@
           </p>
           <button v-if="!showArchived" class="at-btn at-btn--primary" @click="openCreate">
             <v-icon size="18">mdi-plus</v-icon>
-            Tạo block đầu tiên
+            Tạo Khối đầu tiên
           </button>
         </div>
 
