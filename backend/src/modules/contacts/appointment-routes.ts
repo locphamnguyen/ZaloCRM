@@ -8,6 +8,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
+import { getContactScope, assertContactVisible } from './contact-scope.js';
 
 type QueryParams = Record<string, string>;
 
@@ -42,8 +43,14 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0);
       const end = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
 
+      // Phase Contact Scope Hybrid 2026-05-27: filter theo KH visible
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      const whereToday: any = { orgId: user.orgId, appointmentDate: { gte: start, lte: end } };
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        whereToday.contactId = { in: cScope.accessibleContactIds };
+      }
       const appointments = await prisma.appointment.findMany({
-        where: { orgId: user.orgId, appointmentDate: { gte: start, lte: end } },
+        where: whereToday,
         include: APPOINTMENT_INCLUDE,
         orderBy: [{ appointmentTime: 'asc' }, { appointmentDate: 'asc' }],
       });
@@ -63,12 +70,18 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       const in7Days = new Date(now);
       in7Days.setDate(in7Days.getDate() + 7);
 
+      // Phase Contact Scope Hybrid 2026-05-27
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      const whereUpcoming: any = {
+        orgId: user.orgId,
+        appointmentDate: { gte: now, lte: in7Days },
+        status: 'scheduled',
+      };
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        whereUpcoming.contactId = { in: cScope.accessibleContactIds };
+      }
       const appointments = await prisma.appointment.findMany({
-        where: {
-          orgId: user.orgId,
-          appointmentDate: { gte: now, lte: in7Days },
-          status: 'scheduled',
-        },
+        where: whereUpcoming,
         include: APPOINTMENT_INCLUDE,
         orderBy: [{ appointmentDate: 'asc' }, { appointmentTime: 'asc' }],
       });
@@ -99,6 +112,18 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       if (status) where.status = status;
       if (contactId) where.contactId = contactId;
       if (source && source !== 'all') where.source = source;
+      // Phase Contact Scope Hybrid 2026-05-27
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        // Intersect với contactId filter nếu đã có
+        if (where.contactId) {
+          if (!cScope.accessibleContactIds.includes(where.contactId)) {
+            return reply.status(404).send({ error: 'Contact not found' });
+          }
+        } else {
+          where.contactId = { in: cScope.accessibleContactIds };
+        }
+      }
       if (dateFrom || dateTo) {
         where.appointmentDate = {};
         if (dateFrom) where.appointmentDate.gte = new Date(dateFrom);
@@ -166,6 +191,13 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       });
 
       if (!appointment) return reply.status(404).send({ error: 'Appointment not found' });
+      // Phase Contact Scope Hybrid 2026-05-27
+      if (appointment.contactId) {
+        const visible = await assertContactVisible({
+          userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: appointment.contactId,
+        });
+        if (!visible) return reply.status(404).send({ error: 'Appointment not found' });
+      }
       return appointment;
     } catch (err) {
       logger.error('[appointments] Detail error:', err);

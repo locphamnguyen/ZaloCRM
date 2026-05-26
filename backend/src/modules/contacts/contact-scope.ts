@@ -1,0 +1,169 @@
+/**
+ * contact-scope.ts — quyết định user được thấy KH (Contact) nào.
+ *
+ * Phase Contact Scope Hybrid 2026-05-27. Mirror cấu trúc zalo-scope.ts.
+ *
+ * Quy tắc (anh chốt 2026-05-27):
+ *   - role='owner'/'admin' (Chủ tổ chức / quản trị) → MỌI Contact trong org (full view, không scope)
+ *   - Trưởng phòng / Phó phòng của dept X → MỌI Contact có ContactAccess.userId thuộc dept X
+ *     + tất cả dept con (cascade theo dept tree materialized path)
+ *   - Member thường (Sale) → CHỈ Contact mà user là primary owner HOẶC collaborator
+ *     trong bảng ContactAccess. Collaborator auto-tạo khi sale có Friend row qua nick mình
+ *     (hook applyFriendAggregate / handshake).
+ *
+ * Output: `accessibleContactIds` để inject vào Prisma `where: { id: { in: ... } }`.
+ * Lưu ý: org-admin trả `isOrgAdmin=true` + `accessibleContactIds=null` (caller bỏ filter).
+ */
+import { prisma } from '../../shared/database/prisma-client.js';
+
+export interface ContactScope {
+  /** True nếu user có quyền view toàn org (skip filter) */
+  isOrgAdmin: boolean;
+  /** Set userIds mà KH gán cho họ user này được thấy (chính mình + dept-subtree members nếu leader) */
+  visibleUserIds: Set<string>;
+  /**
+   * accessibleContactIds:
+   *   - null nếu isOrgAdmin = true (skip filter, see all org)
+   *   - array of contact IDs nếu user là sale/manager (apply via `where: { id: { in: ids } }`)
+   */
+  accessibleContactIds: string[] | null;
+  /** Set contactIds mà user là primary owner — dùng để badge "Phụ trách chính" */
+  primaryContactIds: Set<string>;
+}
+
+/**
+ * Compute contact scope cho user. Sử dụng trong moi route trả về Contact data.
+ */
+export async function getContactScope(
+  userId: string,
+  orgId: string,
+  legacyRole: string,
+): Promise<ContactScope> {
+  const isOrgAdmin = legacyRole === 'owner' || legacyRole === 'admin';
+
+  // Org admin → skip filter, see all
+  if (isOrgAdmin) {
+    return {
+      isOrgAdmin: true,
+      visibleUserIds: new Set<string>(),
+      accessibleContactIds: null,
+      primaryContactIds: new Set<string>(),
+    };
+  }
+
+  // Load user dept-membership (replicate logic zalo-scope.ts)
+  const me = await prisma.user.findFirst({
+    where: { id: userId, orgId },
+    select: {
+      id: true,
+      departmentMember: {
+        select: {
+          deptRole: true,
+          departmentId: true,
+          department: { select: { id: true, path: true } },
+        },
+      },
+    },
+  });
+
+  // Build visibleUserIds: self + (if leader/deputy) all members of dept subtree
+  const visibleUserIds = new Set<string>([userId]);
+  if (
+    me?.departmentMember &&
+    (me.departmentMember.deptRole === 'leader' || me.departmentMember.deptRole === 'deputy')
+  ) {
+    const myDept = me.departmentMember.department;
+    const subtreeDepts = await prisma.department.findMany({
+      where: { orgId, path: { startsWith: myDept.path } },
+      select: { id: true },
+    });
+    const subtreeDeptIds = subtreeDepts.map((d) => d.id);
+    const subtreeMembers = await prisma.departmentMember.findMany({
+      where: { departmentId: { in: subtreeDeptIds } },
+      select: { userId: true },
+    });
+    for (const m of subtreeMembers) visibleUserIds.add(m.userId);
+  }
+
+  // Resolve accessibleContactIds via ContactAccess for any user in visibleUserIds.
+  // Manager → union của primary+collaborator của mọi sale dưới nhánh.
+  // Sale → chỉ mình → union primary+collaborator của chính mình.
+  const accessRows = await prisma.contactAccess.findMany({
+    where: { orgId, userId: { in: Array.from(visibleUserIds) } },
+    select: { contactId: true, userId: true, role: true },
+  });
+
+  const accessibleContactIds = Array.from(new Set(accessRows.map((r) => r.contactId)));
+  const primaryContactIds = new Set(
+    accessRows.filter((r) => r.userId === userId && r.role === 'primary').map((r) => r.contactId),
+  );
+
+  return {
+    isOrgAdmin: false,
+    visibleUserIds,
+    accessibleContactIds,
+    primaryContactIds,
+  };
+}
+
+/**
+ * Quick gate cho route detail/sub-resource: user có quyền access Contact này không?
+ * Throws/returns false nếu không. Dùng đầu mỗi handler `GET /contacts/:id/*`.
+ */
+export async function assertContactVisible(args: {
+  userId: string;
+  orgId: string;
+  legacyRole: string;
+  contactId: string;
+}): Promise<boolean> {
+  if (args.legacyRole === 'owner' || args.legacyRole === 'admin') return true;
+  // Cheap path: 1 query check ContactAccess. Manager cascade qua getContactScope path.
+  const direct = await prisma.contactAccess.findUnique({
+    where: { contactId_userId: { contactId: args.contactId, userId: args.userId } },
+    select: { id: true },
+  });
+  if (direct) return true;
+
+  // Cascade path: nếu là leader/deputy thì check Contact thuộc subordinate
+  const scope = await getContactScope(args.userId, args.orgId, args.legacyRole);
+  if (scope.accessibleContactIds === null) return true; // shouldn't happen given above branch
+  return scope.accessibleContactIds.includes(args.contactId);
+}
+
+/**
+ * Auto-share hook: khi Friend row tạo mới (handshake hoặc applyFriendAggregate first-message)
+ * → upsert ContactAccess role=collaborator cho owner của ZaloAccount đó.
+ *
+ * Idempotent qua unique (contactId, userId). KHÔNG override role=primary nếu đã có
+ * (sale primary chăm nick chính giữ primary; nick phụ chỉ là collaborator).
+ *
+ * Best-effort: nuốt error để không block message flow.
+ */
+export async function ensureContactCollaborator(args: {
+  orgId: string;
+  contactId: string;
+  zaloAccountId: string;
+}): Promise<void> {
+  try {
+    const account = await prisma.zaloAccount.findUnique({
+      where: { id: args.zaloAccountId },
+      select: { ownerUserId: true, orgId: true },
+    });
+    if (!account?.ownerUserId) return;
+    if (account.orgId !== args.orgId) return;
+
+    await prisma.contactAccess.upsert({
+      where: { contactId_userId: { contactId: args.contactId, userId: account.ownerUserId } },
+      update: {}, // no-op nếu đã có (giữ role primary nếu đang là primary)
+      create: {
+        orgId: args.orgId,
+        contactId: args.contactId,
+        userId: account.ownerUserId,
+        role: 'collaborator',
+        source: 'auto_from_friend',
+      },
+    });
+  } catch {
+    // best-effort, nuốt lỗi
+  }
+}

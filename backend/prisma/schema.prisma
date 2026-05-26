@@ -20,6 +20,7 @@ model Organization {
   users                User[]
   zaloAccounts         ZaloAccount[]
   contacts             Contact[]
+  contactAccess        ContactAccess[]
   conversations        Conversation[]
   appointments         Appointment[]
   activityLogs         ActivityLog[]
@@ -72,6 +73,19 @@ model Organization {
   systemNotifyNick          ZaloAccount? @relation("OrgSystemNotify", fields: [systemNotifyZaloAccountId], references: [id], onDelete: SetNull)
   systemNotifyRecipients    SystemNotifyRecipient[]
   systemNotifications       SystemNotification[]
+
+  // Phase user-create-with-zalo 2026-05-27 — config dùng cho welcome message tự động
+  // khi admin tạo sale mới. Admin sửa toàn bộ template trong UI Thông báo hệ thống,
+  // BE substitute placeholder {{fullName}}/{{phone}}/{{password}}/... lúc gửi.
+  // Ảnh upload 1 lần, dùng cho mọi tin login. SĐT admin fallback nhận credentials
+  // khi tin gửi sale fail (để admin chuyển thủ công).
+  welcomeMessageTemplate String? @map("welcome_message_template") @db.Text
+  welcomeImageUrl        String? @map("welcome_image_url")
+  adminFallbackPhone     String? @map("admin_fallback_phone")
+
+  // Phase Lead Pool 2026-05-24 — reverse relations
+  leadRequests   LeadRequest[]
+  leadPoolConfig LeadPoolConfig?
 
   @@map("organizations")
 }
@@ -148,6 +162,7 @@ model User {
   zaloAccounts              ZaloAccount[]
   zaloAccess                ZaloAccountAccess[]
   assignedContacts          Contact[]           @relation("AssignedContacts")
+  contactAccess             ContactAccess[]
   appointments              Appointment[]
   statusChangedAppointments Appointment[]       @relation("AppointmentStatusChanger")
   repliedMessages           Message[]           @relation("RepliedMessages")
@@ -170,6 +185,8 @@ model User {
   phoneSearchEvents         PhoneSearchEvent[]
   systemNotifyRecipients    SystemNotifyRecipient[]
   systemNotifications       SystemNotification[]
+  // Phase Lead Pool 2026-05-24
+  leadRequests              LeadRequest[]
 
   @@map("users")
 }
@@ -384,9 +401,16 @@ model Contact {
   appointments      Appointment[]
   attempts          FriendshipAttempt[]
   friends           Friend[]
+  // Phase Contact Scope Hybrid 2026-05-27 — collaborator share (primary + collaborator).
+  // 1 Contact có thể có nhiều User cùng truy cập (1 primary + N collaborator) khi cả
+  // 2 sale dùng nick riêng cùng chăm 1 KH. Visibility helper getContactScope() dùng
+  // bảng này thay vì chỉ assignedUserId.
+  contactAccess     ContactAccess[]
   contactNotes      Note[]
   // Phase 7 — Automation framework
   automationTasks   AutomationTask[]
+  // Phase Lead Pool 2026-05-24
+  leadRequests      LeadRequest[]
 
   // Per-Contact counters (cache from Friend rows; updated by friend-aggregate hooks)
   acceptedNicksCount Int @default(0) @map("accepted_nicks_count")
@@ -632,6 +656,9 @@ model SystemNotifyRecipient {
   internalContactNick ZaloAccount? @relation("SystemNotifyInternalContact", fields: [internalContactZaloAccountId], references: [id], onDelete: SetNull)
 
   @@unique([targetUserId, senderZaloAccountId])
+  // FIX codex review HIGH-1 2026-05-27: chống race khi 2 admin map cùng UID cho 2 user khác nhau.
+  // Postgres cho phép multiple NULL trong unique → recipient chưa setup (thread null) không bị block.
+  @@unique([senderZaloAccountId, threadIdInSenderView])
   @@index([orgId, status])
   @@index([senderZaloAccountId, status])
   @@map("system_notify_recipients")
@@ -1223,6 +1250,18 @@ model Friend {
   totalInbound      Int       @default(0) @map("total_inbound")
   totalOutbound     Int       @default(0) @map("total_outbound")
 
+  // Phase Contact Scope Hybrid 2026-05-27 — per-pair preview cho list KH render
+  // theo "view của riêng nick này". Khi sale list /contacts, helper getContactScope
+  // chọn preview của Friend row visible thay vì Contact.last*Preview aggregate global.
+  // → Sale A thấy preview qua nick A1, Sale B thấy preview qua nick B1; không leak
+  // chat của sale khác. Contact.last*Preview giữ làm cache cho admin/owner.
+  lastInboundPreview    String? @map("last_inbound_preview")
+  lastInboundType       String? @map("last_inbound_type")
+  lastInboundMessageId  String? @map("last_inbound_message_id")
+  lastOutboundPreview   String? @map("last_outbound_preview")
+  lastOutboundType      String? @map("last_outbound_type")
+  lastOutboundMessageId String? @map("last_outbound_message_id")
+
   // ── Per-pair CRM state (mỗi nick chăm có status + score RIÊNG) ────────
   // Contact (KH Cha) aggregate: displayStatus = MAX(friends.statusRef.order),
   // displayLeadScore = MAX(friends.leadScore), displayHasZalo = friends.length > 0.
@@ -1271,6 +1310,35 @@ model Friend {
   @@index([orgId, stuckSince])
   @@index([orgId, leadScore(sort: Desc)])
   @@map("friends")
+}
+
+// Phase Contact Scope Hybrid 2026-05-27 — collaborator share table.
+// Một KH (Contact) có thể được nhiều sale cùng chăm qua nhiều nick. Field
+// Contact.assignedUserId chỉ giữ "primary owner" duy nhất, KHÔNG đủ để cover
+// case 2-sale-cùng-chăm. ContactAccess bổ sung: mỗi cặp (Contact × User) 1 row,
+// role={primary|collaborator}, source={manual|auto_from_friend|auto_from_assignment}.
+//
+// Helper getContactScope(userId) đọc bảng này để compute visibleContactIds.
+// Auto-share hook: khi Friend row tạo mới (handshake hoặc applyFriendAggregate
+// first-message) → upsert ContactAccess role=collaborator, source=auto_from_friend.
+model ContactAccess {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  contactId String   @map("contact_id")
+  userId    String   @map("user_id")
+  role      String   @default("collaborator")
+  source    String   @default("manual")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, userId])
+  @@index([orgId, userId])
+  @@index([orgId, contactId])
+  @@map("contact_access")
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1931,6 +1999,11 @@ model CustomerList {
   endedAt    DateTime? @map("ended_at")
   archivedAt DateTime? @map("archived_at")
 
+  // Phase Lead Pool 2026-05-24 — admin tick để mở list cho sale tự nhận lead.
+  // Default false (admin chủ động share). Khi true, các entry validated trong list này
+  // vào pool /lead-pool/request với source='customer_list'.
+  shareableToPool Boolean @default(false) @map("shareable_to_pool")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2109,4 +2182,63 @@ model UserPrivacySession {
   @@index([sessionToken])
   @@index([userId, expiresAt])
   @@map("user_privacy_sessions")
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Phase Lead Pool 2026-05-24 — Nhận Lead feature
+// Sale rảnh → 1 click nhận lead bị bỏ rơi (forgotten Contact + CustomerList).
+// Force note để xin lead tiếp. Spec đầy đủ: docs/DESIGN-LEAD-POOL.md
+// ════════════════════════════════════════════════════════════════════════
+
+model LeadRequest {
+  id                  String    @id @default(uuid())
+  orgId               String    @map("org_id")
+  requestedByUserId   String    @map("requested_by_user_id")
+  contactId           String    @map("contact_id")
+  // 'forgotten' | 'customer_list' | 'external_sync'
+  source              String
+  priorityScore       Int       @map("priority_score")
+  // Sale phải submit note ≥ noteMinLength để unlock xin lead tiếp.
+  noteContent         String?   @map("note_content") @db.Text
+  noteSubmittedAt     DateTime? @map("note_submitted_at")
+  // Auto-return về pool nếu quá hạn không note
+  expiresAt           DateTime  @map("expires_at")
+  autoReturnedAt      DateTime? @map("auto_returned_at")
+  // 'completed' | 'auto_return' | 'manual_return' | null (still active)
+  releaseReason       String?   @map("release_reason")
+  // Rollback target khi trả pool
+  previousAssigneeId  String?   @map("previous_assignee_id")
+  requestedAt         DateTime  @default(now()) @map("requested_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [requestedByUserId], references: [id])
+  contact Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, requestedByUserId, requestedAt(sort: Desc)])
+  @@index([contactId, requestedAt(sort: Desc)])
+  @@index([requestedByUserId, noteSubmittedAt])
+  @@index([expiresAt, autoReturnedAt])
+  @@map("lead_requests")
+}
+
+model LeadPoolConfig {
+  id                      String  @id @default(uuid())
+  orgId                   String  @unique @map("org_id")
+  enabled                 Boolean @default(true)
+  maxRequestsPerDay       Int     @default(10) @map("max_requests_per_day")
+  cooldownMinutes         Int     @default(15) @map("cooldown_minutes")
+  forgottenThresholdDays  Int     @default(30) @map("forgotten_threshold_days")
+  // JSON array of status keys to EXCLUDE from pool (sale đang chăm tốt)
+  excludedStatuses        Json    @default("[\"hot\",\"potential\",\"won\"]") @map("excluded_statuses")
+  autoReturnAfterDays     Int     @default(7) @map("auto_return_after_days")
+  forceNoteBeforeNext     Boolean @default(true) @map("force_note_before_next")
+  // JSON array: 'forgotten' | 'customer_list' | 'external_sync'
+  enabledSources          Json    @default("[\"forgotten\",\"customer_list\"]") @map("enabled_sources")
+  noteMinLength           Int     @default(20) @map("note_min_length")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@map("lead_pool_configs")
 }

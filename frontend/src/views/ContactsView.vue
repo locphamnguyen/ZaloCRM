@@ -268,7 +268,22 @@
                   </span>
                 </div>
               </td>
-              <td>{{ contact.assignedUser?.fullName || '—' }}</td>
+              <td>
+                <div class="assigned-cell">
+                  <span>{{ contact.assignedUser?.fullName || '—' }}</span>
+                  <!-- Phase Contact Scope Hybrid 2026-05-27 — badge collaborator -->
+                  <span
+                    v-if="contact.viewerRole === 'primary'"
+                    class="role-badge role-primary"
+                    title="Bạn là người chịu trách nhiệm chính chăm khách hàng này"
+                  >👤 Phụ trách</span>
+                  <span
+                    v-else-if="contact.viewerRole === 'collaborator'"
+                    class="role-badge role-collab"
+                    title="Bạn cùng chăm KH này qua nick của bạn (đồng đội với sale khác)"
+                  >🤝 Cùng chăm</span>
+                </div>
+              </td>
               <td>
                 <template v-if="contact.lastInboundAt">
                   <div class="cell-strong">{{ formatRecentDateTime(contact.lastInboundAt) }}</div>
@@ -1626,4 +1641,22 @@ onMounted(() => {
   font-size: 13px; color: var(--smax-grey-700);
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Phase Contact Scope Hybrid 2026-05-27 — collaborator badge */
+.assigned-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+}
+.role-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.role-primary { background: #EEF0FF; color: #4F46E5; }
+.role-collab  { background: #FEF3C7; color: #92400E; }
 </style>

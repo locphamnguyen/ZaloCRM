@@ -13,7 +13,9 @@ import { backfillGlobalId, backfillOrphanFriends } from './backfill-global-id.js
 import { backfillMissingFriends } from './backfill-missing-friends.js';
 import { backfillFriendDisplayName } from './backfill-friend-display-name.js';
 import { migrateStatusTable } from './status-migration.js';
-import { computeAggregateDisplay, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
+import { computeAggregateDisplay, computeViewerPreview, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
+import { getContactScope, assertContactVisible } from './contact-scope.js';
+import { getZaloScope } from '../zalo/zalo-scope.js';
 import { runAutomationRules } from '../automation/automation-service.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
@@ -47,6 +49,12 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       } = request.query as QueryParams;
 
       const where: any = { orgId: user.orgId, mergedInto: null };
+      // Phase Contact Scope Hybrid 2026-05-27: filter theo ContactAccess (primary + collaborator).
+      // Sale chỉ thấy KH mình primary/collab; manager thấy KH của subordinate; admin/owner thấy all.
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        where.id = { in: cScope.accessibleContactIds };
+      }
       // Model B: mỗi Contact tự nó là "KH Cha"; con = Friend rows. KHÔNG filter parentContactId.
       if (source) where.source = source;
       if (status) where.status = status;
@@ -128,6 +136,13 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         prisma.contact.count({ where }),
       ]);
 
+      // Phase Contact Scope Hybrid 2026-05-27: per-viewer preview + aggregate.
+      // Sale chỉ thấy preview/score/status từ Friend rows của nick mình; admin/owner giữ aggregate global.
+      const zScope = cScope.isOrgAdmin
+        ? null
+        : await getZaloScope(user.id, user.orgId, user.role);
+      const visibleZaloIds: Set<string> | null = zScope ? new Set(zScope.accessibleIds) : null;
+
       // Aggregate + multiNick post-filter (childrenCount requires friends count after load)
       const multiNickOnly = multiNick === 'true';
       const enriched = contacts
@@ -136,8 +151,21 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           for (const f of c.friends ?? []) {
             nicksByKind[f.relationshipKind] = (nicksByKind[f.relationshipKind] || 0) + 1;
           }
-          const display = computeAggregateDisplay(c);
-          return { ...c, nicksByKind, ...display };
+          // Per-viewer: filter friends visible cho viewer cho aggregate display.
+          const visibleFriends = visibleZaloIds
+            ? (c.friends ?? []).filter((f: any) => visibleZaloIds.has(f.zaloAccountId))
+            : undefined;
+          const display = computeAggregateDisplay(c, visibleFriends as any);
+          const preview = computeViewerPreview(c as any, visibleZaloIds);
+          const isPrimary = cScope.primaryContactIds.has(c.id);
+          return {
+            ...c,
+            ...(preview ?? {}),
+            nicksByKind,
+            ...display,
+            // Phase Contact Scope Hybrid: badge UI render — "Phụ trách chính" vs "Đồng đội cùng chăm"
+            viewerRole: cScope.isOrgAdmin ? 'admin' : (isPrimary ? 'primary' : 'collaborator'),
+          };
         })
         .filter((c) => !multiNickOnly || (c.childrenCount ?? 0) > 1);
 
@@ -154,7 +182,12 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/contacts/stats', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
-      const base = { orgId: user.orgId, mergedInto: null };
+      // Phase Contact Scope Hybrid 2026-05-27: stats theo scope của viewer
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      const base: any = { orgId: user.orgId, mergedInto: null };
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        base.id = { in: cScope.accessibleContactIds };
+      }
       const now = new Date();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000);
@@ -218,10 +251,16 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     try {
       const user = request.user!;
       const orgId = user.orgId;
+      // Phase Contact Scope Hybrid 2026-05-27
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      const scopeWhere: any = { orgId, status: { not: null }, mergedInto: null };
+      if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+        scopeWhere.id = { in: cScope.accessibleContactIds };
+      }
 
       const pipeline = await prisma.contact.groupBy({
         by: ['status'],
-        where: { orgId, status: { not: null }, mergedInto: null },
+        where: scopeWhere,
         _count: true,
       });
 
@@ -232,6 +271,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       await Promise.all(
         statuses.map(async (st) => {
           const where: any = { orgId, status: st ?? null, mergedInto: null };
+          if (!cScope.isOrgAdmin && cScope.accessibleContactIds !== null) {
+            where.id = { in: cScope.accessibleContactIds };
+          }
           const contacts = await prisma.contact.findMany({
             where,
             select: {
@@ -276,6 +318,15 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params as { id: string };
 
+      // Phase Contact Scope Hybrid 2026-05-27: assert access trước khi load detail
+      const visible = await assertContactVisible({
+        userId: user.id,
+        orgId: user.orgId,
+        legacyRole: user.role,
+        contactId: id,
+      });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
+
       const contact = await prisma.contact.findFirst({
         where: { id, orgId: user.orgId },
         include: {
@@ -288,13 +339,25 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       if (!contact) return reply.status(404).send({ error: 'Contact not found' });
 
-      const display = computeAggregateDisplay(contact);
+      // Per-viewer aggregate + preview: sale chỉ thấy data từ Friend rows visible cho mình.
+      const isAdmin = user.role === 'owner' || user.role === 'admin';
+      const zScope = isAdmin ? null : await getZaloScope(user.id, user.orgId, user.role);
+      const visibleZaloIds: Set<string> | null = zScope ? new Set(zScope.accessibleIds) : null;
+      const visibleFriends = visibleZaloIds
+        ? (contact.friends ?? []).filter((f: any) => visibleZaloIds.has(f.zaloAccountId))
+        : undefined;
+      const display = computeAggregateDisplay(contact, visibleFriends as any);
+      const preview = computeViewerPreview(contact as any, visibleZaloIds);
+      const cScope = await getContactScope(user.id, user.orgId, user.role);
+      const viewerRole = cScope.isOrgAdmin
+        ? 'admin'
+        : (cScope.primaryContactIds.has(contact.id) ? 'primary' : 'collaborator');
 
       // Phase Riêng Tư 2026-05-22: blur PII nếu contact có friend row thuộc main-nick non-owned (Q4 lock)
       const { buildPrivacyContext, shouldRedactContactPii, redactContact } = await import('../privacy/redact.js');
       const privacyCtx = await buildPrivacyContext(request);
       const shouldRedact = await shouldRedactContactPii(contact.id, privacyCtx);
-      const merged = { ...contact, ...display };
+      const merged = { ...contact, ...(preview ?? {}), ...display, viewerRole };
       return shouldRedact ? redactContact(merged as any) : merged;
     } catch (err) {
       logger.error('[contacts] Detail error:', err);
@@ -327,6 +390,35 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           metadata: body.metadata ?? {},
         },
       });
+
+      // Phase Contact Scope Hybrid 2026-05-27: nếu set assignedUserId → primary;
+      // creator user → collaborator (nếu chưa primary).
+      if (contact.assignedUserId) {
+        await prisma.contactAccess.upsert({
+          where: { contactId_userId: { contactId: contact.id, userId: contact.assignedUserId } },
+          update: { role: 'primary' },
+          create: {
+            orgId: user.orgId,
+            contactId: contact.id,
+            userId: contact.assignedUserId,
+            role: 'primary',
+            source: 'auto_from_assignment',
+          },
+        });
+      }
+      if (user.id !== contact.assignedUserId) {
+        await prisma.contactAccess.upsert({
+          where: { contactId_userId: { contactId: contact.id, userId: user.id } },
+          update: {},
+          create: {
+            orgId: user.orgId,
+            contactId: contact.id,
+            userId: user.id,
+            role: contact.assignedUserId ? 'collaborator' : 'primary',
+            source: 'manual',
+          },
+        });
+      }
 
       const org = await prisma.organization.findUnique({
         where: { id: user.orgId },

@@ -13,6 +13,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { assertContactVisible } from './contact-scope.js';
 
 type GetflyLinkStatus = {
   linked: boolean;
@@ -36,6 +37,12 @@ export async function cockpitRoutes(app: FastifyInstance): Promise<void> {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
+
+      // Phase Contact Scope Hybrid 2026-05-27: scope gate
+      const visible = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: id,
+      });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
 
       const contact = await prisma.contact.findFirst({
         where: { id, orgId: user.orgId, mergedInto: null },
@@ -172,6 +179,12 @@ export async function cockpitRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params as { id: string };
       const query = request.query as { excludeZaloAccountId?: string };
+
+      // Phase Contact Scope Hybrid 2026-05-27: scope gate
+      const visibleAccess = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: id,
+      });
+      if (!visibleAccess) return reply.status(404).send({ error: 'Contact not found' });
 
       // Tìm contact để xác định "family" (parent + children)
       const contact = await prisma.contact.findFirst({

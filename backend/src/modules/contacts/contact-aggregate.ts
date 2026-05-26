@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { counterDelta, deriveRelationshipKind } from '../zalo/friend-event-handler.js';
 import { logActivity } from '../activity/activity-logger.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
+import { ensureContactCollaborator } from './contact-scope.js';
 
 const PREVIEW_LIMIT = 200;
 
@@ -234,6 +235,9 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
     const { message } = args;
     const sentAt = message.sentAt;
     const isInbound = message.senderType === 'contact';
+    // Phase Contact Scope Hybrid 2026-05-27 — per-pair preview cho list KH render
+    // theo "view của riêng nick này". Reuse logic makePreview() (line 35).
+    const preview = makePreview(message.content, message.contentType);
 
     // Deferred socket emits — collect inside transaction, flush after commit
     // để tránh emit khi rollback. Mỗi entry sẽ thành 1 'friend:updated' socket event.
@@ -302,6 +306,13 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
             lastOutboundAt: !isInbound ? sentAt : null,
             totalInbound:   isInbound  ? 1 : 0,
             totalOutbound: !isInbound ? 1 : 0,
+            // Phase Contact Scope Hybrid 2026-05-27 — preview per-pair từ message đầu tiên
+            lastInboundPreview:    isInbound  ? preview            : null,
+            lastInboundType:       isInbound  ? message.contentType : null,
+            lastInboundMessageId:  isInbound  ? message.id          : null,
+            lastOutboundPreview:   !isInbound ? preview             : null,
+            lastOutboundType:      !isInbound ? message.contentType : null,
+            lastOutboundMessageId: !isInbound ? message.id          : null,
           },
         });
         await tx.contact.update({
@@ -330,6 +341,10 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
       if (isInbound) {
         if (!existing.lastInboundAt || existing.lastInboundAt < sentAt) {
           updates.lastInboundAt = sentAt;
+          // Phase Contact Scope Hybrid 2026-05-27 — per-pair preview set-if-newer
+          updates.lastInboundPreview = preview;
+          updates.lastInboundType = message.contentType;
+          updates.lastInboundMessageId = message.id;
         }
         updates.totalInbound = { increment: 1 };
         // Refresh per-identity Zalo display name + avatar (KH có thể đổi tên).
@@ -342,6 +357,9 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
       } else {
         if (!existing.lastOutboundAt || existing.lastOutboundAt < sentAt) {
           updates.lastOutboundAt = sentAt;
+          updates.lastOutboundPreview = preview;
+          updates.lastOutboundType = message.contentType;
+          updates.lastOutboundMessageId = message.id;
         }
         updates.totalOutbound = { increment: 1 };
       }
@@ -390,6 +408,14 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
           patch: patchForEmit,
         });
       }
+    });
+
+    // Phase Contact Scope Hybrid 2026-05-27 — ensure sale (owner của nick này) là
+    // collaborator của Contact để sale thấy KH trong tab Khách hàng. Best-effort.
+    await ensureContactCollaborator({
+      orgId: conv.orgId,
+      contactId: conv.contactId,
+      zaloAccountId: conv.zaloAccountId,
     });
 
     // Flush deferred socket emits AFTER transaction commit (avoid emitting on rollback)

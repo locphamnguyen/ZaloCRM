@@ -277,6 +277,22 @@ export async function applyFriendTransition(args: {
           where: { id: contactId, assignedUserId: null },
           data: { assignedUserId: nick.ownerUserId },
         });
+        // Phase Contact Scope Hybrid 2026-05-27 — upsert ContactAccess collaborator
+        // (or primary nếu chưa có ContactAccess role=primary). 2 sale có nick riêng
+        // cùng chăm 1 KH → mỗi sale tự thành collaborator qua kết bạn.
+        if (nick.ownerUserId) {
+          await tx.contactAccess.upsert({
+            where: { contactId_userId: { contactId, userId: nick.ownerUserId } },
+            update: {}, // giữ role hiện tại nếu đã có
+            create: {
+              orgId,
+              contactId,
+              userId: nick.ownerUserId,
+              role: 'collaborator',
+              source: 'auto_from_friend',
+            },
+          });
+        }
       }
     }
 

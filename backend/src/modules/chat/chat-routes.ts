@@ -86,14 +86,12 @@ export async function chatRoutes(app: FastifyInstance) {
     if (accountId) baseWhere.zaloAccountId = accountId;
     if (tab) baseWhere.tab = tab;
 
-    // Members can only see conversations from Zalo accounts they have access to
-    if (user.role === 'member') {
-      const accessibleAccounts = await prisma.zaloAccountAccess.findMany({
-        where: { userId: user.id },
-        select: { zaloAccountId: true },
-      });
-      const accessibleIds = accessibleAccounts.map((a) => a.zaloAccountId);
-      // Intersect with user-selected account filter if present
+    // Phase Contact Scope Hybrid 2026-05-27: scope qua getZaloScope (gỡ legacy
+    // 'role===member' bypass — user legacy admin nhưng RBAC group Sale vẫn bị scope).
+    const { getZaloScope } = await import('../zalo/zalo-scope.js');
+    const zScope = await getZaloScope(user.id, user.orgId, user.role);
+    if (!zScope.isOrgAdmin) {
+      const accessibleIds = zScope.accessibleIds;
       if (accountId && accessibleIds.includes(accountId)) {
         baseWhere.zaloAccountId = accountId;
       } else {
@@ -321,14 +319,12 @@ export async function chatRoutes(app: FastifyInstance) {
       if (Object.keys(where.lastMessageAt).length === 0) delete where.lastMessageAt;
     }
 
-    // Members can only see conversations from Zalo accounts they have access to
-    if (user.role === 'member') {
-      const accessibleAccounts = await prisma.zaloAccountAccess.findMany({
-        where: { userId: user.id },
-        select: { zaloAccountId: true },
-      });
-      const accessibleIds = accessibleAccounts.map((a) => a.zaloAccountId);
-      // Intersect requested account list với accessible
+    // Phase Contact Scope Hybrid 2026-05-27: scope qua getZaloScope (gỡ legacy
+    // 'role===member' bypass — user legacy admin nhưng RBAC group Sale vẫn bị scope).
+    const { getZaloScope: _getZScope } = await import('../zalo/zalo-scope.js');
+    const zScope2 = await _getZScope(user.id, user.orgId, user.role);
+    if (!zScope2.isOrgAdmin) {
+      const accessibleIds = zScope2.accessibleIds;
       if (accountIdList.length > 0) {
         const allowed = accountIdList.filter(id => accessibleIds.includes(id));
         where.zaloAccountId = allowed.length === 1 ? allowed[0] : { in: allowed };

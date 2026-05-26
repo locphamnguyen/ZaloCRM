@@ -39,6 +39,125 @@
       <v-alert v-if="senderError" type="error" density="compact" class="mt-3">{{ senderError }}</v-alert>
     </v-card>
 
+    <!-- Org config: welcome template + image + admin fallback phone (Phase user-create-with-zalo 2026-05-27) -->
+    <v-card variant="outlined" class="pa-4 mb-4 notify-card">
+      <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-2">
+        <div>
+          <div class="text-subtitle-1 font-weight-bold">📨 Tin chào mừng khi tạo user mới</div>
+          <div class="text-caption text-medium-emphasis">
+            Khi admin tạo sale mới + check SĐT Zalo OK, hệ thống tự gửi tin login này cho sale. Anh sửa text + ảnh + SĐT admin fallback tuỳ ý.
+          </div>
+        </div>
+        <div class="d-flex ga-2">
+          <v-btn size="small" variant="tonal" @click="showPlaceholders = true">📋 Placeholders</v-btn>
+          <v-btn size="small" variant="tonal" color="primary" :loading="previewLoading" @click="openPreview">👁 Preview</v-btn>
+          <v-btn size="small" variant="text" @click="resetTemplate">↻ Reset mặc định</v-btn>
+        </div>
+      </div>
+
+      <v-textarea
+        v-model="welcomeTemplate"
+        label="Template tin chào mừng (markdown: **bold**, {red}text{/red}, # h1, - bullet, > quote)"
+        variant="outlined"
+        density="comfortable"
+        rows="14"
+        auto-grow
+        hide-details="auto"
+        placeholder="Ô trống = dùng template mặc định em thiết kế"
+        class="mb-3 template-textarea"
+      />
+
+      <div class="d-flex flex-wrap align-start ga-4 mb-2">
+        <div class="welcome-image-block">
+          <div class="text-caption text-medium-emphasis mb-1">Ảnh welcome (gửi kèm tin login)</div>
+          <div class="welcome-image-preview">
+            <img v-if="welcomeImageUrl" :src="welcomeImageUrl" alt="Welcome" />
+            <div v-else class="text-caption text-disabled pa-3">Chưa upload ảnh</div>
+          </div>
+          <input ref="imageFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none" @change="onImagePicked" />
+          <div class="d-flex ga-2 mt-2">
+            <v-btn size="small" variant="tonal" :loading="imageUploading" @click="imageFileInput?.click()">⬆ Chọn ảnh</v-btn>
+            <v-btn v-if="welcomeImageUrl" size="small" variant="text" color="error" @click="clearImage">🗑 Xoá</v-btn>
+          </div>
+        </div>
+
+        <v-text-field
+          v-model="adminFallbackPhone"
+          label="SĐT admin nhận tin lỗi (khi gửi sale fail → admin chuyển thủ công)"
+          variant="outlined"
+          density="comfortable"
+          hide-details="auto"
+          placeholder="VD: 0908278807"
+          class="admin-phone-field"
+        />
+      </div>
+
+      <div class="d-flex justify-end ga-2">
+        <v-btn variant="text" @click="discardOrgConfigChanges">Huỷ</v-btn>
+        <v-btn
+          color="primary"
+          :loading="savingOrgConfig"
+          :disabled="!orgConfigDirty"
+          @click="saveOrgConfig"
+        >
+          Lưu cấu hình
+        </v-btn>
+      </div>
+      <v-alert v-if="orgConfigError" type="error" density="compact" class="mt-2">{{ orgConfigError }}</v-alert>
+      <v-alert v-if="orgConfigSuccess" type="success" density="compact" class="mt-2">{{ orgConfigSuccess }}</v-alert>
+    </v-card>
+
+    <!-- Placeholder helper modal -->
+    <v-dialog v-model="showPlaceholders" max-width="560">
+      <v-card>
+        <v-card-title>📋 Placeholders dùng trong template</v-card-title>
+        <v-card-text>
+          <v-list density="compact">
+            <v-list-item v-for="p in PLACEHOLDER_HELP" :key="p.key">
+              <template #title>
+                <code v-text="placeholderLabel(p.key)"></code>
+              </template>
+              <template #subtitle>{{ p.desc }}</template>
+            </v-list-item>
+          </v-list>
+          <v-divider class="my-2" />
+          <div class="text-caption">
+            Markup: <code>**bold**</code> · <code>*italic*</code> · <code>~~strike~~</code> ·
+            <code>{red|orange|yellow|green}text{/tag}</code> · <code>{big}lớn{/big}</code> ·
+            <code># Tiêu đề</code> · <code>- bullet</code> · <code>&gt; trích dẫn</code>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showPlaceholders = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Preview modal -->
+    <v-dialog v-model="showPreview" max-width="560">
+      <v-card>
+        <v-card-title class="d-flex align-center justify-space-between">
+          <span>👁 Preview tin chào mừng</span>
+          <v-btn-toggle v-model="previewVariant" mandatory density="comfortable" size="small">
+            <v-btn value="friend">Đã kết bạn</v-btn>
+            <v-btn value="stranger">Chưa kết bạn</v-btn>
+          </v-btn-toggle>
+        </v-card-title>
+        <v-card-text>
+          <div class="text-caption text-medium-emphasis mb-2">Render với data giả (Nguyễn Văn A, 0931...)</div>
+          <pre class="preview-pane">{{ previewText }}</pre>
+          <div v-if="previewStyles.length" class="text-caption mt-2">
+            <strong>{{ previewStyles.length }} style ranges</strong> · Zalo render thực sẽ có bold/màu/size đúng vị trí.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showPreview = false">Đóng</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <div class="d-flex flex-wrap ga-2 mb-3">
       <v-chip size="small" color="success" variant="tonal">Đã có UID {{ summary.ready || 0 }}</v-chip>
       <v-chip size="small" color="warning" variant="tonal">Chưa có UID {{ summary.uid_not_found || 0 }}</v-chip>
@@ -119,7 +238,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { api } from '@/api/index';
 
 interface SenderNick {
@@ -162,6 +281,48 @@ const nicks = ref<SenderNick[]>([]);
 const recipients = ref<RecipientRow[]>([]);
 const summary = ref<Record<string, number>>({});
 const lookupUserId = ref<string | null>(null);
+
+// ── Org config: welcome template + image + admin fallback phone ──
+const welcomeTemplate = ref<string>('');
+const welcomeImageUrl = ref<string | null>(null);
+const adminFallbackPhone = ref<string>('');
+const defaultTemplate = ref<string>('');
+const savedSnapshot = ref<{ template: string; image: string | null; phone: string }>({ template: '', image: null, phone: '' });
+const savingOrgConfig = ref(false);
+const orgConfigError = ref('');
+const orgConfigSuccess = ref('');
+const imageUploading = ref(false);
+const imageFileInput = ref<HTMLInputElement | null>(null);
+
+const showPlaceholders = ref(false);
+const showPreview = ref(false);
+const previewLoading = ref(false);
+const previewVariant = ref<'friend' | 'stranger'>('stranger');
+const previewText = ref('');
+const previewStyles = ref<Array<{ offset: number; length: number; style: string; color?: string }>>([]);
+
+function placeholderLabel(key: string): string {
+  return '{{' + key + '}}';
+}
+
+const PLACEHOLDER_HELP = [
+  { key: 'fullName', desc: 'Họ tên sale' },
+  { key: 'email', desc: 'Email (nếu có)' },
+  { key: 'phone', desc: 'SĐT đăng nhập' },
+  { key: 'password', desc: 'Mật khẩu tạm tự sinh' },
+  { key: 'loginUrl', desc: 'Link CRM (ENV CRM_LOGIN_URL)' },
+  { key: 'orgName', desc: 'Tên tổ chức' },
+  { key: 'departmentName', desc: 'Phòng ban (rỗng → dòng biến mất)' },
+  { key: 'roleName', desc: 'Chức vụ' },
+  { key: 'adminPhone', desc: 'SĐT admin fallback (ô bên cạnh)' },
+  { key: 'strangerNotice', desc: 'Auto-fill nhắc kết bạn nếu sale chưa friend' },
+];
+
+const orgConfigDirty = computed(() =>
+  welcomeTemplate.value !== savedSnapshot.value.template ||
+  welcomeImageUrl.value !== savedSnapshot.value.image ||
+  adminFallbackPhone.value !== savedSnapshot.value.phone,
+);
 
 const senderOptions = computed(() => nicks.value.map((nick) => ({
   value: nick.id,
@@ -265,9 +426,120 @@ function roleLabel(role: string) {
   return ({ owner: 'Chủ tổ chức', admin: 'Admin', member: 'Nhân viên' } as Record<string, string>)[role] || role;
 }
 
+async function fetchOrgConfig() {
+  try {
+    const { data } = await api.get('/system-notifications/org-config');
+    welcomeTemplate.value = data.welcomeMessageTemplate ?? '';
+    welcomeImageUrl.value = data.welcomeImageUrl ?? null;
+    adminFallbackPhone.value = data.adminFallbackPhone ?? '';
+    defaultTemplate.value = data.defaultTemplate ?? '';
+    savedSnapshot.value = {
+      template: welcomeTemplate.value,
+      image: welcomeImageUrl.value,
+      phone: adminFallbackPhone.value,
+    };
+  } catch (err: any) {
+    orgConfigError.value = err?.response?.data?.error || 'Lỗi tải cấu hình tin chào mừng';
+  }
+}
+
+async function saveOrgConfig() {
+  savingOrgConfig.value = true;
+  orgConfigError.value = '';
+  orgConfigSuccess.value = '';
+  try {
+    await api.patch('/system-notifications/org-config', {
+      welcomeMessageTemplate: welcomeTemplate.value.trim() || null,
+      welcomeImageUrl: welcomeImageUrl.value,
+      adminFallbackPhone: adminFallbackPhone.value.trim() || null,
+    });
+    savedSnapshot.value = {
+      template: welcomeTemplate.value,
+      image: welcomeImageUrl.value,
+      phone: adminFallbackPhone.value,
+    };
+    orgConfigSuccess.value = 'Lưu thành công';
+    setTimeout(() => { orgConfigSuccess.value = ''; }, 3000);
+  } catch (err: any) {
+    orgConfigError.value = err?.response?.data?.error || 'Lỗi lưu cấu hình';
+  } finally {
+    savingOrgConfig.value = false;
+  }
+}
+
+function discardOrgConfigChanges() {
+  welcomeTemplate.value = savedSnapshot.value.template;
+  welcomeImageUrl.value = savedSnapshot.value.image;
+  adminFallbackPhone.value = savedSnapshot.value.phone;
+  orgConfigError.value = '';
+  orgConfigSuccess.value = '';
+}
+
+function resetTemplate() {
+  welcomeTemplate.value = defaultTemplate.value;
+}
+
+async function onImagePicked(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  imageUploading.value = true;
+  orgConfigError.value = '';
+  try {
+    const fd = new FormData();
+    fd.append('image', file);
+    const { data } = await api.post('/system-notifications/welcome-image', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    welcomeImageUrl.value = data.url;
+    savedSnapshot.value.image = data.url; // server-side đã commit, sync snapshot
+  } catch (err: any) {
+    orgConfigError.value = err?.response?.data?.error || 'Upload ảnh thất bại';
+  } finally {
+    imageUploading.value = false;
+    if (target) target.value = '';
+  }
+}
+
+async function clearImage() {
+  welcomeImageUrl.value = null;
+  // Force save ngay vì image upload đã save vào DB lúc upload — clear local-only sẽ misalign.
+  // Đơn giản: gọi PATCH để xoá luôn.
+  try {
+    await api.patch('/system-notifications/org-config', { welcomeImageUrl: null });
+    savedSnapshot.value.image = null;
+  } catch (err: any) {
+    orgConfigError.value = err?.response?.data?.error || 'Xoá ảnh thất bại';
+  }
+}
+
+async function openPreview() {
+  previewLoading.value = true;
+  showPreview.value = true;
+  try {
+    const { data } = await api.post('/system-notifications/preview-welcome', {
+      templateOverride: welcomeTemplate.value.trim() || undefined,
+      variant: previewVariant.value,
+    });
+    previewText.value = data.text;
+    previewStyles.value = data.styles ?? [];
+  } catch (err: any) {
+    previewText.value = `Lỗi preview: ${err?.response?.data?.error || err?.message}`;
+    previewStyles.value = [];
+  } finally {
+    previewLoading.value = false;
+  }
+}
+
+// Re-fetch preview khi đổi variant trong dialog
+watch(previewVariant, () => {
+  if (showPreview.value) openPreview();
+});
+
 onMounted(async () => {
   await fetchSettings();
   await fetchRecipients();
+  await fetchOrgConfig();
 });
 </script>
 
@@ -293,5 +565,51 @@ onMounted(async () => {
 .uid-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+.template-textarea :deep(textarea) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.welcome-image-block {
+  flex: 0 0 auto;
+}
+
+.welcome-image-preview {
+  width: 180px;
+  height: 120px;
+  border: 1px dashed rgba(var(--v-theme-outline), 0.4);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+}
+
+.welcome-image-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.admin-phone-field {
+  flex: 1 1 280px;
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.preview-pane {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  background: rgba(var(--v-theme-surface-variant), 0.3);
+  padding: 12px;
+  border-radius: 8px;
+  max-height: 60vh;
+  overflow: auto;
 }
 </style>

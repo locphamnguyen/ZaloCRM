@@ -47,6 +47,11 @@ export interface Contact {
   metadata?: Record<string, unknown>;
   assignedUserId?: string | null;
   assignedUser?: { id?: string; fullName: string; email?: string } | null;
+  // Phase Contact Scope Hybrid 2026-05-27 — vai trò của VIEWER với Contact này
+  //   primary       = sale chính (ContactAccess.role='primary')
+  //   collaborator  = sale phụ (chăm qua nick mình)
+  //   admin         = org admin/owner (view full)
+  viewerRole?: 'primary' | 'collaborator' | 'admin' | null;
   createdAt?: string;
   updatedAt?: string;
   firstContactDate?: string | null;

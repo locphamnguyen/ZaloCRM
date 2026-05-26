@@ -17,6 +17,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { assertContactVisible } from '../contacts/contact-scope.js';
 
 type TimelineItem =
   | { type: 'note'; createdAt: Date; data: unknown }
@@ -35,6 +36,11 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id: contactId } = request.params;
 
+      // Phase Contact Scope Hybrid 2026-05-27: scope gate
+      const visible = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId,
+      });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
       const contact = await prisma.contact.findFirst({
         where: { id: contactId, orgId: user.orgId },
         select: { id: true },
@@ -146,6 +152,11 @@ export async function timelineRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id: contactId } = request.params;
 
+      // Phase Contact Scope Hybrid 2026-05-27: scope gate
+      const visible = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId,
+      });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
       const contact = await prisma.contact.findFirst({
         where: { id: contactId, orgId: user.orgId },
         select: { id: true },

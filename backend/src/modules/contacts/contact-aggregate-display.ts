@@ -25,6 +25,15 @@ interface FriendLite {
   statusRef?: StatusLite | null;
   zaloGlobalId?: string | null;
   zaloUsername?: string | null;
+  zaloAccountId?: string;
+  lastInboundAt?: Date | string | null;
+  lastInboundPreview?: string | null;
+  lastInboundType?: string | null;
+  lastInboundMessageId?: string | null;
+  lastOutboundAt?: Date | string | null;
+  lastOutboundPreview?: string | null;
+  lastOutboundType?: string | null;
+  lastOutboundMessageId?: string | null;
 }
 
 interface ContactWithFriends {
@@ -51,8 +60,17 @@ export interface AggregateDisplay {
   distinctUsernameCount: number;
 }
 
-export function computeAggregateDisplay<T extends ContactWithFriends>(contact: T): AggregateDisplay {
-  const friends = contact.friends ?? [];
+/**
+ * Phase Contact Scope Hybrid 2026-05-27 — viewer-aware aggregation.
+ * Pass `friendsOverride` để compute aggregate CHỈ từ Friend rows visible cho viewer
+ * (vd: sale chỉ thấy nick mình → status/score/childrenCount tính qua subset).
+ * Khi không truyền → fallback behavior cũ (toàn bộ friends).
+ */
+export function computeAggregateDisplay<T extends ContactWithFriends>(
+  contact: T,
+  friendsOverride?: FriendLite[],
+): AggregateDisplay {
+  const friends = friendsOverride ?? contact.friends ?? [];
 
   // Status cao nhất theo order — ưu tiên friends; fallback Contact.statusRef khi 0 friend.
   const friendStatuses = friends
@@ -93,6 +111,58 @@ export function computeAggregateDisplay<T extends ContactWithFriends>(contact: T
     aggregateZaloUsername,
     distinctGlobalIdCount: globalIds.size,
     distinctUsernameCount: usernames.size,
+  };
+}
+
+/**
+ * Phase Contact Scope Hybrid 2026-05-27 — viewer-aware last preview.
+ * Trả về override cho 8 field Contact.last*Preview/*Type/*MessageId/*At dựa trên
+ * Friend rows mà viewer có quyền thấy (qua zalo-scope).
+ * Caller spread vào response sau Contact base + computeAggregateDisplay để FE
+ * không thấy preview của Friend row thuộc nick sale khác.
+ *
+ * visibleZaloAccountIds=null → admin/owner view (giữ Contact.last* aggregate global,
+ * trả về undefined để caller không override).
+ */
+export interface ViewerPreviewOverride {
+  lastInboundAt:        Date | string | null;
+  lastInboundPreview:   string | null;
+  lastInboundType:      string | null;
+  lastInboundMessageId: string | null;
+  lastOutboundAt:       Date | string | null;
+  lastOutboundPreview:  string | null;
+  lastOutboundType:     string | null;
+  lastOutboundMessageId: string | null;
+}
+
+export function computeViewerPreview(
+  contact: { friends?: FriendLite[] },
+  visibleZaloAccountIds: Set<string> | null,
+): ViewerPreviewOverride | null {
+  if (visibleZaloAccountIds === null) return null; // admin → giữ aggregate global
+  const visible = (contact.friends ?? []).filter(
+    (f) => f.zaloAccountId && visibleZaloAccountIds.has(f.zaloAccountId),
+  );
+
+  const toMs = (d: Date | string | null | undefined) =>
+    d ? new Date(d as any).getTime() : 0;
+
+  const inbound = visible
+    .filter((f) => f.lastInboundAt)
+    .sort((a, b) => toMs(b.lastInboundAt) - toMs(a.lastInboundAt))[0];
+  const outbound = visible
+    .filter((f) => f.lastOutboundAt)
+    .sort((a, b) => toMs(b.lastOutboundAt) - toMs(a.lastOutboundAt))[0];
+
+  return {
+    lastInboundAt:        inbound?.lastInboundAt ?? null,
+    lastInboundPreview:   inbound?.lastInboundPreview ?? null,
+    lastInboundType:      inbound?.lastInboundType ?? null,
+    lastInboundMessageId: inbound?.lastInboundMessageId ?? null,
+    lastOutboundAt:        outbound?.lastOutboundAt ?? null,
+    lastOutboundPreview:   outbound?.lastOutboundPreview ?? null,
+    lastOutboundType:      outbound?.lastOutboundType ?? null,
+    lastOutboundMessageId: outbound?.lastOutboundMessageId ?? null,
   };
 }
 
