@@ -14,6 +14,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
 import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 import {
   isSupportedActionType,
   validateBlockContent,
@@ -36,6 +37,12 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
     if (q.folderId) where.folderId = q.folderId;
     if (q.includeArchived !== 'true') where.archivedAt = null;
     if (q.ownerNickId) where.ownerNickId = q.ownerNickId;
+    // Phase Marketing Scope 2026-05-27: sale chỉ thấy block mình tạo;
+    // manager thấy block của subordinate; admin thấy tất cả.
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+    });
+    Object.assign(where, applyOwnerScope(ownerScope));
 
     const blocks = await prisma.block.findMany({
       where,
@@ -53,8 +60,14 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
   app.get(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
+    // Phase Marketing Scope 2026-05-27: assert ownership trước khi trả content
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+    });
+    const where: any = { id, orgId: user.orgId };
+    Object.assign(where, applyOwnerScope(ownerScope));
     const block = await prisma.block.findFirst({
-      where: { id, orgId: user.orgId },
+      where,
       include: {
         folder: { select: { id: true, name: true } },
         ownerNick: { select: { id: true, displayName: true } },

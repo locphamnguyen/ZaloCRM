@@ -13,6 +13,7 @@ import {
   executeCustomReport,
 } from './analytics-service.js';
 import type { ReportConfig } from './analytics-service.js';
+import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 
 export async function savedReportRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -20,9 +21,12 @@ export async function savedReportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/saved-reports — list all for org
   app.get('/api/v1/saved-reports', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const { orgId } = request.user!;
+      const { orgId, id: userId, role } = request.user!;
+      // Phase Marketing Scope 2026-05-27: sale chỉ thấy report mình save
+      const ownerScope = await getOwnerScope({ userId, orgId, legacyRole: role });
+      const where: any = { orgId, ...applyOwnerScope(ownerScope, 'createdBy') };
       const reports = await prisma.savedReport.findMany({
-        where: { orgId },
+        where,
         orderBy: { createdAt: 'desc' },
       });
       return { data: reports };
@@ -59,9 +63,11 @@ export async function savedReportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/saved-reports/:id
   app.get('/api/v1/saved-reports/:id', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const { orgId } = request.user!;
+      const { orgId, id: userId, role } = request.user!;
       const { id } = request.params as { id: string };
-      const report = await prisma.savedReport.findFirst({ where: { id, orgId } });
+      const ownerScope = await getOwnerScope({ userId, orgId, legacyRole: role });
+      const where: any = { id, orgId, ...applyOwnerScope(ownerScope, 'createdBy') };
+      const report = await prisma.savedReport.findFirst({ where });
       if (!report) return reply.status(404).send({ error: 'Report not found' });
       return report;
     } catch (err) {
@@ -76,7 +82,9 @@ export async function savedReportRoutes(app: FastifyInstance): Promise<void> {
       const { orgId } = request.user!;
       const { id } = request.params as { id: string };
       const body = request.body as { name?: string; config?: any };
-      const existing = await prisma.savedReport.findFirst({ where: { id, orgId } });
+      const _ownerScope = await getOwnerScope({ userId: request.user!.id, orgId, legacyRole: request.user!.role });
+      const _existingWhere: any = { id, orgId, ...applyOwnerScope(_ownerScope, 'createdBy') };
+      const existing = await prisma.savedReport.findFirst({ where: _existingWhere });
       if (!existing) return reply.status(404).send({ error: 'Report not found' });
       const updated = await prisma.savedReport.update({
         where: { id },
@@ -94,7 +102,9 @@ export async function savedReportRoutes(app: FastifyInstance): Promise<void> {
     try {
       const { orgId } = request.user!;
       const { id } = request.params as { id: string };
-      const existing = await prisma.savedReport.findFirst({ where: { id, orgId } });
+      const _ownerScope = await getOwnerScope({ userId: request.user!.id, orgId, legacyRole: request.user!.role });
+      const _existingWhere: any = { id, orgId, ...applyOwnerScope(_ownerScope, 'createdBy') };
+      const existing = await prisma.savedReport.findFirst({ where: _existingWhere });
       if (!existing) return reply.status(404).send({ error: 'Report not found' });
       await prisma.savedReport.delete({ where: { id } });
       return { success: true };

@@ -15,13 +15,18 @@ export async function userRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
   // GET /api/v1/users — list all users in org
+  // Phase Marketing+Analytics Scope 2026-05-27: sale member chỉ thấy fullName + role
+  // (ẩn email + phone của sale khác — PII không cần lộ trong org chart cấp sale).
+  // Leader/Admin/Owner thấy đầy đủ.
   app.get('/api/v1/users', async (request: FastifyRequest) => {
     const user = request.user!;
+    const isPrivileged = user.role === 'owner' || user.role === 'admin';
     const users = await prisma.user.findMany({
       where: { orgId: user.orgId },
       select: {
         id: true,
         email: true,
+        phone: true,
         fullName: true,
         role: true,
         isActive: true,
@@ -31,7 +36,14 @@ export async function userRoutes(app: FastifyInstance) {
       },
       orderBy: { createdAt: 'asc' },
     });
-    return { users };
+    if (isPrivileged) return { users };
+    // Member: ẩn email + phone của user khác (chỉ thấy của chính mình)
+    const masked = users.map((u) => ({
+      ...u,
+      email: u.id === user.id ? u.email : null,
+      phone: u.id === user.id ? u.phone : null,
+    }));
+    return { users: masked };
   });
 
   // POST /api/v1/users — create user (owner/admin only)
@@ -297,7 +309,21 @@ export async function userRoutes(app: FastifyInstance) {
     };
   });
 
+  // Phase user-create-with-zalo 2026-05-27 — admin-only mutation: sale không tự sửa nick
+  // nhận thông báo nữa (admin sửa thay khi cần). GET vẫn allow để badge + counter chạy.
+  const requireAdminForInternalContact = (request: FastifyRequest, reply: FastifyReply): boolean => {
+    if (!['owner', 'admin'].includes(request.user!.role)) {
+      reply.status(403).send({
+        error: 'Chỉ admin/owner có quyền sửa nick nhận thông báo. Liên hệ admin để cập nhật.',
+        code: 'ADMIN_ONLY_INTERNAL_CONTACT',
+      });
+      return false;
+    }
+    return true;
+  };
+
   app.patch('/api/v1/me/internal-contact', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const body = (request.body ?? {}) as { method?: string; zaloAccountId?: string | null; phone?: string };
     const { initiateCrmNickHandshake, initiatePersonalPhoneHandshake, InternalContactError } =
@@ -330,6 +356,7 @@ export async function userRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/me/internal-contact/check-handshake', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const { checkHandshakeStatus, InternalContactError } = await import('../system-notifications/internal-contact-service.js');
     try {
@@ -344,6 +371,7 @@ export async function userRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/me/internal-contact/confirm', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const body = (request.body ?? {}) as { code?: string };
     const { confirmVerifyCode, InternalContactError } = await import('../system-notifications/internal-contact-service.js');
@@ -359,6 +387,7 @@ export async function userRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/me/internal-contact/resend-friend-request', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const { resendFriendRequest, InternalContactError } = await import('../system-notifications/internal-contact-service.js');
     try {
@@ -373,6 +402,7 @@ export async function userRoutes(app: FastifyInstance) {
   });
 
   app.post('/api/v1/me/internal-contact/resend-verify-code', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const { resendVerifyCode, InternalContactError } = await import('../system-notifications/internal-contact-service.js');
     try {
@@ -387,6 +417,7 @@ export async function userRoutes(app: FastifyInstance) {
   });
 
   app.delete('/api/v1/me/internal-contact', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!requireAdminForInternalContact(request, reply)) return;
     const currentUser = request.user!;
     const { resetInternalContact, InternalContactError } = await import('../system-notifications/internal-contact-service.js');
     try {

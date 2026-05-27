@@ -22,6 +22,7 @@ import { authMiddleware } from '../../auth/auth-middleware.js';
 import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { sanitizeContactCriteria, sanitizeManualContactIds } from '../engine/segment-sanitizer.js';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 
 const BASE = '/api/v1/automation/broadcasts';
 
@@ -95,6 +96,11 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
     const where: Record<string, unknown> = { orgId: user.orgId };
     if (q.state) where.state = q.state;
     if (q.channel) where.channel = q.channel;
+    // Phase Marketing Scope 2026-05-27
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'broadcast',
+    });
+    Object.assign(where, applyOwnerScope(ownerScope));
 
     const broadcasts = await prisma.automationBroadcast.findMany({
       where,
@@ -110,8 +116,14 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   app.get(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
+    // Phase Marketing Scope 2026-05-27: scope detail
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'broadcast',
+    });
+    const dWhere: any = { id, orgId: user.orgId };
+    Object.assign(dWhere, applyOwnerScope(ownerScope));
     const bc = await prisma.automationBroadcast.findFirst({
-      where: { id, orgId: user.orgId },
+      where: dWhere,
       include: {
         createdBy: { select: { id: true, fullName: true } },
       },

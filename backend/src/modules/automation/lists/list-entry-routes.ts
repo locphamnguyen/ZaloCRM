@@ -22,6 +22,7 @@ import {
   type SystemMessage,
 } from './list-system-messages.js';
 import { randomUUID } from 'node:crypto';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 
 type EntryStatusTab =
   | 'all'
@@ -46,9 +47,14 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
     const { id } = request.params;
     const { tab = 'all', page = '1', limit = '50', search = '' } = request.query;
 
-    // Verify list belongs to org
+    // Phase Marketing Scope 2026-05-27: scope list theo owner trước khi tải entries
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'customer_list',
+    });
+    const lWhere: any = { id, orgId: user.orgId };
+    Object.assign(lWhere, applyOwnerScope(ownerScope));
     const list = await prisma.customerList.findFirst({
-      where: { id, orgId: user.orgId },
+      where: lWhere,
       select: { id: true },
     });
     if (!list) return reply.status(404).send({ error: 'list_not_found' });
@@ -163,8 +169,13 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
       return reply.status(400).send({ error: 'entryIds_required' });
     }
 
+    const _ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'customer_list',
+    });
+    const _lWhere: any = { id, orgId: user.orgId };
+    Object.assign(_lWhere, applyOwnerScope(_ownerScope));
     const list = await prisma.customerList.findFirst({
-      where: { id, orgId: user.orgId },
+      where: _lWhere,
       select: { id: true },
     });
     if (!list) return reply.status(404).send({ error: 'list_not_found' });

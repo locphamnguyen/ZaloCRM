@@ -20,6 +20,7 @@ import { parseAndDedup, parseRawText, detectInternalDup } from './list-import-se
 import { kickoffEnrichment } from './list-enrichment-service.js';
 import { buildMessagesFromState, type SystemMessage } from './list-system-messages.js';
 import { randomUUID } from 'node:crypto';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 
 export async function customerListRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -41,6 +42,13 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
       if (search.trim()) {
         where.name = { contains: search.trim(), mode: 'insensitive' };
       }
+
+      // Phase Marketing Scope 2026-05-27: sale chỉ thấy Tệp KH mình tạo;
+      // manager thấy của dept; admin thấy all.
+      const ownerScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'customer_list',
+      });
+      Object.assign(where, applyOwnerScope(ownerScope));
 
       try {
         const [lists, total] = await Promise.all([
@@ -321,8 +329,14 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
     const user = request.user!;
     const { id } = request.params;
     try {
+      // Phase Marketing Scope 2026-05-27: scope detail
+      const ownerScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'customer_list',
+      });
+      const lWhere: any = { id, orgId: user.orgId };
+      Object.assign(lWhere, applyOwnerScope(ownerScope));
       const list = await prisma.customerList.findFirst({
-        where: { id, orgId: user.orgId },
+        where: lWhere,
       });
       if (!list) return reply.status(404).send({ error: 'not_found' });
 

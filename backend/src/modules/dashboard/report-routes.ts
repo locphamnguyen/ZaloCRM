@@ -13,8 +13,30 @@ import {
   buildContactsSheet,
   buildAppointmentsSheet,
 } from './excel-sheet-builders.js';
+import { getContactScope } from '../contacts/contact-scope.js';
+import { getZaloScope } from '../zalo/zalo-scope.js';
 
 type QueryParams = Record<string, string>;
+
+/**
+ * Phase Marketing+Analytics Scope 2026-05-27 — gate report routes:
+ * - admin/owner → full org
+ * - leader/deputy → dept-subtree (qua getContactScope/getZaloScope cascade)
+ * - member thường → 403 (sale không cần xem report team-wide)
+ */
+async function gateReportAccess(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+  const user = request.user!;
+  if (user.role === 'owner' || user.role === 'admin') return true;
+  const cScope = await getContactScope(user.id, user.orgId, user.role);
+  if (cScope.isOrgAdmin) return true;
+  // Leader/deputy: visibleUserIds.size > 1 (có người dưới dept)
+  if (cScope.visibleUserIds.size > 1) return true;
+  reply.status(403).send({
+    error: 'Sale member không có quyền xem báo cáo team. Liên hệ trưởng phòng.',
+    code: 'reports_member_forbidden',
+  });
+  return false;
+}
 
 function defaultDateRange() {
   const to = new Date().toISOString().split('T')[0];
@@ -28,6 +50,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/reports/messages?from=&to=
   app.get('/api/v1/reports/messages', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      if (!(await gateReportAccess(request, reply))) return;
       const { orgId } = request.user!;
       const query = request.query as QueryParams;
       const { from: defaultFrom, to: defaultTo } = defaultDateRange();
@@ -68,6 +91,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/reports/contacts?from=&to= — contacts by status distribution
   app.get('/api/v1/reports/contacts', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      if (!(await gateReportAccess(request, reply))) return;
       const { orgId } = request.user!;
       const query = request.query as QueryParams;
       const { from: defaultFrom, to: defaultTo } = defaultDateRange();
@@ -112,6 +136,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/reports/appointments?from=&to=
   app.get('/api/v1/reports/appointments', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      if (!(await gateReportAccess(request, reply))) return;
       const { orgId } = request.user!;
       const query = request.query as QueryParams;
       const { from: defaultFrom, to: defaultTo } = defaultDateRange();
@@ -147,6 +172,7 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/reports/export?type=messages&from=&to=
   app.get('/api/v1/reports/export', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
+      if (!(await gateReportAccess(request, reply))) return;
       const { orgId } = request.user!;
       const query = request.query as QueryParams;
       const { from: defaultFrom, to: defaultTo } = defaultDateRange();

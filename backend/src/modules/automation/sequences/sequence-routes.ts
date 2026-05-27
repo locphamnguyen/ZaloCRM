@@ -27,6 +27,7 @@ import {
   type SequenceStep,
 } from './types.js';
 import { checkBlockReferences } from './block-refs.js';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 
 const BASE = '/api/v1/automation/sequences';
 
@@ -42,6 +43,11 @@ export async function sequenceRoutes(app: FastifyInstance): Promise<void> {
     if (q.channel) where.channel = q.channel;
     if (q.enabled === 'true') where.enabled = true;
     if (q.enabled === 'false') where.enabled = false;
+    // Phase Marketing Scope 2026-05-27
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'sequence',
+    });
+    Object.assign(where, applyOwnerScope(ownerScope));
 
     const sequences = await prisma.automationSequence.findMany({
       where,
@@ -59,8 +65,14 @@ export async function sequenceRoutes(app: FastifyInstance): Promise<void> {
     const user = request.user!;
     const { id } = request.params as { id: string };
 
+    // Phase Marketing Scope 2026-05-27: scope detail
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'sequence',
+    });
+    const sWhere: any = { id, orgId: user.orgId };
+    Object.assign(sWhere, applyOwnerScope(ownerScope));
     const sequence = await prisma.automationSequence.findFirst({
-      where: { id, orgId: user.orgId },
+      where: sWhere,
       include: {
         createdBy: { select: { id: true, fullName: true } },
       },

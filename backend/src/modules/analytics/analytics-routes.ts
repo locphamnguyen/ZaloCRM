@@ -24,6 +24,20 @@ function defaultDateRange() {
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
+  // Phase Marketing+Analytics Scope 2026-05-27: gate access — sale member 403
+  app.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    if (!user) return;
+    if (user.role === 'owner' || user.role === 'admin') return;
+    const { getContactScope } = await import('../contacts/contact-scope.js');
+    const cScope = await getContactScope(user.id, user.orgId, user.role);
+    if (cScope.isOrgAdmin || cScope.visibleUserIds.size > 1) return;
+    reply.status(403).send({
+      error: 'Sale member không có quyền xem phân tích team. Liên hệ trưởng phòng.',
+      code: 'analytics_member_forbidden',
+    });
+  });
+
   // GET /api/v1/analytics/conversion-funnel?from=&to=
   app.get('/api/v1/analytics/conversion-funnel', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

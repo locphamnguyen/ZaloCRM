@@ -29,6 +29,7 @@ import {
   type TriggerBindingKind,
 } from './types.js';
 import { automationEventBus } from '../engine/event-bus.js';
+import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 import { registerCronTrigger, unregisterCronTrigger } from '../engine/cron-event-scheduler.js';
 
 const BASE = '/api/v1/automation/triggers';
@@ -51,6 +52,11 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
     if (q.category) where.category = q.category;
     if (q.enabled === 'true') where.enabled = true;
     if (q.enabled === 'false') where.enabled = false;
+    // Phase Marketing Scope 2026-05-27
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'trigger',
+    });
+    Object.assign(where, applyOwnerScope(ownerScope));
 
     const triggers = await prisma.automationTrigger.findMany({
       where,
@@ -69,8 +75,14 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
   app.get(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
+    // Phase Marketing Scope 2026-05-27: scope detail
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'trigger',
+    });
+    const tWhere: any = { id, orgId: user.orgId };
+    Object.assign(tWhere, applyOwnerScope(ownerScope));
     const trigger = await prisma.automationTrigger.findFirst({
-      where: { id, orgId: user.orgId },
+      where: tWhere,
       include: {
         sequence: { select: { id: true, name: true } },
         broadcast: { select: { id: true, name: true } },

@@ -40,6 +40,10 @@ export async function scoringRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/scoring/config', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
+    // Phase Marketing+Analytics Scope 2026-05-27: admin-only — leak chiến lược chấm điểm
+    if (user.role !== 'admin' && user.role !== 'owner') {
+      return reply.status(403).send({ error: 'forbidden', code: 'scoring_admin_only' });
+    }
     try {
       const config = await getScoringConfig(user.orgId);
       return config;
@@ -122,6 +126,9 @@ export async function scoringRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/v1/scoring/rules', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
+    if (user.role !== 'admin' && user.role !== 'owner') {
+      return reply.status(403).send({ error: 'forbidden', code: 'scoring_admin_only' });
+    }
     try {
       const rules = await prisma.scoreSignalRule.findMany({
         where: { orgId: user.orgId },
