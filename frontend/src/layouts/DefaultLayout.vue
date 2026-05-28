@@ -264,22 +264,21 @@ function logout() {
 }
 .ic-banner-dismiss:hover { color: #78350F; }
 
-/* HD-first redesign 2026-05-28 (Variant A) — light theme, 46px height */
+/* HD-first redesign 2026-05-28 — dark theme + underline active (anh chốt 2026-05-28 sửa A→dark+underline) */
 .smax-topnav {
-  background: #ffffff;
-  color: #1f2937;
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  color: rgba(255, 255, 255, 0.85);
   height: 46px;
   display: flex; align-items: center;
   padding: 0 14px; gap: 4px;
   flex-shrink: 0;
   position: sticky; top: 0; z-index: 100;
-  border-bottom: 1px solid #e5e7eb;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .logo {
   width: 30px; height: 30px;
-  background: var(--smax-primary, #2962ff);
+  background: white;
   border-radius: 7px;
   display: flex; align-items: center; justify-content: center;
   margin-right: 10px;
@@ -290,7 +289,6 @@ function logout() {
 .logo img {
   width: 100%; height: 100%;
   object-fit: contain;
-  filter: brightness(0) invert(1); /* white logo trên bg primary */
 }
 
 .nav-tabs {
@@ -302,22 +300,24 @@ function logout() {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; border-radius: 6px;
   cursor: pointer;
-  color: #374151;
+  color: rgba(255, 255, 255, 0.75);
   font-size: 12.5px; font-weight: 500;
   background: transparent; border: none;
   white-space: nowrap;
   text-decoration: none;
   height: 32px;
   line-height: 1.2;
+  position: relative;
 }
 .nav-tab .ic-svg { color: currentColor; opacity: 0.85; }
 .nav-tab .caret { font-size: 9px; opacity: 0.5; margin-left: 1px; }
-.nav-tab:hover { background: #f3f4f6; color: #1f2937; }
+.nav-tab:hover { background: rgba(255, 255, 255, 0.08); color: white; }
 .nav-tab:hover .ic-svg { opacity: 1; }
 .nav-tab.active {
-  background: rgba(41, 98, 255, 0.10);
-  color: var(--smax-primary, #2962ff);
+  background: rgba(41, 98, 255, 0.30);
+  color: white;
   font-weight: 600;
+  box-shadow: inset 0 -2px 0 #60a5fa;
 }
 .nav-tab.active .ic-svg { opacity: 1; }
 
@@ -383,12 +383,12 @@ function logout() {
   .topnav-search { display: none; }
 }
 .topnav-search :deep(.v-field) {
-  background: #f3f4f6 !important;
-  color: #1f2937;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: white;
   border-radius: 7px !important;
 }
-.topnav-search :deep(input) { color: #1f2937 !important; }
-.topnav-search :deep(input::placeholder) { color: #9ca3af !important; }
+.topnav-search :deep(input) { color: white !important; }
+.topnav-search :deep(input::placeholder) { color: rgba(255, 255, 255, 0.5) !important; }
 
 .icon-btn,
 :deep(.icon-btn-wrap) > * {
@@ -396,7 +396,7 @@ function logout() {
   border-radius: 7px;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  color: #374151;
+  color: rgba(255, 255, 255, 0.85);
   position: relative;
   font-size: 16px;
   text-decoration: none;
@@ -405,14 +405,14 @@ function logout() {
 }
 .icon-btn:hover,
 :deep(.icon-btn-wrap) > *:hover {
-  background: #f3f4f6;
-  color: #1f2937;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
 }
 
 .user-avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #93c5fd, #2962ff);
+  background: linear-gradient(135deg, #fcd34d, #f59e0b);
   color: white; font-weight: 700;
   border: none; cursor: pointer;
   margin-left: 6px;
