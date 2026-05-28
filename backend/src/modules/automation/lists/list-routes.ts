@@ -21,6 +21,12 @@ import { kickoffEnrichment } from './list-enrichment-service.js';
 import { buildMessagesFromState, type SystemMessage } from './list-system-messages.js';
 import { randomUUID } from 'node:crypto';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+// Phase Multi-Source Lead Ads 2026-05-27 — cache invalidation khi đổi integrationKey
+import { invalidateCacheForList } from '../../integrations/_shared/meta-campaign-cache.service.js';
+
+// Phase Multi-Source Lead Ads 2026-05-27 — #KEY validation (A-Z0-9 + dash, 1-32)
+// Normalize uppercase. UI auto-uppercase trước khi gửi, server gate lại.
+const INTEGRATION_KEY_REGEX = /^[A-Z0-9-]{1,32}$/;
 
 export async function customerListRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -77,6 +83,10 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
               hasZaloEntries: true,
               noZaloEntries: true,
               pendingLookupEntries: true,
+              // Phase Multi-Source Lead Ads 2026-05-27
+              integrationKey: true,
+              displayInlineFields: true,
+              shareableToPool: true,
             },
           }),
           prisma.customerList.count({ where }),
@@ -141,9 +151,10 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ─── POST /customer-lists — create + persist + async enrichment ───
-  // Body: 1 trong 2 dạng:
+  // Body: 1 trong 3 dạng:
   //   { name?, iconEmoji?, sourceType: 'paste', rawText }      ← paste path
   //   { name?, iconEmoji?, sourceType: 'csv'|'excel', rows[] } ← CSV/Excel column-mapped
+  //   { name, sourceType: 'leadads', platform, integrationKey, shareableToPool? } ← Phase Lead Ads
   app.post<{
     Body: {
       name?: string;
@@ -151,10 +162,57 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
       sourceType?: string;
       rawText?: string;
       rows?: Array<{ phone: string; name?: string | null; personalNote?: string | null }>;
+      // Phase Multi-Source Lead Ads 2026-05-27
+      platform?: string;        // 'fb-leadads' | 'tiktok-leadgen' | 'google-leadform' | 'zalo-ads' | 'custom'
+      integrationKey?: string;
+      shareableToPool?: boolean;
     };
   }>('/api/v1/customer-lists', async (request, reply) => {
     const user = request.user!;
-    const { name, iconEmoji, sourceType = 'paste', rawText, rows } = request.body ?? {};
+    const { name, iconEmoji, sourceType = 'paste', rawText, rows, platform, integrationKey, shareableToPool } =
+      request.body ?? {};
+
+    // Phase Multi-Source Lead Ads 2026-05-27 — Lead Ads path: empty list, chỉ gắn key.
+    // Entries sẽ chảy vào qua webhook FB/TikTok/etc., không paste hay import.
+    if (sourceType === 'leadads') {
+      const rawKey = (integrationKey ?? '').trim().toUpperCase();
+      if (!rawKey) return reply.status(400).send({ error: 'integration_key_required' });
+      if (!INTEGRATION_KEY_REGEX.test(rawKey)) {
+        return reply.status(400).send({ error: 'integration_key_format_invalid', hint: 'A-Z, 0-9, dash; 1-32 chars' });
+      }
+      if (!name?.trim()) return reply.status(400).send({ error: 'name_required' });
+
+      // Unique per org check (race-safe via @@unique constraint, nhưng pre-check cho UX message)
+      const dupKey = await prisma.customerList.findFirst({
+        where: { orgId: user.orgId, integrationKey: rawKey, archivedAt: null },
+        select: { id: true, name: true },
+      });
+      if (dupKey) {
+        return reply.status(409).send({ error: 'integration_key_duplicate', conflictListName: dupKey.name });
+      }
+
+      try {
+        const created = await prisma.customerList.create({
+          data: {
+            id: randomUUID(),
+            orgId: user.orgId,
+            createdById: user.id,
+            name: name.trim(),
+            iconEmoji: iconEmoji ?? '📣',
+            sourceType: 'leadads',
+            rawText: platform ? `platform=${platform}` : null,
+            integrationKey: rawKey,
+            shareableToPool: !!shareableToPool,
+            status: 'processing',
+            startedAt: new Date(),
+          },
+        });
+        return reply.status(201).send({ id: created.id, name: created.name, integrationKey: rawKey });
+      } catch (err) {
+        logger.error({ err }, '[customer-lists] create leadads failed');
+        return reply.status(500).send({ error: 'internal_error' });
+      }
+    }
 
     const hasRows = Array.isArray(rows) && rows.length > 0;
     const hasText = typeof rawText === 'string' && rawText.trim().length > 0;
@@ -351,16 +409,29 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  // ─── PATCH /customer-lists/:id — rename / update icon ───
+  // ─── PATCH /customer-lists/:id — rename / update icon / integrationKey / share ───
   app.patch<{
     Params: { id: string };
-    Body: { name?: string; iconEmoji?: string | null };
+    Body: {
+      name?: string;
+      iconEmoji?: string | null;
+      // Phase Multi-Source Lead Ads 2026-05-27
+      integrationKey?: string | null;
+      displayInlineFields?: string[] | null;
+      shareableToPool?: boolean;
+    };
   }>('/api/v1/customer-lists/:id', async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
-    const { name, iconEmoji } = request.body ?? {};
+    const { name, iconEmoji, integrationKey, displayInlineFields, shareableToPool } = request.body ?? {};
 
-    const data: { name?: string; iconEmoji?: string | null } = {};
+    const data: {
+      name?: string;
+      iconEmoji?: string | null;
+      integrationKey?: string | null;
+      displayInlineFields?: object | null;
+      shareableToPool?: boolean;
+    } = {};
     if (typeof name === 'string') {
       const trimmed = name.trim();
       if (!trimmed) return reply.status(400).send({ error: 'name_empty' });
@@ -368,14 +439,48 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
       data.name = trimmed;
     }
     if (iconEmoji !== undefined) data.iconEmoji = iconEmoji || null;
+
+    // Phase Multi-Source Lead Ads 2026-05-27 — integrationKey edit
+    // Anh đổi key → cache stale 5p, lead mới sẽ về list mới sau khi cache expire.
+    // Force invalidation ngay = update cachedAt = epoch.
+    let mustInvalidateCache = false;
+    if (integrationKey !== undefined) {
+      if (integrationKey === null || integrationKey === '') {
+        data.integrationKey = null;
+      } else {
+        const rawKey = integrationKey.trim().toUpperCase();
+        if (!INTEGRATION_KEY_REGEX.test(rawKey)) {
+          return reply.status(400).send({ error: 'integration_key_format_invalid' });
+        }
+        const dupKey = await prisma.customerList.findFirst({
+          where: { orgId: user.orgId, integrationKey: rawKey, id: { not: id }, archivedAt: null },
+          select: { id: true, name: true },
+        });
+        if (dupKey) {
+          return reply.status(409).send({ error: 'integration_key_duplicate', conflictListName: dupKey.name });
+        }
+        data.integrationKey = rawKey;
+      }
+      mustInvalidateCache = true;
+    }
+    if (displayInlineFields !== undefined) {
+      data.displayInlineFields = Array.isArray(displayInlineFields) ? (displayInlineFields as unknown as object) : null;
+    }
+    if (shareableToPool !== undefined) data.shareableToPool = !!shareableToPool;
+
     if (Object.keys(data).length === 0) return reply.status(400).send({ error: 'no_fields' });
 
     try {
       const updated = await prisma.customerList.updateMany({
         where: { id, orgId: user.orgId },
-        data,
+        data: data as any, // displayInlineFields Json field
       });
       if (updated.count === 0) return reply.status(404).send({ error: 'not_found' });
+      if (mustInvalidateCache) {
+        await invalidateCacheForList(id).catch((err) =>
+          logger.warn({ err, id }, '[customer-lists] cache invalidation failed (non-fatal)'),
+        );
+      }
       return { ok: true };
     } catch (err) {
       logger.error({ err, id }, '[customer-lists] patch failed');

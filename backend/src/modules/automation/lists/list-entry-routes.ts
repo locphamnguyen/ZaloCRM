@@ -532,6 +532,101 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
       }
     },
   );
+
+  // ─── GET /customer-list-entries/:entryId/lead-detail ───
+  // Phase Multi-Source Lead Ads Phase 2 2026-05-27 — full Lead detail panel.
+  // Trả về entry + list + webhookLog (timing) + campaignStats. Adaptive: section
+  // nào không có data → frontend skip render (LeadDetailPanel v-if).
+  app.get<{ Params: { entryId: string } }>(
+    '/api/v1/customer-list-entries/:entryId/lead-detail',
+    async (request, reply) => {
+      const user = request.user!;
+      const { entryId } = request.params;
+      try {
+        const entry = await prisma.customerListEntry.findUnique({
+          where: { id: entryId },
+          include: { customerList: { select: { id: true, orgId: true, name: true, integrationKey: true, sourceType: true } } },
+        });
+        if (!entry || entry.customerList.orgId !== user.orgId) {
+          return reply.status(404).send({ error: 'entry_not_found' });
+        }
+
+        // sourceMeta.externalLeadId → join WebhookLog cho timing
+        const externalLeadId =
+          entry.sourceMeta && typeof entry.sourceMeta === 'object'
+            ? ((entry.sourceMeta as Record<string, unknown>).externalLeadId as string | undefined)
+            : undefined;
+
+        const webhookLog = externalLeadId
+          ? await prisma.webhookLog.findUnique({
+              where: { externalLeadId },
+              select: {
+                id: true,
+                source: true,
+                status: true,
+                attempts: true,
+                signature: true,
+                processingSteps: true,
+                createdAt: true,
+                processedAt: true,
+                errorMessage: true,
+              },
+            })
+          : null;
+
+        // Campaign stats: bao nhiêu lead khác cùng campaignId vào CRM. JSON match
+        // dùng raw SQL (Prisma Json @> filter giới hạn).
+        const campaignId =
+          entry.sourceMeta && typeof entry.sourceMeta === 'object'
+            ? ((entry.sourceMeta as Record<string, unknown>).campaignId as string | undefined)
+            : undefined;
+
+        let campaignStats: { totalLeads: number; routedLeads: number; unroutedLeads: number } | null = null;
+        if (campaignId) {
+          const rows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+            `SELECT COUNT(*)::bigint AS count
+             FROM customer_list_entries
+             WHERE source_meta->>'campaignId' = $1`,
+            campaignId,
+          );
+          const total = Number(rows[0]?.count ?? 0n);
+          // routed = entry trong list có integrationKey không phải __UNROUTED__
+          const routedRows = await prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+            `SELECT COUNT(*)::bigint AS count
+             FROM customer_list_entries e
+             JOIN customer_lists l ON l.id = e.customer_list_id
+             WHERE e.source_meta->>'campaignId' = $1
+               AND l.integration_key IS NOT NULL
+               AND l.integration_key <> '__UNROUTED__'`,
+            campaignId,
+          );
+          const routed = Number(routedRows[0]?.count ?? 0n);
+          campaignStats = { totalLeads: total, routedLeads: routed, unroutedLeads: total - routed };
+        }
+
+        return {
+          entry: {
+            id: entry.id,
+            rowIndex: entry.rowIndex,
+            phoneRaw: entry.phoneRaw,
+            nameRaw: entry.nameRaw,
+            personalNote: entry.personalNote,
+            customFields: entry.customFields,
+            sourceMeta: entry.sourceMeta,
+            status: entry.status,
+            hasZalo: entry.hasZalo,
+            createdAt: entry.createdAt,
+          },
+          list: entry.customerList,
+          webhookLog,
+          campaignStats,
+        };
+      } catch (err) {
+        logger.error({ err, entryId }, '[list-entries] lead-detail failed');
+        return reply.status(500).send({ error: 'internal_error' });
+      }
+    },
+  );
 }
 
 /**
