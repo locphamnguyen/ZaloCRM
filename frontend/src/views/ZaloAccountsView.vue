@@ -217,10 +217,15 @@
     <!-- DELETE CONFIRM -->
     <div v-if="showDeleteDialog" class="modal-backdrop" @click.self="showDeleteDialog = false">
       <div class="modal">
-        <div class="modal-head"><h3>Xác nhận xoá</h3></div>
+        <div class="modal-head"><h3>Xoá nick khỏi CRM</h3></div>
         <div class="modal-body">
-          Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>"?
-          <div class="hint">Hành động này không thể hoàn tác.</div>
+          <p>Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>" khỏi quản lý?</p>
+          <p class="hint">Nick sẽ bị ẩn khỏi danh sách. Nếu kết nối lại Zalo vào nick này, toàn bộ dữ liệu CRM sẽ hiện lại.</p>
+          <label class="purge-check">
+            <input type="checkbox" v-model="deletePurge" />
+            <span>Xoá toàn bộ dữ liệu của nick Zalo này và không hoàn tác</span>
+          </label>
+          <p v-if="deletePurge" class="hint hint-danger">Nếu kết nối lại Zalo, sẽ tạo một nick CRM mới với dữ liệu CRM mới.</p>
         </div>
         <div class="modal-foot">
           <button class="btn" @click="showDeleteDialog = false">Huỷ</button>
@@ -230,6 +235,7 @@
         </div>
       </div>
     </div>
+
 
     <!-- ACCESS DIALOG (reuse existing) -->
     <ZaloAccessDialog
@@ -244,6 +250,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import { useZaloAccountsDashboard } from '@/composables/use-zalo-accounts-dashboard';
+import { useToast } from '@/composables/use-toast';
 import StatsCards from '@/components/zalo-accounts/StatsCards.vue';
 import AccountsTable from '@/components/zalo-accounts/AccountsTable.vue';
 import AccountDetailDrawer from '@/components/zalo-accounts/AccountDetailDrawer.vue';
@@ -274,7 +281,7 @@ const {
   // QR/socket from base composable
   showQRDialog, qrImage, qrScanned, scannedName, qrError,
   adding, deleting,
-  addAccount, loginAccount, reconnectAccount, deleteAccount,
+  addAccount, loginAccount, reconnectAccount,
   cancelQR, setupSocket,
 } = dash;
 
@@ -284,7 +291,14 @@ const newAccountName = ref('');
 const newAccountProxy = ref('');
 const showDeleteDialog = ref(false);
 const deleteTargetId = ref<string | null>(null);
+const deletePurge = ref(false);
 const bulkLoading = ref(false);
+const _toast = useToast();
+function showToast(text: string, type: 'success' | 'error' | 'warning' = 'success') {
+  if (type === 'success') _toast.success(text);
+  else if (type === 'error') _toast.error(text);
+  else _toast.warning(text);
+}
 const lastRefresh = ref(new Date());
 
 const showAccessDialog = ref(false);
@@ -452,16 +466,13 @@ async function handleAddAccount() {
 
 function onTableAction(payload: { account: any; action: 'reconnect' | 'sync' }) {
   if (payload.action === 'reconnect') {
-    if (payload.account.liveStatus === 'connected') {
-      // Already connected → trigger sync-history instead as "refresh"
-      api.post(`/zalo-accounts/${payload.account.id}/sync-history`).catch(() => {});
-    } else {
+    if (payload.account.liveStatus !== 'connected') {
       reconnectAccount(payload.account.id);
     }
   } else if (payload.action === 'sync') {
     api.post(`/zalo-accounts/${payload.account.id}/sync-contacts`)
-      .then(() => refreshAll())
-      .catch((e) => alert('Sync thất bại: ' + (e.response?.data?.error || e.message)));
+      .then(() => { refreshAll(); showToast('Đồng bộ danh bạ thành công'); })
+      .catch((e) => showToast('Sync thất bại: ' + (e.response?.data?.error || e.message), 'error'));
   }
 }
 
@@ -472,9 +483,11 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
       case 'sync-contacts':
         await api.post(`/zalo-accounts/${id}/sync-contacts`);
         await refreshAll();
+        showToast('Đồng bộ danh bạ thành công');
         break;
       case 'sync-history':
         await api.post(`/zalo-accounts/${id}/sync-history`);
+        showToast('Đồng bộ lịch sử chat thành công');
         break;
       case 'reconnect':
         await reconnectAccount(id);
@@ -502,7 +515,7 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         break;
     }
   } catch (e: any) {
-    alert('Lỗi: ' + (e.response?.data?.error || e.message));
+    showToast('Lỗi: ' + (e.response?.data?.error || e.message), 'error');
   }
 }
 
@@ -548,11 +561,17 @@ async function onBulkAction(action: 'reconnect' | 'sync-contacts' | 'disable') {
 
 async function handleDelete() {
   if (!deleteTarget.value) return;
-  const ok = await deleteAccount(deleteTarget.value as any);
-  if (ok) {
+  try {
+    const purge = deletePurge.value;
+    await api.delete(`/zalo-accounts/${deleteTarget.value.id}${purge ? '?purge=true' : ''}`);
     showDeleteDialog.value = false;
     deleteTargetId.value = null;
+    deletePurge.value = false;
+    drawerOpen.value = false;
+    showToast(purge ? 'Đã xoá nick và dữ liệu' : 'Đã ẩn nick khỏi quản lý');
     await refreshAll();
+  } catch (e: any) {
+    showToast('Xoá thất bại: ' + (e.response?.data?.error || e.message), 'error');
   }
 }
 
@@ -891,4 +910,12 @@ onMounted(async () => {
 @keyframes spin {
   to { transform: rotate(360deg) }
 }
+.purge-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 12px; padding: 10px 12px;
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px;
+  cursor: pointer; font-size: 12.5px; color: #991B1B; line-height: 1.4;
+}
+.purge-check input { margin-top: 2px; flex-shrink: 0; }
+.hint-danger { color: #B91C1C; font-weight: 500; margin-top: 8px; }
 </style>

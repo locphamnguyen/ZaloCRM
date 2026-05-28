@@ -172,7 +172,7 @@
           <td class="td-actions" @click.stop>
             <!-- Actions gate theo canManage (owner-of-nick hoặc org admin) — anh chốt 2026-05-22 -->
             <template v-if="acct.canManage">
-              <button class="icon-btn" :title="acct.liveStatus === 'connected' ? 'Sync' : 'Re-login'" @click="onActionClick(acct, 'reconnect')">
+              <button class="icon-btn" title="Reconnect" :disabled="acct.liveStatus === 'connected'" @click="onActionClick(acct, 'reconnect')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
               </button>
               <button class="icon-btn" title="Sync danh bạ" @click="onActionClick(acct, 'sync')">
@@ -557,7 +557,8 @@ tbody tr.alert:hover { background: #FFF5F5 }
   color: #6B7280;
   margin-left: 2px;
 }
-.icon-btn:hover { background: #F3F4F6; color: #111827 }
+.icon-btn:hover:not(:disabled) { background: #F3F4F6; color: #111827 }
+.icon-btn:disabled { opacity: 0.35; cursor: not-allowed }
 .icon-btn svg { width: 14px; height: 14px }
 
 /* Owner cell (chính chủ) — Phase 4 clickable */

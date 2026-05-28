@@ -24,10 +24,10 @@ export interface ZaloScope {
 export async function getZaloScope(userId: string, orgId: string, legacyRole: string): Promise<ZaloScope> {
   const isOrgAdmin = legacyRole === 'owner' || legacyRole === 'admin';
 
-  // Org admin → tất cả accounts
+  // Org admin → tất cả accounts (trừ archived)
   if (isOrgAdmin) {
     const all = await prisma.zaloAccount.findMany({
-      where: { orgId },
+      where: { orgId, archivedAt: null },
       select: { id: true, ownerUserId: true },
     });
     return {
@@ -72,9 +72,9 @@ export async function getZaloScope(userId: string, orgId: string, legacyRole: st
     for (const m of subtreeMembers) visibleUserIds.add(m.userId);
   }
 
-  // Accounts owned by any of visible users
+  // Accounts owned by any of visible users (trừ archived)
   const ownedAccounts = await prisma.zaloAccount.findMany({
-    where: { orgId, ownerUserId: { in: Array.from(visibleUserIds) } },
+    where: { orgId, archivedAt: null, ownerUserId: { in: Array.from(visibleUserIds) } },
     select: { id: true, ownerUserId: true },
   });
 

@@ -75,6 +75,8 @@ class ZaloAccountPool {
   private userInfoCache = new Map<string, UserInfoCacheEntry>();
   // Circuit breaker: track disconnect timestamps per account
   private disconnectHistory = new Map<string, number[]>();
+  // Accounts manually disabled — suppress auto-reconnect
+  private manuallyDisabled = new Set<string>();
 
   setIO(io: Server): void {
     this.io = io;
@@ -88,6 +90,7 @@ class ZaloAccountPool {
 
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string, proxyUrl?: string | null): Promise<void> {
+    this.manuallyDisabled.delete(accountId);
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
     this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date() });
 
@@ -118,6 +121,7 @@ class ZaloAccountPool {
         }
       }));
 
+      let activeAccountId = accountId;
       const instance = this.instances.get(accountId)!;
       instance.api = api;
       instance.status = 'connected';
@@ -126,6 +130,36 @@ class ZaloAccountPool {
       const ownId = await api.getOwnId();
       instance.zaloUid = ownId;
 
+      // Check if an archived account with the same zaloUid exists — restore it
+      const archivedAccount = await prisma.zaloAccount.findFirst({
+        where: { zaloUid: String(ownId), archivedAt: { not: null }, purged: false, id: { not: accountId } },
+        select: { id: true },
+      });
+      if (archivedAccount) {
+        logger.info(`[zalo:${accountId}] Found archived account ${archivedAccount.id} with same zaloUid — restoring`);
+        // Transfer session to archived account + unarchive
+        const currentAccount = await prisma.zaloAccount.findUnique({
+          where: { id: accountId },
+          select: { sessionData: true, proxyUrl: true },
+        });
+        await prisma.zaloAccount.update({
+          where: { id: archivedAccount.id },
+          data: {
+            archivedAt: null,
+            status: 'connected',
+            sessionData: currentAccount?.sessionData ?? undefined,
+            zaloUid: String(ownId),
+            lastConnectedAt: new Date(),
+          },
+        });
+        // Delete the new empty account
+        await prisma.zaloAccount.delete({ where: { id: accountId } }).catch(() => {});
+        // Switch pool instance to old account ID
+        this.instances.delete(accountId);
+        this.instances.set(archivedAccount.id, instance);
+        activeAccountId = archivedAccount.id;
+      }
+
       // Fetch own profile info for avatar
       try {
         const userInfo = await api.getUserInfo(ownId);
@@ -133,33 +167,28 @@ class ZaloAccountPool {
         const profile = profiles[ownId] || profiles[`${ownId}_0`];
         if (profile?.avatar) {
           await prisma.zaloAccount.update({
-            where: { id: accountId },
+            where: { id: activeAccountId },
             data: { avatarUrl: profile.avatar, displayName: profile.zaloName || profile.zalo_name || profile.displayName || instance.displayName },
           });
         }
       } catch {}
 
-      this.attachListener(accountId, api);
-      this.io?.emit('zalo:connected', { accountId, zaloUid: ownId });
-      await this.updateAccountDB(accountId, 'connected', ownId, 'qr_scan');
-      // Emit webhook (orgId lookup is async, fire-and-forget)
-      prisma.zaloAccount.findUnique({ where: { id: accountId }, select: { orgId: true } })
-        .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.connected', { accountId }))
+      this.attachListener(activeAccountId, api);
+      this.io?.emit('zalo:connected', { accountId: activeAccountId, zaloUid: ownId });
+      await this.updateAccountDB(activeAccountId, 'connected', ownId, 'qr_scan');
+      prisma.zaloAccount.findUnique({ where: { id: activeAccountId }, select: { orgId: true } })
+        .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.connected', { accountId: activeAccountId }))
         .catch(() => {});
 
-      // Fire-and-forget: link orphaned conversations on login
-      this.backfillOrphanedConversations(accountId, api).catch((err) => {
-        logger.warn(`[zalo:${accountId}] Backfill orphaned conversations failed:`, err);
+      this.backfillOrphanedConversations(activeAccountId, api).catch((err) => {
+        logger.warn(`[zalo:${activeAccountId}] Backfill orphaned conversations failed:`, err);
       });
 
-      // Fire-and-forget: initial history backfill on first login (empty DB)
-      backfillIfEmpty(api, accountId).catch((err) => {
-        logger.warn(`[zalo:${accountId}] Initial history backfill failed:`, err);
+      backfillIfEmpty(api, activeAccountId).catch((err) => {
+        logger.warn(`[zalo:${activeAccountId}] Initial history backfill failed:`, err);
       });
 
-      // Fire-and-forget: pull Zalo labels lần đầu để Friend.zaloLabels + crmTagsPerNick
-      // có data ngay sau khi connect — tránh phải bấm "Đồng bộ ngay" thủ công.
-      this.autoSyncOnConnect(accountId);
+      this.autoSyncOnConnect(activeAccountId);
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
@@ -170,6 +199,7 @@ class ZaloAccountPool {
 
   // Reconnect using previously saved session credentials
   async reconnect(accountId: string, credentials: ZaloCredentials, proxyUrl?: string | null): Promise<void> {
+    this.manuallyDisabled.delete(accountId);
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
     this.instances.set(accountId, { zalo, api: null, status: 'connecting', lastActivity: new Date() });
 
@@ -255,6 +285,9 @@ class ZaloAccountPool {
       io: this.io,
       userInfoCache: this.userInfoCache,
       onDisconnected: (id) => {
+        // If manually disabled, skip all reconnect logic
+        if (this.manuallyDisabled.has(id)) return;
+
         const inst = this.instances.get(id);
         if (inst) inst.status = 'disconnected';
         this.updateAccountDB(id, 'disconnected', null, 'disconnect');
@@ -336,8 +369,10 @@ class ZaloAccountPool {
 
   // Auto-reconnect using saved session from DB
   private async autoReconnect(accountId: string): Promise<void> {
+    // Skip if manually disabled via disconnect/disable action
+    if (this.manuallyDisabled.has(accountId)) return;
     const inst = this.instances.get(accountId);
-    // Skip if already reconnected or manually disconnected
+    // Skip if already reconnected
     if (inst?.status === 'connected') return;
 
     try {
@@ -362,14 +397,30 @@ class ZaloAccountPool {
 
   // Stop listener and remove from pool
   disconnect(accountId: string): void {
+    this.manuallyDisabled.add(accountId);
     const instance = this.instances.get(accountId);
+    if (instance) {
+      instance.status = 'disconnected';
+    }
+    this.instances.delete(accountId);
     if (instance?.api?.listener) {
       try { instance.api.listener.stop(); } catch (err) {
         logger.warn(`[zalo:${accountId}] Error stopping listener:`, err);
       }
     }
     stopMessageSync(accountId);
+  }
+
+  // Disconnect for session refresh (daily cron) — does NOT mark as manually disabled
+  disconnectForRefresh(accountId: string): void {
+    const instance = this.instances.get(accountId);
     this.instances.delete(accountId);
+    if (instance?.api?.listener) {
+      try { instance.api.listener.stop(); } catch (err) {
+        logger.warn(`[zalo:${accountId}] Error stopping listener:`, err);
+      }
+    }
+    stopMessageSync(accountId);
   }
 
   getStatus(accountId: string): string {

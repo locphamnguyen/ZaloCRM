@@ -98,6 +98,11 @@ export function useZaloAccountsDashboard() {
   const base = useZaloAccounts();
 
   const enriched = ref<EnrichedAccount[]>([]);
+
+  base.onStatusChange(() => {
+    fetchStats();
+    fetchEnriched();
+  });
   const stats = ref<TeamStats | null>(null);
   const loadingEnriched = ref(false);
   const loadingStats = ref(false);

@@ -14,8 +14,12 @@ export function startZaloHealthCheck(): void {
   cron.schedule('*/5 * * * *', async () => {
     try {
       const accounts = await prisma.zaloAccount.findMany({
-        where: { sessionData: { not: Prisma.JsonNull } },
-        select: { id: true, displayName: true, sessionData: true },
+        where: {
+          sessionData: { not: Prisma.JsonNull },
+          status: { notIn: ['disconnected'] },
+          archivedAt: null,
+        },
+        select: { id: true, displayName: true, sessionData: true, proxyUrl: true },
       });
 
       for (const acc of accounts) {
@@ -24,7 +28,7 @@ export function startZaloHealthCheck(): void {
           const session = acc.sessionData as any;
           if (session?.imei) {
             logger.info(`[health-check] Reconnecting ${acc.displayName || acc.id}...`);
-            zaloPool.reconnect(acc.id, session).catch((err) => {
+            zaloPool.reconnect(acc.id, session, acc.proxyUrl).catch((err) => {
               logger.warn(`[health-check] Reconnect failed for ${acc.id}:`, err);
             });
           }
@@ -40,17 +44,20 @@ export function startZaloHealthCheck(): void {
     logger.info('[health-check] Daily session refresh starting...');
     try {
       const accounts = await prisma.zaloAccount.findMany({
-        where: { sessionData: { not: Prisma.JsonNull } },
-        select: { id: true, sessionData: true },
+        where: {
+          sessionData: { not: Prisma.JsonNull },
+          status: { notIn: ['disconnected'] },
+          archivedAt: null,
+        },
+        select: { id: true, sessionData: true, proxyUrl: true },
       });
 
       for (const acc of accounts) {
         const session = acc.sessionData as any;
         if (session?.imei) {
-          // Disconnect then reconnect to force cookie refresh
-          zaloPool.disconnect(acc.id);
+          zaloPool.disconnectForRefresh(acc.id);
           await new Promise((r) => setTimeout(r, 5000));
-          zaloPool.reconnect(acc.id, session).catch((err) => {
+          zaloPool.reconnect(acc.id, session, acc.proxyUrl).catch((err) => {
             logger.warn(`[health-check] Daily refresh failed for ${acc.id}:`, err);
           });
         }

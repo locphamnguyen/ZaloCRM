@@ -91,25 +91,39 @@
             <div v-else-if="filteredAllAccounts.length === 0" class="nick-empty">
               {{ viewNickSearch ? `Không tìm thấy nick "${viewNickSearch}"` : 'Chưa có nick Zalo nào' }}
             </div>
-            <button
+            <div
               v-for="acc in filteredAllAccounts"
               :key="`np-${acc.id}`"
-              type="button"
               class="nick-pick-row"
               :class="{ selected: viewAccountId === acc.id && viewFolderId === null }"
-              @click="onApplyAccount(acc.id)"
             >
-              <img v-if="acc.avatarUrl" :src="acc.avatarUrl" class="np-avatar-img" :alt="acc.displayName || ''" />
-              <div v-else class="np-avatar" :style="{ background: accountGradient(acc.id) }">{{ initials(acc.displayName) }}</div>
-              <div class="np-body">
-                <div class="np-name">{{ acc.displayName || 'Chưa đặt tên' }}</div>
-                <div class="np-sub">
-                  <span class="status-dot" :class="{ off: acc.status !== 'connected' }"></span>
-                  {{ acc.status === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
+              <button type="button" class="np-main" @click="onApplyAccount(acc.id)">
+                <img v-if="acc.avatarUrl" :src="acc.avatarUrl" class="np-avatar-img" :alt="acc.displayName || ''" />
+                <div v-else class="np-avatar" :style="{ background: accountGradient(acc.id) }">{{ initials(acc.displayName) }}</div>
+                <div class="np-body">
+                  <div class="np-name">{{ acc.displayName || 'Chưa đặt tên' }}</div>
+                  <div class="np-sub">
+                    <span class="status-dot" :class="{ off: acc.status !== 'connected' }"></span>
+                    {{ acc.status === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
+                  </div>
                 </div>
+                <div v-if="viewAccountId === acc.id && viewFolderId === null" class="np-check">✓</div>
+              </button>
+              <div class="np-actions" @click.stop>
+                <button type="button" class="np-act" title="Sync danh bạ" @click="onSyncContacts(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Sync lịch sử chat" @click="onSyncHistory(acc.id)" :disabled="acc.status !== 'connected'">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Reconnect" :disabled="acc.status === 'connected'" @click="onReconnect(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Đăng nhập QR" :disabled="acc.status === 'connected'" @click="onQRLogin(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                </button>
               </div>
-              <div v-if="viewAccountId === acc.id && viewFolderId === null" class="np-check">✓</div>
-            </button>
+            </div>
           </div>
         </div>
 
@@ -258,6 +272,10 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import type { AccountFolder } from '@/composables/use-inbox-filters';
 import { useZaloAccounts, type ZaloAccount } from '@/composables/use-zalo-accounts';
+import { useToast } from '@/composables/use-toast';
+import { api } from '@/api/index';
+
+const toast = useToast();
 
 const props = defineProps<{
   modelValue: boolean;
@@ -317,6 +335,42 @@ function onApplyAccount(id: string) {
   viewAccountId.value = id;
   emit('view-applied', { folderId: null, accountId: id });
   emit('update:modelValue', false);
+}
+
+// ─── Nick row actions (Sync danh bạ / Sync lịch sử chat / Reconnect / QR login) ───
+async function onSyncContacts(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/sync-contacts`);
+    toast.success('Đồng bộ danh bạ thành công');
+    await fetchAccounts();
+  } catch (e: any) {
+    toast.error('Đồng bộ danh bạ thất bại: ' + (e.response?.data?.error || e.message));
+  }
+}
+async function onSyncHistory(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/sync-history`);
+    toast.success('Đồng bộ lịch sử chat thành công');
+  } catch (e: any) {
+    toast.error('Đồng bộ lịch sử chat thất bại: ' + (e.response?.data?.error || e.message));
+  }
+}
+async function onReconnect(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/reconnect`);
+    toast.success('Đang kết nối lại nick...');
+    await fetchAccounts();
+  } catch (e: any) {
+    toast.error('Reconnect thất bại: ' + (e.response?.data?.error || e.message));
+  }
+}
+async function onQRLogin(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/login`);
+    toast.success('Đã khởi tạo QR login, mở trang Quản lý nick để quét');
+  } catch (e: any) {
+    toast.error('Khởi tạo QR thất bại: ' + (e.response?.data?.error || e.message));
+  }
 }
 
 // ─── TAB 2: MANAGE state ─────────────────────────────
@@ -770,15 +824,11 @@ onMounted(() => {
 .nick-pick-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 4px 6px;
   background: white;
   border: 1px solid transparent;
   border-radius: 8px;
-  cursor: pointer;
-  font-family: inherit;
-  text-align: left;
-  width: 100%;
   transition: all 0.12s;
 }
 .nick-pick-row:hover { border-color: #E4E5E9; }
@@ -786,7 +836,39 @@ onMounted(() => {
   background: #EEF0FF;
   border-color: rgba(94, 106, 210, 0.4);
 }
-.nick-pick-row:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 1px; }
+.np-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.np-main:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 1px; border-radius: 6px; }
+.np-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.np-act {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  color: #6B7280;
+}
+.np-act:hover:not(:disabled) { background: #F3F4F6; border-color: #E5E7EB; color: #111827; }
+.np-act:disabled { opacity: 0.3; cursor: not-allowed; }
+.np-act svg { width: 14px; height: 14px; }
 
 .np-avatar-img,
 .np-avatar {

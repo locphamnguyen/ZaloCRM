@@ -318,7 +318,7 @@ async function bootstrap() {
   // Reconnect Zalo accounts that have saved sessions
   try {
     const accounts = await prisma.zaloAccount.findMany({
-      where: { sessionData: { not: Prisma.JsonNull } },
+      where: { sessionData: { not: Prisma.JsonNull }, archivedAt: null, status: { not: 'disconnected' } },
       select: { id: true, sessionData: true },
     });
     logger.info(`Attempting reconnect for ${accounts.length} Zalo account(s)`);

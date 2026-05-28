@@ -130,23 +130,23 @@
         <CodeIcon :size="16" :stroke-width="2" />
       </v-btn>
 
-      <v-spacer />
-
-      <!-- 2026-05-21: AI Format — gửi raw text trong editor cho AI, return styled payload,
-           apply vào editor cho user xem trước khi bấm gửi. Chỉ hiện khi có text. -->
-      <button
-        type="button"
-        class="ai-format-btn"
-        :class="{ loading: aiFormatLoading }"
-        :disabled="aiFormatLoading || !modelValue.trim()"
-        title="AI tự format đoạn text — bold tiêu đề, màu giá tiền, size lớn tiêu đề..."
-        @click="onAiFormat"
-      >
-        <SparklesIcon v-if="!aiFormatLoading" :size="14" :stroke-width="2" />
-        <v-progress-circular v-else indeterminate size="12" width="2" />
-        <span>{{ aiFormatLoading ? 'Đang format...' : 'AI Format' }}</span>
-      </button>
     </div>
+
+    <!-- AI Format — luôn hiện khi có text trong editor, không phụ thuộc vào toolbar.
+         Nổi ở góc phải trên của vùng editor để user paste text vào là thấy ngay. -->
+    <button
+      v-if="modelValue.trim()"
+      type="button"
+      class="ai-format-btn ai-format-floating"
+      :class="{ loading: aiFormatLoading }"
+      :disabled="aiFormatLoading"
+      title="AI tự format đoạn text — bold tiêu đề, màu giá tiền, size lớn tiêu đề..."
+      @click="onAiFormat"
+    >
+      <SparklesIcon v-if="!aiFormatLoading" :size="14" :stroke-width="2" />
+      <v-progress-circular v-else indeterminate size="12" width="2" />
+      <span>{{ aiFormatLoading ? 'Đang format...' : 'AI Format' }}</span>
+    </button>
 
     <!-- Editor content -->
     <EditorContent :editor="editor" class="editor-content" />
@@ -697,6 +697,13 @@ onBeforeUnmount(() => { editor.value?.destroy(); });
 .ai-format-btn.loading {
   opacity: 0.8;
 }
+.ai-format-floating {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 5;
+}
+.rich-text-editor { position: relative; }
 
 /* Editor content */
 .editor-content :deep(.tiptap-input) {

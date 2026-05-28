@@ -138,6 +138,12 @@ export function useZaloAccounts() {
     socket?.emit('zalo:unsubscribe', { accountId: currentLoginAccountId.value });
   }
 
+  let onStatusChangeCb: (() => void) | null = null;
+
+  function onStatusChange(cb: () => void) {
+    onStatusChangeCb = cb;
+  }
+
   function setupSocket() {
     socket = io({ transports: ['websocket', 'polling'] });
 
@@ -156,13 +162,18 @@ export function useZaloAccounts() {
     socket.on('zalo:connected', (_data: { accountId: string }) => {
       showQRDialog.value = false;
       fetchAccounts();
+      onStatusChangeCb?.();
     });
 
-    socket.on('zalo:disconnected', (_data: { accountId: string }) => { fetchAccounts(); });
+    socket.on('zalo:disconnected', (_data: { accountId: string }) => {
+      fetchAccounts();
+      onStatusChangeCb?.();
+    });
 
     socket.on('zalo:error', (data: { accountId: string; error: string }) => {
       if (data.accountId === currentLoginAccountId.value) qrError.value = data.error;
       fetchAccounts();
+      onStatusChangeCb?.();
     });
 
     socket.on('zalo:qr-expired', (data: { accountId: string }) => {
@@ -172,7 +183,10 @@ export function useZaloAccounts() {
       }
     });
 
-    socket.on('zalo:reconnect-failed', (_data: { accountId: string }) => { fetchAccounts(); });
+    socket.on('zalo:reconnect-failed', (_data: { accountId: string }) => {
+      fetchAccounts();
+      onStatusChangeCb?.();
+    });
   }
 
   onUnmounted(() => { socket?.disconnect(); });
@@ -182,6 +196,6 @@ export function useZaloAccounts() {
     showQRDialog, qrImage, qrScanned, scannedName, qrError,
     statusColor, statusText,
     fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
-    updateProxy, cancelQR, setupSocket,
+    updateProxy, cancelQR, setupSocket, onStatusChange,
   };
 }

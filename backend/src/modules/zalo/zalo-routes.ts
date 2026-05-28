@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { getZaloScope, canManageAccount } from './zalo-scope.js';
 
@@ -136,11 +137,13 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // DELETE /api/v1/zalo-accounts/:id — disconnect and delete record
-  app.delete<{ Params: { id: string } }>(
+  // DELETE /api/v1/zalo-accounts/:id — archive (soft-delete) or purge+archive
+  // Query param ?purge=true → wipe sessionData + clear zaloUid so re-connect creates fresh nick
+  app.delete<{ Params: { id: string }; Querystring: { purge?: string } }>(
     '/api/v1/zalo-accounts/:id',
     async (request, reply) => {
       const { id } = request.params;
+      const purge = request.query.purge === 'true';
       const user = request.user!;
 
       const account = await prisma.zaloAccount.findFirst({
@@ -151,7 +154,17 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       }
 
       zaloPool.disconnect(id);
-      await prisma.zaloAccount.delete({ where: { id } });
+      if (purge) {
+        await prisma.zaloAccount.update({
+          where: { id },
+          data: { status: 'disconnected', archivedAt: new Date(), purged: true, sessionData: Prisma.DbNull, zaloUid: null },
+        });
+      } else {
+        await prisma.zaloAccount.update({
+          where: { id },
+          data: { status: 'disconnected', archivedAt: new Date() },
+        });
+      }
 
       return reply.status(204).send();
     },

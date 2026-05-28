@@ -168,6 +168,8 @@ model ZaloAccount {
   // chỉ owner unlock PIN xem được. Default 'sub' (org public). Xem design doc:
   // ~/.gstack/projects/zalocrm/thanh-private-mode-design-20260521.md
   privacyMode     String    @default("sub") @map("privacy_mode")
+  archivedAt      DateTime? @map("archived_at")
+  purged          Boolean   @default(false)
   createdAt       DateTime  @default(now()) @map("created_at")
 
   org                Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)

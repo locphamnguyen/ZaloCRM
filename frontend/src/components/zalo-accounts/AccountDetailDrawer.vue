@@ -201,7 +201,11 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
               <span class="lbl">Reconnect</span>
             </button>
-            <button class="action-btn" @click="$emit('action', { accountId: account.id, action: 'qr-login' })">
+            <button
+              class="action-btn"
+              :disabled="account.liveStatus === 'connected'"
+              @click="$emit('action', { accountId: account.id, action: 'qr-login' })"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
               <span class="lbl">Đăng nhập QR</span>
             </button>
@@ -216,7 +220,7 @@
         <section class="d-section">
           <div class="danger-zone">
             <div class="dz-ttl">⚠ Danger zone</div>
-            <button class="dz-btn" @click="$emit('action', { accountId: account.id, action: 'disconnect' })">
+            <button class="dz-btn" :disabled="account.liveStatus !== 'connected'" @click="$emit('action', { accountId: account.id, action: 'disconnect' })">
               Ngắt kết nối
             </button>
             <button class="dz-btn" @click="$emit('action', { accountId: account.id, action: 'delete' })">
@@ -657,5 +661,6 @@ function maskPhone(p: string): string {
   cursor: pointer;
   margin-right: 6px;
 }
-.dz-btn:hover { background: #FEF2F2 }
+.dz-btn:hover:not(:disabled) { background: #FEF2F2 }
+.dz-btn:disabled { opacity: 0.4; cursor: not-allowed }
 </style>
