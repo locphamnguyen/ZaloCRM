@@ -81,7 +81,7 @@ export async function chatRoutes(app: FastifyInstance) {
     const user = request.user!;
     const { accountId = '', tab = '' } = request.query as QueryParams;
 
-    const baseWhere: any = { orgId: user.orgId };
+    const baseWhere: any = { orgId: user.orgId, zaloAccount: { archivedAt: null } };
     if (accountId) baseWhere.zaloAccountId = accountId;
     if (tab) baseWhere.tab = tab;
 
@@ -146,7 +146,7 @@ export async function chatRoutes(app: FastifyInstance) {
       engagementPattern = '',   // Phase 8 — CSV: hot,champion,stable,cooling,cold
     } = request.query as QueryParams;
 
-    const where: any = { orgId: user.orgId };
+    const where: any = { orgId: user.orgId, zaloAccount: { archivedAt: null } };
     if (tab) where.tab = tab;
     if (threadType === 'user' || threadType === 'group') where.threadType = threadType;
 
