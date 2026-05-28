@@ -2,6 +2,15 @@
 
 Tất cả thay đổi đáng chú ý của ZaloCRM được ghi lại tại đây. Dự án dùng nhánh `main` làm dòng phát hành chính.
 
+## v3.3.3 — 28/05/2026
+
+### Fixed
+
+- **Tag Zalo Native không push qua Zalo SDK**: TagCrmBar khi user pick tag `managedBy='zalo_sync'` chỉ ghi vào `Contact.tags` qua `PUT /contacts/:id/tags` — không gọi Zalo SDK. Reload mất tag vì display logic chỉ lấy "🔵 X" từ `Friend.crmTagsPerNick`. Fix: route Zalo tags qua `POST /zalo-accounts/:id/labels/assign-thread` để push thật qua SDK, single-select per thread, null = unassign.
+- **Filter tag Zalo Native trong sidebar lọc sai (0 kết quả)**: backend dùng pattern Prisma sai `zaloLabels: { path: ['$[*].name'], array_contains: [name] }` → silently trả 0 rows. Đổi sang `zaloLabels: { array_contains: [{ name }] }` (translates `jsonb @>` containment). Áp dụng cho cả filter `zaloLabels` riêng và filter `tags` thống nhất.
+- **Tag Zalo Native không hiển thị trên conversation list + tag-crm-bar**: sync logic chỉ add mirror "🔵 X" cho `addedLabels` diff. Legacy data: friend có `zaloLabels` từ trước → sync lại thấy `addedLabels=[]` → không backfill mirror → 41/74 friends bị empty `crmTagsPerNick`. Fix: rebuild mirror from scratch mỗi sync — strip toàn bộ "🔵 ..." cũ, add lại cho TẤT CẢ labels hiện tại. Idempotent + self-healing. Kèm SQL backfill 74 friends.
+- **Trang `/settings/rbac/users` thiếu nút "Thêm nhân viên"**: RBAC redesign vô tình bỏ nút tạo từ `UserManagement.vue` cũ. Khôi phục nút ở góc phải hero (owner/admin only) + dialog tạo nhân viên (họ tên, email, mật khẩu, vai trò). Dùng `useUsers().createUser` có sẵn.
+
 ## v3.3.2 — 28/05/2026
 
 ### Fixed
