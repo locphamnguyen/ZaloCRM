@@ -231,10 +231,15 @@
               <td>
                 <div class="name-text">
                   {{ contact.crmName || contact.fullName || '—' }}
+                </div>
+                <!-- Anh chốt 2026-05-28: badge "Cùng chăm (N)" xuống dòng 2 để giảm width cột -->
+                <div
+                  v-if="(contact.childrenCount ?? 0) > 1"
+                  class="name-sub"
+                >
                   <span
-                    v-if="(contact.childrenCount ?? 0) > 1"
                     class="chip chip-cung-cham"
-                    :title="`${contact.childrenCount} nick chăm KH này (hiện chi tiết khi mở ▸ hoặc tab Nick chăm)`"
+                    :title="`${contact.childrenCount} nick chăm KH này — mở ▸ để xem`"
                   >
                     🤝 Cùng chăm ({{ contact.childrenCount }})
                   </span>
@@ -245,9 +250,14 @@
               </td>
               <td><span class="phone-cell">{{ formatVnPhone(contact.phone) }}</span></td>
               <td>
-                <template v-if="contact.gender">
-                  {{ genderLabel(contact.gender) }}
-                  <template v-if="ageOf(contact)">· {{ ageOf(contact) }}t</template>
+                <!-- Anh chốt 2026-05-28: icon giới tính nhỏ + tuổi xuống hàng 2 giảm width -->
+                <template v-if="contact.gender || ageOf(contact)">
+                  <div class="gender-row">
+                    <span v-if="contact.gender" :title="genderLabel(contact.gender)">
+                      {{ contact.gender === 'male' ? '♂' : contact.gender === 'female' ? '♀' : '⚥' }}
+                    </span>
+                  </div>
+                  <div v-if="ageOf(contact)" class="gender-age">{{ ageOf(contact) }}t</div>
                 </template>
                 <span v-else class="empty">—</span>
               </td>
@@ -280,9 +290,9 @@
                 </span>
               </td>
               <td>
-                <!-- Nick chăm: 4 chip count theo trạng thái KB -->
-                <div class="nick-count-row">
-                  <span v-for="b in nickCountChips(contact)" :key="b.kind" :class="['chip', b.cls]" :title="b.title">
+                <!-- Nick chăm: 4 chip count theo trạng thái KB — anh chốt 2026-05-28 layout 2×2 -->
+                <div class="nick-count-grid">
+                  <span v-for="b in nickCountChips(contact)" :key="b.kind" :class="['chip', 'nick-mini', b.cls]" :title="b.title">
                     {{ b.icon }} {{ b.count }}
                   </span>
                 </div>
@@ -333,9 +343,12 @@
                 </div>
               </td>
               <td>
-                <!-- Phase Dual View 2026-05-28: cột Zalo cố định 3 trạng thái mutex -->
-                <span v-if="contact.hasZalo === true" class="zalo-pill zalo-yes">🟢 Có Zalo</span>
-                <span v-else-if="contact.hasZalo === false" class="zalo-pill zalo-no">🔴 Không tìm thấy</span>
+                <!-- Phase Dual View 2026-05-28: cột Zalo cố định 3 trạng thái mutex.
+                     Anh fix 2026-05-28: dùng displayHasZalo aggregate Cha/Con thay
+                     hasZalo raw — KH có zalo_uid/global_id từ Friend row thì Cha
+                     phải hiện "Có Zalo" dù field hasZalo chưa được set. -->
+                <span v-if="zaloDisplay(contact) === 'yes'" class="zalo-pill zalo-yes">🟢 Có Zalo</span>
+                <span v-else-if="zaloDisplay(contact) === 'no'" class="zalo-pill zalo-no">🔴 Không tìm thấy</span>
                 <span v-else class="zalo-pill zalo-unknown">⚪ Chưa tìm</span>
               </td>
               <td v-if="visibleCols.zaloUid" :title="'Per-account UID khác nhau theo nick. Mở ▸ xem chi tiết per row con.'">
@@ -1035,6 +1048,26 @@ function statusLabel(value: string) {
  *   - "936668266"     → "0936 668 266"  (thiếu 0/84 → prepend 0)
  *   - null/empty       → "—"
  */
+/**
+ * Resolve trạng thái cột Zalo (3 trạng thái mutex). Ưu tiên:
+ *   1. KH đã có Friend row / zaloUid / zaloGlobalId / zaloUsername → 'yes' (chắc chắn có Zalo)
+ *   2. hasZalo === false → 'no' (đã lookup, KH chặn / không có)
+ *   3. hasZalo === true → 'yes' (verified qua lookup)
+ *   4. Else → 'unknown' (chưa tra)
+ * Anh chốt 2026-05-28: aggregate Cha/Con phải đúng — KH có UID tức có Zalo.
+ */
+function zaloDisplay(c: Contact): 'yes' | 'no' | 'unknown' {
+  // Có Friend row hoặc có Zalo identity → CHẮC CHẮN có Zalo
+  if ((c.childrenCount ?? 0) > 0) return 'yes';
+  if (c.zaloUid || c.zaloGlobalId || c.zaloUsername) return 'yes';
+  if (c.displayHasZalo === true) return 'yes';
+  if (c.hasZalo === true) return 'yes';
+  // Đã lookup → không có Zalo
+  if (c.hasZalo === false) return 'no';
+  // Chưa lookup
+  return 'unknown';
+}
+
 function formatVnPhone(phone: string | null | undefined): string {
   if (!phone) return '—';
   let s = String(phone).replace(/\D/g, '');
@@ -1497,6 +1530,8 @@ onMounted(() => {
 }
 .w-32 { width: 32px; }
 .w-40 { width: 40px; }
+.w-60 { width: 60px; }
+.w-70 { width: 70px; }
 .w-78 { width: 78px; }
 .w-80 { width: 80px; }
 .w-90 { width: 90px; }
@@ -1677,6 +1712,32 @@ onMounted(() => {
 .nick-count-row .chip {
   font-size: 10px;
   padding: 2px 6px;
+}
+
+/* Anh chốt 2026-05-28: Nick chăm fix 2×2 grid để giảm chiều rộng cột */
+.nick-count-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  width: fit-content;
+}
+.nick-mini {
+  font-size: 10px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Giới tính icon nhỏ + tuổi xuống hàng 2 */
+.gender-row {
+  font-size: 16px;
+  line-height: 1.1;
+  color: var(--smax-grey-700);
+}
+.gender-age {
+  font-size: 11px;
+  color: var(--smax-grey-700);
+  margin-top: 1px;
 }
 
 .chip-orange-soft {
