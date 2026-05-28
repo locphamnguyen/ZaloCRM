@@ -92,6 +92,21 @@
           </v-list-item>
         </v-list>
       </v-menu>
+      <!-- Phase Dual View 2026-05-28: toggle 2 view mode -->
+      <div class="view-toggle" role="radiogroup" aria-label="View mode">
+        <button
+          class="view-btn"
+          :class="{ active: viewMode === 'm1' }"
+          @click="setViewMode('m1')"
+          title="Bảng đầy đủ — click row mở Friend rows inline"
+        >📋 Bảng đầy đủ</button>
+        <button
+          class="view-btn"
+          :class="{ active: viewMode === 'm2' }"
+          @click="setViewMode('m2')"
+          title="Chi tiết bên — click row mở panel chi tiết bên phải"
+        >🔍 Chi tiết bên</button>
+      </div>
       <button class="btn btn-primary" @click="openCreate">+ Thêm KH</button>
     </div>
 
@@ -160,9 +175,10 @@
       <div class="stat-box">📵 No Zalo: <span class="stat-num">{{ stats.noZalo }}</span></div>
     </div>
 
-    <!-- ════════ Master/child table ════════ -->
-    <div class="scroll-wrap">
-      <table class="smax-table">
+    <!-- ════════ Master/child table + Detail pane (Phase Dual View 2026-05-28) ════════ -->
+    <div class="dual-pane" :class="{ 'detail-open': viewMode === 'm2' && selectedContact }">
+    <div class="scroll-wrap" :class="{ 'mode-shrunk': viewMode === 'm2' && selectedContact }">
+      <table class="smax-table" :class="{ 'mode-shrunk': viewMode === 'm2' && selectedContact }">
         <thead>
           <tr>
             <th class="w-32"></th>
@@ -192,7 +208,10 @@
           <template v-for="contact in contacts" :key="contact.id">
             <tr
               class="master-row"
-              :class="{ open: expandedId === contact.id }"
+              :class="{
+                open: expandedId === contact.id,
+                'detail-active': viewMode === 'm2' && selectedContact?.id === contact.id,
+              }"
               @click="onRowClick($event, contact.id)"
             >
               <td>
@@ -314,9 +333,10 @@
                 </div>
               </td>
               <td>
-                <span v-if="contact.hasZalo === true" class="chip chip-success">Có</span>
-                <span v-else-if="contact.hasZalo === false" class="chip chip-grey">Không</span>
-                <span v-else class="empty">?</span>
+                <!-- Phase Dual View 2026-05-28: cột Zalo cố định 3 trạng thái mutex -->
+                <span v-if="contact.hasZalo === true" class="zalo-pill zalo-yes">🟢 Có Zalo</span>
+                <span v-else-if="contact.hasZalo === false" class="zalo-pill zalo-no">🔴 Không tìm thấy</span>
+                <span v-else class="zalo-pill zalo-unknown">⚪ Chưa tìm</span>
               </td>
               <td v-if="visibleCols.zaloUid" :title="'Per-account UID khác nhau theo nick. Mở ▸ xem chi tiết per row con.'">
                 <span v-if="(contact.childrenCount ?? 0) > 1" class="chip chip-multi" title="Đa Zalo identity — mỗi nick có UID riêng">đa {{ contact.childrenCount }} con</span>
@@ -499,6 +519,17 @@
       </table>
     </div>
 
+    <!-- Phase Dual View 2026-05-28: Detail pane bên phải khi mode 2 + selected -->
+    <aside v-if="viewMode === 'm2' && selectedContact" class="detail-pane">
+      <ContactDetailPanel
+        :contact="selectedContact"
+        @close="closeDetailPane"
+        @go-chat="goChat(selectedContact!)"
+        @saved="onSaved"
+      />
+    </aside>
+    </div><!-- /.dual-pane -->
+
     <!-- Pagination -->
     <div class="pagination">
       <button class="btn" :disabled="pagination.page <= 1" @click="changePage(pagination.page - 1)">← Trước</button>
@@ -538,6 +569,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
+import ContactDetailPanel from '@/components/contacts/ContactDetailPanel.vue';
 import ParentCandidateDialog from '@/components/contacts/ParentCandidateDialog.vue';
 import DuplicateReviewDialog from '@/components/contacts/DuplicateReviewDialog.vue';
 import type { CareStatusValue } from '@/constants/care-status';
@@ -616,6 +648,20 @@ function toggleChildColumn(key: ChildColKey) {
 const showDialog = ref(false);
 const showDuplicateDialog = ref(false);
 const showCandidateDialog = ref(false);
+
+// Phase Dual View 2026-05-28: viewMode persist localStorage
+const LS_KEY_VIEW = 'contactsview.viewMode.v1';
+const viewMode = ref<'m1' | 'm2'>((localStorage.getItem(LS_KEY_VIEW) as 'm1' | 'm2') || 'm1');
+function setViewMode(m: 'm1' | 'm2') {
+  viewMode.value = m;
+  try { localStorage.setItem(LS_KEY_VIEW, m); } catch { /* ignore */ }
+  // Đổi mode → đóng detail pane / dialog đang mở
+  if (m === 'm1') {
+    selectedContact.value = null;
+  } else {
+    showDialog.value = false;
+  }
+}
 const candidateCount = ref(0);
 async function fetchCandidateCount() {
   try {
@@ -762,12 +808,19 @@ function toggleExpand(id: string) {
   }
 }
 
-// Click anywhere trên row Cha = toggle expand. Skip nếu click vào button / input /
-// link bên trong (để giữ behavior gốc của những control đó: edit name, click chat...).
+// Click anywhere trên row Cha:
+//   - Mode 1: toggle expand inline Friend rows (giữ behavior cũ)
+//   - Mode 2: open detail pane bên phải (list shrink)
+// Skip nếu click vào button / input / link bên trong.
 function onRowClick(e: MouseEvent, id: string) {
   const t = e.target as HTMLElement;
   if (t.closest('button, input, select, textarea, a, .v-menu, .action-cell')) return;
-  toggleExpand(id);
+  if (viewMode.value === 'm2') {
+    const c = contacts.value.find((x) => x.id === id);
+    if (c) selectedContact.value = c;
+  } else {
+    toggleExpand(id);
+  }
 }
 
 async function fetchFriendships(contact: Contact) {
@@ -1017,8 +1070,17 @@ function openCreate() {
   showDialog.value = true;
 }
 function openDetail(c: Contact) {
+  // Phase Dual View 2026-05-28:
+  // - Mode 1 (Bảng đầy đủ): mở Dialog full screen như cũ
+  // - Mode 2 (Chi tiết bên): chỉ set selectedContact → inline DetailPanel hiện ra bên phải
   selectedContact.value = c;
-  showDialog.value = true;
+  if (viewMode.value === 'm1') {
+    showDialog.value = true;
+  }
+  // m2: detail pane bind v-if với selectedContact, không cần showDialog
+}
+function closeDetailPane() {
+  selectedContact.value = null;
 }
 function goChat(c: Contact) {
   router.push({ path: '/chat', query: { contactId: c.id } });
@@ -1659,4 +1721,174 @@ onMounted(() => {
 }
 .role-primary { background: #EEF0FF; color: #4F46E5; }
 .role-collab  { background: #FEF3C7; color: #92400E; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Phase Dual View 2026-05-28 — Toggle 2 view modes + Master-Detail layout
+ * Responsive: HD 1366 / Full HD 1920 / 2K 2560 (KHÔNG mobile)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* View toggle button group */
+.view-toggle {
+  display: inline-flex;
+  background: var(--smax-grey-50, #f8fafc);
+  border: 1px solid var(--smax-grey-200, #e5e7eb);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+  margin-right: 6px;
+}
+.view-btn {
+  background: transparent;
+  border: none;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--smax-grey-600, #475569);
+  cursor: pointer;
+  border-radius: 5px;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.view-btn:hover:not(.active) { color: var(--smax-grey-900, #181d26); }
+.view-btn.active {
+  background: white;
+  color: var(--smax-grey-900, #181d26);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+/* Cột Zalo cố định 3 trạng thái mutex */
+.zalo-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.zalo-pill.zalo-yes {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+.zalo-pill.zalo-no {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fca5a5;
+}
+.zalo-pill.zalo-unknown {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px dashed #cbd5e1;
+}
+
+/* ── Dual-pane layout ── */
+.dual-pane {
+  display: grid;
+  grid-template-columns: 1fr 0;
+  flex: 1;
+  min-height: 0;
+  transition: grid-template-columns 0.25s ease;
+}
+.dual-pane.detail-open {
+  /* HD: list 560px (4 cột Tên 200 + SĐT 110 + TT 110 + Zalo 110 + padding) / detail rest. */
+  grid-template-columns: 560px 1fr;
+}
+
+.dual-pane > .scroll-wrap {
+  min-width: 0;
+  overflow: auto;
+}
+
+.detail-pane {
+  border-left: 1px solid var(--smax-grey-200, #e5e7eb);
+  background: white;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Mode 2 shrunk: hide các cột không essential ── */
+.smax-table.mode-shrunk thead th:nth-child(1),  /* expand chevron */
+.smax-table.mode-shrunk thead th:nth-child(2),  /* # */
+.smax-table.mode-shrunk thead th:nth-child(5),  /* Giới tính */
+.smax-table.mode-shrunk thead th:nth-child(6),  /* Tỉnh/Quận */
+.smax-table.mode-shrunk thead th:nth-child(7),  /* Nguồn */
+.smax-table.mode-shrunk thead th:nth-child(9),  /* Score (giữ riêng compact) */
+.smax-table.mode-shrunk thead th:nth-child(10), /* Nick chăm */
+.smax-table.mode-shrunk thead th:nth-child(11), /* Sale chính */
+.smax-table.mode-shrunk thead th:nth-child(12), /* KH nhắn cuối */
+.smax-table.mode-shrunk thead th:nth-child(13), /* Sale nhắn cuối */
+.smax-table.mode-shrunk thead th:nth-child(14), /* Tin in/out */
+.smax-table.mode-shrunk thead th:nth-child(15), /* Tags CRM */
+.smax-table.mode-shrunk thead th:nth-child(17), /* zaloUid (opt) */
+.smax-table.mode-shrunk thead th:nth-child(18), /* globalId (opt) */
+.smax-table.mode-shrunk thead th:nth-child(19), /* username (opt) */
+.smax-table.mode-shrunk thead th:nth-child(20), /* lookup (opt) */
+.smax-table.mode-shrunk thead th:nth-child(21), /* Action */
+.smax-table.mode-shrunk tbody td:nth-child(1),
+.smax-table.mode-shrunk tbody td:nth-child(2),
+.smax-table.mode-shrunk tbody td:nth-child(5),
+.smax-table.mode-shrunk tbody td:nth-child(6),
+.smax-table.mode-shrunk tbody td:nth-child(7),
+.smax-table.mode-shrunk tbody td:nth-child(9),
+.smax-table.mode-shrunk tbody td:nth-child(10),
+.smax-table.mode-shrunk tbody td:nth-child(11),
+.smax-table.mode-shrunk tbody td:nth-child(12),
+.smax-table.mode-shrunk tbody td:nth-child(13),
+.smax-table.mode-shrunk tbody td:nth-child(14),
+.smax-table.mode-shrunk tbody td:nth-child(15),
+.smax-table.mode-shrunk tbody td:nth-child(17),
+.smax-table.mode-shrunk tbody td:nth-child(18),
+.smax-table.mode-shrunk tbody td:nth-child(19),
+.smax-table.mode-shrunk tbody td:nth-child(20),
+.smax-table.mode-shrunk tbody td:nth-child(21) {
+  display: none;
+}
+/* Shrunk: row hơi cao hơn để chứa name + phone stacked */
+.smax-table.mode-shrunk tbody tr.master-row td { height: 56px; }
+
+/* Shrunk: override min-width 1500 của smax-table mặc định → table co lại theo list pane */
+.smax-table.mode-shrunk {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 0 !important;
+}
+.smax-table.mode-shrunk thead th:nth-child(3) { width: 220px; }   /* Tên */
+.smax-table.mode-shrunk thead th:nth-child(4) { width: 110px; }   /* SĐT */
+.smax-table.mode-shrunk thead th:nth-child(8) { width: 110px; }   /* Trạng thái KH */
+.smax-table.mode-shrunk thead th:nth-child(16) { width: 110px; }  /* Có Zalo? */
+.smax-table.mode-shrunk thead th { white-space: nowrap; }
+.smax-table.mode-shrunk tbody td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Highlight active row khi detail-open */
+.smax-table.mode-shrunk tbody tr.master-row.detail-active {
+  background: #fef9e7;
+  border-left: 3px solid var(--smax-coral, #aa2d00);
+}
+
+/* Responsive breakpoints — anh chốt 2026-05-28: chỉ HD / FHD / 2K, không mobile */
+/* HD (1366×768): default — đã set ở trên (460px detail) */
+
+/* Full HD (1920×1080) */
+@media (min-width: 1920px) {
+  .dual-pane.detail-open { grid-template-columns: 620px 1fr; }
+}
+
+/* 2K / QHD (2560×1440) */
+@media (min-width: 2560px) {
+  .dual-pane.detail-open { grid-template-columns: 720px 1fr; }
+  .smax-contacts-page { max-width: 2400px; margin: 0 auto; }
+}
 </style>
