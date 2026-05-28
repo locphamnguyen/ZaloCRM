@@ -432,7 +432,24 @@ function pickTopRandom(candidates: PriorityCandidate[]): PriorityCandidate | nul
 /**
  * Build full payload sale thấy khi nhận lead — hoành tráng theo design.
  */
-async function buildLeadPayload(contactId: string, saleFullName: string | null = null) {
+interface AutoLookupResult {
+  found: boolean;
+  uid?: string | null;
+  nickUsed?: string | null;
+  nickId?: string | null;
+  zaloProfile?: {
+    uid: string; zaloName: string | null; username: string | null;
+    avatar: string | null; gender: number | null; dob: string | number | null;
+    bio: string | null; bizPkg: any; accountStatus: number | null; isFriend: boolean | null;
+  } | null;
+}
+
+async function buildLeadPayload(
+  contactId: string,
+  saleFullName: string | null = null,
+  saleUserId: string | null = null,
+  autoLookup: AutoLookupResult | null = null,
+) {
   const contact = await prisma.contact.findUnique({
     where: { id: contactId },
     include: {
@@ -446,7 +463,7 @@ async function buildLeadPayload(contactId: string, saleFullName: string | null =
           friendshipStatus: true,
           relationshipKind: true,
           becameFriendAt: true,
-          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true } },
+          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, ownerUserId: true } },
         },
       },
       contactNotes: {
@@ -467,6 +484,16 @@ async function buildLeadPayload(contactId: string, saleFullName: string | null =
   const daysIdle = contact.lastActivity ? Math.floor((Date.now() - contact.lastActivity.getTime()) / 86400000) : null;
   const noShowCount = contact.appointments.filter((a) => a.status === 'no_show').length;
   const acceptedFriendCount = contact.friends.filter((f) => f.friendshipStatus === 'accepted').length;
+
+  // 2026-05-28: Per-nick UID semantic — KH "có Zalo từ nick sale current" khi sale đã có
+  // Friend row với bất kỳ nick OWN của mình. KHÔNG dùng Contact.hasZalo global (sai khi
+  // sale cũ lookup từ nick khác → UID per-viewer không xài được với nick mới).
+  const friendsByCurrentSale = saleUserId
+    ? contact.friends.filter((f) => f.zaloAccount?.ownerUserId === saleUserId)
+    : [];
+  const hasZaloFromMyNick = friendsByCurrentSale.length > 0;
+  // Gender từ auto-lookup (Zalo SDK trả từ góc nhìn nick sale current → đúng 100%)
+  const lookupGender = autoLookup?.zaloProfile?.gender ?? null;
 
   return {
     contact: {
@@ -498,6 +525,9 @@ async function buildLeadPayload(contactId: string, saleFullName: string | null =
     },
     previousAssignee: contact.assignedUser ?? null,
     friends: contact.friends,
+    friendsByCurrentSale,
+    hasZaloFromMyNick,
+    autoLookup, // null nếu sale không có nick connected hoặc lookup fail
     recentNotes: contact.contactNotes,
     recentAppointments: contact.appointments,
     insights: {
@@ -505,24 +535,175 @@ async function buildLeadPayload(contactId: string, saleFullName: string | null =
       noShowCount,
       acceptedFriendCount,
       totalMessages: contact.totalInbound + contact.totalOutbound,
-      hadHotMoment: false, // TODO: derive từ historical status timeline (phase 2)
+      hadHotMoment: false,
     },
-    suggestedOpenings: buildSuggestedOpenings(contact, saleFullName),
+    suggestedOpenings: buildSuggestedOpenings(contact, saleFullName, lookupGender),
   };
 }
 
 function buildSuggestedOpenings(
   contact: { crmName: string | null; fullName: string | null },
   saleFullName: string | null,
+  gender: number | null = null,
 ): string[] {
-  const contactName = vietnameseFirstName(contact.crmName ?? contact.fullName) || 'anh/chị';
+  const contactName = vietnameseFirstName(contact.crmName ?? contact.fullName);
   const sale = vietnameseFirstName(saleFullName);
   const saleIntro = sale ? `em ${sale}` : 'em';
+  // Personalize theo gender từ Zalo lookup: 0=Nam → "Anh", 1=Nữ → "Chị", null → "anh/chị"
+  let greeting: string;
+  let pronoun: string;
+  if (!contactName) {
+    greeting = 'Chào anh/chị';
+    pronoun = 'anh/chị';
+  } else if (gender === 0) {
+    greeting = `Chào Anh ${contactName}`;
+    pronoun = 'anh';
+  } else if (gender === 1) {
+    greeting = `Chào Chị ${contactName}`;
+    pronoun = 'chị';
+  } else {
+    greeting = `Chào anh/chị ${contactName}`;
+    pronoun = 'anh/chị';
+  }
   return [
-    `Chào ${contactName}, ${saleIntro} là sale chăm sóc tiếp tài khoản của anh/chị. Em đọc lại lịch sử thấy mình đã quan tâm dự án trước đây, không biết hiện tại anh/chị còn nhu cầu không ạ?`,
-    `Chào ${contactName}, ${saleIntro} bên CSKH dự án — lâu rồi mình chưa nói chuyện. Em mới có thông tin cập nhật, gửi để anh/chị tham khảo nhé?`,
-    `Chào ${contactName}, ${saleIntro} phụ trách CSKH tài khoản này. Bên em đang có ưu đãi mới, anh/chị có thuận tiện 5 phút để em chia sẻ không ạ?`,
+    `${greeting}, ${saleIntro} là sale chăm sóc tiếp tài khoản của ${pronoun}. Em đọc lại lịch sử thấy mình đã quan tâm dự án trước đây, không biết hiện tại ${pronoun} còn nhu cầu không ạ?`,
+    `${greeting}, ${saleIntro} bên CSKH dự án — lâu rồi mình chưa nói chuyện. Em mới có thông tin cập nhật, gửi để ${pronoun} tham khảo nhé?`,
+    `${greeting}, ${saleIntro} phụ trách CSKH tài khoản này. Bên em đang có ưu đãi mới, ${pronoun} có thuận tiện 5 phút để em chia sẻ không ạ?`,
   ];
+}
+
+/**
+ * Auto-lookup Zalo của KH từ nick OWN của sale current. 2026-05-28.
+ * Lý do: per-account UID semantic — UID Contact.zaloUid là từ góc nhìn sale CŨ, sale mới
+ * không xài được → câu chào không có gender + chat không load. Auto lookup khi nhận lead
+ * để mỗi sale có UID per-viewer của mình + gender từ Zalo SDK.
+ *
+ * Cost: 1 SDK call per nhận lead. Memory: sale 20-30 lead/day → quota OK.
+ *
+ * Returns null nếu sale không có nick connected hoặc KH không có phone.
+ */
+async function autoLookupZaloForLead(args: {
+  contactId: string; orgId: string; saleUserId: string;
+}): Promise<AutoLookupResult | null> {
+  const contact = await prisma.contact.findUnique({
+    where: { id: args.contactId },
+    select: {
+      id: true, phone: true, phoneNormalized: true, hasZalo: true,
+      friends: {
+        where: { zaloAccount: { ownerUserId: args.saleUserId } },
+        select: { id: true, zaloAccountId: true, zaloUidInNick: true, zaloDisplayName: true, zaloAvatarUrl: true, zaloGlobalId: true },
+      },
+    },
+  });
+  if (!contact) return null;
+  const phone = contact.phoneNormalized || contact.phone;
+  if (!phone) return null;
+
+  // Đã có Friend với nick OWN của sale → skip SDK call (cache hit)
+  if (contact.friends.length > 0) {
+    const existing = contact.friends[0];
+    const nick = await prisma.zaloAccount.findUnique({
+      where: { id: existing.zaloAccountId },
+      select: { displayName: true },
+    });
+    return {
+      found: true,
+      uid: existing.zaloUidInNick,
+      nickUsed: nick?.displayName ?? null,
+      nickId: existing.zaloAccountId,
+      // zaloProfile null vì không lookup lại → FE dùng câu chào generic (gender không biết)
+      zaloProfile: null,
+    };
+  }
+
+  // Pick first OWN connected nick of sale
+  const myNick = await prisma.zaloAccount.findFirst({
+    where: { ownerUserId: args.saleUserId, orgId: args.orgId, status: 'connected' },
+    orderBy: { lastConnectedAt: 'desc' },
+    select: { id: true, displayName: true },
+  });
+  if (!myNick) return null; // Sale chưa connect nick → fallback hasZalo global
+
+  const { zaloOps } = await import('../../shared/zalo-operations.js');
+  let foundUid: string | null = null;
+  let extra: any = {};
+  try {
+    const res = await zaloOps.findUser(myNick.id, phone) as any;
+    const u = res || {};
+    foundUid = String(u.uid || u.userId || '') || null;
+    extra = {
+      zaloName: u.zaloName || u.zalo_name || u.displayName || u.display_name || null,
+      avatar: u.avatar || null,
+      globalId: u.globalId || null,
+      username: u.username || null,
+      gender: typeof u.gender === 'number' ? u.gender : null,
+      dob: u.dob ?? u.birthday ?? null,
+      bio: u.status || u.aboutMe || u.bio || null,
+      bizPkg: u.bizPkg || u.business || null,
+      accountStatus: typeof u.accountStatus === 'number' ? u.accountStatus : (typeof u.status === 'number' ? u.status : null),
+      isFriend: typeof u.isFr === 'boolean' ? u.isFr : (typeof u.is_fr === 'boolean' ? u.is_fr : null),
+    };
+  } catch (err: any) {
+    logger.warn(`[auto-lookup] findUser fail nick=${myNick.id}: ${err?.message || err}`);
+    return { found: false, uid: null, nickUsed: myNick.displayName, nickId: myNick.id };
+  }
+
+  if (!foundUid) {
+    // Update Contact: KH không có Zalo (per-viewer của sale này — có thể KH có Zalo nhưng
+    // hide phone search; chấp nhận false vì sale current không search ra)
+    await prisma.contact.update({
+      where: { id: args.contactId },
+      data: { zaloLookupAt: new Date(), zaloLookupAttempts: { increment: 1 }, hasZalo: false },
+    }).catch(() => {});
+    return { found: false, uid: null, nickUsed: myNick.displayName, nickId: myNick.id };
+  }
+
+  // Upsert Friend per-nick + update Contact (only avatar nếu chưa có)
+  await prisma.friend.upsert({
+    where: { zaloAccountId_zaloUidInNick: { zaloAccountId: myNick.id, zaloUidInNick: foundUid } },
+    create: {
+      orgId: args.orgId, zaloAccountId: myNick.id, contactId: args.contactId,
+      zaloUidInNick: foundUid, zaloDisplayName: extra.zaloName,
+      zaloAvatarUrl: extra.avatar, friendshipStatus: 'none',
+      zaloGlobalId: extra.globalId,
+    },
+    update: {
+      contactId: args.contactId,
+      zaloDisplayName: extra.zaloName || undefined,
+      zaloAvatarUrl: extra.avatar || undefined,
+      zaloGlobalId: extra.globalId || undefined,
+    },
+  });
+
+  await prisma.contact.update({
+    where: { id: args.contactId },
+    data: {
+      zaloLookupAt: new Date(),
+      zaloLookupAttempts: { increment: 1 },
+      hasZalo: true,
+      avatarUrl: contact.hasZalo ? undefined : (extra.avatar ?? undefined),
+      zaloUid: foundUid, // legacy field — keep for backward compat
+    },
+  }).catch(() => {});
+
+  return {
+    found: true,
+    uid: foundUid,
+    nickUsed: myNick.displayName,
+    nickId: myNick.id,
+    zaloProfile: {
+      uid: foundUid,
+      zaloName: extra.zaloName,
+      username: extra.username,
+      avatar: extra.avatar,
+      gender: extra.gender,
+      dob: extra.dob,
+      bio: extra.bio,
+      bizPkg: extra.bizPkg,
+      accountStatus: extra.accountStatus,
+      isFriend: extra.isFriend,
+    },
+  };
 }
 
 /**
@@ -690,7 +871,20 @@ export async function requestLead(args: { orgId: string; userId: string }) {
     where: { id: args.userId },
     select: { fullName: true },
   });
-  const payload = await buildLeadPayload(result.contactId, saleUser?.fullName ?? null);
+
+  // Auto-trigger Zalo lookup từ nick OWN của sale (2026-05-28)
+  // Mỗi sale chỉ 20-30 lead/ngày → quota Zalo SDK OK. Lookup ngay khi nhận lead để
+  // có UID per-viewer + gender → câu chào personalize Anh/Chị + chat đúng nick sale.
+  const autoLookup = await autoLookupZaloForLead({
+    contactId: result.contactId,
+    orgId: args.orgId,
+    saleUserId: args.userId,
+  }).catch((err) => {
+    logger.warn(`[auto-lookup] failed for contact=${result.contactId}: ${err?.message || err}`);
+    return null;
+  });
+
+  const payload = await buildLeadPayload(result.contactId, saleUser?.fullName ?? null, args.userId, autoLookup);
   if (!payload) {
     // Contact bị xoá trong khoảnh khắc giữa TX và buildPayload — Codex LOW fix.
     // Rollback assignment để không leak contact bị orphan.
@@ -990,9 +1184,9 @@ export async function findZaloForLead(args: { userId: string; orgId: string; lea
   if (!phone) {
     throw new LeadPoolError(400, 'no_phone', 'Lead này không có SĐT — không tìm được Zalo. Gọi điện trước hoặc bổ sung SĐT.');
   }
-  if (lr.contact.hasZalo === true) {
-    throw new LeadPoolError(400, 'already_found', 'KH này đã có Zalo trong CRM');
-  }
+  // 2026-05-28: KHÔNG throw khi hasZalo=true vì UID per-viewer của sale khác không xài
+  // được. Cho phép sale current re-lookup từ nick mình → tạo Friend per-nick mới.
+  // Check Friend với (nick được chọn, contact) — nếu rồi thì return existing (no SDK call).
 
   // Nick để lookup: nếu sale chọn (zaloAccountId) → dùng nick đó. Else fallback first-own.
   let myNick: { id: string; displayName: string | null } | null = null;

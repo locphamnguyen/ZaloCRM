@@ -37,6 +37,18 @@ export interface Eligibility {
   config: PoolConfig;
 }
 
+export interface AutoLookupResult {
+  found: boolean;
+  uid?: string | null;
+  nickUsed?: string | null;
+  nickId?: string | null;
+  zaloProfile?: {
+    uid: string; zaloName: string | null; username: string | null;
+    avatar: string | null; gender: number | null; dob: string | number | null;
+    bio: string | null; bizPkg: any; accountStatus: number | null; isFriend: boolean | null;
+  } | null;
+}
+
 export interface LeadPayload {
   leadRequestId: string;
   source: 'forgotten' | 'customer_list' | 'external_sync';
@@ -45,6 +57,10 @@ export interface LeadPayload {
   contact: Record<string, any>;
   previousAssignee: { id: string; fullName: string; email: string; isActive: boolean } | null;
   friends: Array<any>;
+  // 2026-05-28 per-nick UID semantic
+  friendsByCurrentSale?: Array<any>;
+  hasZaloFromMyNick?: boolean;
+  autoLookup?: AutoLookupResult | null;
   recentNotes: Array<any>;
   recentAppointments: Array<any>;
   insights: { daysIdle: number | null; noShowCount: number; acceptedFriendCount: number; totalMessages: number; hadHotMoment: boolean };

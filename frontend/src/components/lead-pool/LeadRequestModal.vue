@@ -40,7 +40,9 @@
             <div class="lrm-name">{{ displayName }}</div>
             <div class="lrm-meta-inline">
               <span v-if="lead.contact.phone" class="lrm-phone">📱 {{ formatPhone(lead.contact.phone) }}</span>
-              <span v-if="lead.contact.hasZalo === true" class="lrm-tag lrm-tag-green">🟢 Có Zalo</span>
+              <!-- Per-nick semantic 2026-05-28: tag theo góc nhìn sale current -->
+              <span v-if="lead.hasZaloFromMyNick" class="lrm-tag lrm-tag-green" :title="'Đã có UID qua nick ' + (lead.autoLookup?.nickUsed || 'của bạn')">🟢 Có Zalo (nick bạn)</span>
+              <span v-else-if="lead.contact.hasZalo === true" class="lrm-tag lrm-tag-amber" title="KH có Zalo nhưng từ nick sale khác — cần lookup lại từ nick của bạn">🟡 Cần lookup nick mình</span>
               <span v-else-if="lead.contact.hasZalo === false" class="lrm-tag lrm-tag-grey">⚪ Chưa có Zalo</span>
               <span v-else class="lrm-tag lrm-tag-grey">❔ Chưa rõ Zalo</span>
             </div>
@@ -145,14 +147,14 @@
             <!-- Nút 1: Tìm Zalo qua SĐT -->
             <button
               class="lrm-action lrm-action-find"
-              :class="{ active: activePopup === 'find', disabled: lead.contact.hasZalo === true }"
-              :disabled="lead.contact.hasZalo === true || lookupZaloDead"
+              :class="{ active: activePopup === 'find', disabled: lead.hasZaloFromMyNick }"
+              :disabled="lead.hasZaloFromMyNick || lookupZaloDead"
               @click="togglePopup('find')"
             >
               <span class="lrm-action-icon">🔍</span>
               <span class="lrm-action-text">
-                <span class="lrm-action-title">{{ lead.contact.hasZalo === true ? '✅ Đã có Zalo' : 'Tìm Zalo qua SĐT' }}</span>
-                <span class="lrm-action-sub">{{ lead.contact.hasZalo === true ? 'Không cần tìm' : (lookupZaloDead ? '❌ Không tìm ra' : 'Chọn nick lookup') }}</span>
+                <span class="lrm-action-title">{{ lead.hasZaloFromMyNick ? '✅ Đã có Zalo (nick bạn)' : 'Tìm Zalo qua SĐT' }}</span>
+                <span class="lrm-action-sub">{{ lead.hasZaloFromMyNick ? 'Không cần tìm' : (lookupZaloDead ? '❌ Không tìm ra' : 'Chọn nick lookup') }}</span>
               </span>
             </button>
 
@@ -679,7 +681,14 @@ function onDocumentClick(e: MouseEvent) {
   activePopup.value = null;
 }
 
-onMounted(() => { document.addEventListener('click', onDocumentClick); });
+// Pre-populate zaloProfile từ auto-lookup BE (2026-05-28) — câu chào personalize ngay
+// khi modal mở, không cần sale bấm "Tìm Zalo qua SĐT".
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick);
+  if (props.lead?.autoLookup?.zaloProfile) {
+    zaloProfile.value = props.lead.autoLookup.zaloProfile;
+  }
+});
 onBeforeUnmount(() => { document.removeEventListener('click', onDocumentClick); });
 </script>
 
@@ -713,6 +722,7 @@ onBeforeUnmount(() => { document.removeEventListener('click', onDocumentClick); 
 .lrm-tag { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 9999px; }
 .lrm-tag-grey { background: #F1F5F9; color: #64748B; }
 .lrm-tag-green { background: #DCFCE7; color: #166534; }
+.lrm-tag-amber { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
 .lrm-meta-sub { font-size: 11.5px; color: #64748B; margin-top: 2px; display: flex; gap: 10px; flex-wrap: wrap; }
 
 .lrm-stats-chips { display: flex; gap: 6px; }
