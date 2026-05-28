@@ -42,7 +42,7 @@
               <span v-if="lead.contact.phone" class="lrm-phone">📱 {{ formatPhone(lead.contact.phone) }}</span>
               <!-- Per-nick semantic 2026-05-28: tag theo góc nhìn sale current -->
               <span v-if="lead.hasZaloFromMyNick" class="lrm-tag lrm-tag-green" :title="'Đã có UID qua nick ' + (lead.autoLookup?.nickUsed || 'của bạn')">🟢 Sẵn sàng chat</span>
-              <span v-else-if="lead.contact.hasZalo === true" class="lrm-tag lrm-tag-red lrm-tag-shake" title="KH có Zalo nhưng từ nick sale khác — bấm 'Tìm Zalo qua SĐT' để chat được">🔴 Cần lookup nick mình</span>
+              <span v-else-if="lead.contact.hasZalo === true" class="lrm-tag lrm-tag-red lrm-tag-shake" title="KH có Zalo nhưng từ nick sale khác — bấm nút 'Tìm Zalo qua SĐT' để chat được">🔴 Tìm Zalo qua SĐT</span>
               <span v-else-if="lead.contact.hasZalo === false" class="lrm-tag lrm-tag-grey">⚪ Chưa có Zalo</span>
               <span v-else class="lrm-tag lrm-tag-grey">❔ Chưa rõ Zalo</span>
             </div>
