@@ -308,19 +308,20 @@ export async function syncLabelsForAccount(
     const addedLabels = [...newNames].filter(n => !oldNames.has(n));
     const removedLabels = [...oldNames].filter(n => !newNames.has(n));
 
-    // Mirror sang crmTagsPerNick: remove tag "🔵 {oldLabel}" + add tag "🔵 {newLabel}".
+    // Mirror sang crmTagsPerNick: strip all "🔵 ..." cũ + add "🔵 {name}" cho TẤT CẢ
+    // labels hiện tại. Phải mirror toàn bộ (không chỉ addedLabels) để handle case
+    // legacy data: friend đã có zaloLabels nhưng crmTagsPerNick chưa mirror — sync
+    // chạy lại thấy addedLabels=[] (không có label mới) → không add mirror → bug.
+    //
     // Lưu ý: emoji 🔵 (U+1F535) là surrogate pair — JS string length = 2 code units,
     // cộng dấu cách = 3 ký tự. PHẢI dùng prefix constant để strip; slice(2) sẽ để lại
     // dấu cách → labelName = " 1688" → never matches newNames → strip toàn bộ mirror tag.
     const MIRROR_PREFIX = '🔵 ';
     const oldCrmTags = Array.isArray(f.crmTagsPerNick) ? (f.crmTagsPerNick as string[]) : [];
-    let newCrmTags = oldCrmTags.filter(t => {
-      // Giữ lại tag KHÔNG phải Zalo-mirrored, hoặc tag Zalo-mirrored mà vẫn còn trong newNames
-      if (!t.startsWith(MIRROR_PREFIX)) return true;
-      const labelName = t.slice(MIRROR_PREFIX.length);
-      return newNames.has(labelName);
-    });
-    for (const labelName of addedLabels) {
+    // Giữ lại các tag user-CRM (không phải Zalo-mirror), strip toàn bộ mirror cũ
+    const newCrmTags = oldCrmTags.filter(t => !t.startsWith(MIRROR_PREFIX));
+    // Add mirror cho TẤT CẢ Zalo labels hiện tại (không chỉ added)
+    for (const labelName of newNames) {
       const mirroredTag = `🔵 ${labelName}`;
       if (!newCrmTags.includes(mirroredTag)) newCrmTags.push(mirroredTag);
     }
