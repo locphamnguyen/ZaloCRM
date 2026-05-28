@@ -2,6 +2,36 @@
 
 Tất cả thay đổi đáng chú ý của ZaloCRM được ghi lại tại đây. Dự án dùng nhánh `main` làm dòng phát hành chính.
 
+## v3.3.2 — 28/05/2026
+
+### Fixed
+- **Ngắt kết nối nick Zalo không hiệu lực**: thêm `manuallyDisabled` Set trong `ZaloAccountPool` để chặn auto-reconnect sau khi user chủ động disconnect. `onDisconnected` callback và `autoReconnect` đều skip nếu account đã bị disable thủ công. Health check cron 5p + daily refresh + startup reconnect đều filter `status: 'disconnected'` và `archivedAt: null`.
+- **Uptime 7d luôn 0%**: bảng `zalo_account_status_log` chưa được apply migration → tạo migration mới + backfill open record cho nick đang connected. Checkpoint cron 5p reconcile drift sau crash.
+- **Tin nhắn của nick đã xoá vẫn hiển thị trong /chat**: filter `zaloAccount.archivedAt: null` trong conversations list + counts endpoints.
+- **Drawer Chi tiết nick vẫn mở sau khi xoá nick**: tự đóng drawer sau khi xoá thành công.
+- **AI Format button không hiện khi paste text**: tách button ra ngoài format toolbar (mặc định ẩn), luôn hiện ở góc phải trên editor khi có text.
+
+### Added
+- **Soft-delete nick CRM với 2 mode**:
+  - TH1 (không check): chỉ ẩn nick khỏi quản lý, giữ session+zaloUid+data. Quét QR lại → auto-restore nick cũ với toàn bộ chat history.
+  - TH2 (check "Xoá toàn bộ dữ liệu..."): clear session+zaloUid, quét QR lại tạo nick CRM mới.
+  - Migration `20260528160000_add_zalo_account_archived_at` thêm cột `archived_at` + `purged`.
+- **Auto-restore archived account** trên `loginQR`: khi `zaloUid` trùng với nick archived (purged=false) → unarchive + xoá nick tạm + chuyển pool instance.
+- **Realtime status refresh**: thêm `onStatusChange` callback trong `use-zalo-accounts` để dashboard `fetchStats()+fetchEnriched()` ngay khi `zalo:connected/disconnected/error/reconnect-failed`.
+- **Nick row actions trong chat folder picker**: 4 nút SVG (Sync danh bạ, Sync lịch sử chat, Reconnect, Đăng nhập QR) bên cạnh mỗi nick. Disable theo trạng thái live.
+- **Toast notifications thống nhất**: `ToastContainer` chuyển sang góc trên phải, nền trắng + viền trái màu, icon + nút đóng (success/error/warning/info). Áp dụng cho sync danh bạ, sync lịch sử, xoá nick, mọi action errors.
+
+### Changed
+- Disable button theo trạng thái nick:
+  - Reconnect + Đăng nhập QR: mờ khi `connected`
+  - Ngắt kết nối: mờ khi không `connected`
+  - Sync lịch sử chat: mờ khi không `connected`
+- Backend `DELETE /api/v1/zalo-accounts/:id?purge=true|false` thay vì hard-delete.
+- `zalo-scope.ts` filter `archivedAt: null` → nick archived ẩn khỏi mọi dashboard query (org admin + member).
+
+### Dependencies
+- Thêm `exceljs` vào frontend (fix build error sau khi remove `xlsx` từ v3.3.1).
+
 ## v3.3.1 — 28/05/2026
 
 ### Security
