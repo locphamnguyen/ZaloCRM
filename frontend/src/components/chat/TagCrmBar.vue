@@ -128,10 +128,16 @@ interface CrmTagDef {
   order: number;
   isActive: boolean;
   managedBy?: string | null;   // 'zalo_sync' | null — Zalo-managed read-only
+  sourceZaloLabelId?: number | null; // Zalo label ID gốc (chỉ có khi managedBy='zalo_sync')
+  zaloAccountId?: string | null;     // nick Zalo sở hữu label này (chỉ Zalo-managed)
 }
 
 const props = defineProps<{
   contactId: string | null;
+  /** Nick Zalo đang chat — cần để push tag Zalo native qua SDK */
+  accountId?: string | null;
+  /** External thread ID (Zalo UID hoặc groupId) — cần cho assign-thread */
+  externalThreadId?: string | null;
   modelValue: string[];
   /** Phase 6 polish — auto-tags từ scoring engine (active/cold/stuck/ready/...) — read-only, render đầu */
   autoTags?: string[];
@@ -139,6 +145,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [tags: string[]];
+  /** Báo cha refresh thread sau khi assign Zalo native tag — Friend.crmTagsPerNick + zaloLabels cần load lại */
+  'zalo-tag-changed': [];
 }>();
 
 const toast = useToast();
@@ -231,7 +239,47 @@ function onEnterSearch() {
 }
 
 async function onPickTag(def: CrmTagDef) {
-  // Toggle: nếu đã gắn → bỏ; chưa gắn → thêm
+  // Zalo-managed tag → push qua Zalo SDK assign-thread (single-select per nick).
+  // KHÔNG ghi vào Contact.tags vì recomputeTags ở MessageThread filter "🔵 " từ Contact.tags
+  // (chỉ lấy 🔵 từ Friend.crmTagsPerNick để tránh cross-nick drift).
+  if (def.managedBy === 'zalo_sync') {
+    if (!props.accountId || !props.externalThreadId) {
+      toast.error('Không có thông tin nick/thread để gắn tag Zalo');
+      return;
+    }
+    if (def.zaloAccountId && def.zaloAccountId !== props.accountId) {
+      toast.warning('Tag Zalo này thuộc nick khác — chuyển sang nick đó để gắn');
+      return;
+    }
+    if (def.sourceZaloLabelId == null) {
+      toast.error('Tag Zalo thiếu labelId — sync lại từ Zalo Real');
+      return;
+    }
+    const alreadyAssigned = tags.value.includes(def.name);
+    try {
+      await api.post(`/zalo-accounts/${props.accountId}/labels/assign-thread`, {
+        threadId: props.externalThreadId,
+        // Single-select: re-pick same label = unassign (null)
+        labelId: alreadyAssigned ? null : def.sourceZaloLabelId,
+      });
+      // Optimistic update local list — thực tế Friend.crmTagsPerNick được BE update.
+      // Emit để cha refresh thread (reload conversation → friendship.crmTagsPerNick mới).
+      if (alreadyAssigned) {
+        emit('update:modelValue', tags.value.filter(t => t !== def.name));
+        toast.success(`Đã gỡ tag Zalo "${def.name}"`);
+      } else {
+        emit('update:modelValue', [...tags.value, def.name]);
+        toast.success(`Đã gắn tag Zalo "${def.name}"`);
+      }
+      emit('zalo-tag-changed');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Gắn tag Zalo thất bại');
+    }
+    search.value = '';
+    return;
+  }
+
+  // CRM tag (user-created) → toggle qua Contact.tags PUT
   if (tags.value.includes(def.name)) {
     await persist(tags.value.filter(t => t !== def.name));
   } else {
@@ -266,6 +314,22 @@ async function onCreateNewTag() {
 }
 
 async function removeTag(tag: string) {
+  const def = findDef(tag);
+  // Zalo-managed tag → gỡ qua SDK assign-thread (null = remove all)
+  if (def?.managedBy === 'zalo_sync' && props.accountId && props.externalThreadId) {
+    try {
+      await api.post(`/zalo-accounts/${props.accountId}/labels/assign-thread`, {
+        threadId: props.externalThreadId,
+        labelId: null,
+      });
+      emit('update:modelValue', tags.value.filter(t => t !== tag));
+      emit('zalo-tag-changed');
+      toast.success(`Đã gỡ tag Zalo "${tag}"`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error || 'Gỡ tag Zalo thất bại');
+    }
+    return;
+  }
   const newTags = tags.value.filter(t => t !== tag);
   await persist(newTags);
   // Undo 5s — restore tag vào đúng vị trí cũ

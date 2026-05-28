@@ -353,9 +353,12 @@
         <TagCrmBar
           v-if="conversation.contact && conversation.threadType === 'user'"
           :contact-id="conversation.contact.id"
+          :account-id="conversation.zaloAccount?.id ?? null"
+          :external-thread-id="conversation.externalThreadId ?? null"
           :model-value="contactTags"
           :auto-tags="conversationAutoTags"
           @update:model-value="onUpdateTags"
+          @zalo-tag-changed="onZaloTagChanged"
         />
 
         <ReplyPreviewBar
@@ -1097,6 +1100,12 @@ function onUpdateTags(next: string[]) {
   // TagCrmBar PUT only updates Contact.tags. Zalo-managed (🔵) tags stay in
   // Friend.crmTagsPerNick (read-only). Merge view-side preserves both.
   contactTags.value = next;
+}
+
+// Emit từ TagCrmBar khi user pick/unpick tag Zalo native — gọi refresh thread
+// để Friend.crmTagsPerNick + Friend.zaloLabels load lại sau khi assign-thread.
+function onZaloTagChanged() {
+  emit('refresh-thread');
 }
 const msgOutCount = computed(() => props.conversation?.friendship?.totalOutbound ?? 0);
 const contactTotalIn = computed(() => props.conversation?.contact?.totalInbound ?? 0);
