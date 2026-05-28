@@ -22,9 +22,12 @@ export async function reconcilePinsOnReconnect(
   io: Server | null,
 ): Promise<{ added: number; removed: number; total: number }> {
   try {
-    // 1. Lấy list pin từ Zalo native
+    // 1. Lấy list pin từ Zalo native — strip prefix u/g để khớp CRM externalThreadId
+    //    (SDK trả "u7002...123" cho user thread, "g4642...659" cho group; CRM lưu
+    //    chỉ digits sau prefix). Verified 2026-05-28 qua debug log "no match" sample.
     const result: any = await zaloOps.getPinConversations(accountId);
-    const zaloThreadIds: string[] = Array.isArray(result?.conversations) ? result.conversations : [];
+    const zaloRawIds: string[] = Array.isArray(result?.conversations) ? result.conversations : [];
+    const zaloThreadIds = zaloRawIds.map((id) => id.replace(/^[ug]/, ''));
 
     // 2. Resolve nick → org + accessible conversations
     const nick = await prisma.zaloAccount.findUnique({
