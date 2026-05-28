@@ -452,6 +452,12 @@
       <span class="div"></span>
       <button class="x" @click="clearSelection">✕</button>
     </div>
+
+    <!-- Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel -->
+    <LeadDetailPanel
+      v-model="showDetailPanel"
+      :entry-id="detailPanelEntryId"
+    />
   </div>
 </template>
 
@@ -461,6 +467,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { useCustomerLists, type CustomerListSummary, type CustomerListEntry } from '@/composables/use-customer-lists';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import '@/components/automation/phase7/airtable.css';
+// Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel
+import LeadDetailPanel from '@/components/automation/lists/LeadDetailPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -548,10 +556,17 @@ function onToggleAllVisible() {
   else selectAllVisible();
 }
 
+// Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel state
+const showDetailPanel = ref(false);
+const detailPanelEntryId = ref<string | null>(null);
+
 function onRowClick(entryId: string, e: MouseEvent) {
   const target = e.target as HTMLElement;
-  if (target.closest('input, button, .row-actions')) return;
-  toggleSelect(entryId);
+  // Bỏ qua click vào checkbox, button, action area, editable text — vẫn cần toggle selection
+  if (target.closest('input, button, .row-actions, [contenteditable]')) return;
+  // Phase 2: mở panel chi tiết khi click row. Toggle selection xảy ra qua checkbox riêng.
+  detailPanelEntryId.value = entryId;
+  showDetailPanel.value = true;
 }
 
 async function onBulk(action: 'skip' | 'keep_both' | 'delete') {
