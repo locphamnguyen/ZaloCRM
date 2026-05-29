@@ -1632,14 +1632,27 @@ export async function getLeadPoolStats(args: { orgId: string; userId: string; ro
     noted: myToday.filter((r) => r.noteSubmittedAt !== null).length,
     pending: myToday.filter((r) => r.noteSubmittedAt === null && r.releaseReason === null).length,
     returned: myToday.filter((r) => r.releaseReason !== null).length,
-    history: myToday.slice(0, 10).map((r) => ({
-      id: r.id,
-      contactName: r.contact?.crmName || r.contact?.fullName || r.contact?.phone || 'KH',
-      requestedAt: r.requestedAt,
-      noted: r.noteSubmittedAt !== null,
-      returned: r.releaseReason !== null,
-      source: r.source,
-    })),
+    // Phase v2.F 2026-05-29 — anh chốt phân biệt 4 trạng thái cho FAB tooltip:
+    //   'caring'        : sale note xong + chưa trả → đang chăm tích cực (cooldown active)
+    //   'manual_return' : sale chủ động trả pool sau khi note
+    //   'auto_return'   : auto-return quá hạn (cron 2am hoặc lazy reaper)
+    //   'pending'       : chưa note + chưa trả → đang chờ sale ghi note
+    history: myToday.slice(0, 10).map((r) => {
+      let status: 'caring' | 'manual_return' | 'auto_return' | 'pending';
+      if (r.releaseReason === 'manual_return') status = 'manual_return';
+      else if (r.releaseReason === 'auto_return') status = 'auto_return';
+      else if (r.noteSubmittedAt !== null) status = 'caring';
+      else status = 'pending';
+      return {
+        id: r.id,
+        contactName: r.contact?.crmName || r.contact?.fullName || r.contact?.phone || 'KH',
+        requestedAt: r.requestedAt,
+        noted: r.noteSubmittedAt !== null,
+        returned: r.releaseReason !== null,
+        status,
+        source: r.source,
+      };
+    }),
   };
 
   // ── Pool size (ai cũng xem được — giúp sale biết còn lead không) ──

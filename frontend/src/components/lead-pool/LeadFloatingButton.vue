@@ -24,9 +24,16 @@
             <div class="lfb-tip-row"><span>Đã note</span><strong class="ok">{{ stats.my.noted }}</strong></div>
             <div v-if="stats.my.pending > 0" class="lfb-tip-row"><span>⚠ Chưa note</span><strong class="warn">{{ stats.my.pending }}</strong></div>
             <ul v-if="stats.my.history.length" class="lfb-tip-history">
-              <li v-for="h in stats.my.history.slice(0, 5)" :key="h.id" class="lfb-tip-his-item">
-                <span class="lfb-tip-his-icon">{{ h.noted ? '✓' : (h.returned ? '↩' : '⏳') }}</span>
+              <li
+                v-for="h in stats.my.history.slice(0, 5)"
+                :key="h.id"
+                class="lfb-tip-his-item"
+                :class="'his-' + historyStatus(h)"
+                :title="historyStatusTitle(h)"
+              >
+                <span class="lfb-tip-his-icon">{{ historyStatusIcon(h) }}</span>
                 <span class="lfb-tip-his-name">{{ h.contactName }}</span>
+                <span class="lfb-tip-his-tag">{{ historyStatusTag(h) }}</span>
                 <span class="lfb-tip-his-time">{{ formatTime(h.requestedAt) }}</span>
               </li>
             </ul>
@@ -369,6 +376,36 @@ function formatTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// 2026-05-29 — phân biệt 4 trạng thái lead trong tooltip FAB.
+// BE trả về h.status. Fallback derive nếu cũ.
+type LeadStatusKey = 'caring' | 'manual_return' | 'auto_return' | 'pending';
+interface HistoryItem { id: string; contactName: string; requestedAt: string; noted?: boolean; returned?: boolean; status?: LeadStatusKey; source?: string }
+function historyStatus(h: HistoryItem): LeadStatusKey {
+  if (h.status) return h.status;
+  if (h.noted && h.returned) return 'manual_return'; // best-effort fallback
+  if (h.returned) return 'auto_return';
+  if (h.noted) return 'caring';
+  return 'pending';
+}
+function historyStatusIcon(h: HistoryItem): string {
+  const s = historyStatus(h);
+  return ({ caring: '✓', manual_return: '↩', auto_return: '⏱', pending: '⏳' } as Record<LeadStatusKey, string>)[s];
+}
+function historyStatusTag(h: HistoryItem): string {
+  const s = historyStatus(h);
+  return ({ caring: 'Đang chăm', manual_return: 'Đã trả', auto_return: 'Tự trả', pending: 'Chưa note' } as Record<LeadStatusKey, string>)[s];
+}
+function historyStatusTitle(h: HistoryItem): string {
+  const s = historyStatus(h);
+  const t = ({
+    caring: 'Note xong, đang chăm KH (khoá pool ngày)',
+    manual_return: 'Đã chủ động trả lại pool',
+    auto_return: 'Quá hạn note — hệ thống tự trả pool',
+    pending: 'Đang chờ ghi note',
+  } as Record<LeadStatusKey, string>)[s];
+  return `${h.contactName} · ${t}`;
+}
+
 onMounted(() => {
   void fetchEligibility();
   tickInterval = window.setInterval(() => { nowTick.value = Date.now(); }, 1000);
@@ -414,10 +451,31 @@ watch(() => route.path, (path) => {
 .warn { color: #B91C1C; }
 .muted { color: #94A3B8; }
 .lfb-tip-history, .lfb-tip-members, .lfb-tip-nicks { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
-.lfb-tip-his-item { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 8px; background: #F8FAFC; border-radius: 6px; }
-.lfb-tip-his-icon { font-size: 11px; }
+.lfb-tip-his-item {
+  display: flex; align-items: center; gap: 6px; font-size: 11.5px;
+  padding: 4px 8px; background: #F8FAFC; border-radius: 6px;
+  border-left: 3px solid transparent;
+}
+.lfb-tip-his-icon { font-size: 12px; flex-shrink: 0; width: 14px; text-align: center; }
 .lfb-tip-his-name { flex: 1; color: #374151; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lfb-tip-his-time { color: #94A3B8; font-variant-numeric: tabular-nums; font-size: 11px; }
+.lfb-tip-his-tag {
+  font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+  text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0;
+}
+.lfb-tip-his-time { color: #94A3B8; font-variant-numeric: tabular-nums; font-size: 11px; flex-shrink: 0; }
+/* 4 trạng thái — anh chốt 2026-05-29 */
+.lfb-tip-his-item.his-caring { background: #ECFDF5; border-left-color: #10B981; }
+.lfb-tip-his-item.his-caring .lfb-tip-his-icon { color: #047857; }
+.lfb-tip-his-item.his-caring .lfb-tip-his-tag { background: #D1FAE5; color: #065F46; }
+.lfb-tip-his-item.his-manual_return { background: #FFF7ED; border-left-color: #F97316; }
+.lfb-tip-his-item.his-manual_return .lfb-tip-his-icon { color: #C2410C; }
+.lfb-tip-his-item.his-manual_return .lfb-tip-his-tag { background: #FFEDD5; color: #9A3412; }
+.lfb-tip-his-item.his-auto_return { background: #FEF2F2; border-left-color: #EF4444; }
+.lfb-tip-his-item.his-auto_return .lfb-tip-his-icon { color: #B91C1C; }
+.lfb-tip-his-item.his-auto_return .lfb-tip-his-tag { background: #FEE2E2; color: #991B1B; }
+.lfb-tip-his-item.his-pending { background: #FEFCE8; border-left-color: #EAB308; }
+.lfb-tip-his-item.his-pending .lfb-tip-his-icon { color: #A16207; }
+.lfb-tip-his-item.his-pending .lfb-tip-his-tag { background: #FEF3C7; color: #92400E; }
 .lfb-tip-member { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-size: 12px; padding: 4px 8px; background: #F8FAFC; border-radius: 6px; }
 .lfb-reset-btn {
   background: #EEF0FF; border: 1px solid #C7D2FE;
