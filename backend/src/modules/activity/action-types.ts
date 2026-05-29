@@ -88,6 +88,7 @@ export const ACTION_CATEGORY: Record<string, ActivityCategory> = {
   // zalo_lookup: zaloOps.findUser được gọi (auto trong requestLead/getLeadPayload hoặc manual via find-zalo)
   lead_pool_assign: 'customer_info',
   lead_pool_auto_return: 'system',
+  lead_pool_manual_return: 'customer_info', // sale chủ động trả pool — narrative event
   lead_pool_bonus_grant: 'system',
   lead_pool_zalo_lookup: 'system',
 };

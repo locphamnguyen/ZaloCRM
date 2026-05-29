@@ -347,7 +347,7 @@
           <span class="lrm-note-counter" :class="{ ok: noteText.length >= noteMinLength }">
             {{ noteText.length }} / {{ noteMinLength }}
           </span>
-          <button class="lrm-btn-ghost" :disabled="returning" @click="onReturn">↩ Trả lại pool</button>
+          <button class="lrm-btn-ghost" :disabled="returning" @click="openReturnDialog">↩ Trả lại pool</button>
           <button class="lrm-btn-primary" :disabled="submitting || noteText.length < noteMinLength" @click="onSubmitNote">
             <span v-if="submitting">Đang lưu...</span>
             <span v-else>💾 Lưu note + Bắt đầu chăm</span>
@@ -355,6 +355,65 @@
         </div>
       </footer>
     </div>
+
+    <!-- Return Reason Dialog — 2026-05-29 (anh chốt A): bắt buộc nhập lý do min 10 ký tự -->
+    <Teleport to="body">
+      <div v-if="returnDialogOpen" class="rrd-backdrop" @click.self="closeReturnDialog">
+        <div class="rrd-card" role="dialog" aria-modal="true">
+          <header class="rrd-head">
+            <span class="rrd-icon">↩</span>
+            <div>
+              <h3>Trả lại lead về pool</h3>
+              <p>Vui lòng cho biết lý do để admin tổng hợp + cải thiện chất lượng pool.</p>
+            </div>
+            <button class="rrd-close" @click="closeReturnDialog" aria-label="Đóng">✕</button>
+          </header>
+
+          <div class="rrd-body">
+            <label class="rrd-field-label">Lý do <span class="req">*</span></label>
+            <textarea
+              ref="returnTextareaRef"
+              v-model="returnReason"
+              class="rrd-textarea"
+              :placeholder="`Tối thiểu ${RETURN_REASON_MIN} ký tự. Vd: KH không phải BĐS, sai SĐT, đã có sale khác chăm rồi...`"
+              rows="3"
+              @keydown.escape="closeReturnDialog"
+              @keydown.meta.enter="onConfirmReturn"
+              @keydown.ctrl.enter="onConfirmReturn"
+            ></textarea>
+            <div class="rrd-counter" :class="{ ok: returnReason.trim().length >= RETURN_REASON_MIN }">
+              {{ returnReason.trim().length }} / {{ RETURN_REASON_MIN }}
+              <span v-if="returnReason.trim().length < RETURN_REASON_MIN" class="hint">(còn {{ RETURN_REASON_MIN - returnReason.trim().length }} ký tự)</span>
+            </div>
+
+            <div class="rrd-presets">
+              <span class="rrd-presets-label">⚡ Chọn nhanh:</span>
+              <button
+                v-for="p in RETURN_PRESETS"
+                :key="p"
+                type="button"
+                class="rrd-preset-chip"
+                @click="useReturnPreset(p)"
+              >{{ p }}</button>
+            </div>
+
+            <div v-if="returnError" class="rrd-error">⚠ {{ returnError }}</div>
+          </div>
+
+          <footer class="rrd-foot">
+            <button class="rrd-btn-ghost" :disabled="returning" @click="closeReturnDialog">Hủy</button>
+            <button
+              class="rrd-btn-danger"
+              :disabled="returning || returnReason.trim().length < RETURN_REASON_MIN"
+              @click="onConfirmReturn"
+            >
+              <span v-if="returning">Đang trả lại...</span>
+              <span v-else>↩ Xác nhận trả lại pool</span>
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -717,14 +776,54 @@ async function onSubmitNote() {
   else actionError.value = 'Lưu note thất bại';
 }
 
-async function onReturn() {
+// 2026-05-29 anh chốt A: thay confirm() bằng modal đẹp + bắt buộc lý do min 10 ký tự.
+const RETURN_REASON_MIN = 10;
+const RETURN_PRESETS = [
+  'KH không phải BĐS, sai mục đích',
+  'Sai SĐT, không liên lạc được',
+  'Đã có sale khác đang chăm',
+  'KH yêu cầu không liên lạc',
+  'Lead trùng với KH cũ trong CRM',
+];
+const returnDialogOpen = ref(false);
+const returnReason = ref('');
+const returnError = ref('');
+const returnTextareaRef = ref<HTMLTextAreaElement | null>(null);
+
+function openReturnDialog() {
   if (!props.lead) return;
-  if (!confirm('Trả lại lead này về pool?')) return;
+  returnReason.value = '';
+  returnError.value = '';
+  returnDialogOpen.value = true;
+  // Focus textarea sau khi DOM ready
+  requestAnimationFrame(() => returnTextareaRef.value?.focus());
+}
+function closeReturnDialog() {
+  if (returning.value) return;
+  returnDialogOpen.value = false;
+}
+function useReturnPreset(text: string) {
+  returnReason.value = text;
+  returnError.value = '';
+  requestAnimationFrame(() => returnTextareaRef.value?.focus());
+}
+async function onConfirmReturn() {
+  if (!props.lead) return;
+  const trimmed = returnReason.value.trim();
+  if (trimmed.length < RETURN_REASON_MIN) {
+    returnError.value = `Cần thêm ${RETURN_REASON_MIN - trimmed.length} ký tự nữa.`;
+    return;
+  }
+  returnError.value = '';
   returning.value = true;
-  const ok = await returnLead(props.lead.leadRequestId);
+  const ok = await returnLead(props.lead.leadRequestId, trimmed);
   returning.value = false;
-  if (ok) emit('returned');
-  else actionError.value = 'Trả lead thất bại';
+  if (ok) {
+    returnDialogOpen.value = false;
+    emit('returned');
+  } else {
+    returnError.value = 'Trả lead thất bại. Vui lòng thử lại.';
+  }
 }
 
 function onDocumentClick(e: MouseEvent) {
@@ -943,4 +1042,94 @@ onBeforeUnmount(() => { document.removeEventListener('click', onDocumentClick); 
   .lrm-actions-grid { grid-template-columns: repeat(2, 1fr); }
   .lrm-note-actions { flex-wrap: wrap; }
 }
+
+/* ─── Return Reason Dialog (2026-05-29) ─── */
+.rrd-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 10000; backdrop-filter: blur(2px);
+  animation: rrdFadeIn 0.15s ease-out;
+}
+.rrd-card {
+  background: white; border-radius: 14px; width: 100%; max-width: 480px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  animation: rrdSlideUp 0.18s ease-out;
+  display: flex; flex-direction: column;
+  margin: 16px;
+}
+@keyframes rrdFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rrdSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.rrd-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 16px 18px 12px; border-bottom: 1px solid #F1F5F9;
+  position: relative;
+}
+.rrd-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, #FEF3C7, #FED7AA);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: #B45309; flex-shrink: 0;
+}
+.rrd-head h3 { margin: 0 0 2px; font-size: 14.5px; font-weight: 700; color: #0F172A; }
+.rrd-head p { margin: 0; font-size: 12px; color: #64748B; line-height: 1.4; }
+.rrd-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 28px; height: 28px; border-radius: 6px;
+  border: none; background: transparent; color: #94A3B8;
+  cursor: pointer; font-size: 14px; line-height: 1;
+  transition: all 0.12s;
+}
+.rrd-close:hover { background: #F1F5F9; color: #475569; }
+.rrd-body { padding: 14px 18px 4px; display: flex; flex-direction: column; gap: 8px; }
+.rrd-field-label { font-size: 11.5px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
+.rrd-field-label .req { color: #DC2626; }
+.rrd-textarea {
+  width: 100%; padding: 10px 12px;
+  border: 1px solid #CBD5E1; border-radius: 8px;
+  font-family: inherit; font-size: 13px; color: #0F172A;
+  resize: vertical; min-height: 76px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+}
+.rrd-textarea:focus {
+  outline: none; border-color: #4F46E5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+.rrd-counter { font-size: 11px; color: #94A3B8; }
+.rrd-counter.ok { color: #16A34A; font-weight: 600; }
+.rrd-counter .hint { color: #B91C1C; margin-left: 4px; }
+.rrd-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 4px; }
+.rrd-presets-label { font-size: 11px; color: #64748B; font-weight: 600; margin-right: 2px; }
+.rrd-preset-chip {
+  padding: 4px 10px; background: #F1F5F9; border: 1px solid #E2E8F0;
+  border-radius: 14px; font-size: 11px; color: #475569;
+  cursor: pointer; transition: all 0.12s; font-family: inherit;
+}
+.rrd-preset-chip:hover { background: #EEF2FF; border-color: #C7D2FE; color: #4338CA; }
+.rrd-error {
+  margin-top: 4px; padding: 8px 10px;
+  background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 6px;
+  color: #B91C1C; font-size: 12px;
+}
+.rrd-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 18px 16px; border-top: 1px solid #F1F5F9; margin-top: 8px;
+}
+.rrd-btn-ghost {
+  padding: 8px 14px; background: white; border: 1px solid #CBD5E1;
+  border-radius: 7px; font-size: 12.5px; font-weight: 600; color: #475569;
+  cursor: pointer; font-family: inherit; transition: all 0.12s;
+}
+.rrd-btn-ghost:hover:not(:disabled) { background: #F8FAFC; border-color: #94A3B8; }
+.rrd-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+.rrd-btn-danger {
+  padding: 8px 16px; background: #DC2626; color: white; border: 1px solid #DC2626;
+  border-radius: 7px; font-size: 12.5px; font-weight: 700;
+  cursor: pointer; font-family: inherit; transition: all 0.12s;
+}
+.rrd-btn-danger:hover:not(:disabled) { background: #B91C1C; }
+.rrd-btn-danger:disabled { opacity: 0.5; cursor: not-allowed; background: #94A3B8; border-color: #94A3B8; }
 </style>

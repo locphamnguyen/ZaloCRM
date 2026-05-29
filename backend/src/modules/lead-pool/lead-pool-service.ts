@@ -273,6 +273,7 @@ export async function checkEligibility(orgId: string, userId: string): Promise<E
           entityType: 'contact',
           entityId: lastRequest.contactId,
           details: {
+            summary: `Lead tự trả về pool vì sale không ghi note quá thời hạn ${fullLead.expiresAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`,
             leadRequestId: lastRequest.id,
             saleUserId: fullLead.requestedByUserId,
             previousAssigneeId: fullLead.previousAssigneeId,
@@ -499,6 +500,14 @@ function pickTopRandom(candidates: PriorityCandidate[]): PriorityCandidate | nul
 /**
  * Build full payload sale thấy khi nhận lead — hoành tráng theo design.
  */
+function formatSourceLabel(source: string): string {
+  return ({
+    forgotten: 'Khách lãng quên',
+    customer_list: 'Tệp khách hàng',
+    external_sync: 'Đồng bộ CRM khác',
+  } as Record<string, string>)[source] ?? source;
+}
+
 interface AutoLookupResult {
   found: boolean;
   uid?: string | null;
@@ -1010,6 +1019,13 @@ export async function requestLead(args: { orgId: string; userId: string }) {
   logger.info(`[lead-pool] user=${args.userId} got lead contact=${result.contactId} source=${result.source} score=${result.priorityScore}`);
 
   // Phase v2.D 2026-05-29 — Log timeline KH "Sale {tên} đã nhận lead từ pool".
+  const sourceLabel = formatSourceLabel(result.source);
+  const minutesUntilExpire = Math.round((expiresAt.getTime() - Date.now()) / 60000);
+  const expireHint = minutesUntilExpire >= 1440
+    ? `${Math.floor(minutesUntilExpire / 1440)} ngày`
+    : minutesUntilExpire >= 60
+      ? `${Math.floor(minutesUntilExpire / 60)} giờ`
+      : `${minutesUntilExpire} phút`;
   logActivity({
     orgId: args.orgId,
     userId: args.userId,
@@ -1017,8 +1033,10 @@ export async function requestLead(args: { orgId: string; userId: string }) {
     entityType: 'contact',
     entityId: result.contactId,
     details: {
+      summary: `${saleUser?.fullName ?? 'Sale'} đã nhận lead từ Pool · Nguồn: ${sourceLabel} · Điểm ưu tiên: ${result.priorityScore} · Hạn note: ${expireHint}`,
       leadRequestId: result.leadRequestId,
       source: result.source,
+      sourceLabel,
       priorityScore: result.priorityScore,
       expiresAt: expiresAt.toISOString(),
     },
@@ -1223,7 +1241,15 @@ export async function returnLead(args: { userId: string; leadRequestId: string; 
   if (lr.requestedByUserId !== args.userId) throw new LeadPoolError(403, 'not_owner', 'Không phải lead của bạn');
   if (lr.releaseReason !== null) throw new LeadPoolError(400, 'already_released', 'Đã trả lại rồi');
 
+  // Phase v2.D 2026-05-29 — Bắt buộc nhập lý do tối thiểu 10 ký tự (anh chốt A).
+  // Chống sale spam-return mà không phân tích KH. Lý do được audit cho retro hằng tuần.
   const reasonText = (args.reason ?? '').trim();
+  const MIN_REASON_LEN = 10;
+  if (reasonText.length < MIN_REASON_LEN) {
+    throw new LeadPoolError(400, 'reason_too_short',
+      `Lý do trả lại pool phải tối thiểu ${MIN_REASON_LEN} ký tự (hiện ${reasonText.length}). Vd: "KH không phải BĐS, sai SĐT", "Đã có sale khác chăm".`);
+  }
+
   await prisma.$transaction(async (tx) => {
     // Conditional update — chỉ rollback nếu sale vẫn là current owner
     await tx.contact.updateMany({
@@ -1235,10 +1261,10 @@ export async function returnLead(args: { userId: string; leadRequestId: string; 
       data: {
         releaseReason: 'manual_return',
         noteSubmittedAt: lr.noteSubmittedAt ?? new Date(),
-        noteContent: lr.noteContent ?? (reasonText || 'Sale trả lại pool'),
+        noteContent: lr.noteContent ?? reasonText,
       },
     });
-    // Phase v2.D 2026-05-29 — Note "Sale trả lại pool: <lý do>" vào panel Ghi chú KH.
+    // Note "Sale trả lại pool: <lý do>" vào panel Ghi chú KH.
     // Nếu lr.noteContent đã có (sale note xong rồi mới trả) → KHÔNG ghi đè, append note mới
     // riêng để timeline hiển thị 2 dòng (note chăm + lý do trả).
     await tx.note.create({
@@ -1247,9 +1273,25 @@ export async function returnLead(args: { userId: string; leadRequestId: string; 
         orgId: lr.contact.orgId,
         contactId: lr.contactId,
         authorUserId: args.userId,
-        body: `[Lead Pool] Trả lại pool: ${reasonText || '(không kèm lý do)'}`,
+        body: `[Lead Pool] Trả lại pool: ${reasonText}`,
       },
     });
+  });
+
+  // Phase v2.D 2026-05-29 — Timeline log "Sale {tên} đã trả lại lead về pool".
+  const sale = await prisma.user.findUnique({ where: { id: args.userId }, select: { fullName: true } });
+  logActivity({
+    orgId: lr.contact.orgId,
+    userId: args.userId,
+    action: 'lead_pool_manual_return',
+    entityType: 'contact',
+    entityId: lr.contactId,
+    details: {
+      summary: `${sale?.fullName ?? 'Sale'} đã trả lại lead về pool: ${reasonText}`,
+      leadRequestId: lr.id,
+      reason: reasonText,
+      previousAssigneeId: lr.previousAssigneeId,
+    },
   });
 
   return { ok: true };
@@ -1317,6 +1359,7 @@ export async function autoReturnExpiredLeads() {
       entityType: 'contact',
       entityId: lr.contactId,
       details: {
+        summary: `Lead tự trả về pool (cron 2h sáng) vì sale không ghi note quá thời hạn ${lr.expiresAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`,
         leadRequestId: lr.id,
         saleUserId: lr.requestedByUserId,
         previousAssigneeId: lr.previousAssigneeId,
@@ -1435,6 +1478,9 @@ export async function findZaloForLead(args: { userId: string; orgId: string; lea
   });
 
   // Phase v2.D 2026-05-29 — Log Zalo lookup vào timeline KH (manual via Tìm Zalo button)
+  const lookupSummary = foundUid
+    ? `Tìm thấy Zalo của KH qua nick "${myNick.displayName}"${duplicateContact ? ` (cảnh báo: trùng với KH "${duplicateContact.fullName}")` : ''}`
+    : `Không tìm thấy Zalo của KH qua nick "${myNick.displayName}"`;
   logActivity({
     orgId: args.orgId,
     userId: args.userId,
@@ -1442,6 +1488,7 @@ export async function findZaloForLead(args: { userId: string; orgId: string; lea
     entityType: 'contact',
     entityId: lr.contactId,
     details: {
+      summary: lookupSummary,
       trigger: 'manual_find_zalo',
       nickId: myNick.id,
       nickName: myNick.displayName,
@@ -2451,6 +2498,7 @@ export async function adminResetQuota(args: {
 
   // Phase v2.D 2026-05-29 — Timeline log cho USER (sale nhận bonus) để dashboard
   // hiển thị "lúc nào được cấp bonus, ai cấp, vì sao".
+  const reasonSuffix = args.reason ? ` · Lý do: ${args.reason}` : '';
   logActivity({
     orgId: args.requester.orgId,
     userId: args.requester.id,
@@ -2458,6 +2506,7 @@ export async function adminResetQuota(args: {
     entityType: 'user',
     entityId: args.targetUserId,
     details: {
+      summary: `${reviewerName} đã cấp thêm ${args.bonusCount} lead bonus sau khi review ${newReviewIds.length} lead đã note${reasonSuffix}`,
       bonusId: bonus.id,
       bonusCount: args.bonusCount,
       reviewerName,
