@@ -143,11 +143,13 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
       const [unrepliedSplit, todayApptSplit, dormantSplit, contactsCount, closedThisMonth] =
         await Promise.all([
           // 📥 Chưa rep (conversation.isReplied=false, unreadCount>0)
+          // CRM rule 2026-05-29: chỉ user 1-1, KHÔNG nhóm Zalo.
           splitByPrivacy(viewer.orgId, targetUserId, async (zIds) =>
             prisma.conversation.count({
               where: {
                 orgId: viewer.orgId,
                 zaloAccountId: { in: zIds },
+                threadType: 'user',
                 isReplied: false,
                 unreadCount: { gt: 0 },
               },
@@ -167,12 +169,14 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
           }),
           // 💤 KH đình trệ (conversation.lastMessageAt < 7 ngày, isReplied=true,
           // không có msg mới — proxy: lastMessageAt < now-7d)
+          // CRM rule 2026-05-29: chỉ user 1-1, nhóm Zalo không phải KH cần chăm sóc.
           splitByPrivacy(viewer.orgId, targetUserId, async (zIds) => {
             const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
             return prisma.conversation.count({
               where: {
                 orgId: viewer.orgId,
                 zaloAccountId: { in: zIds },
+                threadType: 'user',
                 lastMessageAt: { lt: sevenDaysAgo },
                 contactId: { not: null },
               },
@@ -201,10 +205,12 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
         where: { orgId: viewer.orgId, ownerUserId: targetUserId, privacyMode: 'sub' },
         select: { id: true },
       });
+      // Urgent list — CRM rule 2026-05-29: "🔥 Cần rep gấp" chỉ rep với user 1-1.
       const urgentConvs = await prisma.conversation.findMany({
         where: {
           orgId: viewer.orgId,
           zaloAccountId: { in: publicNicks.map((n) => n.id) },
+          threadType: 'user',
           isReplied: false,
           unreadCount: { gt: 0 },
           contactId: { not: null },
@@ -402,11 +408,13 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
       const perUser = await Promise.all(
         usersInScope.map(async (u) => {
           const [unrepliedSplit, apptSplit, contactsCount, closedWeek] = await Promise.all([
+            // CRM rule 2026-05-29: chỉ user 1-1, bỏ nhóm.
             splitByPrivacy(viewer.orgId, u.id, async (zIds) =>
               prisma.conversation.count({
                 where: {
                   orgId: viewer.orgId,
                   zaloAccountId: { in: zIds },
+                  threadType: 'user',
                   isReplied: false,
                   unreadCount: { gt: 0 },
                 },
