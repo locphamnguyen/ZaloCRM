@@ -120,6 +120,26 @@
         </div>
       </section>
 
+      <!-- Self-reclaim lock (Phase v2.I 2026-05-29) -->
+      <section class="lpc-card">
+        <h3>🚫 Khoá xin lại lead bạn đã trả (ngày)</h3>
+        <p class="lpc-detail">
+          Sau khi sale bấm <i>"Trả lại pool"</i> (hoặc auto-return quá hạn), <b>chính sale đó KHÔNG được
+          xin lại</b> KH này trong N ngày. <b>Sale khác vẫn xin được ngay</b>.
+        </p>
+        <p class="lpc-detail" style="margin-top:6px;">
+          Chống <b>spam loop</b>: sale gốc tự xin → trả → xin lại → trả... cùng 1 KH (mỗi vòng tốn 1 quota).
+          Vd: anh trả Tuny Nguyen với lý do "Sai SĐT" lúc 12:45 → 7 ngày sau anh mới được xin lại Tuny.
+        </p>
+        <div class="lpc-grid lpc-grid-narrow">
+          <label class="lpc-field">
+            <span>Khoá tự xin lại (ngày)</span>
+            <input type="number" min="0" max="365" v-model.number="form.selfReclaimLockDays" @blur="onSave" />
+            <small>0 = tắt khoá. Default 7 ngày. Admin có thể reset thủ công nếu cần ngoại lệ.</small>
+          </label>
+        </div>
+      </section>
+
       <!-- Excluded statuses -->
       <section class="lpc-card">
         <h3>🚫 Trạng thái KHÔNG vào pool (giữ cho sale đang chăm)</h3>
@@ -264,6 +284,7 @@ const form = ref({
   enabledSources: ['forgotten', 'customer_list'] as string[],
   noteMinLength: 20,
   cooldownAfterNoteDays: 30,
+  selfReclaimLockDays: 7,
   greetingTemplates: [] as string[],
 });
 
@@ -292,6 +313,7 @@ async function fetchConfig() {
       enabledSources: data.enabledSources ?? ['forgotten', 'customer_list'],
       noteMinLength: data.noteMinLength,
       cooldownAfterNoteDays: data.cooldownAfterNoteDays ?? 30,
+      selfReclaimLockDays: data.selfReclaimLockDays ?? 7,
       greetingTemplates: Array.isArray(data.greetingTemplates) ? data.greetingTemplates : [],
     };
   } catch (err: any) {

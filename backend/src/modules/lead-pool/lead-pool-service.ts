@@ -42,6 +42,9 @@ interface PoolConfig {
   // 2026-05-29 — Sau khi sale note xong, KH bị khoá pool N ngày. Chống spam chia lại
   // cùng 1 lead. Sale gốc vẫn chăm KH bình thường. Bấm "Trả lại pool" → bypass.
   cooldownAfterNoteDays: number;
+  // 2026-05-29 v2.I — Sale trả lead → sale đó KHÔNG được xin lại trong N ngày.
+  // Sale khác vẫn xin được ngay. Chống spam loop xin-trả-xin lại cùng KH.
+  selfReclaimLockDays: number;
   // 2026-05-28 — array template câu chào. Empty → service fallback DEFAULT_GREETING_TEMPLATES.
   // Placeholders: {anh_chi} {ac} {ten_kh} {ten_em}. Max 10 câu, mỗi câu ≤500 ký tự.
   greetingTemplates: string[];
@@ -63,6 +66,7 @@ const DEFAULT_CONFIG: PoolConfig = {
   enabledSources: ['forgotten', 'customer_list'],
   noteMinLength: 20,
   cooldownAfterNoteDays: 30,
+  selfReclaimLockDays: 7,
   greetingTemplates: [], // empty → service dùng DEFAULT_GREETING_TEMPLATES
 };
 
@@ -92,6 +96,7 @@ export async function getOrCreateConfig(orgId: string): Promise<PoolConfig> {
       enabledSources: safeStringArray(existing.enabledSources, DEFAULT_CONFIG.enabledSources, VALID_SOURCES) as LeadSource[],
       noteMinLength: Math.max(5, Math.min(500, existing.noteMinLength)),
       cooldownAfterNoteDays: Math.max(0, Math.min(365, existing.cooldownAfterNoteDays)),
+      selfReclaimLockDays: Math.max(0, Math.min(365, (existing as any).selfReclaimLockDays ?? 7)),
       greetingTemplates: safeStringArray(existing.greetingTemplates, []).slice(0, 10).map((s) => s.slice(0, 500)),
     };
   }
@@ -110,6 +115,7 @@ export async function getOrCreateConfig(orgId: string): Promise<PoolConfig> {
       enabledSources: DEFAULT_CONFIG.enabledSources,
       noteMinLength: DEFAULT_CONFIG.noteMinLength,
       cooldownAfterNoteDays: DEFAULT_CONFIG.cooldownAfterNoteDays,
+      selfReclaimLockDays: DEFAULT_CONFIG.selfReclaimLockDays,
     },
   });
   return { ...DEFAULT_CONFIG };
@@ -141,6 +147,9 @@ export async function updateConfig(orgId: string, patch: Partial<PoolConfig>): P
   }
   if (typeof patch.cooldownAfterNoteDays === 'number' && Number.isInteger(patch.cooldownAfterNoteDays)) {
     data.cooldownAfterNoteDays = Math.max(0, Math.min(365, patch.cooldownAfterNoteDays));
+  }
+  if (typeof patch.selfReclaimLockDays === 'number' && Number.isInteger(patch.selfReclaimLockDays)) {
+    data.selfReclaimLockDays = Math.max(0, Math.min(365, patch.selfReclaimLockDays));
   }
   if (Array.isArray(patch.excludedStatuses)) {
     data.excludedStatuses = safeStringArray(patch.excludedStatuses, [], VALID_STATUS_KEYS);
@@ -384,6 +393,16 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
           AND lr2.note_submitted_at > NOW() - ($6 || ' days')::INTERVAL
           AND lr2.release_reason IS NULL
       )
+      -- Phase v2.I 2026-05-29 — Self-reclaim lock. Sale gốc đã trả lead này
+      -- (manual_return / auto_return) trong $7 ngày qua → KHÔNG được tự xin lại.
+      -- Sale KHÁC vẫn xin được ngay (workflow chia lead bình thường).
+      AND NOT EXISTS (
+        SELECT 1 FROM lead_requests lr3
+        WHERE lr3.contact_id = c.id
+          AND lr3.requested_by_user_id = $4
+          AND lr3.release_reason IN ('manual_return', 'auto_return')
+          AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > NOW() - ($7 || ' days')::INTERVAL
+      )
     ORDER BY priority_score DESC
     LIMIT $5
     `,
@@ -393,6 +412,7 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
     userId,
     limit,
     String(config.cooldownAfterNoteDays),
+    String(config.selfReclaimLockDays),
   );
 
   return rows.map((r) => ({ contactId: r.id, source: 'forgotten' as const, priorityScore: r.priority_score }));
@@ -405,10 +425,11 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
  *
  * Priority đơn giản: daysInList + (matchedContact ? 10 : 0).
  */
-async function queryCustomerListCandidates(orgId: string, userId: string, limit = 50, cooldownDays = 30): Promise<PriorityCandidate[]> {
+async function queryCustomerListCandidates(orgId: string, userId: string, limit = 50, cooldownDays = 30, selfReclaimLockDays = 7): Promise<PriorityCandidate[]> {
   // CustomerListEntry uses customer_list_id (not list_id) + phone_e164/phone_local (not phone).
   // status='validated' or 'enriched' OK cho pool.
   // Phase v2.B 2026-05-29 — cooldown sau note: lead đã note < $4 ngày + chưa release → khoá pool.
+  // Phase v2.I 2026-05-29 — self-reclaim lock: sale gốc đã trả lead < $5 ngày → KHÔNG xin lại.
   const entries = await prisma.$queryRawUnsafe<Array<{ contact_id: string | null; phone_e164: string | null; phone_local: string | null; name_raw: string | null; days_in_list: number; entry_id: string }>>(
     `
     SELECT cle.id AS entry_id, cle.contact_id, cle.phone_e164, cle.phone_local, cle.name_raw,
@@ -440,6 +461,13 @@ async function queryCustomerListCandidates(orgId: string, userId: string, limit 
                 AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
                 AND lr2.release_reason IS NULL
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM lead_requests lr3
+              WHERE lr3.contact_id = cc.id
+                AND lr3.requested_by_user_id = $2
+                AND lr3.release_reason IN ('manual_return', 'auto_return')
+                AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > NOW() - ($5 || ' days')::INTERVAL
+            )
         )
       )
     ORDER BY days_in_list DESC
@@ -449,6 +477,7 @@ async function queryCustomerListCandidates(orgId: string, userId: string, limit 
     userId,
     limit,
     String(cooldownDays),
+    String(selfReclaimLockDays),
   );
 
   const result: PriorityCandidate[] = [];
@@ -907,7 +936,7 @@ export async function requestLead(args: { orgId: string; userId: string }) {
         ? queryForgottenCandidates(args.orgId, args.userId, config, 50)
         : Promise.resolve([] as PriorityCandidate[]),
       config.enabledSources.includes('customer_list')
-        ? queryCustomerListCandidatesTx(tx, args.orgId, args.userId, config.cooldownAfterNoteDays)
+        ? queryCustomerListCandidatesTx(tx, args.orgId, args.userId, config.cooldownAfterNoteDays, config.selfReclaimLockDays)
         : Promise.resolve([] as PriorityCandidate[]),
     ]);
 
@@ -1065,6 +1094,7 @@ async function queryCustomerListCandidatesTx(
   orgId: string,
   userId: string,
   cooldownDays = 30,
+  selfReclaimLockDays = 7,
   limit = 50,
 ): Promise<PriorityCandidate[]> {
   const entries = (await tx.$queryRawUnsafe(
@@ -1098,12 +1128,19 @@ async function queryCustomerListCandidatesTx(
                 AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
                 AND lr2.release_reason IS NULL
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM lead_requests lr3
+              WHERE lr3.contact_id = cc.id
+                AND lr3.requested_by_user_id = $2
+                AND lr3.release_reason IN ('manual_return', 'auto_return')
+                AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > NOW() - ($5 || ' days')::INTERVAL
+            )
         )
       )
     ORDER BY days_in_list DESC
     LIMIT $3
     `,
-    orgId, userId, limit, String(cooldownDays),
+    orgId, userId, limit, String(cooldownDays), String(selfReclaimLockDays),
   )) as Array<{ contact_id: string | null; phone_e164: string | null; phone_local: string | null; name_raw: string | null; days_in_list: number; entry_id: string }>;
 
   const result: PriorityCandidate[] = [];
@@ -1790,7 +1827,7 @@ export async function previewPool(args: {
       ? queryForgottenCandidates(args.orgId, args.userId, config, limit)
       : Promise.resolve([] as PriorityCandidate[]),
     config.enabledSources.includes('customer_list')
-      ? queryCustomerListPreview(args.orgId, args.userId, limit, config.cooldownAfterNoteDays)
+      ? queryCustomerListPreview(args.orgId, args.userId, limit, config.cooldownAfterNoteDays, config.selfReclaimLockDays)
       : Promise.resolve([] as PriorityCandidate[]),
   ]);
 
@@ -2058,6 +2095,7 @@ async function countTotalPoolAvailable(
   // Safe vì: orgId/userId UUID validated, dates ISO format, statuses từ config server-controlled.
   const thresholdIso = new Date(Date.now() - config.forgottenThresholdDays * 24 * 60 * 60 * 1000).toISOString();
   const cooldownIso = new Date(Date.now() - config.cooldownAfterNoteDays * 24 * 60 * 60 * 1000).toISOString();
+  const selfReclaimIso = new Date(Date.now() - config.selfReclaimLockDays * 24 * 60 * 60 * 1000).toISOString();
   const safeOrgId = `'${orgId.replace(/'/g, "''")}'`;
   const safeUserId = userId ? `'${userId.replace(/'/g, "''")}'` : null;
   const phoneFilter = config.requirePhoneInPool ? 'AND c.phone_normalized IS NOT NULL' : '';
@@ -2065,6 +2103,15 @@ async function countTotalPoolAvailable(
     ? `AND (c.status IS NULL OR c.status NOT IN (${config.excludedStatuses.map(s => `'${String(s).replace(/'/g, "''")}'`).join(',')}))`
     : '';
   const userFilter = safeUserId ? `AND (c.assigned_user_id IS NULL OR c.assigned_user_id != ${safeUserId})` : '';
+  // Phase v2.I — Self-reclaim lock: chỉ apply khi count cho 1 sale cụ thể (FAB view).
+  const selfReclaimFilter = safeUserId ? `
+      AND NOT EXISTS (
+        SELECT 1 FROM lead_requests lr3
+        WHERE lr3.contact_id = c.id
+          AND lr3.requested_by_user_id = ${safeUserId}
+          AND lr3.release_reason IN ('manual_return', 'auto_return')
+          AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > '${selfReclaimIso}'::timestamp
+      )` : '';
   const userFilterCle = safeUserId
     ? `OR EXISTS (
         SELECT 1 FROM contacts cc
@@ -2076,6 +2123,13 @@ async function countTotalPoolAvailable(
               AND lr2.note_submitted_at IS NOT NULL
               AND lr2.note_submitted_at > '${cooldownIso}'::timestamp
               AND lr2.release_reason IS NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM lead_requests lr3
+            WHERE lr3.contact_id = cc.id
+              AND lr3.requested_by_user_id = ${safeUserId}
+              AND lr3.release_reason IN ('manual_return', 'auto_return')
+              AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > '${selfReclaimIso}'::timestamp
           )
       )`
     : `OR cle.contact_id IS NOT NULL`;
@@ -2101,6 +2155,7 @@ async function countTotalPoolAvailable(
           AND lr2.note_submitted_at > '${cooldownIso}'::timestamp
           AND lr2.release_reason IS NULL
       )
+      ${selfReclaimFilter}
   `;
 
   const customerListSql = `
@@ -2131,8 +2186,8 @@ async function countTotalPoolAvailable(
 }
 
 // Variant non-tx của queryCustomerListCandidates cho preview (không tạo stub).
-async function queryCustomerListPreview(orgId: string, userId: string, limit = 50, cooldownDays = 30): Promise<PriorityCandidate[]> {
-  // Phase v2.B 2026-05-29 — cùng cooldown rule như queryCustomerListCandidates.
+async function queryCustomerListPreview(orgId: string, userId: string, limit = 50, cooldownDays = 30, selfReclaimLockDays = 7): Promise<PriorityCandidate[]> {
+  // Phase v2.B + v2.I 2026-05-29 — cooldown + self-reclaim rule.
   const rows = await prisma.$queryRawUnsafe<Array<{ contact_id: string; days_in_list: number }>>(
     `
     SELECT cle.contact_id, EXTRACT(EPOCH FROM (NOW() - cle.created_at)) / 86400 AS days_in_list
@@ -2155,11 +2210,18 @@ async function queryCustomerListPreview(orgId: string, userId: string, limit = 5
               AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
               AND lr2.release_reason IS NULL
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM lead_requests lr3
+            WHERE lr3.contact_id = cc.id
+              AND lr3.requested_by_user_id = $2
+              AND lr3.release_reason IN ('manual_return', 'auto_return')
+              AND COALESCE(lr3.auto_returned_at, lr3.note_submitted_at) > NOW() - ($5 || ' days')::INTERVAL
+          )
       )
     ORDER BY days_in_list DESC
     LIMIT $3
     `,
-    orgId, userId, limit, String(cooldownDays),
+    orgId, userId, limit, String(cooldownDays), String(selfReclaimLockDays),
   );
   return rows.map((r) => ({
     contactId: r.contact_id,

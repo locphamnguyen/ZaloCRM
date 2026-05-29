@@ -2320,6 +2320,10 @@ model LeadPoolConfig {
   // ai khác trong N ngày. Sale gốc vẫn chăm KH bình thường. Sale bấm "Trả lại pool" →
   // bypass cooldown. Default 30 ngày.
   cooldownAfterNoteDays  Int     @default(30) @map("cooldown_after_note_days")
+  // 2026-05-29 Phase v2.I — Self-reclaim lock. Sale trả lead → sale đó KHÔNG được nhận
+  // lại chính KH đó trong N ngày. Sale khác vẫn xin được ngay. Chống spam loop khi
+  // sale gốc tự xin-trả-xin lại cùng 1 KH. Default 7 ngày.
+  selfReclaimLockDays    Int     @default(7) @map("self_reclaim_lock_days")
   // 2026-05-28 — JSON array string templates câu chào mặc định khi mở lead modal.
   // Placeholders hỗ trợ:
   //   {anh_chi}   — "Anh" | "Chị" | "Anh/Chị" (capitalize, dùng đầu câu)
