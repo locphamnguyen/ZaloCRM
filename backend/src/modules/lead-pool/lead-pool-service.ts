@@ -38,6 +38,9 @@ interface PoolConfig {
   forceNoteBeforeNext: boolean;
   enabledSources: LeadSource[];
   noteMinLength: number;
+  // 2026-05-29 — Sau khi sale note xong, KH bị khoá pool N ngày. Chống spam chia lại
+  // cùng 1 lead. Sale gốc vẫn chăm KH bình thường. Bấm "Trả lại pool" → bypass.
+  cooldownAfterNoteDays: number;
   // 2026-05-28 — array template câu chào. Empty → service fallback DEFAULT_GREETING_TEMPLATES.
   // Placeholders: {anh_chi} {ac} {ten_kh} {ten_em}. Max 10 câu, mỗi câu ≤500 ký tự.
   greetingTemplates: string[];
@@ -58,6 +61,7 @@ const DEFAULT_CONFIG: PoolConfig = {
   forceNoteBeforeNext: true,
   enabledSources: ['forgotten', 'customer_list'],
   noteMinLength: 20,
+  cooldownAfterNoteDays: 30,
   greetingTemplates: [], // empty → service dùng DEFAULT_GREETING_TEMPLATES
 };
 
@@ -86,6 +90,7 @@ export async function getOrCreateConfig(orgId: string): Promise<PoolConfig> {
       forceNoteBeforeNext: Boolean(existing.forceNoteBeforeNext),
       enabledSources: safeStringArray(existing.enabledSources, DEFAULT_CONFIG.enabledSources, VALID_SOURCES) as LeadSource[],
       noteMinLength: Math.max(5, Math.min(500, existing.noteMinLength)),
+      cooldownAfterNoteDays: Math.max(0, Math.min(365, existing.cooldownAfterNoteDays)),
       greetingTemplates: safeStringArray(existing.greetingTemplates, []).slice(0, 10).map((s) => s.slice(0, 500)),
     };
   }
@@ -103,6 +108,7 @@ export async function getOrCreateConfig(orgId: string): Promise<PoolConfig> {
       forceNoteBeforeNext: DEFAULT_CONFIG.forceNoteBeforeNext,
       enabledSources: DEFAULT_CONFIG.enabledSources,
       noteMinLength: DEFAULT_CONFIG.noteMinLength,
+      cooldownAfterNoteDays: DEFAULT_CONFIG.cooldownAfterNoteDays,
     },
   });
   return { ...DEFAULT_CONFIG };
@@ -131,6 +137,9 @@ export async function updateConfig(orgId: string, patch: Partial<PoolConfig>): P
   if (typeof patch.forceNoteBeforeNext === 'boolean') data.forceNoteBeforeNext = patch.forceNoteBeforeNext;
   if (typeof patch.noteMinLength === 'number' && Number.isInteger(patch.noteMinLength)) {
     data.noteMinLength = Math.max(5, Math.min(500, patch.noteMinLength));
+  }
+  if (typeof patch.cooldownAfterNoteDays === 'number' && Number.isInteger(patch.cooldownAfterNoteDays)) {
+    data.cooldownAfterNoteDays = Math.max(0, Math.min(365, patch.cooldownAfterNoteDays));
   }
   if (Array.isArray(patch.excludedStatuses)) {
     data.excludedStatuses = safeStringArray(patch.excludedStatuses, [], VALID_STATUS_KEYS);
@@ -347,6 +356,16 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
           AND lr.release_reason IS NULL
           AND lr.auto_returned_at IS NULL
       )
+      -- Phase v2.B 2026-05-29 — Cooldown sau note. Sale note 1 lead → KH này KHOÁ
+      -- pool $6 ngày. Sale gốc vẫn chăm KH bình thường (assignedUserId không reset).
+      -- Sale bấm "Trả lại pool" → release_reason set → bypass rule → vào pool ngay.
+      AND NOT EXISTS (
+        SELECT 1 FROM lead_requests lr2
+        WHERE lr2.contact_id = c.id
+          AND lr2.note_submitted_at IS NOT NULL
+          AND lr2.note_submitted_at > NOW() - ($6 || ' days')::INTERVAL
+          AND lr2.release_reason IS NULL
+      )
     ORDER BY priority_score DESC
     LIMIT $5
     `,
@@ -355,6 +374,7 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
     excludedStatuses,
     userId,
     limit,
+    String(config.cooldownAfterNoteDays),
   );
 
   return rows.map((r) => ({ contactId: r.id, source: 'forgotten' as const, priorityScore: r.priority_score }));
@@ -367,9 +387,10 @@ async function queryForgottenCandidates(orgId: string, userId: string, config: P
  *
  * Priority đơn giản: daysInList + (matchedContact ? 10 : 0).
  */
-async function queryCustomerListCandidates(orgId: string, userId: string, limit = 50): Promise<PriorityCandidate[]> {
+async function queryCustomerListCandidates(orgId: string, userId: string, limit = 50, cooldownDays = 30): Promise<PriorityCandidate[]> {
   // CustomerListEntry uses customer_list_id (not list_id) + phone_e164/phone_local (not phone).
   // status='validated' or 'enriched' OK cho pool.
+  // Phase v2.B 2026-05-29 — cooldown sau note: lead đã note < $4 ngày + chưa release → khoá pool.
   const entries = await prisma.$queryRawUnsafe<Array<{ contact_id: string | null; phone_e164: string | null; phone_local: string | null; name_raw: string | null; days_in_list: number; entry_id: string }>>(
     `
     SELECT cle.id AS entry_id, cle.contact_id, cle.phone_e164, cle.phone_local, cle.name_raw,
@@ -394,6 +415,13 @@ async function queryCustomerListCandidates(orgId: string, userId: string, limit 
                 AND lr.release_reason IS NULL
                 AND lr.auto_returned_at IS NULL
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM lead_requests lr2
+              WHERE lr2.contact_id = cc.id
+                AND lr2.note_submitted_at IS NOT NULL
+                AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
+                AND lr2.release_reason IS NULL
+            )
         )
       )
     ORDER BY days_in_list DESC
@@ -402,6 +430,7 @@ async function queryCustomerListCandidates(orgId: string, userId: string, limit 
     orgId,
     userId,
     limit,
+    String(cooldownDays),
   );
 
   const result: PriorityCandidate[] = [];
@@ -852,7 +881,7 @@ export async function requestLead(args: { orgId: string; userId: string }) {
         ? queryForgottenCandidates(args.orgId, args.userId, config, 50)
         : Promise.resolve([] as PriorityCandidate[]),
       config.enabledSources.includes('customer_list')
-        ? queryCustomerListCandidatesTx(tx, args.orgId, args.userId)
+        ? queryCustomerListCandidatesTx(tx, args.orgId, args.userId, config.cooldownAfterNoteDays)
         : Promise.resolve([] as PriorityCandidate[]),
     ]);
 
@@ -985,6 +1014,7 @@ async function queryCustomerListCandidatesTx(
   tx: Tx,
   orgId: string,
   userId: string,
+  cooldownDays = 30,
   limit = 50,
 ): Promise<PriorityCandidate[]> {
   const entries = (await tx.$queryRawUnsafe(
@@ -1011,12 +1041,19 @@ async function queryCustomerListCandidatesTx(
                 AND lr.release_reason IS NULL
                 AND lr.auto_returned_at IS NULL
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM lead_requests lr2
+              WHERE lr2.contact_id = cc.id
+                AND lr2.note_submitted_at IS NOT NULL
+                AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
+                AND lr2.release_reason IS NULL
+            )
         )
       )
     ORDER BY days_in_list DESC
     LIMIT $3
     `,
-    orgId, userId, limit,
+    orgId, userId, limit, String(cooldownDays),
   )) as Array<{ contact_id: string | null; phone_e164: string | null; phone_local: string | null; name_raw: string | null; days_in_list: number; entry_id: string }>;
 
   const result: PriorityCandidate[] = [];
@@ -1549,7 +1586,7 @@ export async function previewPool(args: { orgId: string; userId: string; limit?:
       ? queryForgottenCandidates(args.orgId, args.userId, config, limit)
       : Promise.resolve([] as PriorityCandidate[]),
     config.enabledSources.includes('customer_list')
-      ? queryCustomerListPreview(args.orgId, args.userId, limit)
+      ? queryCustomerListPreview(args.orgId, args.userId, limit, config.cooldownAfterNoteDays)
       : Promise.resolve([] as PriorityCandidate[]),
   ]);
 
@@ -1613,7 +1650,8 @@ export async function previewPool(args: { orgId: string; userId: string; limit?:
 }
 
 // Variant non-tx của queryCustomerListCandidates cho preview (không tạo stub).
-async function queryCustomerListPreview(orgId: string, userId: string, limit = 50): Promise<PriorityCandidate[]> {
+async function queryCustomerListPreview(orgId: string, userId: string, limit = 50, cooldownDays = 30): Promise<PriorityCandidate[]> {
+  // Phase v2.B 2026-05-29 — cùng cooldown rule như queryCustomerListCandidates.
   const rows = await prisma.$queryRawUnsafe<Array<{ contact_id: string; days_in_list: number }>>(
     `
     SELECT cle.contact_id, EXTRACT(EPOCH FROM (NOW() - cle.created_at)) / 86400 AS days_in_list
@@ -1629,11 +1667,18 @@ async function queryCustomerListPreview(orgId: string, userId: string, limit = 5
         SELECT 1 FROM contacts cc
         WHERE cc.id = cle.contact_id
           AND (cc.assigned_user_id IS NULL OR cc.assigned_user_id != $2)
+          AND NOT EXISTS (
+            SELECT 1 FROM lead_requests lr2
+            WHERE lr2.contact_id = cc.id
+              AND lr2.note_submitted_at IS NOT NULL
+              AND lr2.note_submitted_at > NOW() - ($4 || ' days')::INTERVAL
+              AND lr2.release_reason IS NULL
+          )
       )
     ORDER BY days_in_list DESC
     LIMIT $3
     `,
-    orgId, userId, limit,
+    orgId, userId, limit, String(cooldownDays),
   );
   return rows.map((r) => ({
     contactId: r.contact_id,

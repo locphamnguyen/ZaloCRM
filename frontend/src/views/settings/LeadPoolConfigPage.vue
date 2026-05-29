@@ -99,6 +99,27 @@
         </div>
       </section>
 
+      <!-- Cooldown sau note (Phase v2.B 2026-05-29) -->
+      <section class="lpc-card">
+        <h3>🔒 Khoá pool sau khi note (ngày)</h3>
+        <p class="lpc-detail">
+          Sau khi sale ghi note xong, khách hàng này <b>KHÔNG xuất hiện trong pool</b> của bất kỳ
+          sale nào trong N ngày. Chống spam chia lại 1 lead cho nhiều sale, hoặc sale gốc tự xin lại
+          chính KH mình vừa chăm.
+        </p>
+        <p class="lpc-detail" style="margin-top:6px;">
+          <b>Sale gốc vẫn giữ quyền chăm KH bình thường</b> — chỉ pool ngừng chia lại lead này.
+          Ngoại lệ: sale bấm <i>"Trả lại pool"</i> → bypass cooldown, vào pool ngay.
+        </p>
+        <div class="lpc-grid lpc-grid-narrow">
+          <label class="lpc-field">
+            <span>Khoá pool (ngày)</span>
+            <input type="number" min="0" max="365" v-model.number="form.cooldownAfterNoteDays" @blur="onSave" />
+            <small>0 = tắt khoá. Default 30 ngày. Sau N ngày → lead vào lại pool, sale khác có cơ hội chăm.</small>
+          </label>
+        </div>
+      </section>
+
       <!-- Excluded statuses -->
       <section class="lpc-card">
         <h3>🚫 Trạng thái KHÔNG vào pool (giữ cho sale đang chăm)</h3>
@@ -242,6 +263,7 @@ const form = ref({
   forceNoteBeforeNext: true,
   enabledSources: ['forgotten', 'customer_list'] as string[],
   noteMinLength: 20,
+  cooldownAfterNoteDays: 30,
   greetingTemplates: [] as string[],
 });
 
@@ -269,6 +291,7 @@ async function fetchConfig() {
       forceNoteBeforeNext: data.forceNoteBeforeNext,
       enabledSources: data.enabledSources ?? ['forgotten', 'customer_list'],
       noteMinLength: data.noteMinLength,
+      cooldownAfterNoteDays: data.cooldownAfterNoteDays ?? 30,
       greetingTemplates: Array.isArray(data.greetingTemplates) ? data.greetingTemplates : [],
     };
   } catch (err: any) {

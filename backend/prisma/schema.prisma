@@ -2316,6 +2316,10 @@ model LeadPoolConfig {
   // JSON array: 'forgotten' | 'customer_list' | 'external_sync'
   enabledSources         Json    @default("[\"forgotten\",\"customer_list\"]") @map("enabled_sources")
   noteMinLength          Int     @default(20) @map("note_min_length")
+  // 2026-05-29 Phase v2.B — Cooldown sau note. Sale note xong → KH này KHÔNG vào pool
+  // ai khác trong N ngày. Sale gốc vẫn chăm KH bình thường. Sale bấm "Trả lại pool" →
+  // bypass cooldown. Default 30 ngày.
+  cooldownAfterNoteDays  Int     @default(30) @map("cooldown_after_note_days")
   // 2026-05-28 — JSON array string templates câu chào mặc định khi mở lead modal.
   // Placeholders hỗ trợ:
   //   {anh_chi}   — "Anh" | "Chị" | "Anh/Chị" (capitalize, dùng đầu câu)
