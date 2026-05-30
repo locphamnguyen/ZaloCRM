@@ -275,9 +275,22 @@ async function onSubmit() {
       leadSource: props.leadSource,
     });
 
-    // exists = true → show warning inline, không close
+    // exists = true → behavior khác nhau theo entry point
     if (res.data?.exists) {
-      duplicateContact.value = res.data.contact;
+      const dup = res.data.contact;
+      // M55.3 2026-05-30: NewMessageDialog flow (autoOpenVirtualChat=false) → KHÔNG
+      // hiện duplicate warning UI (sale đang bận gửi tin, muốn vào chat ngay).
+      // Skip warning, emit 'created' với KH cũ — parent onQuickAddCreated sẽ chain
+      // POST virtual-conv + emit opened. Backend AI welcome msg #2 sẽ thông báo
+      // "KH đã có sale chăm, note gần nhất ..." vào virtual chat.
+      if (!props.autoOpenVirtualChat) {
+        toast.success(`KH "${dup.fullName || dup.phone}" đã có — mở chat ngay`);
+        emit('created', { id: dup.id, fullName: dup.fullName, phone: dup.phone });
+        emit('update:modelValue', false);
+        return;
+      }
+      // ContactsView FAB: vẫn show warning để sale review trước khi vào chat
+      duplicateContact.value = dup;
       return;
     }
 

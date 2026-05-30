@@ -352,6 +352,9 @@ function onPickNickForNewMsg(nick: { id: string }) {
 }
 
 function onComposeOpened(conversationId: string) {
+  // M55.3 2026-05-30: đóng dialog NewMessageDialog NGAY khi opened — defensive,
+  // tránh sale phải bấm X thủ công nếu child dialog quên emit update:modelValue.
+  newMsgOpen.value = false;
   emit('compose-opened', conversationId);
   // Reset picked state sau khi dialog đã open + emit (dùng cho lần next)
   newMsgPickedAccountId.value = null;

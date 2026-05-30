@@ -676,6 +676,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           userId: user.id,
           source: 'virtual_chat_open',
         });
+        // M55.3 2026-05-30: trigger AI dup-alert message nếu chưa từng gửi (idempotent)
+        void sendDuplicateAlertMessage(existing.id, contactId, user.orgId, contact, myNickId, (app as any).io);
         return reply.status(200).send({ conversationId: existing.id, created: false });
       }
 
@@ -748,6 +750,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         _aiAssistant: true,
         _welcome: true,
       });
+
+      // M55.3 2026-05-30: AI message #2 — Cảnh báo KH duplicate sau welcome 2.5s.
+      // Detect duplicate: collaborator count > 1 HOẶC có note cũ. Fire-and-forget.
+      void sendDuplicateAlertMessage(created.id, contactId, user.orgId, contact, myNickId, io);
 
       // 6. Audit log (fire-and-forget)
       logActivity({
@@ -2154,4 +2160,105 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(500).send({ error: 'Backfill failed', detail: String(err) });
     }
   });
+}
+
+// M55.3 2026-05-30 — AI dup-alert message #2 cho virtual chat.
+// Trigger sau welcome ~2.5s khi KH đã có sale chăm (collaborator >= 2) hoặc có note cũ.
+// Idempotent: chỉ gửi 1 lần / conv (guard bằng count AI message senderUid='ai:virtual-chat').
+// Hardcode content tiếng Việt, KHÔNG gọi Gemini (tiết kiệm token).
+async function sendDuplicateAlertMessage(
+  conversationId: string,
+  contactId: string,
+  orgId: string,
+  contact: { fullName: string | null; crmName: string | null; phone: string | null; assignedUserId: string | null },
+  myNickId: string,
+  io: Server | undefined,
+): Promise<void> {
+  try {
+    // Detect duplicate
+    const [collabCount, lastNote, primarySale] = await Promise.all([
+      prisma.contactAccess.count({
+        where: { contactId, role: { in: ['primary', 'collaborator'] } },
+      }),
+      prisma.note.findFirst({
+        where: { orgId, contactId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          body: true,
+          createdAt: true,
+          author: { select: { fullName: true, email: true } },
+        },
+      }),
+      contact.assignedUserId
+        ? prisma.user.findUnique({
+            where: { id: contact.assignedUserId },
+            select: { fullName: true, email: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const isDuplicate = collabCount > 1 || !!lastNote;
+    if (!isDuplicate) return;
+
+    // Guard idempotent: chỉ gửi 1 dup-alert / conv
+    const alertCount = await prisma.message.count({
+      where: {
+        conversationId,
+        senderUid: 'ai:virtual-chat',
+        // Hash key: dup-alert có prefix "📌 **Lưu ý:**" trong content
+        content: { startsWith: '📌 **Lưu ý:**' },
+      },
+    });
+    if (alertCount > 0) return;
+
+    const khName = contact.crmName || contact.fullName || 'KH';
+    const saleName = primarySale?.fullName || primarySale?.email || 'sale khác';
+    const noteSnippet = lastNote
+      ? `📝 Note gần nhất từ **${lastNote.author?.fullName || lastNote.author?.email || '—'}** (${new Date(lastNote.createdAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' })}):\n> "${(lastNote.body || '').slice(0, 120)}${(lastNote.body || '').length > 120 ? '…' : ''}"`
+      : 'Chưa có note nào.';
+
+    const dupContent =
+      `📌 **Lưu ý:** KH **${khName}** đã có trong hệ thống — sale **${saleName}** đang phụ trách chính.\n\n` +
+      `Tổng ${collabCount} sale đang/đã chăm KH này.\n\n` +
+      `${noteSnippet}\n\n` +
+      `Anh/chị check kỹ trước khi tư vấn để tránh trùng/đụng nhau nhé!`;
+
+    // Delay 2.5s rồi insert + emit
+    setTimeout(async () => {
+      try {
+        const dupMsg = await prisma.message.create({
+          data: {
+            id: randomUUID(),
+            conversationId,
+            zaloMsgId: `local:${randomUUID()}`,
+            zaloMsgIdNum: null,
+            senderType: 'ai_assistant',
+            senderUid: 'ai:virtual-chat',
+            senderName: 'Trợ lý',
+            content: dupContent,
+            contentType: 'text',
+            sentAt: new Date(),
+            isLocal: true,
+            sentVia: 'system',
+          },
+        });
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { lastMessageAt: new Date() },
+        });
+        io?.emit('chat:message', {
+          accountId: myNickId,
+          message: { ...dupMsg, zaloMsgIdNum: null as string | null },
+          conversationId,
+          _virtual: true,
+          _aiAssistant: true,
+          _dupAlert: true,
+        });
+      } catch (err) {
+        logger.warn(`[virtual-conv] dup-alert send failed: ${String(err)}`);
+      }
+    }, 2500);
+  } catch (err) {
+    logger.warn(`[virtual-conv] dup-alert detect failed: ${String(err)}`);
+  }
 }

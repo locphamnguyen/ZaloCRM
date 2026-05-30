@@ -313,21 +313,62 @@ export async function aiRoutes(app: FastifyInstance) {
         // Load contact + verify org
         const contact = await prisma.contact.findFirst({
           where: { id: contactId, orgId: user.orgId },
-          select: { id: true },
+          select: { id: true, tags: true, metadata: true, notes: true },
         });
         if (!contact) return reply.status(404).send({ error: 'Contact not found' });
 
-        // Build update payload (whitelist field allowed)
-        const ALLOWED = new Set([
+        // M55.3 2026-05-30: Mở rộng whitelist — thêm tags + propertyNeed (lưu vào
+        // metadata.propertyNeed vì Contact schema chưa có cột riêng). Special handling:
+        // - tags: MERGE với tags hiện tại (không overwrite, dedup)
+        // - propertyNeed: serialize vào Contact.metadata.propertyNeed + tóm tắt vào notes
+        const ALLOWED_SCALAR = new Set([
           'fullName', 'gender', 'birthYear', 'occupation', 'incomeRange',
           'province', 'district', 'ward', 'source',
         ]);
         const update: Record<string, unknown> = {};
         const acceptedLog: Array<{ field: string; value: unknown }> = [];
+
         for (const item of body.acceptedFields) {
-          if (!ALLOWED.has(item.field)) continue;
-          update[item.field] = item.value;
-          acceptedLog.push(item);
+          if (ALLOWED_SCALAR.has(item.field)) {
+            update[item.field] = item.value;
+            acceptedLog.push(item);
+          } else if (item.field === 'tags' && Array.isArray(item.value)) {
+            // Merge dedup tags (không overwrite tags cũ)
+            const existingTags = Array.isArray(contact.tags) ? contact.tags as string[] : [];
+            const newTags = (item.value as unknown[]).filter((t): t is string => typeof t === 'string');
+            const merged = Array.from(new Set([...existingTags, ...newTags]));
+            update.tags = merged;
+            acceptedLog.push(item);
+          } else if (item.field === 'propertyNeed' && item.value && typeof item.value === 'object') {
+            // Lưu vào metadata.propertyNeed — merge với existing metadata
+            const existingMeta = (contact.metadata && typeof contact.metadata === 'object')
+              ? contact.metadata as Record<string, unknown>
+              : {};
+            update.metadata = { ...existingMeta, propertyNeed: item.value };
+            // Bonus: append tóm tắt vào notes để sale đọc nhanh
+            const pn = item.value as {
+              type?: string;
+              budgetMin?: number;
+              budgetMax?: number;
+              purpose?: string;
+              area?: string;
+              decisionTimeline?: string;
+            };
+            const parts: string[] = [];
+            if (pn.type) parts.push(pn.type);
+            if (pn.budgetMin || pn.budgetMax) {
+              parts.push(pn.budgetMax ? `${pn.budgetMin || '?'}-${pn.budgetMax} tỷ` : `${pn.budgetMin} tỷ`);
+            }
+            if (pn.purpose) parts.push(pn.purpose);
+            if (pn.area) parts.push(`tại ${pn.area}`);
+            if (pn.decisionTimeline) parts.push(`quyết định ${pn.decisionTimeline}`);
+            if (parts.length > 0) {
+              const summary = `[AI ${new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}] Nhu cầu BĐS: ${parts.join(' · ')}`;
+              const oldNotes = (contact.notes || '').trim();
+              update.notes = oldNotes ? `${oldNotes}\n\n${summary}` : summary;
+            }
+            acceptedLog.push(item);
+          }
         }
 
         if (Object.keys(update).length > 0) {

@@ -215,7 +215,14 @@
               Đang tra SĐT trên Zalo qua nick {{ accountTitle }}…
             </div>
             <div v-else-if="lookupNotFound" class="lookup-miss">
-              <div class="lookup-miss-msg">⚠ {{ lookupNotFound }}</div>
+              <!-- M55.3: chấm đỏ nháy + userFriendly label sale-friendly -->
+              <div class="lookup-miss-msg">
+                <span class="lookup-miss-dot" />
+                <span class="lookup-miss-text">{{ lookupUserFriendly || lookupNotFound }}</span>
+              </div>
+              <div v-if="lookupNotFound && lookupUserFriendly" class="lookup-miss-detail">
+                {{ lookupNotFound }}
+              </div>
               <button
                 v-if="isPhoneQuery"
                 type="button"
@@ -371,6 +378,7 @@ const resolvedTriggerEl = computed<HTMLElement | null>(() => nickTriggerEl.value
 // M53.3 2026-05-30: KH no-Zalo vừa lưu từ NewMessageDialog → tự mở virtual chat
 // (giống ContactsView FAB). Fix bug "tạo KH 0900444666 mất tích" — KH có trong DB
 // nhưng không có conv để mở. Reuse cùng endpoint POST /contacts/:id/virtual-conversation.
+// M55.3 2026-05-30: LUÔN tự đóng NewMessageDialog (sale vào /chat, không cần thấy dialog lại).
 async function onQuickAddCreated(c: { id: string; fullName: string | null; phone: string | null }) {
   toast.push(`Đã lưu KH "${c.fullName || c.phone}" — đang mở chat nội bộ...`, 'success', 2400);
   try {
@@ -381,13 +389,12 @@ async function onQuickAddCreated(c: { id: string; fullName: string | null; phone
     if (convId) {
       // emit 'opened' để ChatView navigate /chat/:convId (cùng pattern các branch khác)
       emit('opened', convId);
-      return;
     }
   } catch (err: any) {
     const msg = err?.response?.data?.message || err?.response?.data?.error;
     toast.warning(msg || 'KH đã lưu. Mở chat nội bộ ở trang Liên hệ khi cần.', 4000);
   }
-  // Fallback: vẫn đóng dialog nếu virtual-conv fail (KH đã lưu rồi)
+  // M55.3: LUÔN đóng dialog parent (kể cả success), tránh sale phải tắt thủ công
   emit('update:modelValue', false);
 }
 
@@ -403,6 +410,8 @@ const opening = ref(false);
 const lookupResult = ref<LookupResult | null>(null);
 const lookingUp = ref(false);
 const lookupNotFound = ref<string | null>(null);
+// M55.3 2026-05-30 — userFriendly label sale-friendly (vd "KH chưa bật tìm kiếm Zalo công khai")
+const lookupUserFriendly = ref<string | null>(null);
 const lookupCommitMode = ref<string>('create'); // 'create' | 'attach:<contactId>'
 
 const isPhoneQuery = computed(() => {
@@ -526,6 +535,7 @@ async function runZaloLookup() {
   if (!selectedAccountId.value || !isPhoneQuery.value) return;
   lookingUp.value = true;
   lookupNotFound.value = null;
+  lookupUserFriendly.value = null;
   try {
     const res = await api.post<LookupResult & { reason?: string; detail?: string }>(
       `/zalo-accounts/${selectedAccountId.value}/friends/lookup-by-phone`,
@@ -562,9 +572,9 @@ async function runZaloLookup() {
       lookupCommitMode.value = 'create';
     }
   } catch (err) {
-    const msg = (err as { response?: { data?: { detail?: string } } })
-      .response?.data?.detail || 'Lookup thất bại';
-    lookupNotFound.value = msg;
+    const data = (err as { response?: { data?: { detail?: string; userFriendly?: string } } }).response?.data;
+    lookupNotFound.value = data?.detail || 'Lookup thất bại';
+    lookupUserFriendly.value = data?.userFriendly || null;
   } finally {
     lookingUp.value = false;
   }
@@ -598,6 +608,8 @@ async function onOpenChat() {
           );
           toast.success('Mở chat nội bộ — KH chưa có Zalo, lưu nhật ký + AI gợi ý');
           emit('opened', vcRes.data.conversationId);
+          // M55.3: tự đóng dialog sau khi opened (sale vào /chat ngay, không cần thấy lại dialog)
+          emit('update:modelValue', false);
         } catch (vcErr: any) {
           const vcMsg = vcErr?.response?.data?.message || vcErr?.response?.data?.error;
           toast.error(vcMsg || 'Không mở được chat nội bộ');
@@ -986,8 +998,36 @@ async function onOpenChat() {
   display: flex; flex-direction: column; gap: 10px;
 }
 .lookup-miss-msg {
-  font-size: 12px; color: #d97706;
+  font-size: 13px;
+  font-weight: 600;
+  color: #b91c1c;
   text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+/* M55.3 — chấm đỏ nháy cho "KH chưa bật tìm kiếm Zalo công khai" */
+.lookup-miss-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  animation: lookup-pulse-red 1.5s ease-in-out infinite;
+}
+@keyframes lookup-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.lookup-miss-text { line-height: 1.3; }
+.lookup-miss-detail {
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+  line-height: 1.4;
+  padding: 0 8px;
 }
 .quick-add-trigger {
   display: block; width: 100%;

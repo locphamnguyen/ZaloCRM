@@ -166,7 +166,13 @@ const rows = computed<SuggestionRow[]>(() => {
   if (e.ward) add('ward', 'Phường/Xã', e.ward);
   if (e.leadSource) add('source', 'Nguồn lead', e.leadSource, LEAD_SOURCE_LABEL[e.leadSource] ?? e.leadSource);
 
-  // propertyNeed — render summary nhưng KHÔNG có field mapping 1-1 → readonly
+  // M55.3 2026-05-30: tags AI → row checkable, BE merge với tags hiện có (dedup)
+  if (e.tags && Array.isArray(e.tags) && e.tags.length > 0) {
+    add('tags', 'Tags', e.tags, e.tags.join(', '));
+  }
+
+  // M55.3 2026-05-30: propertyNeed → row checkable, BE lưu vào Contact.metadata.propertyNeed
+  // + tóm tắt vào Contact.notes. KHÔNG còn info-only nữa.
   if (e.propertyNeed) {
     const pn = e.propertyNeed;
     const parts: string[] = [];
@@ -177,15 +183,14 @@ const rows = computed<SuggestionRow[]>(() => {
     }
     if (pn.purpose) parts.push(PROPERTY_PURPOSE_LABEL[pn.purpose] ?? pn.purpose);
     if (pn.area) parts.push(`tại ${pn.area}`);
-    if (pn.decisionTimeline) parts.push(`(quyết định ${TIMELINE_LABEL[pn.decisionTimeline] ?? pn.decisionTimeline})`);
+    if (pn.decisionTimeline) parts.push(`(${TIMELINE_LABEL[pn.decisionTimeline] ?? pn.decisionTimeline})`);
     if (parts.length > 0) {
-      // Property need lưu vào notes — chưa map field riêng, hiện info-only
       result.push({
-        field: '_propertyNeed_info',
-        label: 'Nhu cầu (chỉ xem)',
-        value: parts.join(' '),
+        field: 'propertyNeed',
+        label: 'Nhu cầu BĐS',
+        value: pn, // gửi nguyên object cho BE serialize vào metadata
         displayValue: parts.join(' '),
-        isExisting: true, // disable checkbox
+        isExisting: false, // checkable, default UN-checked như field khác
       });
     }
   }
@@ -208,7 +213,7 @@ async function onApply() {
   errorMessage.value = null;
   try {
     const acceptedFields = rows.value
-      .filter((r) => checked[r.field] && r.field !== '_propertyNeed_info')
+      .filter((r) => checked[r.field] && !r.field.startsWith('_'))
       .map((r) => ({ field: r.field, value: r.value }));
 
     await api.patch(`/contacts/${props.contactId}/apply-ai-suggestion`, {
