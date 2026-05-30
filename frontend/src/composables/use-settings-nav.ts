@@ -86,6 +86,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       // Phase Lead Pool — bố trí menu 2026-05-29
       { id: 'lead-pool', label: 'Nhận Lead', icon: '🎁', route: '/settings/crm/lead-pool', permission: 'admin', aliases: ['pool lead', 'lead pool', 'nhận lead', 'pool', 'quota', 'câu chào', 'greeting'] },
       { id: 'lead-pool-queue', label: 'Queue chia Lead', icon: '🎯', route: '/settings/crm/lead-pool/queue', permission: 'admin', aliases: ['queue lead', 'preview pool', 'xem trước'] },
+      // M53 2026-05-30: AI Trợ Lý Virtual Chat
+      { id: 'ai-assistant', label: 'Trợ lý AI (Chat nội bộ)', icon: '🤖', route: '/settings/crm/ai-assistant', permission: 'admin', aliases: ['ai', 'tro ly', 'virtual chat', 'gemini', 'prompt'] },
       { id: 'stuck', label: 'Stuck detection', icon: '⏸', route: '/settings/crm/stuck', permission: 'admin', comingSoon: true },
       { id: 'folders', label: 'Folder mặc định', icon: '📁', route: '/settings/crm/folders', permission: 'admin', comingSoon: true },
       { id: 'templates', label: 'Template tin nhắn', icon: '📝', route: '/settings/crm/templates', permission: 'admin', comingSoon: true },

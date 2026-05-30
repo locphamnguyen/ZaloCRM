@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
+// M53 2026-05-30 — AI Trợ Lý cho Virtual Chat (KH no-Zalo)
+import { triggerVirtualChatAiReply } from '../ai/ai-virtual-chat-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -850,9 +852,11 @@ export async function chatRoutes(app: FastifyInstance) {
           _virtual: true,
         });
 
-        // M53 AI Trợ Lý: trigger reply async, KHÔNG block response
-        // (Implement ở Ngày 3 — POST /ai/virtual-chat-reply)
-        // void aiVirtualChatService.triggerReply(id, message.id, user.orgId).catch(...)
+        // M53 AI Trợ Lý — fire-and-forget, KHÔNG block response
+        void triggerVirtualChatAiReply(
+          { conversationId: id, triggerMessageId: message.id, orgId: user.orgId },
+          io,
+        );
 
         return safeMessage;
       } catch (err) {

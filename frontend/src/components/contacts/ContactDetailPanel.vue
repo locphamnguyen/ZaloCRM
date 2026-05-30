@@ -44,8 +44,24 @@
       </div>
 
       <!-- 2 action buttons chính -->
+      <!-- M53 2026-05-30: KH no-Zalo → nút "Mở chat nội bộ" (cam) thay "Mở chat Zalo" (xanh) -->
       <div class="cdp-actions">
-        <button class="cdp-btn-primary" @click="$emit('go-chat')">💬 Mở chat Zalo</button>
+        <button
+          v-if="contact.hasZalo"
+          class="cdp-btn-primary"
+          @click="$emit('go-chat')"
+        >💬 Mở chat Zalo</button>
+        <button
+          v-else
+          class="cdp-btn-virtual"
+          :disabled="virtualLoading"
+          @click="openVirtualChat"
+          title="KH chưa có Zalo — mở chat nội bộ để ghi nhật ký + AI gợi ý khai thác thông tin"
+        >
+          <span v-if="virtualLoading">⏳</span>
+          <span v-else>🔒</span>
+          Mở chat nội bộ
+        </button>
         <button class="cdp-btn-outline" @click="openAppointment">📅 Đặt lịch hẹn</button>
         <button class="cdp-btn-outline" @click="addNote">📝 Thêm note</button>
         <button class="cdp-btn-outline" @click="$emit('edit')" title="Sửa thông tin">✎ Sửa</button>
@@ -209,8 +225,11 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import type { Contact } from '@/composables/use-contacts';
+
+const router = useRouter();
 
 const props = defineProps<{ contact: Contact }>();
 const emit = defineEmits<{ close: []; 'go-chat': []; saved: []; edit: [] }>();
@@ -424,6 +443,28 @@ function apptStatusLabel(s: string): string {
 
 function openAppointment() { emit('edit'); /* mở dialog nhắc hẹn — hiện tại reuse edit */ }
 function addNote() { activeTab.value = 'notes'; /* TODO: focus textarea note */ }
+
+// M53 2026-05-30: Mở Virtual Chat cho KH no-Zalo
+const virtualLoading = ref(false);
+async function openVirtualChat() {
+  if (virtualLoading.value) return;
+  virtualLoading.value = true;
+  try {
+    const res = await api.post<{ conversationId: string; created: boolean }>(
+      `/contacts/${props.contact.id}/virtual-conversation`,
+      {}
+    );
+    const convId = res.data?.conversationId;
+    if (!convId) throw new Error('No conversationId returned');
+    // Navigate sang /chat với conversation virtual mở sẵn
+    await router.push({ path: '/chat', query: { conversationId: convId } });
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || 'Lỗi mở chat nội bộ';
+    alert(msg);
+  } finally {
+    virtualLoading.value = false;
+  }
+}
 </script>
 
 <style scoped>
@@ -532,6 +573,29 @@ function addNote() { activeTab.value = 'notes'; /* TODO: focus textarea note */ 
   font-family: inherit;
 }
 .cdp-btn-outline:hover { background: #f8fafc; }
+
+/* M53 2026-05-30: nút Mở chat nội bộ — màu cam */
+.cdp-btn-virtual {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cdp-btn-virtual:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ea580c, #c2410c);
+}
+.cdp-btn-virtual:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
 
 /* Tabs */
 .cdp-tabs {

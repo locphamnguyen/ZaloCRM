@@ -113,6 +113,8 @@ const routes: RouteRecordRaw[] = [
       // Phase Lead Pool 2026-05-24 — bố trí menu 2026-05-29
       { path: 'crm/lead-pool',         name: 'Settings.LeadPool',        component: () => import('@/views/settings/LeadPoolConfigPage.vue') },
       { path: 'crm/lead-pool/queue',   name: 'Settings.LeadPoolQueue',   component: () => import('@/views/settings/LeadPoolPreviewPage.vue') },
+      // M53 2026-05-30 — Trợ Lý AI Virtual Chat
+      { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue') },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue') },
       // Phase Multi-Source Lead Ads 2026-05-27
@@ -181,6 +183,15 @@ const routes: RouteRecordRaw[] = [
       { path: 'lists',      name: 'Marketing.Lists',      component: () => import('@/views/automation/ListsView.vue') },
       { path: 'lists/:id',  name: 'Marketing.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
     ],
+  },
+  // Phase Marketing rename 2026-05-23 — "Mục tiêu" namespace alias.
+  // Ngày 2 (2026-05-30): refactored thành MucTieuWizard 3-step chính chủ + accept ?listId query.
+  // Route /marketing/triggers/new/friend-invite vẫn alias cho backward compat (xem trên).
+  {
+    path: '/automation/muc-tieu/tao-moi',
+    name: 'Marketing.MucTieuCreate',
+    component: () => import('@/views/automation/MucTieuWizard.vue'),
+    meta: { requiresAuth: true },
   },
   // Backward compat redirect — URL /automation/bot/* cũ vẫn hoạt động
   { path: '/automation/bot',              redirect: '/marketing/triggers' },

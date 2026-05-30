@@ -332,6 +332,20 @@
             <span v-if="reminderNoticeTime(item.msg)" class="reminder-notice-time">· {{ reminderNoticeTime(item.msg) }}</span>
           </div>
 
+          <!-- M53 2026-05-30: AI Trợ Lý bubble — render component riêng cho virtual chat -->
+          <div
+            v-else-if="item.msg.senderType === 'ai_assistant'"
+            class="msg-bubble-wrap ai-msg-wrap"
+            :data-msg-id="item.msg.id"
+          >
+            <AiAssistantMessage
+              :message="item.msg"
+              :contact-id="conversation.contact?.id || ''"
+              :existing-contact="(conversation.contact as unknown as Record<string, unknown>) || null"
+              @suggestion-applied="onAiSuggestionApplied($event, item.msg.id)"
+            />
+          </div>
+
           <!-- Single message — MessageBubble component (wrap với privacy blur khi redacted) -->
           <div
             v-else
@@ -673,6 +687,8 @@ import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
 import MessageBubble from '@/components/chat/message-bubble.vue';
+// M53 2026-05-30: Trợ lý AI cho virtual chat
+import AiAssistantMessage from '@/components/chat/AiAssistantMessage.vue';
 import ReactionDetailPopup from '@/components/chat/reaction-detail-popup.vue';
 import { usePrivacyVisibility } from '@/composables/use-privacy-visibility';
 import NickAvatarLock from '@/components/privacy/NickAvatarLock.vue';
@@ -1221,6 +1237,20 @@ const isVirtualConv = computed(() => {
 const virtualStatusLabel = 'KH chưa bật tìm kiếm Zalo công khai';
 const virtualTooltip =
   'KH chưa bật tìm kiếm Zalo công khai. Tin nhắn lưu nội bộ làm nhật ký chăm sóc — KHÔNG gửi đi Zalo.';
+
+function onAiSuggestionApplied(
+  acceptedFields: Array<{ field: string; value: unknown }>,
+  _aiMessageId: string,
+) {
+  // Refresh contact panel data (parent listens via care-status-changed for now)
+  // TODO: emit dedicated event 'contact-updated' để ChatView reload contact detail
+  if (props.conversation?.contact) {
+    const c = props.conversation.contact as unknown as Record<string, unknown>;
+    for (const f of acceptedFields) {
+      c[f.field] = f.value;
+    }
+  }
+}
 
 // ── Resolve sender avatar cho MessageBubble ─────────────────────────────────
 // User thread: incoming msgs → conversation.contact.avatarUrl
