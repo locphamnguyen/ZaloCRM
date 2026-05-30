@@ -211,7 +211,9 @@
               :class="{
                 open: expandedId === contact.id,
                 'detail-active': viewMode === 'm2' && selectedContact?.id === contact.id,
+                'row-flash': focusedContactId === contact.id,
               }"
+              :data-contact-id="contact.id"
               @click="onRowClick($event, contact.id)"
             >
               <td>
@@ -612,8 +614,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
 import ContactDetailPanel from '@/components/contacts/ContactDetailPanel.vue';
 import ParentCandidateDialog from '@/components/contacts/ParentCandidateDialog.vue';
@@ -635,6 +637,7 @@ import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-fr
 
 const { isMobile } = useMobile();
 const router = useRouter();
+const route = useRoute();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
 const { duplicateTotal, fetchDuplicateGroups } = useContactIntelligence();
@@ -753,6 +756,9 @@ async function onRunDetector() {
 }
 const selectedContact = ref<Contact | null>(null);
 const expandedId = ref<string | null>(null);
+// M55.2 2026-05-30 — Focus param từ /contacts?focus=X (AddCustomerQuickDialog
+// "Mở chi tiết" khi duplicate) → highlight row + scroll + open detail panel.
+const focusedContactId = ref<string | null>(null);
 // Real friendship data per contact (key: contactId → ChildRow[]). Fetched on first expand.
 const friendshipCache = ref<Record<string, ChildRow[]>>({});
 const friendshipLoading = ref<Record<string, boolean>>({});
@@ -1336,6 +1342,55 @@ onMounted(() => {
   loadMasterStatuses();
   loadUsers();
 });
+
+// M55.2 2026-05-30 — Handle /contacts?focus={id} từ AddCustomerQuickDialog
+// "Mở chi tiết" khi duplicate. Auto-fetch contact, open detail panel + scroll + flash row.
+async function focusOnContact(id: string) {
+  focusedContactId.value = id;
+
+  // Switch sang viewMode m2 (chi tiết bên) để mở panel ngay
+  if (viewMode.value !== 'm2') {
+    viewMode.value = 'm2';
+  }
+
+  // Tìm contact trong list hiện tại, nếu không có → fetch single
+  let target = contacts.value.find((c) => c.id === id);
+  if (!target) {
+    try {
+      const res = await api.get<Contact>(`/contacts/${id}`);
+      target = res.data;
+    } catch {
+      toast.warning('Không tìm thấy KH — có thể đã bị xoá hoặc không thuộc quyền chăm');
+      return;
+    }
+  }
+  selectedContact.value = target;
+
+  // Scroll row vào view + flash 2.5s
+  await nextTick();
+  const row = document.querySelector(`tr[data-contact-id="${id}"]`);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  setTimeout(() => {
+    if (focusedContactId.value === id) focusedContactId.value = null;
+  }, 2500);
+
+  // Clean URL để F5 không reopen
+  const newQuery = { ...route.query };
+  delete newQuery.focus;
+  router.replace({ query: newQuery });
+}
+
+watch(
+  () => route.query.focus,
+  (id) => {
+    if (typeof id === 'string' && id) {
+      void focusOnContact(id);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
@@ -2097,6 +2152,16 @@ onMounted(() => {
 .smax-table.mode-shrunk tbody tr.master-row.detail-active {
   background: #fef9e7;
   border-left: 3px solid var(--smax-coral, #aa2d00);
+}
+
+/* M55.2 2026-05-30 — Flash row 2.5s khi focus param trigger (Mở chi tiết từ dialog) */
+.smax-table tbody tr.master-row.row-flash {
+  animation: row-flash-anim 2.5s ease-out;
+}
+@keyframes row-flash-anim {
+  0%   { background: #fef3c7; box-shadow: inset 0 0 0 2px #f59e0b; }
+  40%  { background: #fef3c7; box-shadow: inset 0 0 0 2px #f59e0b; }
+  100% { background: transparent; box-shadow: inset 0 0 0 2px transparent; }
 }
 
 /* Responsive breakpoints — anh chốt 2026-05-28: chỉ HD / FHD / 2K, không mobile */

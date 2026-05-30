@@ -524,6 +524,14 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           source: 'quick_add_duplicate',
         });
 
+        // M55.2 2026-05-30: lastNoteAt cho dialog warning — sale biết KH đã
+        // được chăm gần nhất bao giờ (chỉ ngày, không nội dung — privacy + compact).
+        const lastNote = await prisma.note.findFirst({
+          where: { orgId: user.orgId, contactId: existing.id },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        });
+
         return reply.status(200).send({
           exists: true,
           contact: {
@@ -533,6 +541,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             hasZalo: existing.hasZalo,
             ownerUserId: existing.assignedUserId,
             ownerName: existing.assignedUser?.fullName ?? null,
+            lastNoteAt: lastNote?.createdAt?.toISOString() ?? null,
           },
         });
       }

@@ -83,6 +83,13 @@
           >
             Sale đang chăm: <strong>{{ duplicateContact.ownerName }}</strong>
           </div>
+          <!-- M55.2: Note gần nhất ngày — chỉ ngày, không nội dung (privacy + compact) -->
+          <div
+            v-if="duplicateContact && duplicateContact.lastNoteAt"
+            class="acqd-hint"
+          >
+            📝 Note gần nhất: <strong>{{ formatNoteDate(duplicateContact.lastNoteAt) }}</strong>
+          </div>
         </div>
       </div>
 
@@ -102,10 +109,22 @@
         >
           Hủy
         </button>
+        <!-- M55.2: Khi trùng SĐT → CTA chính là "Mở chat" (sale flow liền mạch) -->
         <button
+          v-if="duplicateContact"
           type="button"
           class="acqd-btn acqd-btn--primary"
-          :disabled="!canSubmit || loading || !!duplicateContact"
+          :disabled="openingChat"
+          @click="openChatWithDuplicate"
+        >
+          <span v-if="openingChat" class="acqd-spinner" />
+          {{ openingChat ? 'Đang mở...' : '💬 Mở chat' }}
+        </button>
+        <button
+          v-else
+          type="button"
+          class="acqd-btn acqd-btn--primary"
+          :disabled="!canSubmit || loading"
           @click="onSubmit"
         >
           <span v-if="loading" class="acqd-spinner" />
@@ -157,7 +176,12 @@ const duplicateContact = ref<null | {
   hasZalo: boolean | null;
   ownerUserId: string | null;
   ownerName: string | null;
+  /** M55.2 2026-05-30 — Note gần nhất ngày (ISO), không nội dung */
+  lastNoteAt: string | null;
 }>(null);
+
+// M55.2 — Mở chat trực tiếp từ duplicate warning (sale flow liền mạch)
+const openingChat = ref(false);
 
 const nameInputRef = ref<HTMLInputElement | null>(null);
 const phoneInputRef = ref<HTMLInputElement | null>(null);
@@ -197,6 +221,46 @@ function openDuplicate() {
   const id = duplicateContact.value.id;
   emit('update:modelValue', false);
   router.push({ path: '/contacts', query: { focus: id } });
+}
+
+// M55.2 2026-05-30 — Format Note date: "Hôm nay" / "Hôm qua" / "N ngày trước" / dd/MM/yyyy
+function formatNoteDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const dayMs = 86_400_000;
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / dayMs);
+    if (diffDays === 0) {
+      return `Hôm nay (${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })})`;
+    }
+    if (diffDays === 1) return 'Hôm qua';
+    if (diffDays < 7) return `${diffDays} ngày trước`;
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+  } catch {
+    return iso;
+  }
+}
+
+// M55.2 — Mở chat virtual ngay từ dialog warning (skip /contacts navigate vòng)
+async function openChatWithDuplicate() {
+  if (!duplicateContact.value || openingChat.value) return;
+  openingChat.value = true;
+  try {
+    const res = await api.post<{ conversationId: string; created: boolean }>(
+      `/contacts/${duplicateContact.value.id}/virtual-conversation`, {},
+    );
+    const convId = res.data?.conversationId;
+    emit('update:modelValue', false);
+    if (convId) {
+      await router.push(`/chat/${convId}`);
+    }
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Không mở được chat';
+    toast.error(msg);
+  } finally {
+    openingChat.value = false;
+  }
 }
 
 async function onSubmit() {
