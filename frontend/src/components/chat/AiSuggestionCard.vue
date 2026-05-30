@@ -338,13 +338,20 @@ function onSkip() {
   font-size: 14px;
   font-weight: 400;                     /* bodyMd — bỏ 500 để không quá đậm */
   color: #181d26;                       /* AT.ink */
-  /* M55.6: wrap span pills + text trong flex để align middle đồng nhất */
   line-height: 1.4;
   vertical-align: middle;
+  /* M55.7 2026-05-30: flex container ép pill + text VISUALLY CENTER trong cell.
+     Trước đây inline-flow + vertical-align:middle chỉ align theo baseline → pill 11px
+     vs text 14px vẫn lệch ~2px. Flex align-items center fix triệt để. */
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
-/* M55.6: ép pill (Đã có / Sẽ ghi đè) align middle với text giá trị */
-.field-value > * {
-  vertical-align: middle;
+/* M55.7: bỏ margin-right cũ của pill vì gap đã handle khoảng cách */
+.field-value > .existing-pill,
+.field-value > .overwrite-pill {
+  margin-right: 0;
 }
 
 /* ── Pills ── */
