@@ -173,6 +173,10 @@ export async function crmTagRoutes(app: FastifyInstance): Promise<void> {
       if (body.order !== undefined) data.order = body.order;
       if (body.isActive !== undefined) data.isActive = body.isActive;
 
+      // M57 Wave 5: route này (CrmTag rename/delete) sẽ bị remove khi Wave 5 drop
+      // legacy CrmTag table. Tag v2 (Tag model) là source of truth — rename = update
+      // Tag.name definition only, KHÔNG scan Contact.tags. Hiện giữ legacy logic để
+      // không break UI cũ trong dual-write window Wave 3-4.
       // Đổi tên → phải update Contact.tags references để giữ consistency
       if (body.name && body.name.trim() !== tag.name) {
         const newName = body.name.trim();

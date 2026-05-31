@@ -333,11 +333,24 @@ export async function aiRoutes(app: FastifyInstance) {
             update[item.field] = item.value;
             acceptedLog.push(item);
           } else if (item.field === 'tags' && Array.isArray(item.value)) {
-            // Merge dedup tags (không overwrite tags cũ)
-            const existingTags = Array.isArray(contact.tags) ? contact.tags as string[] : [];
+            // M57 Wave 3 /plan-eng-review: route qua tag-service (source=ai_suggest).
+            // tag-service dual-write Contact.tags + ContactTag junction trong $transaction.
+            // KHÔNG còn set update.tags ở đây.
             const newTags = (item.value as unknown[]).filter((t): t is string => typeof t === 'string');
-            const merged = Array.from(new Set([...existingTags, ...newTags]));
-            update.tags = merged;
+            const { addCrmTag } = await import('../tags/tag-service.js');
+            for (const tagName of newTags) {
+              try {
+                await addCrmTag({
+                  contactId,
+                  tagName,
+                  source: 'ai_suggest',
+                  addedBy: user.id,
+                  autoCreate: true,
+                });
+              } catch (err) {
+                logger.warn('[ai-routes] addCrmTag fail %s: %s', tagName, (err as Error).message);
+              }
+            }
             acceptedLog.push(item);
           } else if (item.field === 'propertyNeed' && item.value && typeof item.value === 'object') {
             // Lưu vào metadata.propertyNeed — merge với existing metadata

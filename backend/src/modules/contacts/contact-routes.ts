@@ -1055,11 +1055,48 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const oldTags = Array.isArray(existing.tags) ? (existing.tags as string[]) : [];
-      const updated = await prisma.contact.update({ where: { id }, data: { tags: filteredTags } });
+
+      // Wave 3 M57 /plan-eng-review: route qua tag-service để dual-write junction + legacy.
+      // Diff old vs new → call addCrmTag/removeCrmTag để mỗi op atomic transaction.
+      const { addCrmTag, removeCrmTag } = await import('../tags/tag-service.js');
+      const added = filteredTags.filter((t) => !oldTags.includes(t));
+      const removed = oldTags.filter((t) => !filteredTags.includes(t));
+
+      for (const tagName of added) {
+        try {
+          await addCrmTag({
+            contactId: id,
+            tagName,
+            source: 'manual_crm',
+            addedBy: user.id,
+            autoCreate: true,
+          });
+        } catch (err) {
+          logger.warn('[PUT /contacts/:id/tags] addCrmTag fail %s: %s', tagName, (err as Error).message);
+        }
+      }
+      for (const tagName of removed) {
+        try {
+          // Lookup Tag.id qua slug
+          const { slugifyTag } = await import('../../shared/tag-slug.js');
+          const slug = slugifyTag(tagName);
+          const tag = await prisma.tag.findFirst({
+            where: { orgId: user.orgId, scope: 'crm', slug, zaloAccountId: null },
+          });
+          if (tag) {
+            await removeCrmTag({ contactId: id, tagId: tag.id, removedBy: user.id });
+          }
+        } catch (err) {
+          logger.warn('[PUT /contacts/:id/tags] removeCrmTag fail %s: %s', tagName, (err as Error).message);
+        }
+      }
+
+      // dual-write đã ghi Contact.tags qua service, đọc lại để return latest
+      const updated = await prisma.contact.findUnique({ where: { id } });
+      if (!updated) return reply.status(404).send({ error: 'Contact not found after update' });
 
       // ── ACTIVITY LOG — diff tags added/removed (so với filteredTags vì đó là DB state mới)
-      const added = filteredTags.filter(t => !oldTags.includes(t));
-      const removed = oldTags.filter(t => !filteredTags.includes(t));
+      // (added/removed đã compute ở trên cho dual-write)
       for (const t of added) {
         logActivity({
           orgId: user.orgId,

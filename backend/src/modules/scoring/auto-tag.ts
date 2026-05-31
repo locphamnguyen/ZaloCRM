@@ -200,10 +200,37 @@ export async function updateFriendAutoTags(friendId: string): Promise<boolean> {
     const added = newTags.filter((t) => !existingSet.has(t));
     const removed = [...existingSet].filter((t) => !newSet.has(t));
 
-    await prisma.friend.update({
-      where: { id: friendId },
-      data: { autoTags: newTags },
-    });
+    // M57 Wave 3 /plan-eng-review: route qua tag-service để dual-write junction.
+    // Diff added/removed → call addFriendTag/removeFriendTag (source=auto_detect).
+    // dual-write Friend.autoTags atomic trong $transaction (Issue 3A + 5A dedup).
+    const { addFriendTag, removeFriendTag } = await import('../tags/tag-service.js');
+    const { slugifyTag } = await import('../../shared/tag-slug.js');
+    for (const tagName of added) {
+      try {
+        await addFriendTag({
+          friendId,
+          tagName,
+          source: 'auto_detect',
+          addedBy: null, // worker, không có user
+          autoCreate: true,
+        });
+      } catch (err) {
+        logger.warn?.(`[auto-tag] addFriendTag fail ${tagName}: ${(err as Error).message}`);
+      }
+    }
+    for (const tagName of removed) {
+      try {
+        const slug = slugifyTag(tagName);
+        const tag = await prisma.tag.findFirst({
+          where: { orgId: friend.orgId, scope: 'friend', slug, zaloAccountId: null },
+        });
+        if (tag) {
+          await removeFriendTag({ friendId, tagId: tag.id, removedBy: null });
+        }
+      } catch (err) {
+        logger.warn?.(`[auto-tag] removeFriendTag fail ${tagName}: ${(err as Error).message}`);
+      }
+    }
 
     // ActivityLog — log với entityType='contact' (timeline UI lọc theo contactId),
     // actorType='bot' (qua botName), category='automation' (auto từ map).
