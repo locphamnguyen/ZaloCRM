@@ -925,5 +925,28 @@ export async function registerSequenceStatsRoutes(app: FastifyInstance): Promise
     },
   );
 
-  logger.info('[stats-routes] registered 6 endpoints (Wave A + B + C)');
+  // POST /api/v1/automation/sequences/stats/reconcile-counters (admin only)
+  // Manual trigger reconcile drift cho all sequences trong org
+  app.post(
+    '/api/v1/automation/sequences/stats/reconcile-counters',
+    { preHandler: authMiddleware },
+    async (request, reply) => {
+      const userId = request.user!.id;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+      const isAdmin = user?.role === 'owner' || user?.role === 'admin';
+      if (!isAdmin) {
+        reply.code(403);
+        return { error: 'Chỉ Owner + Admin được manual reconcile' };
+      }
+
+      const { manualReconcile } = await import('../queues/stats-reconcile-cron.js');
+      const result = await manualReconcile();
+      return result;
+    },
+  );
+
+  logger.info('[stats-routes] registered 7 endpoints (Wave A + B + C + reconcile)');
 }
