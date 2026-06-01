@@ -33,6 +33,15 @@
           {{ message.senderName || 'Unknown' }}
         </div>
 
+        <!-- Luồng Mục Tiêu M11 — Source identity badge 5 variant (2026-06-01) -->
+        <MessageSourceBadge
+          :message="message"
+          :prev-message="prevMessage ?? null"
+          @open-sequence="(sid) => emit('open-sequence', sid)"
+          @explain-native="emit('explain-native')"
+          @audit-ai="emit('audit-ai')"
+        />
+
         <!-- E04 Tin thu hồi — anh chốt 2026-05-21: icon 🔂 + italic xám + gạch ngang.
              Nội dung gốc giữ lại (gạch ngang) để sale biết KH/sale đã thu hồi cái gì. -->
         <div v-if="message.isDeleted" class="recall-card">
@@ -278,6 +287,7 @@ import SpecialMessageRenderer from '@/components/chat/special-message-renderer.v
 import ReactionDisplay from '@/components/chat/reaction-display.vue';
 import ReactionPicker from '@/components/chat/reaction-picker.vue';
 import Avatar from '@/components/ui/Avatar.vue';
+import MessageSourceBadge from '@/components/chat/MessageSourceBadge.vue';
 
 const props = defineProps<{
   message: Message;
@@ -292,6 +302,8 @@ const props = defineProps<{
   /** Tin OUTGOING cuối cùng — chỉ tin này hiện receipt chip (Zalo native UX,
    *  chốt 2026-05-22). Tin cuối seen ⇒ ngầm hiểu mọi tin trên cũng seen. */
   isLastSelf?: boolean;
+  /** Luồng Mục Tiêu M11: message liền trước cho group consecutive logic badge */
+  prevMessage?: Message | null;
 }>();
 
 const emit = defineEmits<{
@@ -304,6 +316,10 @@ const emit = defineEmits<{
   'open-profile': [uid: string];
   'open-reaction-detail': [payload: { reactions: any[]; message: Message }];
   'jump-to-reply': [msgId: string];
+  // Luồng Mục Tiêu M11 source badge events
+  'open-sequence': [sequenceId: string];
+  'explain-native': [];
+  'audit-ai': [];
 }>();
 
 const SPECIAL_TYPES = new Set([

@@ -142,6 +142,24 @@ export interface Message {
   /** Read receipts (Wave 1+2) — chỉ có giá trị cho tin OUTGOING (senderType='self') */
   deliveredAt?: string | null;
   seenAt?: string | null;
+  // ── Luồng Mục Tiêu M11 source identity 2026-06-01 ──
+  // sentVia enum: 'user' | 'user_native' | 'automation' | 'ai_assistant' | 'system'
+  sentVia?: string;
+  // FK BullMQ jobId (string DASH pattern), null cho tin sale gõ tay
+  automationTaskId?: string | null;
+  automationStepIndex?: number | null;
+  // metadata.sender = { kind, name, detail?, sequenceId?, stepIdx? } cho M11 badge
+  metadata?: {
+    sender?: {
+      kind?: 'user_crm' | 'user_native' | 'bot_automation' | 'bot_ai' | 'bot_system';
+      name?: string;
+      detail?: string;
+      sequenceId?: string;
+      stepIdx?: number;
+      syncedFromNative?: boolean;
+    };
+    [key: string]: unknown;
+  } | null;
 }
 
 /** Sort comparator: primary by zaloMsgIdNum (Zalo Snowflake), fallback sentAt cho row chưa echo */
