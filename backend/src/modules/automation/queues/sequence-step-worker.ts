@@ -27,6 +27,7 @@
 //   6. On error: classifyError T4A → permanent (UnrecoverableError) / transient (throw)
 
 import { Worker, DelayedError, UnrecoverableError, type Job } from 'bullmq';
+import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getBullMQRedis } from './redis-connection.js';
@@ -42,6 +43,8 @@ import {
   type TriggerGuardConfig,
 } from './worker-guards.js';
 import { classifyError } from './error-classify.js';
+import { sendMessageHandler } from '../engine/action-handlers/send-message.js';
+import type { ActionContext } from '../engine/types.js';
 
 export interface SequenceStepJobData {
   triggerId: string;
@@ -238,65 +241,134 @@ async function processJob(
     return { status: 'skipped', stepIdx, reason: guard.reason };
   }
 
-  // ── STEP 4: Dispatch sendMessage action handler ──
-  // M3 STUB MODE: log intent + simulate success. M3.5 sẽ wire actual SDK call:
-  //   const result = await sendMessageHandler({
-  //     orgId, contactId, assignedNickId: nickId,
-  //     blockSnapshot: block.content, ...
-  //   });
-  //
-  // Lý do M3 stub: cần thêm 1 round verify chain pattern + outbox sweeper end-to-end
-  // trước khi wire Zalo SDK thật (tránh spam KH thật khi bug).
+  // ── STEP 4: Load Block snapshot ──
+  const block = await prisma.block.findUnique({
+    where: { id: step.blockId },
+    select: { id: true, actionType: true, content: true, archivedAt: true },
+  });
+
+  if (!block) {
+    logger.warn(`${tag} block ${step.blockId} not found, skipping step`);
+    return { status: 'skipped', stepIdx, reason: 'block_not_found' };
+  }
+  if (block.archivedAt) {
+    logger.warn(`${tag} block ${step.blockId} archived, skipping step`);
+    return { status: 'skipped', stepIdx, reason: 'block_archived' };
+  }
+
+  // ── STEP 5: Dispatch action handler (M3.5 wire actual SDK) ──
+  // sendMessageHandler tự đọc Friend row + zaloOps.sendMessage + persist Message
+  // Reuse 100% logic existing path (Phase G full).
+  const taskPseudoId = job.id ?? randomUUID();
+  const ctx: ActionContext = {
+    orgId,
+    taskId: taskPseudoId,
+    contactId,
+    assignedNickId: nickId,
+    blockSnapshot: block.content as Record<string, unknown>,
+    actionType: block.actionType as ActionContext['actionType'],
+    attemptCount: (job.attemptsMade ?? 0) + 1,
+    rulesSnapshot: (sequence.runtimeRules as Record<string, unknown>) ?? undefined,
+  };
+
   logger.info(
-    `${tag} guards PASS contact=${contactId} nick=${nickId} step=${stepIdx}/${totalSteps} ` +
-      `blockId=${step.blockId} — [M3 STUB] would dispatch sendMessage`,
+    `${tag} dispatching action=${block.actionType} contact=${contactId} nick=${nickId} step=${stepIdx}/${totalSteps}`,
   );
 
-  // Mock messageId — M3.5 thay bằng result.data.messageId thực
-  const mockMessageId = `mock-msg-${triggerId.slice(0, 8)}-${contactId.slice(0, 8)}-${stepIdx}`;
-
+  let actionResult: Awaited<ReturnType<typeof sendMessageHandler>>;
   try {
-    // ── STEP 5: After success ──
-    await consumeQuotaAfterSend(nickId, nick.dailyMessageCap);
-    await recordNickSend(nickId);
-
-    // Increment enrolled counter (chỉ ở step 0)
-    if (stepIdx === 0) {
-      await incrEnrolledCounter(sequenceId);
+    // M3.5: chỉ wire send_message ngay. Các action khác (request_friend, update_status)
+    // có handler riêng nhưng KHÔNG nằm trong sequence-step path (do friend-invite có
+    // worker riêng + update_status không cần queue).
+    if (block.actionType !== 'send_message') {
+      logger.warn(`${tag} unsupported action type=${block.actionType} in sequence-step worker`);
+      return { status: 'skipped', stepIdx, reason: `unsupported_action_${block.actionType}` };
     }
-
-    // Write Message row với automationTaskId + automation_step_index attribution
-    // M3.5 sẽ wire vào send-message handler (reuse existing path)
-    // M3 stub: chỉ write event_log để verify chain
-    await prisma.automationEventLog.create({
-      data: {
-        orgId,
-        triggerId,
-        contactId,
-        eventType: 'sequence_step_sent',
-        detail: `step ${stepIdx}/${totalSteps} jobId=${job.id} mockMsgId=${mockMessageId}`,
-      },
-    });
-
-    // ── STEP 6: Lazy chain — enqueue step N+1 ──
-    const nextStep = steps[stepIdx + 1];
-    if (nextStep) {
-      await enqueueNextStep(job.data, nextStep.delayMinutes ?? 60);
-    } else {
-      // Last step → complete sequence
-      await incrCompletedCounter(sequenceId);
-    }
-
-    return { status: 'sent', stepIdx, messageId: mockMessageId };
+    actionResult = await sendMessageHandler(ctx);
   } catch (err) {
     const classified = classifyError(err);
-    logger.error(`${tag} ${classified.classification}: ${classified.message}`);
-
+    logger.error(`${tag} action handler threw ${classified.classification}: ${classified.message}`);
     if (classified.classification === 'permanent') {
       throw new UnrecoverableError(`Permanent: ${classified.errorCode}`);
     }
     throw err;
   }
+
+  if (actionResult.outcome === 'failure') {
+    const classified = classifyError(new Error(actionResult.errorMessage ?? actionResult.errorCode ?? 'unknown'));
+    logger.error(
+      `${tag} action failed code=${actionResult.errorCode} msg=${actionResult.errorMessage} classified=${classified.classification}`,
+    );
+
+    // Log event
+    await prisma.automationEventLog.create({
+      data: {
+        orgId,
+        triggerId,
+        contactId,
+        nickId,
+        eventType: 'sequence_step_failed',
+        detail: `step ${stepIdx}/${totalSteps} code=${actionResult.errorCode} msg=${(actionResult.errorMessage ?? '').slice(0, 200)}`,
+      },
+    });
+
+    if (actionResult.retryable === false || classified.classification === 'permanent') {
+      throw new UnrecoverableError(`Permanent: ${actionResult.errorCode ?? classified.errorCode}`);
+    }
+    throw new Error(actionResult.errorMessage ?? 'transient failure');
+  }
+
+  // ── STEP 6: After success ──
+  const messageId = (actionResult.data?.messageId as string | undefined) ??
+    (actionResult.data?.zaloMsgId as string | undefined) ??
+    `unknown-${taskPseudoId}`;
+
+  await consumeQuotaAfterSend(nickId, nick.dailyMessageCap);
+  await recordNickSend(nickId);
+
+  // Increment enrolled counter (chỉ ở step 0)
+  if (stepIdx === 0) {
+    await incrEnrolledCounter(sequenceId);
+  }
+
+  // M11: Update Message row với automationTaskId + automation_step_index attribution
+  // (sendMessageHandler create Message row, em update post-hoc với jobId)
+  if (messageId && messageId !== `unknown-${taskPseudoId}`) {
+    await prisma.message
+      .updateMany({
+        where: { zaloMsgId: messageId },
+        data: {
+          automationTaskId: taskPseudoId,
+          automationStepIndex: stepIdx,
+          sentVia: 'automation',
+        },
+      })
+      .catch((err) => {
+        logger.warn(`${tag} failed to update Message attribution: ${(err as Error).message}`);
+      });
+  }
+
+  // Write event log step_sent
+  await prisma.automationEventLog.create({
+    data: {
+      orgId,
+      triggerId,
+      contactId,
+      nickId,
+      eventType: 'sequence_step_sent',
+      detail: `step ${stepIdx}/${totalSteps} jobId=${job.id} msgId=${messageId}`,
+    },
+  });
+
+  // ── STEP 7: Lazy chain — enqueue step N+1 ──
+  const nextStep = steps[stepIdx + 1];
+  if (nextStep) {
+    await enqueueNextStep(job.data, nextStep.delayMinutes ?? 60);
+  } else {
+    await incrCompletedCounter(sequenceId);
+  }
+
+  return { status: 'sent', stepIdx, messageId };
 }
 
 // ════════════════════════════════════════════════════════════════════════
