@@ -25,6 +25,10 @@
 
     <!-- ══════ COLLAPSED MODE ══════ -->
     <div v-if="collapsed" class="c-content">
+      <!-- 2026-06-01: "Nhận khách" icon hộp quà ưu tiên top, pulse animation -->
+      <div class="c-nhan-khach-wrap">
+        <LeadFloatingButton inline />
+      </div>
       <div class="c-icon-strip" role="toolbar" aria-label="Bộ lọc sidebar (thu gọn)">
         <button
           type="button"
@@ -365,6 +369,11 @@
           </div>
           <div class="fp-arrow" aria-hidden="true">⋯</div>
         </button>
+      </div>
+
+      <!-- 2026-06-01: "Nhận khách" card ngay dưới folder, trước saved presets -->
+      <div class="sb-nhan-khach">
+        <LeadFloatingButton inline />
       </div>
 
       <!-- ══════ SAVED PRESET BAR (horizontal) ══════ -->
@@ -729,6 +738,7 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue';
 import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, EngagementPatternKey } from '@/composables/use-inbox-filters';
 import { useCrmTagDefs, cleanTagName, type CrmTagDef } from '@/composables/use-crm-tag-defs';
 import PrivacyLockBadge from '@/components/privacy/PrivacyLockBadge.vue';
+import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
 import PrivacyUnlockDialog from '@/components/privacy/PrivacyUnlockDialog.vue';
 import { usePrivacyStore } from '@/stores/privacy';
 import { useAuthStore } from '@/stores/auth';
@@ -2116,4 +2126,15 @@ onMounted(async () => {
   border-radius: 4px;
 }
 .clear-all:hover { background: #5E6AD2; color: white; }
+
+/* 2026-06-01: "Nhận khách" inline trong sidebar (thay FAB floating bottom-right) */
+.sb-nhan-khach {
+  padding: 10px 12px 4px;
+}
+.c-nhan-khach-wrap {
+  padding: 8px 6px;
+  border-bottom: 1px solid #eef0f3;
+  display: flex;
+  justify-content: center;
+}
 </style>

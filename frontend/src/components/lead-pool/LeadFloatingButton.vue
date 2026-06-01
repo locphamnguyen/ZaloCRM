@@ -4,8 +4,16 @@
   Scale-ready cho 50 sale × 100 nick: cap 5 + "Xem tất cả" modal.
 -->
 <template>
-  <Teleport to="body">
-    <div v-if="state.enabled && isChatRoute" class="lfb-wrap" @mouseenter="onHover" @mouseleave="onLeave">
+  <!-- 2026-06-01: prop `inline` = anchor inside sidebar (no Teleport).
+       Default (no inline) = legacy floating bottom-right qua Teleport. -->
+  <component :is="inline ? 'div' : Teleport" :to="inline ? undefined : 'body'">
+    <div
+      v-if="state.enabled && (inline || isChatRoute)"
+      class="lfb-wrap"
+      :class="{ 'lfb-inline': inline }"
+      @mouseenter="onHover"
+      @mouseleave="onLeave"
+    >
 
       <!-- Rich tooltip -->
       <div v-if="showTooltip" class="lfb-tooltip-rich" @mouseenter="cancelHide" @mouseleave="onLeave">
@@ -179,11 +187,14 @@
       @close="poolListOpen = false"
       @reset="onPoolListReset"
     />
-  </Teleport>
+  </component>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch, onUnmounted } from 'vue';
+import { computed, onMounted, ref, watch, onUnmounted, Teleport } from 'vue';
+
+// 2026-06-01: prop `inline` chuyển anchor từ floating bottom-right → inline trong parent (sidebar).
+defineProps<{ inline?: boolean }>();
 import { useRoute } from 'vue-router';
 import { api } from '@/api/index';
 import { useLeadPool, type LeadPayload, type Eligibility } from '@/composables/use-lead-pool';
@@ -465,6 +476,42 @@ watch(() => route.path, (path) => {
 .lfb-wrap {
   position: fixed; bottom: 24px; right: 24px; z-index: 95;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+/* 2026-06-01: inline mode trong sidebar — bỏ position fixed + align stretch */
+.lfb-wrap.lfb-inline {
+  position: static;
+  align-items: stretch;
+  gap: 6px;
+}
+.lfb-wrap.lfb-inline .lfb-tooltip-rich {
+  /* tooltip vẫn dùng tuyệt đối được vì .lfb-wrap.inline làm relative parent ngầm */
+  position: absolute;
+  left: 100%;
+  top: 0;
+  margin-left: 8px;
+  margin-bottom: 0;
+}
+.lfb-wrap.lfb-inline { position: relative; }
+.lfb-wrap.lfb-inline .lfb-btn {
+  width: 100%;
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 2px 8px rgba(255, 105, 5, 0.15);
+}
+.lfb-wrap.lfb-inline .lfb-btn::before {
+  /* Pulse ring effect cho inline mode */
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 1.5px solid #FF6905;
+  border-radius: 10px;
+  opacity: 0;
+  animation: lfb-pulse 2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes lfb-pulse {
+  0% { opacity: 0.6; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.06); }
 }
 
 /* Tooltip rich */

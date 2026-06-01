@@ -26,6 +26,8 @@
       </ScoreBanner>
     </header>
 
+    <!-- 2026-06-01: Wrapper conditional cho mainTab='profile' — content cũ giữ nguyên -->
+    <template v-if="mainTab === 'profile'">
     <!-- ════════ Tab bar ════════ -->
     <nav class="ip-tabs">
       <button
@@ -439,6 +441,88 @@
       :friend-id="props.friendId ?? null"
       :contact-name="headerFullName"
     />
+    </template>
+    <!-- /v-if mainTab=profile -->
+
+    <!-- ════════ TAB AUTOMATION (placeholder) ════════ -->
+    <div v-if="mainTab === 'automation'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">⚡</div>
+        <h3>Automation</h3>
+        <p>Chọn block Marketing để gửi tin cho KH này.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — kết nối Marketing blocks</div>
+        <a class="mtp-link" href="/marketing/blocks" target="_blank">→ Mở Marketing để xem blocks</a>
+      </div>
+    </div>
+
+    <!-- ════════ TAB AI (placeholder) ════════ -->
+    <div v-if="mainTab === 'ai'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">✨</div>
+        <h3>Trợ lý AI Bất động sản</h3>
+        <p>Hỏi đáp về sản phẩm, dự án BĐS, giá, ưu đãi để tư vấn KH.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — kết nối knowledge base BĐS HS Holding</div>
+      </div>
+    </div>
+
+    <!-- ════════ TAB FOLLOW-UP (placeholder) ════════ -->
+    <div v-if="mainTab === 'followup'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">🎯</div>
+        <h3>Luồng bám đuổi</h3>
+        <p>Quản lý Mục tiêu & luồng tự động bám đuổi KH này.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — link tới Mục tiêu chứa KH</div>
+        <a class="mtp-link" href="/marketing/muc-tieu" target="_blank">→ Mở Mục tiêu</a>
+      </div>
+    </div>
+
+    <!-- ════════ Bottom 4-tab strip (Profile / Automation / AI / Follow-up) ════════ -->
+    <nav class="bottom-tabs" role="tablist" aria-label="Chuyển tab chính">
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'profile' }"
+        role="tab"
+        :aria-selected="mainTab === 'profile'"
+        title="Profile — Hồ sơ, CRM, Lịch hẹn, Điểm"
+        @click="mainTab = 'profile'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+        <span class="bt-label">PROFILE</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'automation' }"
+        role="tab"
+        :aria-selected="mainTab === 'automation'"
+        title="Automation — Gửi block Marketing cho KH"
+        @click="mainTab = 'automation'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+        <span class="bt-label">AUTOMATION</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'ai' }"
+        role="tab"
+        :aria-selected="mainTab === 'ai'"
+        title="AI — Trợ lý hỏi đáp sản phẩm BĐS"
+        @click="mainTab = 'ai'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+        <span class="bt-label">AI</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'followup' }"
+        role="tab"
+        :aria-selected="mainTab === 'followup'"
+        title="Follow-up — Luồng bám đuổi KH"
+        @click="mainTab = 'followup'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span class="bt-label">FOLLOW-UP</span>
+      </button>
+    </nav>
   </aside>
 </template>
 
@@ -528,6 +612,9 @@ async function saveAlias() {
 }
 
 // ════════ Tab state (persist sang tab khác KH khác) ════════
+// 2026-06-01: Refactor cột 4 4-tab — bottom strip Profile/Automation/AI/Follow-up.
+// `activeTab` (sub-tab) chỉ active trong scope 'profile'. 3 tab kia hiện placeholder.
+const mainTab = ref<'profile' | 'automation' | 'ai' | 'followup'>('profile');
 const activeTab = ref<'profile' | 'crm' | 'activity' | 'score'>('profile');
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1917,4 +2004,98 @@ async function onRegenerateHandoff() {
   text-align: center;
   font-style: italic;
 }
+
+/* ═════════ 2026-06-01: Bottom 4-tab strip + placeholder panels ═════════ */
+.bottom-tabs {
+  display: flex;
+  border-top: 1px solid #dddddd;
+  background: white;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+.bottom-tab {
+  flex: 1;
+  padding: 10px 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: #6b7280;
+  transition: all 0.15s;
+  border-top: 3px solid transparent;
+  margin-top: -1px;
+  font-family: inherit;
+}
+.bottom-tab:hover { background: #fafbfc; }
+.bottom-tab.active {
+  color: #0068FF;
+  border-top-color: #0068FF;
+}
+.bottom-tab svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
+}
+.bottom-tab.active svg { stroke-width: 2; }
+.bt-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.main-tab-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.main-tab-placeholder {
+  text-align: center;
+  max-width: 280px;
+}
+.mtp-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+.main-tab-placeholder h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #181d26;
+  margin: 0 0 6px;
+}
+.main-tab-placeholder p {
+  font-size: 13px;
+  color: #41454d;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.mtp-coming {
+  display: inline-block;
+  padding: 6px 12px;
+  background: #FFF4E6;
+  border: 1px solid #FFA726;
+  color: #E65100;
+  font-size: 11px;
+  border-radius: 6px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.mtp-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: #0068FF;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mtp-link:hover { background: #0050cc; }
 </style>
