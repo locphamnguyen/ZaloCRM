@@ -610,59 +610,59 @@ model Conversation {
 
 // Individual message within a conversation
 model Message {
-  id              String    @id @default(uuid())
-  conversationId  String    @map("conversation_id")
-  zaloMsgId       String?   @map("zalo_msg_id")
+  id                  String    @id @default(uuid())
+  conversationId      String    @map("conversation_id")
+  zaloMsgId           String?   @map("zalo_msg_id")
   // Numeric Snowflake từ Zalo server — primary sort key (match 100% Zalo Web).
   // sentAt giữ làm display + fallback cho CRM-sent chưa echo. KHÔNG dùng sentAt làm
   // primary order vì self-listen events đôi khi thiếu `ts` → Date.now() fallback lệch ~30s.
-  zaloMsgIdNum    BigInt?   @map("zalo_msg_id_num")
-  senderType      String    @map("sender_type") // self, contact
-  senderUid       String?   @map("sender_uid")
-  senderName      String?   @map("sender_name")
-  content         String?
-  contentType     String    @default("text") @map("content_type") // text, image, file, sticker, voice, video, link
-  attachments     Json      @default("[]")
-  quote           Json?     @map("quote")
-  albumKey        String?   @map("album_key") // Zalo group_layout_id — identifies multi-image albums
-  albumIndex      Int?      @map("album_index") // 0-based position within album
-  albumTotal      Int?      @map("album_total") // total items in album
-  isDeleted       Boolean   @default(false) @map("is_deleted")
-  deletedAt       DateTime? @map("deleted_at")
+  zaloMsgIdNum        BigInt?   @map("zalo_msg_id_num")
+  senderType          String    @map("sender_type") // self, contact
+  senderUid           String?   @map("sender_uid")
+  senderName          String?   @map("sender_name")
+  content             String?
+  contentType         String    @default("text") @map("content_type") // text, image, file, sticker, voice, video, link
+  attachments         Json      @default("[]")
+  quote               Json?     @map("quote")
+  albumKey            String?   @map("album_key") // Zalo group_layout_id — identifies multi-image albums
+  albumIndex          Int?      @map("album_index") // 0-based position within album
+  albumTotal          Int?      @map("album_total") // total items in album
+  isDeleted           Boolean   @default(false) @map("is_deleted")
+  deletedAt           DateTime? @map("deleted_at")
   // Edit message audit (2026-05-21) — zca-js không support edit thật, edit chỉ áp dụng trên CRM.
   // Khi sửa: lưu content cũ vào originalContent (lần đầu) + set editedAt = now.
-  originalContent String?   @map("original_content")
-  editedAt        DateTime? @map("edited_at")
+  originalContent     String?   @map("original_content")
+  editedAt            DateTime? @map("edited_at")
   // Zalo client message id (2026-05-21) — KHÁC zaloMsgId (server snowflake). Cần cho api.undo
   // (Zalo expect cả msgId + cliMsgId). Tin cũ trước migration chưa có column này → null.
-  zaloCliMsgId    String?   @map("zalo_cli_msg_id")
-  sentAt          DateTime  @map("sent_at")
+  zaloCliMsgId        String?   @map("zalo_cli_msg_id")
+  sentAt              DateTime  @map("sent_at")
   // Read receipts (2026-05-21 Wave 1+2 — wire `delivered_messages` + `seen_messages`
   // SDK events). Cả 2 chỉ set cho tin OUTGOING (senderType='self'); KH-side luôn null.
   //   deliveredAt — Zalo server confirm device KH đã nhận packet (1 tick xám)
   //   seenAt      — KH mở conversation đọc tin (2 tick xanh)
-  deliveredAt     DateTime? @map("delivered_at")
-  seenAt          DateTime? @map("seen_at")
-  repliedByUserId String?   @map("replied_by_user_id")
+  deliveredAt         DateTime? @map("delivered_at")
+  seenAt              DateTime? @map("seen_at")
+  repliedByUserId     String?   @map("replied_by_user_id")
   // Phase metrics layer 2026-05-22: phân biệt nguồn gửi cho automation rate-limit + dashboard.
   // 'user' = sale gửi qua CRM UI HOẶC sync về từ Zalo native (default — backward compat)
   // 'automation' = bot/sequence/broadcast/NBA suggest gửi qua engine
   // 'system' = CRM internal (reminder card, system notice — chưa dùng, reserved)
-  sentVia         String    @default("user") @map("sent_via")
+  sentVia             String    @default("user") @map("sent_via")
   // M53 (2026-05-30): isLocal=true cho message KHÔNG gửi qua Zalo SDK (virtual conv hoặc AI assistant).
   // Worker/metrics/automation aggregator phải filter WHERE isLocal=false. zaloMsgId synthetic 'local:{cuid}' để né NULL collision.
   // senderType có thêm value 'ai_assistant' khi AI trợ lý reply trong virtual chat.
   // metadata Json lưu extracted entities AI suggest: { extracted: {...}, confidenceScore, missingFields }
   //   + M11 (2026-06-02): metadata.sender = { kind, name, detail?, sequenceId?, stepIdx? }
-  isLocal         Boolean   @default(false) @map("is_local")
-  metadata        Json?
+  isLocal             Boolean   @default(false) @map("is_local")
+  metadata            Json?
   // ── Luồng Mục Tiêu M10/M11 attribution 2026-06-01 ──
   // automationTaskId = BullMQ jobId (string, KHÔNG FK vì AutomationTask đã drop).
   // Pattern: `${triggerId}-${contactId}-${stepIdx}` (DASH, BullMQ v5 cấm `:` — POC 2026-06-01).
   // automationStepIndex = bước thứ mấy trong sequence (1,2,3...) cho per-step funnel M10.
   automationTaskId    String?   @map("automation_task_id")
   automationStepIndex Int?      @map("automation_step_index")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
 
   conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   repliedBy    User?             @relation("RepliedMessages", fields: [repliedByUserId], references: [id])
@@ -1963,10 +1963,10 @@ model Block {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  folder    BlockFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  ownerNick ZaloAccount?     @relation("BlockOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
-  createdBy User             @relation("BlockCreatedBy", fields: [createdById], references: [id])
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  folder    BlockFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  ownerNick ZaloAccount? @relation("BlockOwnerNick", fields: [ownerNickId], references: [id], onDelete: SetNull)
+  createdBy User         @relation("BlockCreatedBy", fields: [createdById], references: [id])
   // tasks  AutomationTask[]  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
 
   @@index([orgId, channel, actionType])
@@ -1985,28 +1985,28 @@ model Block {
 //     crossNickRecencyDays: 30,
 //     stopOnAccept: true }
 model AutomationSequence {
-  id             String   @id @default(uuid())
-  orgId          String   @map("org_id")
-  name           String
-  description    String?
-  channel        String   @default("zalo_user")
-  steps          Json     @default("[]")
-  runtimeRules   Json     @default("{}") @map("runtime_rules")
+  id                   String    @id @default(uuid())
+  orgId                String    @map("org_id")
+  name                 String
+  description          String?
+  channel              String    @default("zalo_user")
+  steps                Json      @default("[]")
+  runtimeRules         Json      @default("{}") @map("runtime_rules")
   // ── Stats Dashboard M10 cached counters (hồi sinh dead writer 2026-06-01) ──
   // Hooks: task-worker on state transition + friend-event-handler:502 REMOVE/BLOCK
   // + message-handler:557 customer_reply. Cron 02:30 VN reconcile drift từ raw aggregate.
-  enrolledCount        Int      @default(0) @map("enrolled_count")
-  completedCount       Int      @default(0) @map("completed_count")
-  failedCount          Int      @default(0) @map("failed_count")
-  blockCountCached     Int      @default(0) @map("block_count_cached")
-  enrolledCountCached  Int      @default(0) @map("enrolled_count_cached")
-  completedCountCached Int      @default(0) @map("completed_count_cached")
-  replyCountCached     Int      @default(0) @map("reply_count_cached")
+  enrolledCount        Int       @default(0) @map("enrolled_count")
+  completedCount       Int       @default(0) @map("completed_count")
+  failedCount          Int       @default(0) @map("failed_count")
+  blockCountCached     Int       @default(0) @map("block_count_cached")
+  enrolledCountCached  Int       @default(0) @map("enrolled_count_cached")
+  completedCountCached Int       @default(0) @map("completed_count_cached")
+  replyCountCached     Int       @default(0) @map("reply_count_cached")
   countersLastSyncedAt DateTime? @map("counters_last_synced_at")
-  enabled        Boolean  @default(true)
-  createdById    String   @map("created_by_id")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  enabled              Boolean   @default(true)
+  createdById          String    @map("created_by_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User                 @relation("SequenceCreatedBy", fields: [createdById], references: [id])
@@ -2045,32 +2045,36 @@ model AutomationTrigger {
   state                  String    @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed' (UI derive 'scheduled' khi state=draft + scheduledAt set)
   // BE T4 2026-05-30 — friend-invite lên lịch hẹn giờ. NULL = activate ngay khi gọi /activate.
   scheduledAt            DateTime? @map("scheduled_at")
+  // P2 Wave 4 2026-06-02 — Tạm dừng có thời hạn. NULL = pause vô hạn (user phải bấm "Tiếp tục").
+  // Set khi gọi /pause với body { ttlHours }. Cron sweep mỗi 1 phút auto-flip state='paused'→'active'
+  // khi pausedUntil <= NOW() (đồng thời reset pausedUntil=NULL).
+  pausedUntil            DateTime? @map("paused_until")
 
   // ── Luồng Mục Tiêu rebuild 2026-06-01 (Marketing BullMQ Rebuild M0) ──
   // P1: Delay sau khi gửi lời mời → step 1 bám đuổi (phút). Cấu hình per-trigger qua Wizard B3.
-  sequenceStartDelayMinutes   Int @default(60) @map("sequence_start_delay_minutes")
+  sequenceStartDelayMinutes   Int     @default(60) @map("sequence_start_delay_minutes")
   // P2: Pause khi KH tương tác (giờ). Reply trong window → reset (P2.1).
-  pauseOnActivityHours        Int @default(24) @map("pause_on_activity_hours")
+  pauseOnActivityHours        Int     @default(24) @map("pause_on_activity_hours")
   // P6: Bỏ qua KH có > N nick friend trong hệ thống (0 = không filter, JOIN permission_groups theo T3A).
-  multiNickThreshold          Int @default(0)  @map("multi_nick_threshold")
+  multiNickThreshold          Int     @default(0) @map("multi_nick_threshold")
   // D12: Concurrency per nick per minute.
-  concurrencyPerNickPerMinute Int @default(1)  @map("concurrency_per_nick_per_minute")
+  concurrencyPerNickPerMinute Int     @default(1) @map("concurrency_per_nick_per_minute")
   // Working hours VN (giờ 0-23). Cap đọc từ ZaloAccount per-nick (KHÔNG duplicate ở trigger).
-  sendHourStart        Int    @default(6)  @map("send_hour_start")
-  sendHourEnd          Int    @default(22) @map("send_hour_end")
+  sendHourStart               Int     @default(6) @map("send_hour_start")
+  sendHourEnd                 Int     @default(22) @map("send_hour_end")
   // Cross-nick recency: skip KH tương tác nick khác < N ngày (0 = không filter).
-  recencySkipDays      Int    @default(30) @map("recency_skip_days")
+  recencySkipDays             Int     @default(30) @map("recency_skip_days")
   // Per-nick throttle gate (ms) giữa các lần gửi friend-request.
-  minFriendReqGapMs    Int    @default(60000) @map("min_friend_req_gap_ms")
+  minFriendReqGapMs           Int     @default(60000) @map("min_friend_req_gap_ms")
   // Memory 1-1 only (feedback_crm_filter_1to1_not_group) — chỉ trigger conv.threadType='user'.
-  filterThreadType     String @default("user") @map("filter_thread_type")
+  filterThreadType            String  @default("user") @map("filter_thread_type")
   // M9 System trigger flag — "Bám đuổi khách hàng thủ công" KHÔNG cho xoá, chỉ Tắt.
-  isSystemTrigger      Boolean @default(false) @map("is_system_trigger")
-  systemKind           String? @map("system_kind") // 'manual_chat_followup' | future kinds
+  isSystemTrigger             Boolean @default(false) @map("is_system_trigger")
+  systemKind                  String? @map("system_kind") // 'manual_chat_followup' | future kinds
 
-  createdById         String   @map("created_by_id")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   sequence  AutomationSequence?  @relation("TriggerSequence", fields: [sequenceId], references: [id], onDelete: SetNull)
@@ -2082,6 +2086,8 @@ model AutomationTrigger {
   @@index([orgId, category])
   // Wave 2 cron sweep — scheduled_at activate
   @@index([state, scheduledAt])
+  // P2 Wave 4 2026-06-03 — auto-resume sweeper picks paused triggers whose TTL is due.
+  @@index([state, pausedUntil])
   // M9 — quick lookup system trigger per org
   @@index([systemKind])
   @@map("automation_triggers")

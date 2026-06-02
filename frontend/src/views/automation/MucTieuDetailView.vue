@@ -35,7 +35,11 @@
                draft | active | paused | cancelling | cancelled | completed.
                (UI gộp cancelled/completed → 'stopped' nhóm hiển thị.) -->
           <template v-if="data.trigger.state === 'active'">
-            <button class="btn" @click="pause">⏸ Tạm dừng 24h</button>
+            <!-- P2 Wave 4 2026-06-03 — Tạm dừng 24h (TTL) + Dừng vĩnh viễn (pause vô hạn).
+                 BE: POST /pause với body { ttlHours:24 } → cron auto-resume sau 24h.
+                 POST /pause với body {} → pausedUntil=NULL → vô hạn (user phải bấm Tiếp tục). -->
+            <button class="btn" @click="pause24h">⏸ Tạm dừng 24h</button>
+            <button class="btn" @click="pauseForever">🛑 Dừng vĩnh viễn</button>
             <button class="btn btn-danger" @click="onCancel">⏹ Dừng hẳn</button>
           </template>
           <template v-else-if="data.trigger.state === 'paused'">
@@ -1148,17 +1152,32 @@ async function setEntryFilter(key: EntryFilterKey): Promise<void> {
 }
 
 // M13 2026-06-02 — Action handlers cho state-machine buttons.
-// BE endpoint thực tế: /pause (vô hạn) /resume /cancel (terminal) /activate (draft→active).
-// Note: "Tạm dừng 24h" hiện chỉ map sang /pause vô hạn — BE chưa có TTL param
-// (đề xuất Wave 4: thêm cột pausedUntil + cron sweep auto-resume). User phải bấm
-// "Tiếp tục" thủ công. Wording label giữ "24h" để khớp spec M13.
-async function pause(): Promise<void> {
-  if (!confirm('Tạm dừng Mục tiêu này? Worker sẽ dừng tất cả lượt gửi mời / chuỗi.')) return;
+// BE endpoint thực tế: /pause (TTL hoặc vô hạn) /resume /cancel (terminal) /activate (draft→active).
+// P2 Wave 4 2026-06-03 — /pause nhận body { ttlHours?: number }:
+//   - ttlHours=24 → pausedUntil=NOW+24h, cron sweep auto-resume.
+//   - body={} → pausedUntil=NULL, pause vô hạn (user phải bấm Tiếp tục).
+async function pause24h(): Promise<void> {
+  if (!confirm('Tạm dừng Mục tiêu trong 24 giờ? Sẽ tự động tiếp tục sau khi hết hạn.')) return;
   try {
-    await api.post(`/automation/triggers/${triggerId}/pause`);
+    await api.post(`/automation/triggers/${triggerId}/pause`, { ttlHours: 24 });
     await load();
   } catch (err) {
-    console.error('[muc-tieu-detail] pause failed', err);
+    console.error('[muc-tieu-detail] pause24h failed', err);
+    alert('Không thể tạm dừng — vui lòng thử lại.');
+  }
+}
+async function pauseForever(): Promise<void> {
+  if (
+    !confirm(
+      'Dừng vĩnh viễn Mục tiêu? Worker sẽ dừng tất cả lượt gửi mời / chuỗi cho tới khi bạn bấm "Tiếp tục".',
+    )
+  )
+    return;
+  try {
+    await api.post(`/automation/triggers/${triggerId}/pause`, {});
+    await load();
+  } catch (err) {
+    console.error('[muc-tieu-detail] pauseForever failed', err);
     alert('Không thể tạm dừng — vui lòng thử lại.');
   }
 }

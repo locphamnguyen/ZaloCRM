@@ -38,6 +38,8 @@ let birthdayJob: ReturnType<typeof cron.schedule> | null = null;
 let eventLogCleanupJob: ReturnType<typeof cron.schedule> | null = null;
 // BE T4 2026-05-30 — friend-invite scheduled trigger activator (every 5 min)
 let scheduledTriggerJob: ReturnType<typeof cron.schedule> | null = null;
+// P2 Wave 4 2026-06-03 — Tạm dừng có TTL → cron auto-resume mỗi 1 phút.
+let pausedUntilSweepJob: ReturnType<typeof cron.schedule> | null = null;
 let isStarted = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -77,13 +79,25 @@ export async function startCronEventScheduler(): Promise<void> {
   );
   logger.info('[cron-scheduler] scheduled-trigger activator registered (every 5 min ' + TZ + ')');
 
-  logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + ' + cronJobs.size + ' scheduled_cron triggers');
+  // P2 Wave 4 2026-06-03 — Paused-until sweeper. Mỗi 1 phút sweep
+  // AutomationTrigger state='paused' AND pausedUntil <= NOW() → flip back active
+  // + clear pausedUntil + spawn nick workers (idempotent). Fine-grained (1 min)
+  // vì user kỳ vọng "Tạm dừng 24h" trở lại đúng ~24h sau, không trượt quá nhiều.
+  pausedUntilSweepJob = cron.schedule(
+    '* * * * *',
+    () => { void resumePausedTriggers(); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] paused-until sweeper registered (every 1 min ' + TZ + ')');
+
+  logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + paused-until-sweeper + ' + cronJobs.size + ' scheduled_cron triggers');
 }
 
 export function stopCronEventScheduler(): void {
   if (birthdayJob) { birthdayJob.stop(); birthdayJob = null; }
   if (eventLogCleanupJob) { eventLogCleanupJob.stop(); eventLogCleanupJob = null; }
   if (scheduledTriggerJob) { scheduledTriggerJob.stop(); scheduledTriggerJob = null; }
+  if (pausedUntilSweepJob) { pausedUntilSweepJob.stop(); pausedUntilSweepJob = null; }
   for (const job of cronJobs.values()) job.stop();
   cronJobs.clear();
   isStarted = false;
@@ -348,4 +362,86 @@ export async function fireBirthdayNowForTesting(): Promise<{ count: number }> {
 // Test helper — fire scheduled-trigger sweep once manually (admin / smoke test).
 export async function activateScheduledTriggersNowForTesting(): Promise<void> {
   await activateScheduledTriggers();
+}
+
+// ── P2 Wave 4 2026-06-03 — Paused-until sweeper ────────────────────────────
+//
+// Mỗi 1 phút sweep AutomationTrigger state='paused' AND pausedUntil <= NOW().
+// Mỗi trigger:
+//   1. updateMany transactional WHERE id AND state='paused' AND pausedUntil <= NOW()
+//      → active + pausedUntil=null. count=0 → đã có instance khác claim/manual resume.
+//   2. Nếu eventType='friend_invite_to_list': spawn nick workers (idempotent).
+//   3. logEvent('auto_resumed') append-only.
+//
+// pausedUntil=NULL ⇒ pause vô hạn (legacy "Dừng vĩnh viễn") — KHÔNG bao giờ qualify
+// vì WHERE pausedUntil <= NOW() loại NULL out.
+async function resumePausedTriggers(): Promise<void> {
+  try {
+    const now = new Date();
+    const dueTriggers = await prisma.automationTrigger.findMany({
+      where: {
+        state: 'paused',
+        pausedUntil: { lte: now },
+      },
+      select: {
+        id: true,
+        orgId: true,
+        name: true,
+        eventType: true,
+        segmentSpec: true,
+        pausedUntil: true,
+      },
+    });
+
+    if (dueTriggers.length === 0) return;
+
+    logger.info(`[cron-scheduler] paused-until sweep — ${dueTriggers.length} due trigger(s)`);
+
+    for (const trigger of dueTriggers) {
+      // Transactional claim: chỉ flip nếu vẫn paused + TTL đến hạn (chống manual resume race).
+      const claim = await prisma.automationTrigger.updateMany({
+        where: { id: trigger.id, state: 'paused', pausedUntil: { lte: now } },
+        data: { state: 'active', pausedUntil: null },
+      });
+      if (claim.count === 0) continue;
+
+      logger.info(
+        `[cron-scheduler] auto-resumed trigger ${trigger.id} (${trigger.name}, ` +
+          `eventType=${trigger.eventType}, pausedUntil=${trigger.pausedUntil?.toISOString()})`,
+      );
+
+      // eventType-specific resume.
+      if (trigger.eventType === 'friend_invite_to_list') {
+        const spec = trigger.segmentSpec;
+        if (isFriendInviteSegmentSpec(spec)) {
+          for (const nickId of spec.nickIds) {
+            void startNickWorker(nickId, trigger.orgId).catch((err) =>
+              logger.error(
+                `[cron-scheduler] startNickWorker failed nick=${nickId} trigger=${trigger.id}:`,
+                err,
+              ),
+            );
+          }
+        }
+
+        void logEvent({
+          orgId: trigger.orgId,
+          triggerId: trigger.id,
+          eventType: 'auto_resumed',
+          summary: `Mục tiêu "${trigger.name}" đã tự động tiếp tục sau khi hết thời gian tạm dừng`,
+          metadata: {
+            pausedUntil: trigger.pausedUntil?.toISOString() ?? null,
+            resumedAt: now.toISOString(),
+          },
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('[cron-scheduler] resumePausedTriggers error:', err);
+  }
+}
+
+// Test helper — fire paused-until sweep once manually (admin / smoke test).
+export async function resumePausedTriggersNowForTesting(): Promise<void> {
+  await resumePausedTriggers();
 }

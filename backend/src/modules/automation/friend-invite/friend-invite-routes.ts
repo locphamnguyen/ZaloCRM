@@ -635,48 +635,71 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /:id/pause ───────────────────────────────────────────────────────
-  app.post<{ Params: { id: string } }>(`${BASE}/:id/pause`, async (request, reply) => {
-    const user = request.user!;
-    const { id } = request.params;
+  // Body { ttlHours?: number } — nếu truyền → set pausedUntil = NOW() + ttlHours*3600s,
+  // cron sweeper mỗi 1 phút sẽ auto flip 'paused'→'active' khi tới hạn.
+  // Không truyền (hoặc null/0) → pause vô hạn (legacy "Dừng vĩnh viễn", user phải bấm Tiếp tục).
+  // ttlHours range: 1..720 (30 ngày) — match pause_on_activity_hours bound.
+  app.post<{ Params: { id: string }; Body: { ttlHours?: number | null } }>(
+    `${BASE}/:id/pause`,
+    async (request, reply) => {
+      const user = request.user!;
+      const { id } = request.params;
+      const body = (request.body ?? {}) as { ttlHours?: number | null };
 
-    const trigger = await prisma.automationTrigger.findFirst({
-      where: { id, orgId: user.orgId, eventType: 'friend_invite_to_list' },
-      select: { id: true, state: true, segmentSpec: true },
-    });
-    if (!trigger) return reply.status(404).send({ error: 'trigger_not_found' });
-    if (trigger.state !== 'active')
-      return reply.status(400).send({ error: 'not_active', current: trigger.state });
+      let pausedUntil: Date | null = null;
+      if (body.ttlHours !== undefined && body.ttlHours !== null) {
+        const ttl = Number(body.ttlHours);
+        if (!Number.isFinite(ttl) || ttl < 1 || ttl > 720) {
+          return reply
+            .status(400)
+            .send({ error: 'ttl_hours_invalid', hint: 'Phải từ 1 đến 720 giờ (30 ngày)' });
+        }
+        pausedUntil = new Date(Date.now() + Math.round(ttl) * 3600 * 1000);
+      }
 
-    await prisma.automationTrigger.update({
-      where: { id: trigger.id },
-      data: { state: 'paused' },
-    });
+      const trigger = await prisma.automationTrigger.findFirst({
+        where: { id, orgId: user.orgId, eventType: 'friend_invite_to_list' },
+        select: { id: true, state: true, segmentSpec: true },
+      });
+      if (!trigger) return reply.status(404).send({ error: 'trigger_not_found' });
+      if (trigger.state !== 'active')
+        return reply.status(400).send({ error: 'not_active', current: trigger.state });
 
-    // Stop workers for this trigger's nicks IF no other active trigger uses them
-    const spec = trigger.segmentSpec;
-    if (isFriendInviteSegmentSpec(spec)) {
-      for (const nickId of spec.nickIds) {
-        // Check if any other active trigger still uses this nick
-        const otherActive = await prisma.automationTrigger.count({
-          where: {
-            orgId: user.orgId,
-            id: { not: trigger.id },
-            state: 'active',
-            eventType: 'friend_invite_to_list',
-            segmentSpec: {
-              path: ['nickIds'],
-              array_contains: nickId,
-            } as object,
-          },
-        });
-        if (otherActive === 0) {
-          void stopNickWorker(nickId);
+      await prisma.automationTrigger.update({
+        where: { id: trigger.id },
+        data: { state: 'paused', pausedUntil },
+      });
+
+      // Stop workers for this trigger's nicks IF no other active trigger uses them
+      const spec = trigger.segmentSpec;
+      if (isFriendInviteSegmentSpec(spec)) {
+        for (const nickId of spec.nickIds) {
+          // Check if any other active trigger still uses this nick
+          const otherActive = await prisma.automationTrigger.count({
+            where: {
+              orgId: user.orgId,
+              id: { not: trigger.id },
+              state: 'active',
+              eventType: 'friend_invite_to_list',
+              segmentSpec: {
+                path: ['nickIds'],
+                array_contains: nickId,
+              } as object,
+            },
+          });
+          if (otherActive === 0) {
+            void stopNickWorker(nickId);
+          }
         }
       }
-    }
 
-    return reply.send({ ok: true, state: 'paused' });
-  });
+      return reply.send({
+        ok: true,
+        state: 'paused',
+        pausedUntil: pausedUntil?.toISOString() ?? null,
+      });
+    },
+  );
 
   // ── POST /:id/resume ──────────────────────────────────────────────────────
   app.post<{ Params: { id: string } }>(`${BASE}/:id/resume`, async (request, reply) => {
@@ -693,7 +716,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
 
     await prisma.automationTrigger.update({
       where: { id: trigger.id },
-      data: { state: 'active' },
+      // P2 Wave 4 — manual resume cũng clear pausedUntil để sweeper bỏ qua.
+      data: { state: 'active', pausedUntil: null },
     });
 
     const spec = trigger.segmentSpec;
@@ -723,7 +747,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     await prisma.$transaction([
       prisma.automationTrigger.update({
         where: { id: trigger.id },
-        data: { state: 'cancelled' },
+        // P2 Wave 4 — clear pausedUntil để sweeper không re-pickup trigger đã terminal.
+        data: { state: 'cancelled', pausedUntil: null },
       }),
       prisma.customerListEntry.updateMany({
         where: { triggerId: trigger.id, queueStatus: 'queued_for_pickup' },
