@@ -22,6 +22,20 @@ import { listMucTieuForOrg } from './muc-tieu-list-service.js';
 
 const BASE = '/api/v1/automation/triggers';
 
+// ── Helper: parse quiet/working hour "HH:MM" → int hour 0-23 (Wave 4 #C) ───
+// Wizard B3 gửi `quietHoursStart`/`quietHoursEnd` dạng "HH:MM" (label UI:
+// "⏰ Giờ hoạt động" — nghĩa là working window, không phải quiet window).
+// BE cần int hour cho schema columns sendHourStart/sendHourEnd. Nếu undefined
+// hoặc parse fail → trả `fallback` (default từ schema). Out-of-range 0-23 cũng
+// rơi về fallback để FE không thể seed giờ bậy.
+export function parseQuietHour(s: string | undefined, fallback: number): number {
+  if (!s || typeof s !== 'string') return fallback;
+  const head = s.split(':')[0];
+  const n = parseInt(head, 10);
+  if (!Number.isFinite(n) || n < 0 || n > 23) return fallback;
+  return n;
+}
+
 // ── Helper: derive KH final state (Phase Friend Invite UI 2026-05-30) ──────
 // Trả về trạng thái KH ở góc nhìn "đường đời 1 KH trong Mục tiêu":
 //   - 'pending_friend'  : chưa gửi friend-request (entry vẫn queued/processing,
@@ -101,6 +115,25 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       // scheduledAt: ISO string, BẮT BUỘC future + hour VN ∈ [6, 22].
       startMode?: 'now' | 'scheduled';
       scheduledAt?: string | null;
+      // Wave 4 #C 2026-06-02 — Wizard B3 safetyRules persist into 8 trigger schema columns.
+      // Mapping:
+      //   quietHoursStart   "HH:MM" → sendHourStart            (int hour)
+      //   quietHoursEnd     "HH:MM" → sendHourEnd              (int hour)
+      //   sendIntervalSeconds       → minFriendReqGapMs        (×1000 ms)
+      //   recencyDays               → recencySkipDays
+      //   multinickThreshold        → multiNickThreshold
+      //   delayAfterFriendRequestMin→ sequenceStartDelayMinutes
+      //   pauseHoursOnReply         → pauseOnActivityHours
+      // concurrencyPerNickPerMinute giữ default schema (1) — wizard không có field này.
+      safetyRules?: {
+        quietHoursStart?: string;
+        quietHoursEnd?: string;
+        sendIntervalSeconds?: number;
+        recencyDays?: number;
+        multinickThreshold?: number;
+        delayAfterFriendRequestMin?: number;
+        pauseHoursOnReply?: number;
+      };
     };
   }>(`${BASE}/friend-invite`, async (request, reply) => {
     const user = request.user!;
@@ -204,6 +237,81 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     });
     if (!sequence) return reply.status(404).send({ error: 'sequence_not_found' });
 
+    // ── Wave 4 #C 2026-06-02 — Map safetyRules (wizard B3) → 8 schema columns.
+    // Mọi field optional. Nếu missing/invalid → dùng default schema (đọc 2046-2061).
+    // Validate ranges (reject 400 nếu out-of-range):
+    //   hour 0-23, gap 1-3600s, recency 0-365 ngày, pause 1-720h,
+    //   sequenceStartDelay 0-10080 phút (1 tuần), multinickThreshold 0-100.
+    const sr = body.safetyRules ?? {};
+    const sendHourStart = parseQuietHour(sr.quietHoursStart, 6);
+    const sendHourEnd = parseQuietHour(sr.quietHoursEnd, 22);
+
+    let minFriendReqGapMs = 60000;
+    if (sr.sendIntervalSeconds !== undefined) {
+      const v = Number(sr.sendIntervalSeconds);
+      if (!Number.isFinite(v) || v < 1 || v > 3600) {
+        return reply
+          .status(400)
+          .send({ error: 'sendIntervalSeconds_invalid', hint: 'Phải từ 1 đến 3600 giây' });
+      }
+      minFriendReqGapMs = Math.round(v * 1000);
+    }
+
+    let recencySkipDays = 30;
+    if (sr.recencyDays !== undefined) {
+      const v = Number(sr.recencyDays);
+      if (!Number.isFinite(v) || v < 0 || v > 365) {
+        return reply
+          .status(400)
+          .send({ error: 'recencyDays_invalid', hint: 'Phải từ 0 đến 365 ngày' });
+      }
+      recencySkipDays = Math.round(v);
+    }
+
+    let multiNickThreshold = 0;
+    if (sr.multinickThreshold !== undefined) {
+      const v = Number(sr.multinickThreshold);
+      if (!Number.isFinite(v) || v < 0 || v > 100) {
+        return reply
+          .status(400)
+          .send({ error: 'multinickThreshold_invalid', hint: 'Phải từ 0 đến 100' });
+      }
+      multiNickThreshold = Math.round(v);
+    }
+
+    let sequenceStartDelayMinutes = 60;
+    if (sr.delayAfterFriendRequestMin !== undefined) {
+      const v = Number(sr.delayAfterFriendRequestMin);
+      if (!Number.isFinite(v) || v < 0 || v > 10080) {
+        return reply.status(400).send({
+          error: 'delayAfterFriendRequestMin_invalid',
+          hint: 'Phải từ 0 đến 10080 phút (1 tuần)',
+        });
+      }
+      sequenceStartDelayMinutes = Math.round(v);
+    }
+
+    let pauseOnActivityHours = 24;
+    if (sr.pauseHoursOnReply !== undefined) {
+      const v = Number(sr.pauseHoursOnReply);
+      if (!Number.isFinite(v) || v < 1 || v > 720) {
+        return reply
+          .status(400)
+          .send({ error: 'pauseHoursOnReply_invalid', hint: 'Phải từ 1 đến 720 giờ (30 ngày)' });
+      }
+      pauseOnActivityHours = Math.round(v);
+    }
+
+    // Cross-field validation: working window phải hợp lệ (start < end).
+    if (sendHourStart >= sendHourEnd) {
+      return reply.status(400).send({
+        error: 'workingHours_invalid_range',
+        hint: 'Giờ bắt đầu phải nhỏ hơn giờ kết thúc',
+        sendHourStart,
+        sendHourEnd,
+      });
+    }
+
     // Create trigger in 'draft' state. Activation happens via separate endpoint.
     const trigger = await prisma.automationTrigger.create({
       data: {
@@ -231,6 +339,15 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         // BE T4 2026-05-30 — lưu scheduledAt ngay từ lúc create (UI cho phép lập
         // Mục tiêu trước rồi bấm "Lên lịch" sau, BE đã có sẵn để cron sweep nhìn thấy).
         scheduledAt: scheduledAtUtc,
+        // Wave 4 #C 2026-06-02 — 7 cột map từ wizard B3 safetyRules.
+        // concurrencyPerNickPerMinute KHÔNG set → schema default (1).
+        sendHourStart,
+        sendHourEnd,
+        minFriendReqGapMs,
+        recencySkipDays,
+        multiNickThreshold,
+        sequenceStartDelayMinutes,
+        pauseOnActivityHours,
         state: 'draft',
         enabled: false, // explicit activation required
         createdById: user.id,
@@ -238,7 +355,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     });
 
     logger.info(
-      `[friend-invite] trigger created id=${trigger.id} name="${trigger.name}" list=${body.listId} nicks=${body.nickIds.length} startMode=${startMode}${scheduledAtUtc ? ` scheduledAt=${scheduledAtUtc.toISOString()}` : ''}`,
+      `[friend-invite] trigger created id=${trigger.id} name="${trigger.name}" list=${body.listId} nicks=${body.nickIds.length} startMode=${startMode}${scheduledAtUtc ? ` scheduledAt=${scheduledAtUtc.toISOString()}` : ''} safety={hours=${sendHourStart}-${sendHourEnd},gap=${minFriendReqGapMs}ms,recency=${recencySkipDays}d,multinick=${multiNickThreshold},seqDelay=${sequenceStartDelayMinutes}m,pause=${pauseOnActivityHours}h}`,
     );
 
     return reply.status(201).send({
