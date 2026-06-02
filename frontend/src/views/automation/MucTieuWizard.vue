@@ -423,7 +423,7 @@
 
       </div>
       <div class="step-footer">
-        <div class="left">Bước 2 / 3</div>
+        <div class="left">Bước 2 / 4</div>
         <div class="right">
           <button class="btn btn-ghost" @click="onCancel">Hủy</button>
           <button class="btn" @click="goStep(1)">← Quay lại</button>
@@ -432,10 +432,209 @@
       </div>
     </div>
 
-    <!-- ============================ STEP 3 ============================ -->
+    <!-- ============================ STEP 3 — Quy tắc gửi an toàn (8 inputs) ============================ -->
+    <!-- Mockup 1: 8 inputs theo design doc v6 Section 6.6 + v3 Fix #3 + section 22.9 -->
     <div v-if="currentStep === 3" class="step-card active">
       <div class="step-card-header">
         <div class="num">3</div>
+        <h2>Quy tắc gửi an toàn</h2>
+        <div class="hint">Bảo vệ nick Zalo khỏi bị khoá. Em điền sẵn mặc định an toàn, anh chỉnh nếu cần đặc biệt.</div>
+      </div>
+      <div class="step-card-body">
+        <div class="info-banner" style="margin-bottom: 12px;">
+          ℹ️ <strong>Quy tắc gửi an toàn</strong> giữ nick Zalo không bị Zalo cảnh báo. Em đã điền sẵn các giá trị mặc định theo kinh nghiệm — anh có thể chỉnh nếu chiến dịch đặc biệt.
+        </div>
+
+        <!-- Section 1: Thời gian -->
+        <div class="safety-section">
+          <div class="safety-section-title">⏰ Thời gian <span class="badge">2 input</span></div>
+
+          <!-- Input 1: Giờ hoạt động -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Giờ hoạt động <span class="req">*</span>
+              <div class="safety-help">Chỉ gửi tin trong khung giờ này (giờ Việt Nam UTC+7)</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="time-range">
+                <input type="time" v-model="form.safetyRules.quietHoursStart" class="time-input" />
+                <span class="separator">→</span>
+                <input type="time" v-model="form.safetyRules.quietHoursEnd" class="time-input" />
+                <span class="alert-chip info">{{ workingHoursLabel }}</span>
+              </div>
+              <div class="safety-help">Tránh gửi đêm khuya bị Zalo cảnh báo spam</div>
+            </div>
+          </div>
+
+          <!-- Input 2: Khoảng cách giữa các lần gửi -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Khoảng cách giữa các lần gửi <span class="req">*</span>
+              <div class="safety-help">Tối thiểu cách nhau bao lâu giữa 2 KH liên tiếp</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row">
+                <input type="number" v-model.number="form.safetyRules.sendIntervalSeconds" min="1" max="3600" class="num-input" />
+                <span class="unit">giây</span>
+                <span class="separator">~</span>
+                <span class="num-output">{{ (form.safetyRules.sendIntervalSeconds / 60).toFixed(1) }}</span>
+                <span class="unit">phút</span>
+              </div>
+              <div class="safety-help">Giá trị thấp = gửi nhanh nhưng tăng risk khoá nick. Mặc định 60s an toàn cao.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Cap & Quota (display only) -->
+        <div class="safety-section">
+          <div class="safety-section-title">📊 Giới hạn / Ngày / Nick <span class="badge">đọc từ ZaloAccount</span></div>
+
+          <div class="cap-display-banner">
+            ℹ️ <strong>Cap mỗi nick</strong> được cấu hình tại
+            <a href="/settings/channels/zalo" target="_blank">/settings/channels/zalo</a> per-nick.
+            Mục tiêu này dùng cấu hình hiện tại (mặc định <strong>30 lời mời/ngày</strong> + <strong>300 tin nhắn/ngày</strong> mỗi nick).
+          </div>
+
+          <div class="cap-tiles">
+            <div class="cap-tile">
+              <div class="cap-tile-label">Tổng lời mời/ngày</div>
+              <div class="cap-tile-value">
+                {{ totalDailyFriendCap }}
+                <span class="cap-tile-sub">({{ form.nickIds.length }} nick × 30)</span>
+              </div>
+            </div>
+            <div class="cap-tile">
+              <div class="cap-tile-label">Tổng tin nhắn/ngày</div>
+              <div class="cap-tile-value">
+                {{ totalDailyMessageCap }}
+                <span class="cap-tile-sub">({{ form.nickIds.length }} nick × 300)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Lọc KH thông minh -->
+        <div class="safety-section">
+          <div class="safety-section-title">🎯 Lọc khách hàng thông minh <span class="badge">2 input</span></div>
+
+          <!-- Input 3: Recency -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Bỏ qua KH đã tương tác gần đây
+              <div class="safety-help">Tránh gửi trùng cho KH đã từng nhận tin từ nick khác</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row">
+                <input type="number" v-model.number="form.safetyRules.recencyDays" min="0" max="365" class="num-input" />
+                <span class="unit">ngày</span>
+                <span class="alert-chip info">0 = không lọc</span>
+              </div>
+              <div class="safety-help">VD: KH X đã được nick A nhắn ngày 25/05 → nick B sẽ bỏ qua nếu &lt; 30 ngày</div>
+            </div>
+          </div>
+
+          <!-- Input 4: Multi-nick threshold -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Bỏ qua KH đã kết bạn nhiều nick
+              <div class="safety-help">KH đã là bạn của ≥ N nick → không gửi nữa</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row">
+                <input type="number" v-model.number="form.safetyRules.multinickThreshold" min="0" max="50" class="num-input" />
+                <span class="unit">nick (Threshold)</span>
+                <span class="alert-chip info">0 = không filter</span>
+              </div>
+              <div class="safety-help">Privacy: chỉ đếm nick trong phạm vi phòng/dept của anh (RBAC M2)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Bám đuổi -->
+        <div class="safety-section">
+          <div class="safety-section-title">⚡ Bám đuổi (sau lời chào kết bạn) <span class="badge">2 input</span></div>
+
+          <!-- Input 5: Delay sau friend-request -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Delay sau lời mời → bước 1 bám đuổi <span class="req">*</span>
+              <div class="safety-help">Tính từ khi gửi lời mời kết bạn (không phụ thuộc KH đã accept hay chưa)</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row">
+                <input type="number" v-model.number="form.safetyRules.delayAfterFriendRequestMin" min="0" max="10080" class="num-input" />
+                <span class="unit">phút</span>
+                <span class="separator">~</span>
+                <span class="num-output">{{ (form.safetyRules.delayAfterFriendRequestMin / 60).toFixed(1) }}</span>
+                <span class="unit">giờ</span>
+              </div>
+              <div class="safety-help">"Spam HẾT luồng" — KH KHÔNG cần accept vẫn nhận đủ chuỗi qua stranger inbox</div>
+            </div>
+          </div>
+
+          <!-- Input 6: Pause hours -->
+          <div class="safety-row">
+            <div class="safety-label">
+              Pause khi KH tương tác <span class="req">*</span>
+              <div class="safety-help">KH reply / react → tạm dừng chuỗi N giờ</div>
+            </div>
+            <div class="safety-input-wrap">
+              <div class="num-row">
+                <input type="number" v-model.number="form.safetyRules.pauseHoursOnReply" min="1" max="720" class="num-input" />
+                <span class="unit">giờ</span>
+                <span class="alert-chip info">KH reply tiếp → reset 24h</span>
+              </div>
+              <div class="safety-help">KH reply giữa chuỗi → cancel job pending + notify KHẨN sale</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Phản ứng cao cấp (2 input fixed, disabled) -->
+        <div class="safety-section">
+          <div class="safety-section-title">🔧 Phản ứng nâng cao <span class="badge">2 cố định</span></div>
+
+          <div class="safety-row">
+            <div class="safety-label">
+              Reaction tích cực (❤️👍🌹)
+              <div class="safety-help">Anh chốt 2026-06-01</div>
+            </div>
+            <div class="safety-input-wrap">
+              <select disabled class="select-disabled">
+                <option>KHÔNG dừng chuỗi (chỉ +5 điểm CRM)</option>
+              </select>
+              <div class="safety-help">Anh đã chốt cố định — không cho config để tránh sai logic. Sale chỉ thấy KPI tăng điểm.</div>
+            </div>
+          </div>
+
+          <div class="safety-row">
+            <div class="safety-label">
+              Reaction tiêu cực (😡👎💔)
+              <div class="safety-help">Anh chốt 2026-06-01</div>
+            </div>
+            <div class="safety-input-wrap">
+              <select disabled class="select-disabled">
+                <option>Pause 48h + -5 điểm + notify sale</option>
+              </select>
+              <div class="safety-help">Mạnh hơn customer_reply (24h) vì react âm = KH bực mình rõ ràng</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step-footer">
+        <div class="left">Bước 3 / 4 · Quy tắc này áp dụng riêng cho Mục tiêu này.</div>
+        <div class="right">
+          <button class="btn btn-ghost" @click="onCancel">Hủy</button>
+          <button class="btn" @click="goStep(2)">← Quay lại</button>
+          <button class="btn btn-primary" :disabled="!canNextStep3" @click="goStep(4)">Tiếp →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================ STEP 4 — Preview + Start (was step 3) ============================ -->
+    <div v-if="currentStep === 4" class="step-card active">
+      <div class="step-card-header">
+        <div class="num">4</div>
         <h2>Xem trước · Bắt đầu chạy</h2>
         <div class="hint">Kiểm tra số liệu thật + 3 KH mẫu trước khi nhấn chạy</div>
       </div>
@@ -645,10 +844,10 @@
       </div>
       <div class="step-footer">
         <div class="left">
-          Bước 3 / 3 · Sau khi bắt đầu vẫn có thể tạm dừng/sửa bất cứ lúc nào.
+          Bước 4 / 4 · Sau khi bắt đầu vẫn có thể tạm dừng/sửa bất cứ lúc nào.
         </div>
         <div class="right">
-          <button class="btn" @click="goStep(2)">← Quay lại</button>
+          <button class="btn" @click="goStep(3)">← Quay lại</button>
           <button
             class="btn btn-primary lg"
             :disabled="submitting || !canSubmit"
@@ -711,7 +910,7 @@ interface PreviewResponse {
 
 // ============== STATE ==============
 const currentStep = ref(1);
-const stepLabels = ['Tệp + Nick + Skip', 'Lời chào + Chuỗi', 'Xem trước + Bắt đầu'];
+const stepLabels = ['Tệp + Nick + Skip', 'Lời chào + Chuỗi', 'Quy tắc gửi an toàn', 'Xem trước + Bắt đầu'];
 
 const lists = ref<ListSummary[]>([]);
 const nicks = ref<NickSummary[]>([]);
@@ -756,6 +955,20 @@ const form = ref({
     skipInactive: false,
     inactiveDays: 30,
   },
+  // Bước 3 mới (Luồng Mục Tiêu mockup 1) — 6 inputs config riêng cho Mục tiêu này.
+  // Defaults chốt theo design doc v6 + memory project_zalocrm_automation_delay_rules.
+  safetyRules: {
+    quietHoursStart: '06:00',       // Input 1a
+    quietHoursEnd:   '22:00',       // Input 1b
+    sendIntervalSeconds: 60,        // Input 2 (1 phút)
+    recencyDays: 30,                // Input 3 (cross-nick friendship recency)
+    multinickThreshold: 0,          // Input 4 (0 = off)
+    delayAfterFriendRequestMin: 60, // Input 5 (~ 1h)
+    pauseHoursOnReply: 24,          // Input 6 (P2.1: KH reply → pause 24h)
+    // Section 5 fixed (display only — không gửi lên BE, server-side default):
+    // - reactionPositive: 'no_pause_plus_5_points'
+    // - reactionNegative: 'pause_48h_minus_5_points_notify'
+  },
 });
 
 // ============== COMPUTED ==============
@@ -784,6 +997,39 @@ const canNextStep2 = computed(() => {
   return form.value.messages.friendRequest.trim().length > 0
     && form.value.messages.welcome.trim().length > 0
     && !!form.value.successorSequenceId;
+});
+
+// ===== Bước 3 — Safety rules validations =====
+const canNextStep3 = computed(() => {
+  const r = form.value.safetyRules;
+  // Required fields with valid ranges:
+  if (!r.quietHoursStart || !r.quietHoursEnd) return false;
+  if (r.sendIntervalSeconds < 1 || r.sendIntervalSeconds > 3600) return false;
+  if (r.delayAfterFriendRequestMin < 0 || r.delayAfterFriendRequestMin > 10080) return false;
+  if (r.pauseHoursOnReply < 1 || r.pauseHoursOnReply > 720) return false;
+  // Quiet hours start < end check (giờ VN):
+  const startH = parseInt(r.quietHoursStart.split(':')[0] || '0', 10);
+  const endH = parseInt(r.quietHoursEnd.split(':')[0] || '0', 10);
+  if (startH >= endH) return false;
+  return true;
+});
+
+const workingHoursLabel = computed(() => {
+  const r = form.value.safetyRules;
+  const startH = parseInt(r.quietHoursStart.split(':')[0] || '0', 10);
+  const endH = parseInt(r.quietHoursEnd.split(':')[0] || '0', 10);
+  const diff = Math.max(0, endH - startH);
+  return `${diff} giờ/ngày`;
+});
+
+const totalDailyFriendCap = computed(() => {
+  const perNick = 30;
+  return form.value.nickIds.length * perNick;
+});
+
+const totalDailyMessageCap = computed(() => {
+  const perNick = 300;
+  return form.value.nickIds.length * perNick;
 });
 
 // ===== Step 3: Start mode (Bắt đầu ngay vs Hẹn lịch) =====
@@ -957,9 +1203,11 @@ function goStep(n: number) {
   if (n > currentStep.value) {
     if (currentStep.value === 1 && !canNextStep1.value) return;
     if (currentStep.value === 2 && !canNextStep2.value) return;
+    if (currentStep.value === 3 && !canNextStep3.value) return;
   }
   currentStep.value = n;
-  if (n === 3) loadPreview();
+  // Bước 4 là Preview — Load khi vào Step 4 (was Step 3 cũ)
+  if (n === 4) loadPreview();
 }
 
 function onCancel() {
@@ -1054,14 +1302,30 @@ function buildSubmitPayload() {
     scheduledAt: scheduledIso,
     skipRules: {
       // Map UI shape to legacy BE shape + raw new fields
-      recencyDays: form.value.skipRules.skipInactive ? form.value.skipRules.inactiveDays : 0,
-      friendCap: form.value.skipRules.skipAlreadyFriend === 'off' ? 999 : 2,
+      // Note: recencyDays/multinickThreshold giờ ưu tiên lấy từ safetyRules (Bước 3 mới).
+      recencyDays: form.value.safetyRules.recencyDays > 0
+        ? form.value.safetyRules.recencyDays
+        : (form.value.skipRules.skipInactive ? form.value.skipRules.inactiveDays : 0),
+      friendCap: form.value.safetyRules.multinickThreshold > 0
+        ? form.value.safetyRules.multinickThreshold
+        : (form.value.skipRules.skipAlreadyFriend === 'off' ? 999 : 2),
       skipHadChat: form.value.skipRules.skipHadChat,
       skipAlreadyFriend: form.value.skipRules.skipAlreadyFriend,
       skipNoZalo: form.value.skipRules.skipNoZalo,
       skipInactive: form.value.skipRules.skipInactive,
       inactiveDays: form.value.skipRules.inactiveDays,
       entryStatuses: [] as string[],
+    },
+    // Bước 3 mới (mockup 1) — 6 inputs config riêng cho Mục tiêu. BE Luồng Mục Tiêu
+    // sẽ persist vào AutomationTrigger.* columns (quietHoursStart/End, sendInterval, etc.)
+    safetyRules: {
+      quietHoursStart: form.value.safetyRules.quietHoursStart,
+      quietHoursEnd: form.value.safetyRules.quietHoursEnd,
+      sendIntervalSeconds: form.value.safetyRules.sendIntervalSeconds,
+      recencyDays: form.value.safetyRules.recencyDays,
+      multinickThreshold: form.value.safetyRules.multinickThreshold,
+      delayAfterFriendRequestMin: form.value.safetyRules.delayAfterFriendRequestMin,
+      pauseHoursOnReply: form.value.safetyRules.pauseHoursOnReply,
     },
     segmentSpec: {
       extendedMessages: {
@@ -1076,7 +1340,7 @@ function buildSubmitPayload() {
 }
 
 async function submit() {
-  if (!canNextStep1.value || !canNextStep2.value) {
+  if (!canNextStep1.value || !canNextStep2.value || !canNextStep3.value) {
     alert('Form chưa đủ thông tin. Quay lại các bước trước để bổ sung.');
     return;
   }
@@ -2019,5 +2283,171 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
   border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
+}
+
+/* ────────────────────── Bước 3 — 8 inputs config (Luồng Mục Tiêu mockup 1) ────────────────────── */
+.safety-section {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(9, 30, 66, 0.08);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.safety-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.safety-section-title .badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--primary-bg);
+  color: var(--primary);
+  text-transform: uppercase;
+}
+.safety-row {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.safety-row:last-child { border-bottom: none; }
+.safety-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.safety-label .req { color: var(--danger); font-weight: 700; }
+.safety-help {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.safety-input-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.safety-input-wrap .safety-help {
+  margin-top: 4px;
+}
+.time-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.time-input,
+.num-input {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  background: white;
+  color: var(--text-1);
+}
+.time-input { width: 110px; }
+.num-input { width: 90px; }
+.num-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.num-output {
+  display: inline-block;
+  min-width: 36px;
+  padding: 5px 8px;
+  background: var(--bg-soft);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: center;
+}
+.unit {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.separator {
+  color: var(--text-3);
+  font-weight: 600;
+}
+.alert-chip {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.alert-chip.info {
+  background: var(--primary-bg);
+  color: var(--primary);
+}
+.cap-display-banner {
+  background: var(--primary-bg);
+  border-left: 3px solid var(--primary);
+  padding: 10px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  color: var(--text-2);
+}
+.cap-display-banner a {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.cap-tiles {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cap-tile {
+  background: var(--bg-soft);
+  padding: 10px 12px;
+  border-radius: 4px;
+  min-width: 160px;
+}
+.cap-tile-label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.cap-tile-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.cap-tile-value .cap-tile-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 4px;
+}
+.select-disabled {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: inherit;
+  width: 100%;
+  cursor: not-allowed;
 }
 </style>
