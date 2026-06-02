@@ -130,6 +130,8 @@ async function enqueueNextStep(
     );
 
     // Write event_log for outbox sweeper recovery (v4 Fix #1)
+    // P2 2026-06-02: enrich metadata để FE/consumer khỏi parse regex từ detail.
+    // detail giữ nguyên cho backward compat.
     await prisma.automationEventLog
       .create({
         data: {
@@ -138,6 +140,12 @@ async function enqueueNextStep(
           contactId: data.contactId,
           eventType: 'sequence_step_enqueued',
           detail: `step ${nextStepIdx}/${data.totalSteps}, jobId=${nextJobId}`,
+          metadata: {
+            stepIdx: nextStepIdx,
+            totalSteps: data.totalSteps,
+            jobId: nextJobId,
+            delayMs,
+          },
         },
       })
       .catch((err) => {
@@ -354,6 +362,8 @@ async function processJob(
   }
 
   // Write event log step_sent
+  // P2 2026-06-02: enrich metadata để FE/consumer khỏi parse regex từ detail.
+  // detail giữ nguyên cho backward compat (stats-routes.ts + sweeper vẫn parse string).
   await prisma.automationEventLog.create({
     data: {
       orgId,
@@ -362,6 +372,12 @@ async function processJob(
       nickId,
       eventType: 'sequence_step_sent',
       detail: `step ${stepIdx}/${totalSteps} jobId=${job.id} msgId=${messageId}`,
+      metadata: {
+        stepIdx,
+        totalSteps,
+        jobId: job.id,
+        msgId: messageId,
+      },
     },
   });
 
@@ -634,6 +650,12 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
         contactId: evt.contactId,
         eventType: 'sequence_step_enqueued',
         detail: `step ${nextStepIdx}/${steps.length} (SWEEPER RECOVERY)`,
+        metadata: {
+          stepIdx: nextStepIdx,
+          totalSteps: steps.length,
+          jobId: nextJobId,
+          source: 'sweeper_recovery',
+        },
       },
     });
 
