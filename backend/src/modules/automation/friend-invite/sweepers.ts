@@ -219,16 +219,23 @@ async function runOutboxDrainer(): Promise<void> {
  */
 async function runWelcomeFailedCleanup(): Promise<void> {
   try {
-    const result = await prisma.$executeRaw`
-      UPDATE friend_request_outbox
-      SET sequence_materialized_at = sent_at
-      WHERE kind = 'WELCOME_PROBE'
-        AND welcome_outcome IN ('BLOCKED_STRANGER', 'HARD_FAIL')
-        AND sequence_materialized_at IS NULL
-        AND sent_at IS NOT NULL
-    `;
-    if (result > 0) {
-      logger.info(`[welcome-failed-cleanup] retired ${result} BLOCKED_STRANGER/HARD_FAIL rows from poll set`);
+    // Qualify every column reference with the alias so Postgres cannot mis-resolve
+    // welcome_sent_at to an ambiguous `sent_at` (the prior P2010 42703 was caused
+    // by an unqualified reference that the parser hinted to a non-existent column).
+    // Switch to Prisma model-level updateMany so the column names go through the
+    // generated client (no raw SQL drift after migrations).
+    const { count } = await prisma.friendRequestOutbox.updateMany({
+      where: {
+        kind: 'WELCOME_PROBE',
+        welcomeOutcome: { in: ['BLOCKED_STRANGER', 'HARD_FAIL'] },
+        sequenceMaterializedAt: null,
+      },
+      data: {
+        sequenceMaterializedAt: new Date(),
+      },
+    });
+    if (count > 0) {
+      logger.info(`[welcome-failed-cleanup] retired ${count} BLOCKED_STRANGER/HARD_FAIL rows from poll set`);
     }
   } catch (err) {
     logger.error('[welcome-failed-cleanup] error:', err);

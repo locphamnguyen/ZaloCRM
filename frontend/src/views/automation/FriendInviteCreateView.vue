@@ -80,9 +80,48 @@
         </div>
       </section>
 
-      <!-- ⑤ Luồng bám đuổi -->
+      <!-- ⑤ Tin chào mừng (welcome probe) -->
       <section class="section">
-        <div class="section-title">⑤ Luồng bám đuổi <span class="required">*</span></div>
+        <div class="section-title">💌 Tin chào mừng (sau khi gửi lời mời)</div>
+        <p class="form-section__hint">
+          Gửi NGAY sau khi gửi lời mời kết bạn (không đợi đồng ý). Mục đích: kiểm tra KH có cho phép nhận tin lạ không.
+          Chỉ KH gửi thành công mới gắn vào luồng bám đuổi (tiết kiệm queue, tránh spam).
+        </p>
+        <textarea
+          v-model="form.welcomeMessageTemplate"
+          class="at-textarea"
+          rows="3"
+          maxlength="4000"
+          placeholder="Em chào {gender} {name}, em là {sale}, em vừa kết bạn để tiện hỗ trợ Anh/Chị ạ."
+        ></textarea>
+        <div class="hint">
+          {{ form.welcomeMessageTemplate.length }} / 4000 ký tự · Biến:
+          <code class="var-pill">{gender}</code> Anh/Chị
+          <code class="var-pill">{name}</code> tên KH
+          <code class="var-pill">{sale}</code> tên sale
+        </div>
+
+        <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333840;">
+          <span>⏱ Chờ sau khi gửi lời mời</span>
+          <input
+            v-model.number="form.welcomeDelaySeconds"
+            type="number"
+            class="at-input num"
+            min="0"
+            max="3600"
+          />
+          <span>giây</span>
+          <span class="hint" style="margin: 0;">(60 phút an toàn anti-spam · 0 = gửi ngay)</span>
+        </div>
+
+        <div v-if="!form.welcomeMessageTemplate" class="welcome-info">
+          💡 Bỏ trống = SKIP tin chào mừng (KH friend-request OK → vào bám đuổi ngay). Mặc định nên có để gate stranger inbox.
+        </div>
+      </section>
+
+      <!-- ⑥ Luồng bám đuổi -->
+      <section class="section">
+        <div class="section-title">⑥ Luồng bám đuổi <span class="required">*</span></div>
         <select v-model="form.successorSequenceId" class="at-input">
           <option :value="''" disabled>— Chọn Luồng kịch bản —</option>
           <option v-for="s in sequences" :key="s.id" :value="s.id">
@@ -91,9 +130,9 @@
         </select>
       </section>
 
-      <!-- ⑥ Quy tắc bỏ qua KH -->
+      <!-- ⑦ Quy tắc bỏ qua KH -->
       <section class="section">
-        <div class="section-title">⑥ Quy tắc bỏ qua KH</div>
+        <div class="section-title">⑦ Quy tắc bỏ qua KH</div>
         <div class="rule">
           <span class="rule-icon">⏰</span>
           KH đã có chat với nick khác trong
@@ -147,6 +186,8 @@ const form = ref({
   nickIds: [] as string[],
   successorSequenceId: '',
   greetingTemplate: 'Chào {gender} {name}, em là {sale} bên dự án The Emerald Garden View. Em xin phép gửi {gender} báo giá mới nhất tháng này. Cảm ơn {gender} nhiều!',
+  welcomeMessageTemplate: '',
+  welcomeDelaySeconds: 60,
   skipRules: {
     recencyDays: 7,
     friendCap: 2,
@@ -205,6 +246,8 @@ async function submit() {
       nickIds: form.value.nickIds,
       successorSequenceId: form.value.successorSequenceId,
       greetingTemplate: form.value.greetingTemplate.trim(),
+      welcomeMessageTemplate: form.value.welcomeMessageTemplate.trim() || null,
+      welcomeDelaySeconds: form.value.welcomeDelaySeconds,
       skipRules: form.value.skipRules,
     });
     const triggerId = createResp.data.trigger?.id;
@@ -321,4 +364,17 @@ onMounted(loadData);
 .at-btn--ghost { background: transparent; color: #181d26; }
 .at-btn--ghost:hover { background: #f0f1f3; }
 .at-btn--sm { padding: 6px 12px; font-size: 12px; }
+.form-section__hint {
+  font-size: 12px; color: #6b7280; line-height: 1.5;
+  margin: -4px 0 10px; padding: 8px 10px;
+  background: #f8fafc; border-left: 3px solid #d9a441;
+  border-radius: 0 4px 4px 0;
+}
+.welcome-info {
+  margin-top: 10px; padding: 8px 12px;
+  background: rgba(217, 164, 65, 0.1);
+  border: 1px solid rgba(217, 164, 65, 0.3);
+  border-radius: 6px;
+  font-size: 12px; color: #b07a14; line-height: 1.5;
+}
 </style>

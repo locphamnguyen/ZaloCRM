@@ -80,6 +80,7 @@
           active: conv.id === selectedId,
           unread: conv.unreadCount > 0 && conv.id !== selectedId,
           'is-group': conv.threadType === 'group',
+          'is-virtual': conv.isVirtual,
         }"
         @click="$emit('select', conv.id)"
         @contextmenu.prevent="openContextMenu($event, conv)"
@@ -107,6 +108,15 @@
             class="ci-nick-mini ci-nick-mini--initial"
             :title="`Nick: ${conv.zaloAccount.displayName}`"
           >{{ (conv.zaloAccount.displayName || '?').charAt(0).toUpperCase() }}</span>
+
+          <!-- M55 2026-05-30: Badge cùng chăm — góc trên-phải avatar KH.
+               Chỉ hiện khi có >=2 sale chăm KH này (avoid noise khi chỉ 1 sale).
+               Tooltip = list collaborators. Click conv để vào panel chi tiết. -->
+          <span
+            v-if="cungChamCount(conv) >= 2"
+            class="ci-cung-cham-badge"
+            :title="cungChamTooltip(conv)"
+          >🤝 {{ cungChamCount(conv) }}</span>
         </div>
 
 
@@ -114,6 +124,7 @@
           <div class="ci-name-row">
             <div class="ci-name">
               <span v-if="conv.threadType === 'group'" class="group-icon">👥</span>
+              <span v-if="conv.isVirtual" class="virtual-chip" title="Chat nội bộ — KH chưa có Zalo, tin nhắn KHÔNG gửi đi">🔒</span>
               {{ displayName(conv) }}
             </div>
             <div class="ci-meta-right">
@@ -285,6 +296,9 @@ const props = defineProps<{
    *  animation cross-tab. Reorder trong cùng tab (tin mới đến) vẫn animate.
    *  Không bắt buộc; nếu missing thì TransitionGroup hoạt động như trước. */
   activeTabKey?: string;
+  /** Phase 2026-05-30 — SĐT từ lead Facebook (/chat?compose=SĐT). Khi có giá trị →
+   *  tự mở "Tin nhắn mới" + điền sẵn SĐT để dialog lookup Zalo + tạo hội thoại. */
+  autoComposePhone?: string;
 }>();
 
 const emit = defineEmits<{
@@ -341,6 +355,9 @@ function onPickNickForNewMsg(nick: { id: string }) {
 }
 
 function onComposeOpened(conversationId: string) {
+  // M55.3 2026-05-30: đóng dialog NewMessageDialog NGAY khi opened — defensive,
+  // tránh sale phải bấm X thủ công nếu child dialog quên emit update:modelValue.
+  newMsgOpen.value = false;
   emit('compose-opened', conversationId);
   // Reset picked state sau khi dialog đã open + emit (dùng cho lần next)
   newMsgPickedAccountId.value = null;
@@ -349,6 +366,17 @@ function onComposeOpened(conversationId: string) {
   // conv list vẫn filter SĐT → conv mới biến mất → phải xoá search thủ công.
   emit('update:search', '');
 }
+
+// Phase 2026-05-30 — Mở chat từ lead Facebook: khi có autoComposePhone → tự mở
+// "Tin nhắn mới" + điền sẵn SĐT. Dialog tự lookup Zalo + tạo hội thoại.
+function triggerAutoCompose(phone: string) {
+  if (!phone) return;
+  newMsgInitialQuery.value = phone.trim();
+  newMsgPickedAccountId.value = null; // sale chọn nick trong dialog
+  newMsgOpen.value = true;
+}
+watch(() => props.autoComposePhone, (p) => { if (p) triggerAutoCompose(p); });
+onMounted(() => { if (props.autoComposePhone) triggerAutoCompose(props.autoComposePhone); });
 
 // ── Tab state ──────────────────────────────────────────────────────────────
 const activeTab = ref<'main' | 'other'>('main');
@@ -424,6 +452,23 @@ function mergedTags(conv: Conversation): string[] {
 function isUsableName(s: string | null | undefined): s is string {
   return !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'unknown';
 }
+// M55 2026-05-30 — Cùng chăm counter cho ConversationList badge
+function cungChamCount(conv: Conversation): number {
+  return (conv.contact as { contactAccess?: unknown[] } | null | undefined)?.contactAccess?.length ?? 0;
+}
+function cungChamTooltip(conv: Conversation): string {
+  const list = ((conv.contact as { contactAccess?: Array<{
+    role: string;
+    user: { fullName: string | null; email: string | null } | null;
+  }> } | null | undefined)?.contactAccess) ?? [];
+  if (!list.length) return '';
+  const names = list.map((a) => {
+    const n = a.user?.fullName || a.user?.email || 'Sale';
+    return a.role === 'primary' ? `⭐ ${n} (chính)` : `🤝 ${n}`;
+  });
+  return `${list.length} sale đang/đã chăm KH này:\n${names.join('\n')}`;
+}
+
 function displayName(conv: Conversation): string {
   if (conv.threadType === 'group') {
     const groupName = (conv as Conversation & { groupName?: string }).groupName;
@@ -1049,6 +1094,25 @@ function onPatternLeave() {
   flex-shrink: 0;
   margin-top: 2px;
 }
+
+/* M55 2026-05-30 — Cùng chăm badge góc trên-phải avatar KH */
+.ci-cung-cham-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 9px;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  cursor: help;
+  z-index: 2;
+  line-height: 1.2;
+}
 .ci-nick-mini {
   position: absolute;
   bottom: -2px;
@@ -1086,6 +1150,32 @@ function onPatternLeave() {
 .conv-item.active:hover,
 .conv-item.is-group.active:hover {
   background: var(--smax-primary-soft) !important;
+}
+
+/* M53 2026-05-30: Virtual conversation — nền cam nhạt + chip 🔒 */
+.conv-item.is-virtual {
+  background: #fff7ed;
+  border-left: 3px solid #fb923c;
+  padding-left: calc(var(--ci-padding-x, 9px) - 3px);
+}
+.conv-item.is-virtual:hover { background: #ffedd5; }
+.conv-item.is-virtual.active {
+  background: #ffedd5 !important;
+  box-shadow: inset 0 0 0 1.5px #f97316 !important;
+}
+.virtual-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffedd5;
+  color: #c2410c;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-weight: 700;
+  margin-right: 4px;
+  line-height: 16px;
+  height: 16px;
 }
 
 /* Unread count badge — pill xám mờ dưới timestamp */

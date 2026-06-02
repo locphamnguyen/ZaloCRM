@@ -211,7 +211,9 @@
               :class="{
                 open: expandedId === contact.id,
                 'detail-active': viewMode === 'm2' && selectedContact?.id === contact.id,
+                'row-flash': focusedContactId === contact.id,
               }"
+              :data-contact-id="contact.id"
               @click="onRowClick($event, contact.id)"
             >
               <td>
@@ -290,8 +292,24 @@
                 </span>
               </td>
               <td>
-                <!-- Nick chăm: 4 chip count theo trạng thái KB — anh chốt 2026-05-28 layout 2×2 -->
-                <div class="nick-count-grid">
+                <!-- M55 2026-05-30: KH no-Zalo (không có Friend) → avatar stack
+                     sale cùng chăm. KH có Zalo → giữ 4 chip Friend như cũ. -->
+                <div v-if="!hasAnyFriend(contact) && (contact.contactAccess?.length ?? 0) > 0" class="cung-cham-stack" :title="formatCungChamTooltip(contact)">
+                  <span
+                    v-for="(acc, idx) in (contact.contactAccess ?? []).slice(0, 4)"
+                    :key="acc.user?.id || idx"
+                    class="cc-avatar"
+                    :class="{ 'cc-primary': acc.role === 'primary' }"
+                    :style="{ background: avatarColor(acc.user?.fullName || acc.user?.email || '') }"
+                  >
+                    {{ initialOf(acc.user?.fullName || acc.user?.email || '?') }}
+                  </span>
+                  <span v-if="(contact.contactAccess?.length ?? 0) > 4" class="cc-more">
+                    +{{ (contact.contactAccess?.length ?? 0) - 4 }}
+                  </span>
+                  <span class="cc-count">{{ contact.contactAccess?.length ?? 0 }} sale</span>
+                </div>
+                <div v-else class="nick-count-grid">
                   <span v-for="b in nickCountChips(contact)" :key="b.kind" :class="['chip', 'nick-mini', b.cls]" :title="b.title">
                     {{ b.icon }} {{ b.count }}
                   </span>
@@ -596,8 +614,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import ContactDetailDialog from '@/components/contacts/ContactDetailDialog.vue';
 import ContactDetailPanel from '@/components/contacts/ContactDetailPanel.vue';
 import ParentCandidateDialog from '@/components/contacts/ParentCandidateDialog.vue';
@@ -619,6 +637,7 @@ import { useFriendSocket, type FriendUpdatedPayload } from '@/composables/use-fr
 
 const { isMobile } = useMobile();
 const router = useRouter();
+const route = useRoute();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
 const { duplicateTotal, fetchDuplicateGroups } = useContactIntelligence();
@@ -737,6 +756,9 @@ async function onRunDetector() {
 }
 const selectedContact = ref<Contact | null>(null);
 const expandedId = ref<string | null>(null);
+// M55.2 2026-05-30 — Focus param từ /contacts?focus=X (AddCustomerQuickDialog
+// "Mở chi tiết" khi duplicate) → highlight row + scroll + open detail panel.
+const focusedContactId = ref<string | null>(null);
 // Real friendship data per contact (key: contactId → ChildRow[]). Fetched on first expand.
 const friendshipCache = ref<Record<string, ChildRow[]>>({});
 const friendshipLoading = ref<Record<string, boolean>>({});
@@ -1158,7 +1180,27 @@ function openDetail(c: Contact) {
 function closeDetailPane() {
   selectedContact.value = null;
 }
-function goChat(c: Contact) {
+// M53 2026-05-30: KH no-Zalo (hasZalo=null/false) → mở virtual chat ngay,
+// KHÔNG dùng query.contactId vì conversations list không chắc có virtual conv
+// (resolve fail → user thấy /chat trống). Tạo virtual conv proactive rồi push trực tiếp /chat/:convId.
+async function goChat(c: Contact) {
+  if (!c.hasZalo) {
+    try {
+      const vcRes = await api.post<{ conversationId: string; created: boolean }>(
+        `/contacts/${c.id}/virtual-conversation`, {},
+      );
+      const convId = vcRes.data?.conversationId;
+      if (convId) {
+        await router.push({ name: 'Chat', params: { convId } });
+        return;
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.response?.data?.error;
+      toast.warning(msg || 'Không mở được chat nội bộ — vui lòng thử lại');
+      return;
+    }
+  }
+  // KH có Zalo → fallback flow cũ: push query.contactId để ChatView resolve.
   router.push({ path: '/chat', query: { contactId: c.id } });
 }
 function onAutomation(_c: Contact) { toast.warning('Automation dialog: chưa implement'); }
@@ -1257,6 +1299,34 @@ function nickCountChips(contact: Contact): NickCountChip[] {
     { kind: 'ghost', icon: '⚪', count: m.ghost || 0, cls: 'chip-grey', title: 'Đã ngắt' },
   ];
 }
+
+// ════════ M55 2026-05-30 — "Cùng chăm" avatar stack cho KH no-Zalo ════════
+function hasAnyFriend(contact: Contact): boolean {
+  return (contact.childrenCount ?? 0) > 0;
+}
+function initialOf(name: string): string {
+  const t = name.trim();
+  if (!t) return '?';
+  const parts = t.split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+const AVATAR_COLORS = ['#0ea5e9', '#f97316', '#10b981', '#a855f7', '#ec4899', '#eab308', '#06b6d4', '#ef4444'];
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
+function formatCungChamTooltip(contact: Contact): string {
+  const list = contact.contactAccess ?? [];
+  if (!list.length) return '';
+  const lines = list.map((a) => {
+    const name = a.user?.fullName || a.user?.email || 'Sale';
+    const roleLabel = a.role === 'primary' ? '⭐ Phụ trách chính' : '🤝 Cùng chăm';
+    return `${roleLabel}: ${name}`;
+  });
+  return `${list.length} sale đang/đã chăm KH này:\n${lines.join('\n')}`;
+}
 function onSaved() { fetchContacts(); }
 function onDeleted() { fetchContacts(); }
 function onDuplicateMerged() {
@@ -1272,6 +1342,55 @@ onMounted(() => {
   loadMasterStatuses();
   loadUsers();
 });
+
+// M55.2 2026-05-30 — Handle /contacts?focus={id} từ AddCustomerQuickDialog
+// "Mở chi tiết" khi duplicate. Auto-fetch contact, open detail panel + scroll + flash row.
+async function focusOnContact(id: string) {
+  focusedContactId.value = id;
+
+  // Switch sang viewMode m2 (chi tiết bên) để mở panel ngay
+  if (viewMode.value !== 'm2') {
+    viewMode.value = 'm2';
+  }
+
+  // Tìm contact trong list hiện tại, nếu không có → fetch single
+  let target = contacts.value.find((c) => c.id === id);
+  if (!target) {
+    try {
+      const res = await api.get<Contact>(`/contacts/${id}`);
+      target = res.data;
+    } catch {
+      toast.warning('Không tìm thấy KH — có thể đã bị xoá hoặc không thuộc quyền chăm');
+      return;
+    }
+  }
+  selectedContact.value = target;
+
+  // Scroll row vào view + flash 2.5s
+  await nextTick();
+  const row = document.querySelector(`tr[data-contact-id="${id}"]`);
+  if (row) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  setTimeout(() => {
+    if (focusedContactId.value === id) focusedContactId.value = null;
+  }, 2500);
+
+  // Clean URL để F5 không reopen
+  const newQuery = { ...route.query };
+  delete newQuery.focus;
+  router.replace({ query: newQuery });
+}
+
+watch(
+  () => route.query.focus,
+  (id) => {
+    if (typeof id === 'string' && id) {
+      void focusOnContact(id);
+    }
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
@@ -1752,6 +1871,50 @@ onMounted(() => {
   text-align: center;
 }
 
+/* M55 2026-05-30: Cùng chăm avatar stack — cho KH no-Zalo */
+.cung-cham-stack {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: help;
+}
+.cc-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #94a3b8;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #e2e8f0;
+  margin-left: -6px;
+  text-transform: uppercase;
+}
+.cc-avatar:first-child { margin-left: 0; }
+.cc-avatar.cc-primary {
+  border: 2px solid #f59e0b;
+  box-shadow: 0 0 0 1px #fbbf24;
+}
+.cc-more {
+  font-size: 10px;
+  color: #64748b;
+  margin-left: 2px;
+  background: #f1f5f9;
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.cc-count {
+  font-size: 10px;
+  color: #475569;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 /* Giới tính icon nhỏ + tuổi xuống hàng 2 */
 .gender-row {
   font-size: 16px;
@@ -1989,6 +2152,16 @@ onMounted(() => {
 .smax-table.mode-shrunk tbody tr.master-row.detail-active {
   background: #fef9e7;
   border-left: 3px solid var(--smax-coral, #aa2d00);
+}
+
+/* M55.2 2026-05-30 — Flash row 2.5s khi focus param trigger (Mở chi tiết từ dialog) */
+.smax-table tbody tr.master-row.row-flash {
+  animation: row-flash-anim 2.5s ease-out;
+}
+@keyframes row-flash-anim {
+  0%   { background: #fef3c7; box-shadow: inset 0 0 0 2px #f59e0b; }
+  40%  { background: #fef3c7; box-shadow: inset 0 0 0 2px #f59e0b; }
+  100% { background: transparent; box-shadow: inset 0 0 0 2px transparent; }
 }
 
 /* Responsive breakpoints — anh chốt 2026-05-28: chỉ HD / FHD / 2K, không mobile */

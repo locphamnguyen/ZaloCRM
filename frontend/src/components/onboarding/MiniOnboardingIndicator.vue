@@ -19,10 +19,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { api } from '@/api/index';
 
 const router = useRouter();
+const route = useRoute();
 const completedCount = ref(0);
 const totalCount = ref(4);
 const percent = ref(0);
@@ -31,6 +32,8 @@ const dismissed = ref(false);
 const visible = computed(() => {
   // Hiện khi đã dismiss (tức là đã có data + sale chủ động ẩn) hoặc 100%
   if (totalCount.value === 0) return false;
+  // 2026-06-01: ẩn ở /chat vì đè lên bottom-tabs cột 4 (ChatContactPanel).
+  if (route.path.startsWith('/chat')) return false;
   return dismissed.value || percent.value === 100;
 });
 

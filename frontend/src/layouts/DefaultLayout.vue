@@ -116,8 +116,8 @@
     <!-- Phase Onboarding v1 2026-05-24 — floating indicator khi sale dismiss checklist hoặc 4/4 -->
     <MiniOnboardingIndicator />
 
-    <!-- Phase Lead Pool 2026-05-24 — FAB Nhận Lead góc phải dưới mọi page -->
-    <LeadFloatingButton />
+    <!-- 2026-06-01: LeadFloatingButton moved → ConversationFilterSidebar (chỉ render trong /chat).
+         Floating bottom-right bị bỏ. Sale thấy nút "Nhận khách" trong sidebar cột 1 (expanded card / collapsed icon hộp quà pulse). -->
 
     <!-- Global toast queue -->
     <ToastContainer />
@@ -134,7 +134,7 @@ import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 import MiniOnboardingIndicator from '@/components/onboarding/MiniOnboardingIndicator.vue';
-import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
+// LeadFloatingButton moved to ConversationFilterSidebar 2026-06-01
 import { api } from '@/api/index';
 const theme = useTheme();
 const route = useRoute();

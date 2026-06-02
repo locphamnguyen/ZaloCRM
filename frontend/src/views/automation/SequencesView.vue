@@ -228,6 +228,28 @@
     <v-snackbar v-model="toastOpen" :color="toastColor" timeout="3000" location="bottom right">
       {{ toastMsg }}
     </v-snackbar>
+
+    <!-- Destructive edit dialog (server rejected mutable-sequence edit) -->
+    <v-dialog v-model="destructiveDialogOpen" max-width="520" persistent>
+      <v-card>
+        <v-card-title class="d-flex align-center destructive-dialog__header">
+          <v-icon color="error" class="mr-2">mdi-alert-octagon</v-icon>
+          <span>Không thể sửa bước giữa chuỗi</span>
+        </v-card-title>
+        <v-divider />
+        <v-card-text class="destructive-dialog__body">
+          <p class="mb-2">{{ destructiveHint }}</p>
+          <p class="text-caption text-medium-emphasis mb-0">
+            Mẹo: nếu cần restructure, hãy tạo Sequence mới và bật song song — KH hiện tại sẽ chạy hết flow cũ rồi mới được enroll vào flow mới.
+          </p>
+        </v-card-text>
+        <v-divider />
+        <v-card-actions>
+          <v-spacer />
+          <v-btn color="primary" variant="flat" @click="destructiveDialogOpen = false">Đã hiểu</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -249,6 +271,43 @@ const toastMsg = ref('');
 const toastColor = ref<'success' | 'error' | 'info'>('info');
 function showToast(msg: string, color: 'success' | 'error' | 'info' = 'info') {
   toastMsg.value = msg; toastColor.value = color; toastOpen.value = true;
+}
+
+// Destructive edit dialog (server rejects xoá/đổi step giữa chuỗi)
+const destructiveDialogOpen = ref(false);
+const destructiveHint = ref('');
+
+/**
+ * Extract user-facing error message from axios error.
+ * BE Wave 3 uses { error, code, hint } envelope; older endpoints used { detail }.
+ * Prefer `hint` (tiếng Việt, sale-friendly) > detail > error > axios message.
+ */
+function extractErrorMsg(err: any): string {
+  return (
+    err?.response?.data?.hint ||
+    err?.response?.data?.detail ||
+    err?.response?.data?.error ||
+    err?.message ||
+    'Lỗi không xác định'
+  );
+}
+
+/**
+ * If server returned `error: "sequence_edit_destructive"`, surface a Vuetify
+ * dialog with the Vietnamese hint instead of a tiny inline alert.
+ * Returns true if dialog was shown (caller should skip inline error).
+ */
+function maybeShowDestructiveDialog(err: any): boolean {
+  const code = err?.response?.data?.error;
+  if (code === 'sequence_edit_destructive') {
+    destructiveHint.value =
+      err?.response?.data?.hint ||
+      err?.response?.data?.detail ||
+      'Không thể xoá hoặc đổi bước ở giữa chuỗi vì đang có KH chạy dở.';
+    destructiveDialogOpen.value = true;
+    return true;
+  }
+  return false;
 }
 
 interface DraftSequence {
@@ -367,7 +426,9 @@ async function saveSequence() {
     selectSequence(saved.id);
     showToast('Đã lưu sequence', 'success');
   } catch (err: any) {
-    error.value = err?.response?.data?.detail || err?.response?.data?.error || err?.message || 'Lỗi không xác định';
+    if (!maybeShowDestructiveDialog(err)) {
+      error.value = extractErrorMsg(err);
+    }
   } finally {
     saving.value = false;
   }
@@ -400,7 +461,9 @@ async function onDelete() {
     selectedSeqId.value = null;
     await loadAll();
   } catch (err: any) {
-    error.value = err?.response?.data?.detail || err?.response?.data?.error || 'Không xoá được';
+    if (!maybeShowDestructiveDialog(err)) {
+      error.value = extractErrorMsg(err) || 'Không xoá được';
+    }
   }
 }
 </script>
@@ -607,5 +670,19 @@ async function onDelete() {
 .seq-rule-hint strong {
   color: var(--at-ink);
   font-weight: 600;
+}
+
+/* ── Destructive edit dialog (xoá/đổi step giữa chuỗi) ─────────────────── */
+.destructive-dialog__header {
+  background: rgba(170, 45, 0, 0.06);
+  color: #aa2d00;
+  font-size: 15px;
+  font-weight: 600;
+}
+.destructive-dialog__body {
+  padding-top: 16px !important;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--at-ink);
 }
 </style>

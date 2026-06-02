@@ -105,6 +105,9 @@ const routes: RouteRecordRaw[] = [
       // ⚙ CRM Config
       { path: 'crm/statuses',    name: 'Settings.Statuses',    component: () => import('@/components/settings/StatusManagement.vue') },
       { path: 'crm/tags',        name: 'Settings.Tags',        component: () => import('@/components/settings/CrmTagManagement.vue') },
+      // Tag Taxonomy v2 — M57 /plan-eng-review 2026-05-31 (Wave 4a dual-write window).
+      // Khi Wave 5 ship, route /crm/tags này sẽ thành alias của tags-v2.
+      { path: 'crm/tags-v2',     name: 'Settings.TagsV2',      component: () => import('@/views/settings/TagTaxonomyV2Page.vue') },
       { path: 'crm/zalo-labels', name: 'Settings.ZaloLabels',  component: () => import('@/components/settings/ZaloLabelsManagement.vue') },
       { path: 'crm/scoring',     name: 'Settings.Scoring',     component: () => import('@/views/ScoringSettingsView.vue') },
       { path: 'crm/stuck',       name: 'Settings.Stuck',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'stuck' } },
@@ -113,9 +116,8 @@ const routes: RouteRecordRaw[] = [
       // Phase Lead Pool 2026-05-24 — bố trí menu 2026-05-29
       { path: 'crm/lead-pool',         name: 'Settings.LeadPool',        component: () => import('@/views/settings/LeadPoolConfigPage.vue') },
       { path: 'crm/lead-pool/queue',   name: 'Settings.LeadPoolQueue',   component: () => import('@/views/settings/LeadPoolPreviewPage.vue') },
-      // Phase Wave 2 welcome-probe 2026-05-29
-      { path: 'marketing/welcome-message', name: 'Settings.WelcomeMessage', component: () => import('@/views/settings/WelcomeMessageView.vue') },
-
+      // M53 2026-05-30 — Trợ Lý AI Virtual Chat
+      { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue') },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue') },
       // Phase Multi-Source Lead Ads 2026-05-27
@@ -184,6 +186,35 @@ const routes: RouteRecordRaw[] = [
       { path: 'lists',      name: 'Marketing.Lists',      component: () => import('@/views/automation/ListsView.vue') },
       { path: 'lists/:id',  name: 'Marketing.ListDetail', component: () => import('@/views/automation/ListDetailView.vue') },
     ],
+  },
+  // Phase Marketing rename 2026-05-23 — "Mục tiêu" namespace alias.
+  // Ngày 2 (2026-05-30): refactored thành MucTieuWizard 3-step chính chủ + accept ?listId query.
+  // Route /marketing/triggers/new/friend-invite vẫn alias cho backward compat (xem trên).
+  {
+    path: '/automation/muc-tieu/tao-moi',
+    name: 'Marketing.MucTieuCreate',
+    component: () => import('@/views/automation/MucTieuWizard.vue'),
+    meta: { requiresAuth: true },
+  },
+  // Wave 3 (2026-05-30) — MucTieuListView v1 (table + side panel)
+  // Đặt dưới shell BotAutoShell để có sidebar Marketing chung.
+  {
+    path: '/automation/muc-tieu',
+    component: () => import('@/views/automation/BotAutoShell.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      { path: '', name: 'Marketing.MucTieuList', component: () => import('@/views/automation/MucTieuListView.vue') },
+      // Wave 3 Day 1 (2026-05-30) — Mục tiêu detail v1 (Dashboard + Log tab).
+      // Legacy /marketing/triggers/:id (TriggerDetailView.vue) vẫn alive cho deep link cũ.
+      { path: ':id', name: 'Marketing.MucTieuDetail', component: () => import('@/views/automation/MucTieuDetailView.vue') },
+    ],
+  },
+  // Alias mới /marketing/muc-tieu trỏ về list view (giữ namespace marketing thống nhất)
+  { path: '/marketing/muc-tieu', redirect: '/automation/muc-tieu' },
+  // Alias detail page dưới namespace marketing/* (memory: keep marketing namespace unified)
+  {
+    path: '/marketing/muc-tieu/:id',
+    redirect: (to: RouteLocation) => ({ path: `/automation/muc-tieu/${to.params.id}` }),
   },
   // Backward compat redirect — URL /automation/bot/* cũ vẫn hoạt động
   { path: '/automation/bot',              redirect: '/marketing/triggers' },

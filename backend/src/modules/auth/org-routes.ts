@@ -121,4 +121,10 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   );
+
+  // Wave 2 refactor 2026-05-29 — /welcome-config endpoints REMOVED.
+  // Welcome template + delay are now per-trigger (see automation_triggers
+  // .welcome_message_template / .welcome_delay_seconds). Cross-trigger knobs
+  // (welcomeMaxRetries, welcomeStrangerInboxEnabled, welcomeHardFailStops)
+  // remain on Organization but are not exposed via this route anymore.
 }

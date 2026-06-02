@@ -25,6 +25,7 @@
         :accounts="accountList"
         :selected-account-ids="selectedAccountIds"
         :active-tab-key="inboxFilters.state.activeTab"
+        :auto-compose-phone="autoComposePhone"
         v-model:search="searchQuery"
         @select="onSelectConv"
         @filter-account="onFilterAccount"
@@ -366,6 +367,13 @@ watch(
   },
   { immediate: false },
 );
+
+// Phase 2026-05-30 — Mở chat từ lead Facebook (/chat?compose=SĐT). Truyền xuống
+// ConversationList để tự mở "Tin nhắn mới" + điền sẵn SĐT → dialog tự lookup Zalo + tạo hội thoại.
+const autoComposePhone = computed(() => {
+  const c = route.query.compose;
+  return typeof c === 'string' ? c : '';
+});
 
 // Watch query.contactId — khi nav từ Contacts/Friends qua /chat?contactId=xxx
 // Resolve sang convId qua conversations list, rồi redirect /chat/:convId.

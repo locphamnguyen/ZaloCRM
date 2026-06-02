@@ -21,6 +21,12 @@ import cron from 'node-cron';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { automationEventBus } from './event-bus.js';
+import { cleanupOldEvents, logEvent } from '../friend-invite/event-log-service.js';
+import {
+  precomputeAndSeedPool,
+  isFriendInviteSegmentSpec,
+} from '../friend-invite/skip-precompute.js';
+import { startNickWorker } from '../friend-invite/nick-worker.js';
 
 const TZ = 'Asia/Ho_Chi_Minh';
 
@@ -28,6 +34,10 @@ const TZ = 'Asia/Ho_Chi_Minh';
 const cronJobs = new Map<string, ReturnType<typeof cron.schedule>>();
 
 let birthdayJob: ReturnType<typeof cron.schedule> | null = null;
+// Wave 3 Day 5 — daily cleanup AutomationEventLog (retention 30 ngày)
+let eventLogCleanupJob: ReturnType<typeof cron.schedule> | null = null;
+// BE T4 2026-05-30 — friend-invite scheduled trigger activator (every 5 min)
+let scheduledTriggerJob: ReturnType<typeof cron.schedule> | null = null;
 let isStarted = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -43,14 +53,37 @@ export async function startCronEventScheduler(): Promise<void> {
   birthdayJob = cron.schedule('0 8 * * *', () => { void fireBirthdayEvents(); }, { timezone: TZ });
   logger.info('[cron-scheduler] birthday job registered (daily 08:00 ' + TZ + ')');
 
+  // Wave 3 Day 5 — AutomationEventLog cleanup daily 03:00 VN (UTC 20:00 prev day).
+  // Retention 30 ngày, gọi cleanupOldEvents(30) — xem
+  // friend-invite/event-log-service.ts. Fire-and-forget; lỗi swallow internally.
+  eventLogCleanupJob = cron.schedule(
+    '0 3 * * *',
+    () => { void cleanupOldEvents(30); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] event-log cleanup job registered (daily 03:00 ' + TZ + ', retention 30d)');
+
   // Scheduled_cron — load all enabled triggers, register each
   await reloadAllScheduledCronTriggers();
 
-  logger.info('[cron-scheduler] started — birthday + ' + cronJobs.size + ' scheduled_cron triggers');
+  // BE T4 2026-05-30 — Friend-invite scheduled triggers activator.
+  // Every 5 min sweep: pick draft triggers whose scheduledAt is due (server NOW),
+  // transactionally flip → active, then precompute pool + spawn nick workers.
+  // KHÔNG dùng node-cron timezone vì so sánh thuần UTC với DB NOW(); server-side time.
+  scheduledTriggerJob = cron.schedule(
+    '*/5 * * * *',
+    () => { void activateScheduledTriggers(); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] scheduled-trigger activator registered (every 5 min ' + TZ + ')');
+
+  logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + ' + cronJobs.size + ' scheduled_cron triggers');
 }
 
 export function stopCronEventScheduler(): void {
   if (birthdayJob) { birthdayJob.stop(); birthdayJob = null; }
+  if (eventLogCleanupJob) { eventLogCleanupJob.stop(); eventLogCleanupJob = null; }
+  if (scheduledTriggerJob) { scheduledTriggerJob.stop(); scheduledTriggerJob = null; }
   for (const job of cronJobs.values()) job.stop();
   cronJobs.clear();
   isStarted = false;
@@ -200,9 +233,119 @@ async function fireBirthdayEvents(): Promise<void> {
   }
 }
 
+// ── BE T4 2026-05-30 — Scheduled trigger activator ─────────────────────────
+//
+// Mỗi 5 phút sweep AutomationTrigger state='draft' AND scheduledAt <= NOW().
+// Mỗi trigger:
+//   1. updateMany transactional WHERE id AND state='draft' → active + enabled=true
+//      + scheduledAt=null. Nếu count=0 → đã có instance khác claim → skip.
+//   2. Nếu eventType='friend_invite_to_list':
+//        - precomputeAndSeedPool (idempotent — claim entries + seed queue)
+//        - startNickWorker cho từng nick trong segmentSpec.nickIds (idempotent)
+//        - logEvent('scheduled_activated') vào AutomationEventLog
+//
+// Server-side time (Prisma { lte: new Date() }) — KHÔNG cần stamp time từ agent.
+//
+// Single-instance race safety: updateMany với điều kiện state='draft' đảm bảo
+// duy nhất 1 caller flip thành công; các caller khác count=0 và bỏ qua.
+async function activateScheduledTriggers(): Promise<void> {
+  try {
+    const now = new Date();
+    const dueTriggers = await prisma.automationTrigger.findMany({
+      where: {
+        state: 'draft',
+        scheduledAt: { lte: now },
+      },
+      select: {
+        id: true,
+        orgId: true,
+        name: true,
+        eventType: true,
+        segmentSpec: true,
+        scheduledAt: true,
+      },
+    });
+
+    if (dueTriggers.length === 0) return;
+
+    logger.info(`[cron-scheduler] scheduled-trigger sweep — ${dueTriggers.length} due trigger(s)`);
+
+    for (const trigger of dueTriggers) {
+      // Transactional claim: chỉ flip nếu vẫn còn state='draft' tại thời điểm update.
+      const claim = await prisma.automationTrigger.updateMany({
+        where: { id: trigger.id, state: 'draft' },
+        data: { state: 'active', enabled: true, scheduledAt: null },
+      });
+      if (claim.count === 0) {
+        // Đã có instance khác (multi-pod) hoặc user manual activate/cancel kịp lúc.
+        continue;
+      }
+
+      logger.info(
+        `[cron-scheduler] activated trigger ${trigger.id} (${trigger.name}, ` +
+          `eventType=${trigger.eventType}, scheduledAt=${trigger.scheduledAt?.toISOString()})`,
+      );
+
+      // eventType-specific bootstrap.
+      if (trigger.eventType === 'friend_invite_to_list') {
+        const spec = trigger.segmentSpec;
+        if (!isFriendInviteSegmentSpec(spec)) {
+          logger.warn(
+            `[cron-scheduler] trigger ${trigger.id} activated but segmentSpec invalid — skip pool seed`,
+          );
+          continue;
+        }
+        try {
+          // Idempotent — re-run trên entries đã claim chỉ refresh queue_status.
+          await precomputeAndSeedPool({
+            triggerId: trigger.id,
+            orgId: trigger.orgId,
+            spec,
+          });
+        } catch (err) {
+          logger.error(
+            `[cron-scheduler] precomputeAndSeedPool failed for trigger=${trigger.id}:`,
+            err,
+          );
+        }
+
+        // Spawn nick workers (fire-and-forget — idempotent).
+        for (const nickId of spec.nickIds) {
+          void startNickWorker(nickId, trigger.orgId).catch((err) =>
+            logger.error(
+              `[cron-scheduler] startNickWorker failed nick=${nickId} trigger=${trigger.id}:`,
+              err,
+            ),
+          );
+        }
+
+        // Append-only event log (fire-and-forget).
+        void logEvent({
+          orgId: trigger.orgId,
+          triggerId: trigger.id,
+          eventType: 'scheduled_activated',
+          summary: `Mục tiêu "${trigger.name}" đã được kích hoạt tự động theo lịch hẹn`,
+          metadata: {
+            scheduledAt: trigger.scheduledAt?.toISOString() ?? null,
+            activatedAt: now.toISOString(),
+            nickCount: spec.nickIds.length,
+          },
+        });
+      }
+    }
+  } catch (err) {
+    logger.error('[cron-scheduler] activateScheduledTriggers error:', err);
+  }
+}
+
 // ── Test helper — fire birthday once manually (admin) ──────────────────────
 export async function fireBirthdayNowForTesting(): Promise<{ count: number }> {
   const before = cronJobs.size; // just to mark we're "running"
   await fireBirthdayEvents();
   return { count: before };
+}
+
+// Test helper — fire scheduled-trigger sweep once manually (admin / smoke test).
+export async function activateScheduledTriggersNowForTesting(): Promise<void> {
+  await activateScheduledTriggers();
 }

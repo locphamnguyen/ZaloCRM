@@ -166,6 +166,76 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
     });
     return { webhookVerifyToken: newToken };
   });
+
+  // ── Phase FB Pull 2026-05-30 — System User token + bật kéo lead tự động ──────
+  // POST /system-user-token — paste System User token (vĩnh viễn, quyền leads_retrieval).
+  // Verify token đọc được lead trước khi lưu (gọi debug_token / me).
+  app.post('/api/v1/integrations/facebook/system-user-token', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const body = request.body as { token?: string; enabled?: boolean };
+    if (!body.token?.trim()) return reply.status(400).send({ error: 'token bắt buộc' });
+
+    // Verify token là System User token + lấy user_id (audit)
+    let suId: string | null = null;
+    try {
+      const meRes = await fetch(
+        `https://graph.facebook.com/v19.0/me?access_token=${encodeURIComponent(body.token)}`,
+        { signal: AbortSignal.timeout(8_000) },
+      );
+      if (!meRes.ok) {
+        const txt = await meRes.text();
+        return reply.status(400).send({ error: `Token không hợp lệ: ${txt.slice(0, 200)}` });
+      }
+      const meData = (await meRes.json()) as { id?: string };
+      suId = meData.id ?? null;
+    } catch (err) {
+      return reply.status(400).send({ error: `Không gọi được Graph API: ${(err as Error).message}` });
+    }
+
+    await prisma.organization.update({
+      where: { id: user.orgId },
+      data: {
+        encryptedFbSystemUserToken: encryptToken(body.token),
+        fbSystemUserId: suId,
+        fbPullEnabled: body.enabled ?? true,
+      },
+    });
+    logger.info(`[fb-oauth] Org ${user.orgId} lưu System User token (suId=${suId}), pull=${body.enabled ?? true}`);
+    return { success: true, fbSystemUserId: suId, fbPullEnabled: body.enabled ?? true };
+  });
+
+  // PATCH /pull-config — bật/tắt kéo tự động
+  app.patch('/api/v1/integrations/facebook/pull-config', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const body = request.body as { enabled?: boolean };
+    if (typeof body.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled (boolean) bắt buộc' });
+    await prisma.organization.update({ where: { id: user.orgId }, data: { fbPullEnabled: body.enabled } });
+    return { fbPullEnabled: body.enabled };
+  });
+
+  // GET /pull-status — trạng thái kéo + danh sách form + checkpoint
+  app.get('/api/v1/integrations/facebook/pull-status', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const org = await prisma.organization.findUnique({
+      where: { id: user.orgId },
+      select: { fbPullEnabled: true, fbSystemUserId: true, encryptedFbSystemUserToken: true },
+    });
+    const forms = await prisma.facebookLeadgenForm.findMany({
+      where: { orgId: user.orgId, status: { not: 'deleted' } },
+      select: {
+        id: true, formId: true, formName: true, status: true,
+        lastPullAt: true, lastPullLeadCount: true, lastPullError: true,
+        historyBackfilled: true, consecutiveErrors: true,
+      },
+      orderBy: { lastPullAt: 'desc' },
+    });
+    return {
+      fbPullEnabled: org?.fbPullEnabled ?? false,
+      hasSystemUserToken: !!org?.encryptedFbSystemUserToken,
+      fbSystemUserId: org?.fbSystemUserId ?? null,
+      forms,
+    };
+  });
 }
 
 /** Test decrypt — used by admin debug endpoint hoặc test. KHÔNG expose qua API. */

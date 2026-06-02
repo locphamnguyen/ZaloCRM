@@ -52,6 +52,13 @@ export interface Contact {
   //   collaborator  = sale phụ (chăm qua nick mình)
   //   admin         = org admin/owner (view full)
   viewerRole?: 'primary' | 'collaborator' | 'admin' | null;
+  // M55 2026-05-30: ContactAccess list (sale đang/đã chăm KH này — counter "Cùng chăm")
+  contactAccess?: Array<{
+    role: 'primary' | 'collaborator';
+    source: string;
+    createdAt: string;
+    user: { id: string; fullName: string | null; email: string | null } | null;
+  }>;
   createdAt?: string;
   updatedAt?: string;
   firstContactDate?: string | null;

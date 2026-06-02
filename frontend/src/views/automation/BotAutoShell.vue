@@ -69,7 +69,9 @@ const route = useRoute();
 const drawerOpen = ref(false);
 
 const navItems = [
-  { to: '/marketing/triggers',   label: 'Mục tiêu',          icon: 'mdi-target' },
+  // Wave 3 (2026-05-30) — danh sách Mục tiêu mới v1 (table + side panel)
+  { to: '/automation/muc-tieu',  label: 'Mục tiêu',          icon: 'mdi-target' },
+  { to: '/marketing/triggers',   label: 'Catalog Trigger',   icon: 'mdi-lightning-bolt' },
   { to: '/marketing/blocks',     label: 'Khối',              icon: 'mdi-puzzle' },
   { to: '/marketing/sequences',  label: 'Luồng kịch bản',    icon: 'mdi-format-list-numbered' },
   { to: '/marketing/broadcasts', label: 'Broadcast',         icon: 'mdi-bullhorn' },

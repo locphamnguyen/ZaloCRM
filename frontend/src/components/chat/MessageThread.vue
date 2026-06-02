@@ -38,6 +38,12 @@
           <!-- Row 1: Name | Gender/Group icon to + Care status -->
           <div class="ch-row-1">
             <div class="ch-name" :title="headerName">{{ headerName }}</div>
+            <!-- M55 2026-05-30: Chip "Cùng chăm N sale" cạnh tên KH, hiện khi >=2 sale chăm -->
+            <span
+              v-if="cungChamCount >= 2"
+              class="ch-cung-cham-chip"
+              :title="cungChamTooltip"
+            >🤝 {{ cungChamCount }} sale</span>
             <span class="ch-sep">|</span>
             <span class="ch-gender-chip" :class="genderChipClass" :title="genderTitle">
               <svg v-if="conversation.threadType === 'group'" class="gender-svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -54,10 +60,14 @@
               </svg>
               <span class="gender-label">{{ genderLabel }}</span>
             </span>
-            <CareStatusBadge
+            <!-- Picker giai đoạn KH (Wave 3) — ghi statusId thay status enum legacy.
+                 Mission Fix 2 anh chốt 2026-05-30. -->
+            <ContactDealStageSelector
               v-if="conversation.contact"
-              :model-value="(conversation.contact.status as string | null) || 'new'"
-              @update:model-value="onCareStatusChange"
+              :contact-id="conversation.contact.id"
+              :current-status-id="conversation.contact.statusId ?? null"
+              :org-id="_authStore.user?.orgId ?? null"
+              @updated="onDealStageUpdated"
             />
             <!-- Zalo Real label dropdown — Zalo-native UI (single-select, list all labels in account)
                  Hỗ trợ cả user thread (UID) + group thread (groupId). Chỉ ẩn nếu không có externalThreadId. -->
@@ -131,7 +141,15 @@
               <span class="cnt-out">{{ msgOutCount }}</span>↗
               <span class="cnt-scope">per nick này</span>
             </span>
-            <template v-if="showOnlineIndicator && lastOnlineLabel">
+            <!-- M53 2026-05-30: Virtual KH → chấm đỏ nháy + "KH chưa bật tìm kiếm Zalo công khai" -->
+            <template v-if="isVirtualConv">
+              <span class="ch-sep">|</span>
+              <span class="last-online is-virtual" :title="virtualTooltip">
+                <span class="online-dot" />
+                {{ virtualStatusLabel }}
+              </span>
+            </template>
+            <template v-else-if="showOnlineIndicator && lastOnlineLabel">
               <span class="ch-sep">|</span>
               <span class="last-online" :class="{ 'is-online': isOnline }">
                 <span class="online-dot" />
@@ -251,8 +269,19 @@
         </div>
       </header>
 
+      <!-- M53 2026-05-30: Banner cam cho virtual conv — sticky top dưới header -->
+      <div v-if="isVirtualConv" class="virtual-banner">
+        <div class="virtual-banner-icon">i</div>
+        <div class="virtual-banner-body">
+          <div class="virtual-banner-title">Chat nội bộ — tin nhắn KHÔNG gửi đi Zalo</div>
+          <div class="virtual-banner-sub">
+            Dùng để ghi nhật ký chăm sóc + đặt lịch hẹn. Trợ lý AI sẽ gợi ý câu hỏi khai thác thông tin KH cho anh/chị.
+          </div>
+        </div>
+      </div>
+
       <!-- ════════ Messages ════════ -->
-      <div ref="messagesContainer" class="messages chat-messages-area">
+      <div ref="messagesContainer" class="messages chat-messages-area" :class="{ 'is-virtual-mode': isVirtualConv }">
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
 
         <template v-for="item in displayItems" :key="item.key">
@@ -309,6 +338,20 @@
             <span v-if="reminderNoticeTime(item.msg)" class="reminder-notice-time">· {{ reminderNoticeTime(item.msg) }}</span>
           </div>
 
+          <!-- M53 2026-05-30: AI Trợ Lý bubble — render component riêng cho virtual chat -->
+          <div
+            v-else-if="item.msg.senderType === 'ai_assistant'"
+            class="msg-bubble-wrap ai-msg-wrap"
+            :data-msg-id="item.msg.id"
+          >
+            <AiAssistantMessage
+              :message="item.msg"
+              :contact-id="conversation.contact?.id || ''"
+              :existing-contact="(conversation.contact as unknown as Record<string, unknown>) || null"
+              @suggestion-applied="onAiSuggestionApplied($event, item.msg.id)"
+            />
+          </div>
+
           <!-- Single message — MessageBubble component (wrap với privacy blur khi redacted) -->
           <div
             v-else
@@ -330,6 +373,7 @@
               :is-last-self="item.msg.id === lastSelfMessageId"
               :is-group="conversation.threadType === 'group'"
               :sender-avatar-url="resolveSenderAvatar(item.msg)"
+              :current-user-id="currentUserId"
               @contextmenu="onContextMenu($event, item.msg)"
               @preview-image="openImageLightbox($event, [])"
               @preview-video="previewVideoUrl = $event"
@@ -360,13 +404,13 @@
 
       <!-- ════════ Input area: toolbar trên textarea (Smax-style) ════════ -->
       <div class="input-area">
-        <!-- CRM tag pills (Smax-style) — chỉ KH chat 1-1, ẩn ở group -->
+        <!-- Tag bar Friend-cấp (per-pair sale-nick × KH) — chỉ KH chat 1-1.
+             Refactor 2026-06-01: 3 nhóm [Zalo Real] | [Auto] | [Manual per Nick + button].
+             Đọc/ghi qua endpoint /api/v1/friends/:id/tags (Tag v2 junction). -->
         <TagCrmBar
-          v-if="conversation.contact && conversation.threadType === 'user'"
+          v-if="conversation.contact && conversation.threadType === 'user' && conversation.friendship?.id"
+          :friend-id="conversation.friendship.id"
           :contact-id="conversation.contact.id"
-          :model-value="contactTags"
-          :auto-tags="conversationAutoTags"
-          @update:model-value="onUpdateTags"
         />
 
         <ReplyPreviewBar
@@ -472,8 +516,19 @@
           <!-- Emoji picker (hover) — sát nút Gửi -->
           <EmojiPicker @pick="onPickEmoji" />
 
-          <button class="send-btn" :disabled="!inputText.trim() || sending" @click="handleSend" title="Gửi (Enter)">
+          <!-- M53 2026-05-30: virtual conv → nút "Lưu nội bộ" màu cam thay vì "Gửi" xanh -->
+          <button
+            class="send-btn"
+            :class="{ 'send-btn-virtual': isVirtualConv }"
+            :disabled="!inputText.trim() || sending"
+            @click="handleSend"
+            :title="isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
+          >
             <v-icon v-if="sending" size="20">mdi-loading mdi-spin</v-icon>
+            <template v-else-if="isVirtualConv">
+              <v-icon size="18">mdi-pencil</v-icon>
+              <span class="send-btn-virtual-label">Lưu nội bộ</span>
+            </template>
             <v-icon v-else size="20">mdi-send</v-icon>
           </button>
         </div>
@@ -630,11 +685,17 @@ import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
-import CareStatusBadge from '@/components/ui/CareStatusBadge.vue';
+// Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
+// để Wave 3 evaluateStatusGate đọc đúng cột. Trước đây CareStatusBadge ghi enum legacy
+// `Contact.status` khiến lazy gate KHÔNG kích hoạt. CareStatusBadge giữ ở ChatContactPanel.vue
+// nếu sale vẫn cần thao tác care-status legacy 9 giá trị.
+import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
 import MessageBubble from '@/components/chat/message-bubble.vue';
+// M53 2026-05-30: Trợ lý AI cho virtual chat
+import AiAssistantMessage from '@/components/chat/AiAssistantMessage.vue';
 import ReactionDetailPopup from '@/components/chat/reaction-detail-popup.vue';
 import { usePrivacyVisibility } from '@/composables/use-privacy-visibility';
 import NickAvatarLock from '@/components/privacy/NickAvatarLock.vue';
@@ -1106,7 +1167,10 @@ function goToLabelsSettings() {
 // Source of truth: 2 fields khác nhau. Dedup, Zalo tags lên trước.
 const contactTags = ref<string[]>([]);
 
-// Phase 6 polish — auto-tags từ Friend (đính kèm conversation.friendship khi BE trả)
+// Phase 6 polish — auto-tags từ Friend (đính kèm conversation.friendship khi BE trả).
+// Refactor 2026-06-01: TagCrmBar đã tự load qua /friends/:id/tags Tag v2, không cần
+// pass prop nữa. Giữ computed làm reference cho activity log + future use cases.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const conversationAutoTags = computed<string[]>(() => {
   const conv = props.conversation as any;
   const fromFriendship = conv?.friendship?.autoTags;
@@ -1114,6 +1178,7 @@ const conversationAutoTags = computed<string[]>(() => {
   const list = (fromFriendship ?? fromContact ?? []) as unknown;
   return Array.isArray(list) ? (list as string[]) : [];
 });
+void conversationAutoTags;
 function recomputeTags() {
   const ct = Array.isArray(props.conversation?.contact?.tags)
     ? (props.conversation!.contact!.tags as string[])
@@ -1136,11 +1201,13 @@ watch(() => [
   (props.conversation?.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick,
 ], recomputeTags, { immediate: true, deep: true });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function onUpdateTags(next: string[]) {
-  // TagCrmBar PUT only updates Contact.tags. Zalo-managed (🔵) tags stay in
-  // Friend.crmTagsPerNick (read-only). Merge view-side preserves both.
+  // Legacy handler — TagCrmBar refactor 2026-06-01 tự manage state qua API mới,
+  // không emit update:modelValue nữa. Giữ function để các caller cũ không break.
   contactTags.value = next;
 }
+void onUpdateTags;
 const msgOutCount = computed(() => props.conversation?.friendship?.totalOutbound ?? 0);
 const contactTotalIn = computed(() => props.conversation?.contact?.totalInbound ?? 0);
 const contactTotalOut = computed(() => props.conversation?.contact?.totalOutbound ?? 0);
@@ -1173,6 +1240,51 @@ const showOnlineIndicator = computed(() => {
   if (props.conversation?.threadType === 'group') return true;
   return presence.hasIndicator.value;
 });
+
+// ── M53 2026-05-30: Virtual conversation cho KH no-Zalo ─────────────────────
+// Anh chốt Approach A: virtual conv hiện trong /chat, KHÔNG gửi tin qua Zalo SDK,
+// dùng làm nhật ký chăm sóc + AI Trợ Lý reply gợi ý. Memory M53.
+const isVirtualConv = computed(() => {
+  return Boolean((props.conversation as { isVirtual?: boolean } | undefined)?.isVirtual);
+});
+
+// M55 2026-05-30 — Cùng chăm chip + tooltip cho header chat
+const contactAccessList = computed(() => {
+  const list = (props.conversation?.contact as { contactAccess?: Array<{
+    role: string;
+    source?: string;
+    createdAt?: string;
+    user: { id?: string; fullName: string | null; email: string | null } | null;
+  }> } | null | undefined)?.contactAccess;
+  return Array.isArray(list) ? list : [];
+});
+const cungChamCount = computed(() => contactAccessList.value.length);
+const cungChamTooltip = computed(() => {
+  const list = contactAccessList.value;
+  if (!list.length) return '';
+  const lines = list.map((a) => {
+    const n = a.user?.fullName || a.user?.email || 'Sale';
+    return a.role === 'primary' ? `⭐ ${n} (chính)` : `🤝 ${n}`;
+  });
+  return `${list.length} sale đang/đã chăm KH này:\n${lines.join('\n')}`;
+});
+const virtualStatusLabel = 'KH chưa bật tìm kiếm Zalo công khai';
+const virtualTooltip =
+  'KH chưa bật tìm kiếm Zalo công khai. Tin nhắn lưu nội bộ làm nhật ký chăm sóc — KHÔNG gửi đi Zalo.';
+
+function onAiSuggestionApplied(
+  acceptedFields: Array<{ field: string; value: unknown }>,
+  _aiMessageId: string,
+) {
+  // Refresh contact panel data (parent listens via care-status-changed for now)
+  // TODO: emit dedicated event 'contact-updated' để ChatView reload contact detail
+  if (props.conversation?.contact) {
+    const c = props.conversation.contact as unknown as Record<string, unknown>;
+    for (const f of acceptedFields) {
+      c[f.field] = f.value;
+    }
+  }
+}
 
 // ── Resolve sender avatar cho MessageBubble ─────────────────────────────────
 // User thread: incoming msgs → conversation.contact.avatarUrl
@@ -1602,50 +1714,29 @@ function onOpenNote() {
   toast.push('Mở ghi chú nhanh ở panel bên phải');
 }
 const inputPlaceholder = computed(() => {
+  // M53 2026-05-30: virtual conv → placeholder rõ ràng là nhật ký nội bộ
+  if (isVirtualConv.value) {
+    return 'Ghi nội dung trao đổi — Trợ lý AI sẽ gợi ý câu hỏi tiếp theo...';
+  }
   // Bỏ "Đang nhắn từ nick" vì đã có avatar nick bên trái input — gọn hơn.
   // Hint phím tắt giữ ngắn gọn.
   return 'Gõ tin nhắn… ("/" template, "@" mention, "#" tag)';
 });
 
-/* Care status change: persist qua API + update local conversation.contact.status NGAY.
- * Trước đây chỉ emit lên ChatView (parent KHÔNG handle) → status không bao giờ lưu. */
-async function onCareStatusChange(value: string) {
-  const contactId = props.conversation?.contact?.id;
-  if (!contactId) return;
-  // Optimistic update
-  const prev = props.conversation?.contact?.status;
+/* Mission Fix 2 (2026-05-30) — header picker giai đoạn KH (ContactDealStageSelector)
+ * đã ghi statusId trực tiếp qua PUT /contacts/:id. Handler này chỉ patch local state
+ * + trigger timeline refresh để các surface đang quan sát đồng bộ ngay. */
+function onDealStageUpdated(newStatusId: string | null) {
   if (props.conversation?.contact) {
-    (props.conversation.contact as { status?: string | null }).status = value;
+    (props.conversation.contact as { statusId?: string | null }).statusId = newStatusId;
   }
-  try {
-    const { api: apiClient } = await import('@/api/index');
-    // Backend dùng PUT /contacts/:id (full update), KHÔNG có PATCH.
-    await apiClient.put(`/contacts/${contactId}`, { status: value });
-    // Trigger timeline refresh + highlight entry "status_change" mới
-    window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId } }));
-    // Undo toast 5s — click "Hoàn tác" → revert về status cũ
-    toast.undo(`Đã đổi trạng thái → ${value}`, async () => {
-      try {
-        await apiClient.put(`/contacts/${contactId}`, { status: prev || null });
-        if (props.conversation?.contact) {
-          (props.conversation.contact as { status?: string | null }).status = prev as string | null;
-        }
-        toast.success(`✓ Đã hoàn tác về "${prev || 'không có'}"`);
-      } catch {
-        toast.error('Hoàn tác thất bại');
-      }
-    });
-    emit('care-status-changed', value);
-  } catch (err: any) {
-    // Rollback
-    if (props.conversation?.contact) {
-      (props.conversation.contact as { status?: string | null }).status = prev as string | null;
-    }
-    const msg = err?.response?.data?.error || `Lưu trạng thái thất bại (${err?.response?.status || 'network'})`;
-    toast.error(msg);
-    console.error(err);
-  }
+  // Emit để parent (ChatView) có thể refresh KPI / lazy gate hint nếu cần.
+  emit('care-status-changed', newStatusId || '');
 }
+
+/* Legacy CareStatusBadge handler đã được gỡ khỏi MessageThread (Mission Fix 2,
+ * 2026-05-30). CareStatusBadge + persist enum legacy vẫn sống trong
+ * ChatContactPanel.vue nếu sale cần thao tác status enum cũ. */
 
 async function fireWebhook() {
   if (!props.conversation?.contact?.id) return;
@@ -2303,6 +2394,23 @@ watch(() => props.editingMessage?.id, async (id) => {
   user-select: none;
 }
 
+/* M55 2026-05-30 — Cùng chăm chip trong chat header */
+.ch-cung-cham-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: linear-gradient(135deg, #fef3c7, #fed7aa);
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid #fcd34d;
+  cursor: help;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* Gender/Group chip — icon to + label */
 .ch-gender-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -2379,6 +2487,84 @@ watch(() => props.editingMessage?.id, async (id) => {
 @keyframes online-pulse {
   0%, 100% { box-shadow: 0 0 0 2px rgba(0, 200, 83, 0.15); }
   50%      { box-shadow: 0 0 0 4px rgba(0, 200, 83, 0.30); }
+}
+
+/* M53 2026-05-30: Virtual KH — chấm ĐỎ nháy */
+.last-online.is-virtual {
+  color: #b91c1c;
+  font-weight: 500;
+}
+.last-online.is-virtual .online-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.20);
+  animation: virtual-pulse-red 2s ease-in-out infinite;
+}
+@keyframes virtual-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.20); }
+  50%      { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.05); }
+}
+
+/* M53 2026-05-30: Banner cam virtual conv */
+.virtual-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #fff7ed, #ffedd5);
+  border-bottom: 1px solid #fed7aa;
+  font-size: 12px;
+  color: #9a3412;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.virtual-banner-icon {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f97316;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.virtual-banner-body { flex: 1; }
+.virtual-banner-title { font-weight: 600; line-height: 1.4; }
+.virtual-banner-sub { font-size: 11px; color: #c2410c; margin-top: 2px; line-height: 1.4; }
+
+/* M53 2026-05-30: virtual mode — bubble self border đứt nét */
+.chat-messages-area.is-virtual-mode :deep(.bubble.self) {
+  border: 1px dashed #94a3b8 !important;
+  background: #f3f4f6 !important;
+  color: #1f2937 !important;
+}
+.chat-messages-area.is-virtual-mode :deep(.bubble.self::after) {
+  content: '📝 nội bộ';
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  color: #94a3b8;
+  font-style: italic;
+  text-align: right;
+}
+
+/* M53 2026-05-30: nút "Lưu nội bộ" thay "Gửi" */
+.send-btn.send-btn-virtual {
+  background: linear-gradient(135deg, #f97316, #ea580c) !important;
+  color: #fff !important;
+  width: auto !important;
+  padding: 0 12px !important;
+  gap: 4px;
+  font-weight: 600;
+  font-size: 12px;
+}
+.send-btn-virtual-label { white-space: nowrap; }
+.send-btn.send-btn-virtual:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ea580c, #c2410c) !important;
 }
 
 /* Legacy keeps */

@@ -14,7 +14,9 @@ interface CategoryLimit {
 }
 
 const CATEGORY_LIMITS: Record<OpCategory, CategoryLimit> = {
-  message:       { daily: 200,  burst: 5,  burstWindowMs: 30_000 },
+  // 2026-05-29 anh chốt: nâng burst 5→20 vì sale gõ tay 5 tin trong 10s là rất bình thường
+  // (chào + tên + giá + link + closing). Zalo SDK đã có anti-spam phía họ, ta đang double-throttle.
+  message:       { daily: 200,  burst: 20, burstWindowMs: 30_000 },
   reaction:      { daily: 300,  burst: 10, burstWindowMs: 30_000 },
   chat_action:   { daily: 500,  burst: 15, burstWindowMs: 30_000 },
   group_admin:   { daily: 50,   burst: 5,  burstWindowMs: 60_000 },

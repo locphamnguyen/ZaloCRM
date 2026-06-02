@@ -46,16 +46,25 @@
           </div>
         </div>
         <div class="step-card__actions">
-          <v-btn icon size="x-small" variant="text" :disabled="idx === 0" @click="moveUp(idx)" title="Lên">
-            <v-icon size="16">mdi-arrow-up</v-icon>
-          </v-btn>
-          <v-btn icon size="x-small" variant="text" :disabled="idx === steps.length - 1" @click="moveDown(idx)" title="Xuống">
-            <v-icon size="16">mdi-arrow-down</v-icon>
-          </v-btn>
-          <v-btn icon size="x-small" variant="text" @click="editStep(idx)" title="Đổi block">
+          <v-btn
+            icon
+            size="x-small"
+            variant="text"
+            :disabled="idx !== steps.length - 1"
+            @click="editStep(idx)"
+            :title="idx !== steps.length - 1 ? 'Chỉ được đổi block ở step CUỐI — đổi step giữa làm lệch tin cho KH đang chờ delay' : 'Đổi block'"
+          >
             <v-icon size="16">mdi-swap-horizontal</v-icon>
           </v-btn>
-          <v-btn icon size="x-small" variant="text" color="error" @click="removeStep(idx)" title="Xoá">
+          <v-btn
+            icon
+            size="x-small"
+            variant="text"
+            color="error"
+            :disabled="idx !== steps.length - 1"
+            @click="removeStep(idx)"
+            :title="idx !== steps.length - 1 ? 'Chỉ được xoá step CUỐI — sửa step giữa làm lệch tin cho KH đang chờ delay' : 'Xoá'"
+          >
             <v-icon size="16">mdi-close</v-icon>
           </v-btn>
         </div>
@@ -190,6 +199,8 @@ function addStep() {
   pickerOpen.value = true;
 }
 function editStep(idx: number) {
+  // Đổi blockId step giữa = destructive_reorder ngầm → chỉ cho phép step CUỐI.
+  if (idx !== props.steps.length - 1) return;
   pickerStepIdx.value = idx;
   pickerOpen.value = true;
 }
@@ -214,20 +225,11 @@ function updateDelay(idx: number, value: string | number) {
   newSteps[idx] = { ...newSteps[idx], delayMinutes: n };
   emitSteps(newSteps);
 }
-function moveUp(idx: number) {
-  if (idx === 0) return;
-  const newSteps = [...props.steps];
-  [newSteps[idx - 1], newSteps[idx]] = [newSteps[idx], newSteps[idx - 1]];
-  emitSteps(newSteps);
-}
-function moveDown(idx: number) {
-  if (idx === props.steps.length - 1) return;
-  const newSteps = [...props.steps];
-  [newSteps[idx + 1], newSteps[idx]] = [newSteps[idx], newSteps[idx + 1]];
-  emitSteps(newSteps);
-}
 function removeStep(idx: number) {
-  if (!confirm('Xoá bước này?')) return;
+  // Chỉ cho phép xoá step CUỐI — xoá step giữa làm lệch tin cho KH đang chờ delay.
+  // Nếu sale muốn restructure, tạo Sequence mới.
+  if (idx !== props.steps.length - 1) return;
+  if (!confirm('Xoá bước cuối này?')) return;
   emitSteps(props.steps.filter((_, i) => i !== idx));
 }
 </script>

@@ -8,11 +8,19 @@ datasource db {
 
 // Top-level org — every resource is scoped to an org
 model Organization {
-  id        String   @id @default(uuid())
-  name      String
+  id       String @id @default(uuid())
+  name     String
   // Múi giờ mặc định của tổ chức (offset cố định, không tự DST). Format "+07:00" / "-05:00".
   // Mặc định +07:00 (Việt Nam) để mọi timestamp render trong UI và log đều đồng nhất, dễ decode.
-  timezone  String   @default("+07:00")
+  timezone String @default("+07:00")
+
+  // Phase FB Pull 2026-05-30 — System User token (vĩnh viễn, quyền leads_retrieval) để
+  // KÉO lead chủ động từ form quảng cáo (chính chủ, không cần App Review). 1 SU token đọc
+  // được mọi Page mà System User được gán → lưu cấp Org. AES-256-GCM blob, decrypt tại fetch.
+  encryptedFbSystemUserToken String? @map("encrypted_fb_system_user_token") @db.Text
+  fbPullEnabled              Boolean @default(false) @map("fb_pull_enabled")
+  fbSystemUserId             String? @map("fb_system_user_id") // audit: SU id, debug khi revoke
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -29,10 +37,12 @@ model Organization {
   duplicateGroups           DuplicateGroup[]
   savedReports              SavedReport[]
   integrations              Integration[]
+  facebookLeadgenForms      FacebookLeadgenForm[]
   automationRules           AutomationRule[]
   messageTemplates          MessageTemplate[]
   aiConfig                  AiConfig?
   aiSuggestions             AiSuggestion[]
+  aiSuggestionsApplied      AiSuggestionApplied[]
   pinnedConversations       PinnedConversation[]
   groupPolls                GroupPoll[]
   friendshipAttempts        FriendshipAttempt[]
@@ -85,10 +95,16 @@ model Organization {
   adminFallbackPhone     String? @map("admin_fallback_phone")
 
   // Wave 2 Welcome Probe 2026-05-29 — config send welcome msg sau friend accept
-  welcomeDelayAfterFriendReqSec Int     @default(60)   @map("welcome_delay_after_friend_req_sec")
+  welcomeDelayAfterFriendReqSec Int     @default(60) @map("welcome_delay_after_friend_req_sec")
   welcomeStrangerInboxEnabled   Boolean @default(true) @map("welcome_stranger_inbox_enabled")
-  welcomeMaxRetries             Int     @default(2)    @map("welcome_max_retries")
+  welcomeMaxRetries             Int     @default(2) @map("welcome_max_retries")
   welcomeHardFailStops          Boolean @default(true) @map("welcome_hard_fail_stops")
+
+  // Phase Tag Taxonomy v2 2026-05-31 (M57 /plan-eng-review Big-Bang Refactor)
+  // Schema mới Tag + TagGroup + FriendTag + ContactTag chạy song song với CrmTag/CrmTagGroup
+  // trong Wave 1-4 (dual-write). Drop legacy Wave 5.
+  tagsV2      Tag[]
+  tagGroupsV2 TagGroup[]
 
   // Phase Lead Pool 2026-05-24 — reverse relations
   leadRequests         LeadRequest[]
@@ -209,6 +225,8 @@ model User {
   leadBonusGranted          LeadPoolBonusQuota[]    @relation("LeadPoolBonusGranter")
   // Phase Privacy OTP 2026-05-27
   privacyOtpTokens          PrivacyOtpToken[]       @relation("PrivacyOtpUser")
+  // M53 (2026-05-30): AI suggestions sale applied
+  aiSuggestionsApplied      AiSuggestionApplied[]
 
   @@map("users")
 }
@@ -484,6 +502,13 @@ model Contact {
   // Daily engagement aggregate rows (cascade delete)
   engagementDaily ContactEngagementDaily[]
 
+  // M53 (2026-05-30): AI suggestions applied to this Contact (virtual chat assistant)
+  aiSuggestionsApplied AiSuggestionApplied[]
+
+  // Phase Tag Taxonomy v2 2026-05-31 (M57) — junction TagContact (Big-Bang Refactor).
+  // Chạy song song Contact.tags JSON cho dual-write Wave 3-4.
+  tagAssignments ContactTag[]
+
   @@unique([orgId, zaloGlobalId])
   @@index([orgId, phone])
   @@index([orgId, phoneNormalized])
@@ -554,6 +579,10 @@ model Conversation {
   unreadCount       Int       @default(0) @map("unread_count")
   isReplied         Boolean   @default(true) @map("is_replied")
   tab               String    @default("main") @map("tab") // main, other
+  // M53 (2026-05-30): Virtual conversation cho KH no-Zalo. isVirtual=true → chat-routes skip
+  // Zalo SDK send, lưu thẳng Message isLocal=true. externalThreadId synthetic 'virtual:{contactId}:{nickId}'.
+  // Memory M53: anh chốt Approach A — sale có 1 chỗ duy nhất xem TẤT CẢ KH trong /chat.
+  isVirtual         Boolean   @default(false) @map("is_virtual")
   createdAt         DateTime  @default(now()) @map("created_at")
 
   org           Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -617,6 +646,13 @@ model Message {
   // 'automation' = bot/sequence/broadcast/NBA suggest gửi qua engine
   // 'system' = CRM internal (reminder card, system notice — chưa dùng, reserved)
   sentVia         String    @default("user") @map("sent_via")
+  // M53 (2026-05-30): isLocal=true cho message KHÔNG gửi qua Zalo SDK (virtual conv hoặc AI assistant).
+  // Worker/metrics/automation aggregator phải filter WHERE isLocal=false. zaloMsgId synthetic 'local:{cuid}' để né NULL collision.
+  // senderType có thêm value 'ai_assistant' khi AI trợ lý reply trong virtual chat.
+  // metadata Json lưu extracted entities AI suggest: { extracted: {...}, confidenceScore, missingFields }
+  //   + M11 (2026-06-02): metadata.sender = { kind, name, detail?, sequenceId?, stepIdx? }
+  isLocal         Boolean   @default(false) @map("is_local")
+  metadata        Json?
   // ── Luồng Mục Tiêu M10/M11 attribution 2026-06-01 ──
   // automationTaskId = BullMQ jobId (string, KHÔNG FK vì AutomationTask đã drop).
   // Pattern: `${triggerId}-${contactId}-${stepIdx}` (DASH, BullMQ v5 cấm `:` — POC 2026-06-01).
@@ -863,6 +899,148 @@ model CrmTagGroup {
   @@unique([zaloAccountId, managedBy]) // 1 Zalo account chỉ có 1 zalo_sync group
   @@index([orgId, archivedAt])
   @@map("crm_tag_groups")
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAG TAXONOMY v2 — M57 /plan-eng-review Big-Bang Refactor (2026-05-31)
+// ═════════════════════════════════════════════════════════════════════════════
+// Gom 12 layer tag rải rác thành 2 nhóm: Friend Tag (per-pair) + CRM Tag (cấp KH).
+// 4 bảng mới: Tag (definition) + TagGroup (formal grouping) + FriendTag (junction
+// Friend × Tag) + ContactTag (junction Contact × Tag). Chạy song song legacy 5
+// cols (Contact.tags, Friend.crmTagsPerNick/zaloLabels/autoTags, Contact.autoTags)
+// trong Wave 3-4 dual-write, drop Wave 5.
+//
+// Scope split: TagScope.friend (per-pair sale × KH — Zalo Real, manual per-nick,
+// auto detect/score/engagement) vs TagScope.crm (cấp Contact — manual CRM, AI
+// suggest, segment rule, status workflow, import).
+
+enum TagScope {
+  friend
+  crm
+}
+
+enum TagSource {
+  zalo_real // Friend scope only — sync 2-way Zalo native label
+  manual_per_nick // Friend scope — sale gắn per nick
+  auto_detect // Friend scope — system auto (active/stuck/cold/...)
+  auto_score // Friend scope — derive leadScore tier (A/B/C/D)
+  auto_engagement // Friend scope — derive engagementPattern
+  manual_crm // CRM scope — sale gắn cấp KH
+  ai_suggest // CRM scope — AI Trợ Lý extract entity (M55)
+  segment_rule // CRM scope — admin-defined segment auto-apply
+  status // CRM scope — workflow status
+  import // CRM scope — bulk import CSV/Excel
+}
+
+// Tag definition — source of truth cho name, color, group, priority.
+// Constraint enforce trong migration SQL:
+//   - CHECK scope+source invariant (Issue 1A)
+//   - 2 partial unique (Issue 2A): zaloAccountId IS NULL vs NOT NULL
+//   - 3 perf indexes (Issue 9A): friend_id, tag_id, (slug, source) partial
+model Tag {
+  id          String    @id @default(uuid())
+  orgId       String    @map("org_id")
+  name        String // hiển thị: "VIP", "Khách Q4", "BĐS Hot"
+  slug        String // normalized: slugifyTag(name)
+  color       String    @default("#90A4AE")
+  emoji       String?
+  description String?
+  scope       TagScope
+  source      TagSource
+  priority    Int       @default(99) // 1=top, 99=bottom
+
+  // Group cha (optional) — replace CrmTagGroup.
+  groupId String? @map("group_id")
+
+  // Zalo sync metadata — chỉ set khi source=zalo_real.
+  // zaloAccountId NULL cho scope=crm + scope=friend(manual_per_nick/auto_*).
+  zaloAccountId     String? @map("zalo_account_id")
+  sourceZaloLabelId Int?    @map("source_zalo_label_id")
+
+  // Auto-tag metadata — chỉ relevant source=auto_*.
+  autoRule String? @map("auto_rule") // vd "leadScore >= 80"
+
+  archivedAt DateTime? @map("archived_at")
+  usageCount Int       @default(0) @map("usage_count")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  org                Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  group              TagGroup?    @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  friendAssignments  FriendTag[]
+  contactAssignments ContactTag[]
+
+  // Partial unique indexes định nghĩa trong migration SQL (Prisma không support trực tiếp):
+  //   CREATE UNIQUE INDEX tags_org_scope_slug_uniq ON tags(org_id, scope, slug) WHERE zalo_account_id IS NULL;
+  //   CREATE UNIQUE INDEX tags_org_account_label_uniq ON tags(org_id, zalo_account_id, source_zalo_label_id) WHERE zalo_account_id IS NOT NULL;
+
+  @@index([orgId, scope])
+  @@index([orgId, groupId])
+  @@index([archivedAt])
+  // Perf index Wave 1 (Issue 9A) — partial WHERE archivedAt IS NULL trong migration SQL.
+  @@map("tags")
+}
+
+// Group cha (replace CrmTagGroup) — formal grouping vd "Mức độ", "Dự án quan tâm".
+model TagGroup {
+  id         String    @id @default(uuid())
+  orgId      String    @map("org_id")
+  name       String
+  scope      TagScope
+  order      Int       @default(0)
+  archivedAt DateTime? @map("archived_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  tags Tag[]
+
+  @@unique([orgId, scope, name])
+  @@index([orgId, scope])
+  @@map("tag_groups")
+}
+
+// Junction Friend × Tag (replace crmTagsPerNick + zaloLabels + autoTags 3 cols).
+// Soft delete: removedAt + removedBy (audit trace).
+model FriendTag {
+  id        String    @id @default(uuid())
+  friendId  String    @map("friend_id")
+  tagId     String    @map("tag_id")
+  addedBy   String?   @map("added_by") // userId nếu manual, null nếu auto/worker
+  addedVia  TagSource @map("added_via") // enum match TagSource
+  addedAt   DateTime  @default(now()) @map("added_at")
+  removedAt DateTime? @map("removed_at")
+  removedBy String?   @map("removed_by")
+
+  friend Friend @relation(fields: [friendId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([friendId, tagId])
+  // Perf index Wave 1 (Issue 9A) — partial WHERE removed_at IS NULL trong migration SQL.
+  @@index([friendId, removedAt])
+  @@index([tagId, removedAt])
+  @@map("friend_tags")
+}
+
+// Junction Contact × Tag (replace Contact.tags JSON).
+model ContactTag {
+  id        String    @id @default(uuid())
+  contactId String    @map("contact_id")
+  tagId     String    @map("tag_id")
+  addedBy   String?   @map("added_by")
+  addedVia  TagSource @map("added_via")
+  addedAt   DateTime  @default(now()) @map("added_at")
+  removedAt DateTime? @map("removed_at")
+  removedBy String?   @map("removed_by")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, tagId])
+  @@index([contactId, removedAt])
+  @@index([tagId, removedAt])
+  @@map("contact_tags")
 }
 
 // Per-user preferences (timeline filter, UI toggles, ...).
@@ -1114,18 +1292,44 @@ model MessageTemplate {
 }
 
 model AiConfig {
-  id        String   @id @default(uuid())
-  orgId     String   @unique @map("org_id")
-  provider  String   @default("anthropic")
-  model     String   @default("claude-sonnet-4-6")
-  maxDaily  Int      @default(500) @map("max_daily")
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                          String   @id @default(uuid())
+  orgId                       String   @unique @map("org_id")
+  provider                    String   @default("anthropic")
+  model                       String   @default("claude-sonnet-4-6")
+  maxDaily                    Int      @default(500) @map("max_daily")
+  enabled                     Boolean  @default(true)
+  // M53 (2026-05-30): AI Trợ Lý cho Virtual Chat. Anh edit promptTemplate qua /settings/crm/ai-assistant.
+  // Default skip regex: "ok", "uhm", "ờ" — tránh gọi AI cho tin nhắn noise.
+  aiAssistantEnabled          Boolean  @default(true) @map("ai_assistant_enabled")
+  aiAssistantPromptTemplate   String?  @map("ai_assistant_prompt_template") @db.Text
+  aiAssistantSkipNoisePattern String   @default("^(ok|oke|okay|uhm|um|ờ|à|ừ|a|o|yes|no|y|n|\\.|\\.\\.|\\.\\.\\.)\\s*$") @map("ai_assistant_skip_noise_pattern")
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("ai_configs")
+}
+
+// M53 (2026-05-30): Audit log mỗi lần sale click "Áp dụng" trên AiSuggestionCard.
+// Lưu acceptedFields để track AI accuracy + replay nếu cần undo.
+model AiSuggestionApplied {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  contactId      String   @map("contact_id")
+  messageId      String   @map("message_id") // FK Message chứa AI suggestion (metadata.extracted)
+  userId         String   @map("user_id") // sale đã apply
+  acceptedFields Json     @map("accepted_fields") // [{field, oldValue, newValue}]
+  rejectedFields Json?    @map("rejected_fields") // optional, học pattern
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id])
+
+  @@index([orgId, contactId])
+  @@index([orgId, createdAt])
+  @@map("ai_suggestions_applied")
 }
 
 model AiSuggestion {
@@ -1334,6 +1538,10 @@ model Friend {
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   contact     Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
   zaloAccount ZaloAccount  @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
+
+  // Phase Tag Taxonomy v2 2026-05-31 (M57) — junction FriendTag (Big-Bang Refactor).
+  // Chạy song song Friend.crmTagsPerNick + zaloLabels + autoTags cho dual-write Wave 3-4.
+  tagAssignments FriendTag[]
 
   // KHÔNG unique theo (zaloAccountId, contactId) vì 1 Contact (KH Cha) có thể có
   // nhiều Friend per cùng zaloAccount khi merge từ các Zalo identity khác nhau
@@ -1812,23 +2020,28 @@ model AutomationSequence {
 // `ruleOverrides` JSON: override sequence.runtimeRules tại trigger level
 // (vd trigger sinh nhật chỉ chạy giờ 9-18).
 model AutomationTrigger {
-  id                  String   @id @default(uuid())
-  orgId               String   @map("org_id")
-  name                String
-  category            String   @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai' | 'manual'
-  eventType           String   @map("event_type")
-  eventFilter         Json?    @map("event_filter")
-  bindingKind         String   @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
-  sequenceId          String?  @map("sequence_id")
-  blockId             String?  @map("block_id")
-  broadcastId         String?  @map("broadcast_id")
-  segmentSpec         Json?    @map("segment_spec")
-  ruleOverrides       Json?    @map("rule_overrides")
-  enabled             Boolean  @default(true)
+  id                     String    @id @default(uuid())
+  orgId                  String    @map("org_id")
+  name                   String
+  category               String    @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai' | 'manual'
+  eventType              String    @map("event_type")
+  eventFilter            Json?     @map("event_filter")
+  bindingKind            String    @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
+  sequenceId             String?   @map("sequence_id")
+  blockId                String?   @map("block_id")
+  broadcastId            String?   @map("broadcast_id")
+  segmentSpec            Json?     @map("segment_spec")
+  ruleOverrides          Json?     @map("rule_overrides")
+  enabled                Boolean   @default(true)
   // Phase Friend Invite 2026-05-28 — successor sequence + greeting template
-  successorSequenceId String?  @map("successor_sequence_id")
-  greetingTemplate    String?  @map("greeting_template") @db.Text
-  state               String   @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed'
+  successorSequenceId    String?   @map("successor_sequence_id")
+  greetingTemplate       String?   @map("greeting_template") @db.Text
+  // Wave 2 2026-05-29 — per-trigger welcome probe (split from Org-level)
+  welcomeMessageTemplate String?   @map("welcome_message_template") @db.Text
+  welcomeDelaySeconds    Int       @default(60) @map("welcome_delay_seconds")
+  state                  String    @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed' (UI derive 'scheduled' khi state=draft + scheduledAt set)
+  // BE T4 2026-05-30 — friend-invite lên lịch hẹn giờ. NULL = activate ngay khi gọi /activate.
+  scheduledAt            DateTime? @map("scheduled_at")
 
   // ── Luồng Mục Tiêu rebuild 2026-06-01 (Marketing BullMQ Rebuild M0) ──
   // P1: Delay sau khi gửi lời mời → step 1 bám đuổi (phút). Cấu hình per-trigger qua Wizard B3.
@@ -1864,6 +2077,8 @@ model AutomationTrigger {
 
   @@index([orgId, eventType, enabled])
   @@index([orgId, category])
+  // Wave 2 cron sweep — scheduled_at activate
+  @@index([state, scheduledAt])
   // M9 — quick lookup system trigger per org
   @@index([systemKind])
   @@map("automation_triggers")
@@ -1969,22 +2184,36 @@ model AutomationCampaign {
 //
 // Migration: 20260601193019_automation_event_log
 model AutomationEventLog {
-  id        String   @id @default(uuid())
-  orgId     String   @map("org_id")
-  triggerId String?  @map("trigger_id")
-  contactId String?  @map("contact_id")
-  nickId    String?  @map("nick_id")
-  eventType String   @map("event_type")
-  detail    String?
-  metadata  Json?
-  createdAt DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  // Wave 3 (2026-05-30): triggerId required cho timeline UI Mục tiêu Detail.
+  // Luồng Mục Tiêu M3 (2026-06-01): optional cho manual events.
+  triggerId     String?  @map("trigger_id")
+  // Wave 3 fields cho audit task lifecycle
+  taskId        String?  @map("task_id")
+  contactId     String?  @map("contact_id")
+  nickId        String?  @map("nick_id")
+  eventType     String   @map("event_type")
+  // Wave 3: info | warning | urgent — UI tô màu chip + sort order trong timeline
+  eventPriority String   @default("info") @map("event_priority")
+  // Wave 3 dùng summary (rich text); Luồng Mục Tiêu M3 dùng detail (shorter).
+  // Cả hai cùng tồn tại để backward compat — code mới dùng detail, code Wave 3 dùng summary.
+  summary       String?  @db.Text
+  detail        String?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
 
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
+  // Luồng Mục Tiêu M3 indexes
   @@index([triggerId, contactId, eventType], map: "idx_automation_event_log_trigger_contact_type")
   @@index([eventType, createdAt(sort: Desc)], map: "idx_automation_event_log_type_created")
   @@index([orgId, eventType, createdAt(sort: Desc)], map: "idx_automation_event_log_org_type_created")
   @@index([contactId, createdAt(sort: Desc)], map: "idx_automation_event_log_contact_created")
+  // Wave 3 indexes
+  @@index([triggerId, createdAt(sort: Desc)], map: "idx_event_log_trigger_time")
+  @@index([orgId, createdAt(sort: Desc)], map: "idx_event_log_org_time")
+  @@index([eventType], map: "idx_event_log_type")
   @@map("automation_event_log")
 }
 
@@ -2464,6 +2693,39 @@ model FacebookPageAccount {
   @@map("facebook_page_accounts")
 }
 
+// Phase FB Pull 2026-05-30 — registry mỗi leadgen_form của Page + checkpoint cho
+// incremental pull. Watermark lastPulledLeadCreatedTime là checkpoint chính (bền vững
+// hơn Graph cursor giữa các tick). Cursor chỉ phân trang trong cùng 1 lần pull.
+model FacebookLeadgenForm {
+  id       String  @id @default(uuid())
+  orgId    String  @map("org_id")
+  pageId   String  @map("page_id") // FK logic tới FacebookPageAccount.pageId
+  formId   String  @map("form_id") // FB leadgen form ID
+  formName String? @map("form_name")
+  status   String  @default("active") // 'active' | 'archived' | 'deleted'
+
+  // Checkpoint incremental pull
+  lastPulledLeadCreatedTime DateTime? @map("last_pulled_lead_created_time") // watermark (UTC)
+  lastPulledCursor          String?   @map("last_pulled_cursor") @db.Text // Graph "after" cursor
+  lastPullAt                DateTime? @map("last_pull_at")
+  lastPullLeadCount         Int       @default(0) @map("last_pull_lead_count")
+  lastPullError             String?   @map("last_pull_error") @db.Text
+  consecutiveErrors         Int       @default(0) @map("consecutive_errors")
+  // historyBackfilled=false → lần pull tiếp theo kéo TOÀN BỘ lead lịch sử (anh chốt kéo lead cũ).
+  // Sau khi backfill xong → true, các tick sau chỉ kéo lead mới qua watermark.
+  historyBackfilled         Boolean   @default(false) @map("history_backfilled")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, formId])
+  @@index([orgId, status])
+  @@index([status, lastPullAt])
+  @@map("facebook_leadgen_forms")
+}
+
 // Outbox + audit cho mọi webhook delivery từ ad-network. Idempotent qua
 // externalLeadId unique. processingSteps = timing trace cho Phase 2 timeline UI.
 // orgId nullable cho early-error stage (page chưa connect). createdEntryId fill
@@ -2556,13 +2818,13 @@ model FriendRequestOutbox {
   createdAt               DateTime  @default(now()) @map("created_at")
 
   // Wave 2 Welcome Probe 2026-05-29 — outbox cũng dùng cho welcome task sau friend accept
-  kind                    String    @default("FRIEND_REQUEST") @map("kind") // FRIEND_REQUEST | WELCOME
-  parentTaskId            String?   @map("parent_task_id") // link welcome → friend_request gốc
-  allowStrangerMessage    Boolean   @default(false) @map("allow_stranger_message")
-  welcomeOutcome          String?   @map("welcome_outcome") // sent | retry | dropped | blocked
-  welcomeSentAt           DateTime? @map("welcome_sent_at")
-  welcomeRetryCount       Int       @default(0) @map("welcome_retry_count")
-  welcomeLastError        String?   @map("welcome_last_error") @db.Text
+  kind                 String    @default("FRIEND_REQUEST") @map("kind") // FRIEND_REQUEST | WELCOME
+  parentTaskId         String?   @map("parent_task_id") // link welcome → friend_request gốc
+  allowStrangerMessage Boolean   @default(false) @map("allow_stranger_message")
+  welcomeOutcome       String?   @map("welcome_outcome") // sent | retry | dropped | blocked
+  welcomeSentAt        DateTime? @map("welcome_sent_at")
+  welcomeRetryCount    Int       @default(0) @map("welcome_retry_count")
+  welcomeLastError     String?   @map("welcome_last_error") @db.Text
 
   // Legacy unique constraint từ Wave 2 Welcome Probe (di sản DB).
   // Declare lại trong schema để Prisma db push không cố drop khi restart container.
@@ -2573,3 +2835,5 @@ model FriendRequestOutbox {
   @@index([welcomeOutcome], map: "idx_outbox_welcome_outcome")
   @@map("friend_request_outbox")
 }
+
+// (Wave 3 Event Log model định nghĩa trước đã merge với Luồng Mục Tiêu M3 model ở dòng 2186)

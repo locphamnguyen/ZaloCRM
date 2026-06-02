@@ -23,6 +23,8 @@ import {
 } from './list-system-messages.js';
 import { randomUUID } from 'node:crypto';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { onPhoneUidResolved } from './list-event-handlers.js';
+import { zaloOps } from '../../../shared/zalo-operations.js';
 
 type EntryStatusTab =
   | 'all'
@@ -536,6 +538,84 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
     },
   );
 
+  // ─── POST /customer-lists/:id/entries/:entryId/find-zalo ───
+  // Phase 2026-05-30 — Sale bấm "Tìm Zalo" thủ công cho 1 lead bằng nick chọn từ popup.
+  // HỢP LỆ (thủ công 1 KH/1 click, KHÔNG vi phạm cấm auto-quét). Tìm ra → update entry
+  // qua onPhoneUidResolved. Không ra → đánh dấu hasZalo=false (anh chốt 2026-05-30).
+  app.post<{ Params: { id: string; entryId: string }; Body: { zaloAccountId?: string } }>(
+    '/api/v1/customer-lists/:id/entries/:entryId/find-zalo',
+    async (request, reply) => {
+      const user = request.user!;
+      const { id, entryId } = request.params;
+      const { zaloAccountId } = request.body ?? {};
+      if (!zaloAccountId) return reply.status(400).send({ error: 'zaloAccountId required' });
+
+      const entry = await prisma.customerListEntry.findFirst({
+        where: { id: entryId, customerListId: id, customerList: { orgId: user.orgId } },
+        select: { id: true, phoneE164: true, phoneRaw: true, phoneValid: true },
+      });
+      if (!entry) return reply.status(404).send({ error: 'entry_not_found' });
+      if (!entry.phoneValid || !entry.phoneE164) {
+        return reply.status(400).send({ error: 'phone_invalid', detail: 'SĐT chưa hợp lệ, sửa số trước khi tìm Zalo' });
+      }
+
+      // Check quyền nick: nick phải thuộc org user (zaloOps.findUser tự verify connect)
+      const nick = await prisma.zaloAccount.findFirst({
+        where: { id: zaloAccountId, orgId: user.orgId },
+        select: { id: true },
+      });
+      if (!nick) return reply.status(403).send({ error: 'nick_not_allowed', detail: 'Bạn không có quyền dùng nick này' });
+
+      const phone = entry.phoneE164.replace(/[^\d]/g, ''); // "84xxx"
+      try {
+        const result = await zaloOps.findUser(zaloAccountId, phone);
+        const u = (result as Record<string, unknown>) || {};
+        const uid = String(u.uid || u.userId || '') || null;
+
+        if (!uid) {
+          // Không ra Zalo → đánh dấu hasZalo=false (anh chốt). Chỉ entry này + status.
+          await prisma.customerListEntry.updateMany({
+            where: { id: entryId, customerListId: id },
+            data: { hasZalo: false, status: 'enriched', enrichedAt: new Date() },
+          });
+          await recomputeListCounters(id);
+          return reply.send({ found: false, reason: 'no_zalo', detail: 'SĐT này không có Zalo' });
+        }
+
+        // Tìm ra → update tất cả entry cùng SĐT qua handler có sẵn (idempotent)
+        await onPhoneUidResolved({
+          orgId: user.orgId,
+          phoneNormalized: phone,
+          zaloUidInNick: uid,
+          zaloAccountId,
+          zaloGlobalId: String(u.globalId || '') || null,
+          zaloDisplayName: String(u.zaloName || u.displayName || u.display_name || '') || null,
+        });
+        return reply.send({
+          found: true,
+          uid,
+          zaloName: String(u.zaloName || u.displayName || '') || null,
+          avatar: String(u.avatar || '') || null,
+        });
+      } catch (err: unknown) {
+        const e = err as { code?: string; message?: string };
+        if (e?.code === 'NOT_CONNECTED' || e?.code === 'RATE_LIMITED') {
+          const isNotConnected = e.code === 'NOT_CONNECTED';
+          return reply.status(503).send({
+            error: e.code,
+            detail: isNotConnected
+              ? 'Nick Zalo chưa kết nối. Vào "Quản lý nick" kết nối lại.'
+              : 'Đã đạt giới hạn tra cứu Zalo, thử lại sau vài phút.',
+            userFriendly: isNotConnected ? 'Nick Zalo chưa kết nối' : 'Đã đạt giới hạn tra cứu Zalo',
+          });
+        }
+        // Lỗi khác = coi như không tìm thấy
+        logger.warn({ err, entryId, zaloAccountId }, '[find-zalo] lookup failed');
+        return reply.send({ found: false, reason: 'lookup_failed', detail: String(e?.message || err) });
+      }
+    },
+  );
+
   // ─── GET /customer-list-entries/:entryId/lead-detail ───
   // Phase Multi-Source Lead Ads Phase 2 2026-05-27 — full Lead detail panel.
   // Trả về entry + list + webhookLog (timing) + campaignStats. Adaptive: section
@@ -613,12 +693,21 @@ export async function customerListEntryRoutes(app: FastifyInstance): Promise<voi
             rowIndex: entry.rowIndex,
             phoneRaw: entry.phoneRaw,
             nameRaw: entry.nameRaw,
+            phoneE164: entry.phoneE164,
+            phoneLocal: entry.phoneLocal,
+            phoneValid: entry.phoneValid,
             personalNote: entry.personalNote,
             customFields: entry.customFields,
             sourceMeta: entry.sourceMeta,
             status: entry.status,
             hasZalo: entry.hasZalo,
+            zaloUid: entry.zaloUid,
+            zaloName: entry.zaloName,
+            zaloGlobalId: entry.zaloGlobalId,
+            resolvedByNickId: entry.resolvedByNickId,
+            contactId: entry.contactId,
             createdAt: entry.createdAt,
+            enrichedAt: entry.enrichedAt,
           },
           list: entry.customerList,
           webhookLog,

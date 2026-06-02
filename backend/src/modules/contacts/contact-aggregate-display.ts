@@ -176,4 +176,16 @@ export const AGGREGATE_INCLUDE = {
     include: FRIEND_INCLUDE,
     orderBy: { lastInboundAt: { sort: 'desc', nulls: 'last' } },
   },
+  // M55 2026-05-30: include ContactAccess để render counter "Cùng chăm" +
+  // avatar stack cho KH no-Zalo (vốn không có Friend). Limit 10 để tránh bloat.
+  contactAccess: {
+    select: {
+      role: true,
+      source: true,
+      createdAt: true,
+      user: { select: { id: true, fullName: true, email: true } },
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 10,
+  },
 } as const;

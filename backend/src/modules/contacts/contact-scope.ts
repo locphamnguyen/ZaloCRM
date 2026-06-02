@@ -167,3 +167,82 @@ export async function ensureContactCollaborator(args: {
     // best-effort, nuốt lỗi
   }
 }
+
+/**
+ * M55 2026-05-30: Attach ContactAccess.collaborator theo userId trực tiếp.
+ * Dùng khi sale touch KH no-Zalo (add trùng SĐT, mở virtual chat, gửi tin
+ * trong virtual conv). Idempotent — skip nếu user đã là primary hoặc đã
+ * có ContactAccess. Best-effort: nuốt lỗi để không block flow.
+ */
+export async function attachContactCollaboratorByUser(args: {
+  orgId: string;
+  contactId: string;
+  userId: string;
+  source: string; // 'quick_add_duplicate' | 'virtual_chat_open' | 'virtual_chat_message' | ...
+}): Promise<void> {
+  try {
+    // Check user thuộc org
+    const user = await prisma.user.findFirst({
+      where: { id: args.userId, orgId: args.orgId },
+      select: { id: true },
+    });
+    if (!user) return;
+
+    // Idempotent upsert — giữ role primary nếu đã có
+    const result = await prisma.contactAccess.upsert({
+      where: { contactId_userId: { contactId: args.contactId, userId: args.userId } },
+      update: {}, // no-op
+      create: {
+        orgId: args.orgId,
+        contactId: args.contactId,
+        userId: args.userId,
+        role: 'collaborator',
+        source: args.source,
+      },
+    });
+
+    // M57 v2 2026-06-01: trigger recompute auto-tag "Cùng chăm" sau khi
+    // ContactAccess count có thể đổi. Fire-and-forget, không block flow.
+    if (result) {
+      void (async () => {
+        try {
+          const { recomputeCungChamTag } = await import('../tags/cung-cham-tag-service.js');
+          await recomputeCungChamTag(args.contactId);
+        } catch {
+          /* best-effort */
+        }
+      })();
+    }
+  } catch {
+    // best-effort
+  }
+}
+
+/**
+ * M55 2026-05-30: Kiểm tra user có quyền EDIT contact không.
+ * Org admin/owner luôn pass. User khác phải có ContactAccess (role
+ * primary hoặc collaborator). Throw 403 nếu không có quyền.
+ */
+export async function assertContactEditable(args: {
+  userId: string;
+  orgId: string;
+  legacyRole: string;
+  contactId: string;
+}): Promise<void> {
+  // Org admin/owner luôn có quyền
+  if (args.legacyRole === 'owner' || args.legacyRole === 'admin') return;
+
+  // Check ContactAccess
+  const access = await prisma.contactAccess.findUnique({
+    where: { contactId_userId: { contactId: args.contactId, userId: args.userId } },
+    select: { role: true },
+  });
+
+  if (!access) {
+    const err = new Error('KH này không thuộc danh sách chăm của bạn — không thể sửa thông tin');
+    (err as any).statusCode = 403;
+    (err as any).code = 'CONTACT_EDIT_FORBIDDEN';
+    throw err;
+  }
+  // primary + collaborator đều full-edit như nhau (M55: không phân quyền theo role)
+}

@@ -16,8 +16,6 @@
 //   (spike #3 verified). Multi-instance setup: instance B sees lock taken
 //   by instance A → 0 worker spawn → log warning.
 
-import { randomUUID } from 'crypto';
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { zaloOps } from '../../../shared/zalo-operations.js';
@@ -25,6 +23,7 @@ import { resolveOrCreateContact } from '../../contacts/resolve-contact.js';
 import { applyFriendTransition } from '../../zalo/friend-event-handler.js';
 import { nickWorkerLockKey } from './fnv1a.js';
 import { claimNextEntry, markEntrySent, releaseEntryFailed } from './pool-query.js';
+import { logEvent } from './event-log-service.js';
 
 // Test mode: 1 phút cố định (anh chốt cho test loop)
 // Prod mode: 20-40 phút random (anh chốt design)
@@ -67,13 +66,28 @@ async function recoverTodayCount(nickId: string): Promise<number> {
 }
 
 /**
- * Working hours check — 6-22h Asia/Ho_Chi_Minh (anh chốt).
+ * Working hours check — đọc từ Sequence.runtimeRules.allowedHourRange [start, end] (giờ VN).
+ * Anh có thể chỉnh trong UI Sequence. Default 6h-22h nếu không có sequence hoặc rule.
+ *
+ * Fix 2026-05-30: hardcode 6-22 trước đây bỏ qua cấu hình UI của anh — gây bug worker
+ * silent return khi anh chỉnh 23h trong Sequence nhưng vẫn bị chặn lúc 22:01.
  */
-function isWithinWorkingHours(): boolean {
+function getAllowedHourRange(runtimeRules: unknown): [number, number] {
+  const rules = runtimeRules as { allowedHourRange?: [number, number] } | null | undefined;
+  const range = rules?.allowedHourRange;
+  if (Array.isArray(range) && range.length === 2 && typeof range[0] === 'number' && typeof range[1] === 'number') {
+    return [range[0], range[1]];
+  }
+  return [6, 22]; // default conservative
+}
+
+function isWithinWorkingHours(allowedRange: [number, number] = [6, 22]): boolean {
   // Asia/Ho_Chi_Minh = UTC+7
   const now = new Date();
   const vnHour = (now.getUTCHours() + 7) % 24;
-  return vnHour >= 6 && vnHour < 22;
+  // Fix 2026-05-30 23:08 — vnHour <= end (inclusive) thay vì <: anh chỉnh 23h
+  // trong UI nghĩa là "tới hết 23h59", không phải block ngay khi đồng hồ sang 23:00.
+  return vnHour >= allowedRange[0] && vnHour <= allowedRange[1];
 }
 
 /**
@@ -232,16 +246,38 @@ async function runTick(nickId: string): Promise<void> {
   if (!worker) return;
   if (worker.isBusy) return; // skip if previous tick still running
 
-  // Gate 1: working hours
-  if (!isWithinWorkingHours()) {
-    logger.debug(`[nick-worker] ${nickId} skip tick: outside working hours (6-22h VN)`);
+  // Gate 1: working hours — đọc UNION allowedHourRange từ các Sequence của active
+  // triggers dùng nick này. Mở rộng nhất (min start, max end) để 1 nick phục vụ
+  // nhiều Sequence cấu hình giờ khác nhau (vd anh chỉnh 23h cho 1 Sequence test).
+  const activeRules = await prisma.automationSequence.findMany({
+    where: {
+      triggers: {
+        some: {
+          // Fix 2026-05-30 22:55 — bỏ filter state='active' để áp dụng giờ làm việc
+          // cho cả outbox của trigger đã completed (workflow vẫn cần welcome + bám đuổi).
+          eventType: 'friend_invite_to_list',
+          segmentSpec: { path: ['nickIds'], array_contains: nickId },
+        },
+      },
+    },
+    select: { runtimeRules: true },
+  }).catch(() => [] as Array<{ runtimeRules: unknown }>);
+  let unionStart = 24, unionEnd = 0;
+  for (const seq of activeRules) {
+    const [s, e] = getAllowedHourRange(seq.runtimeRules);
+    if (s < unionStart) unionStart = s;
+    if (e > unionEnd) unionEnd = e;
+  }
+  const effectiveRange: [number, number] = activeRules.length > 0 ? [unionStart, unionEnd] : [6, 22];
+  if (!isWithinWorkingHours(effectiveRange)) {
+    logger.debug(`[nick-worker] ${nickId} skip tick: outside working hours ${effectiveRange[0]}-${effectiveRange[1]}h VN`);
     return;
   }
 
   // Gate 2: daily cap (friend-request)
   const nick = await prisma.zaloAccount.findUnique({
     where: { id: nickId },
-    select: { dailyFriendAddCap: true, status: true },
+    select: { dailyFriendAddCap: true, status: true, displayName: true },
   });
   if (!nick) {
     logger.warn(`[nick-worker] ${nickId} not found, stopping worker`);
@@ -408,25 +444,25 @@ async function runTick(nickId: string): Promise<void> {
           sequenceSnapshot: null,
           zaloLeadgenId: 'already_friend',
           isTentative: false,
+          kind: 'FRIEND_REQUEST',
         });
-        // Wave 2: Enqueue welcome probe to gate Phase 2 enrollment.
-        // Welcome gửi independent of friend-request response (no waiting for accept).
-        await prisma.friendRequestOutbox.create({
-          data: {
-            id: randomUUID(),
-            customerListEntryId: entry.id,
+        worker.todayCount++;
+        // Wave 3 Event Log — log "already friend" path để anh thấy trong tab Log sự kiện.
+        // Fix 2026-05-30: trước đây path này silent, anh tưởng worker không chạy.
+        {
+          const cd = resolvedDisplayName?.trim() || entry.nameRaw?.trim() || entry.phoneE164 || 'KH';
+          const nd = nick.displayName?.trim() || nickId.slice(0, 8);
+          void logEvent({
+            orgId: worker.orgId,
             triggerId: entry.triggerId,
             contactId,
             nickId,
-            kind: 'WELCOME_PROBE',
-            parentTaskId: null,
-            allowStrangerMessage: true,
-            sendStatus: 'success',
-            successorSequenceId: trigger.successorSequenceId,
-            sequenceVersionSnapshot: Prisma.JsonNull,
-          },
-        }).catch(err => logger.warn('[nick-worker] welcome-probe enqueue failed:', err));
-        worker.todayCount++;
+            eventType: 'friend_already',
+            eventPriority: 'info',
+            summary: `${cd} đã là bạn với nick ${nd} — bỏ qua bước kết bạn, chuyển sang bám đuổi (row #${entry.rowIndex})`,
+            metadata: { rowIndex: entry.rowIndex, phoneE164: entry.phoneE164 },
+          });
+        }
         return;
       }
 
@@ -489,25 +525,8 @@ async function runTick(nickId: string): Promise<void> {
       sequenceSnapshot: null, // drainer re-fetches sequence at materialize time
       zaloLeadgenId,
       isTentative,
+      kind: 'FRIEND_REQUEST',
     });
-
-    // Wave 2: Enqueue welcome probe to gate Phase 2 enrollment.
-    // Welcome gửi independent of friend-request response (no waiting for accept).
-    await prisma.friendRequestOutbox.create({
-      data: {
-        id: randomUUID(),
-        customerListEntryId: entry.id,
-        triggerId: entry.triggerId,
-        contactId,
-        nickId,
-        kind: 'WELCOME_PROBE',
-        parentTaskId: null,
-        allowStrangerMessage: true,
-        sendStatus: 'success',
-        successorSequenceId: trigger.successorSequenceId,
-        sequenceVersionSnapshot: Prisma.JsonNull,
-      },
-    }).catch(err => logger.warn('[nick-worker] welcome-probe enqueue failed:', err));
 
     // Update worker state
     worker.todayCount++;
@@ -521,6 +540,27 @@ async function runTick(nickId: string): Promise<void> {
     logger.info(
       `[nick-worker] ${nickId} entry=${entry.id} sent OK leadgen=${zaloLeadgenId} todayCount=${worker.todayCount}/${nick.dailyFriendAddCap}`,
     );
+
+    // Wave 3 Event Log — friend_sent event cho Mục tiêu timeline.
+    // Fire-and-forget: KHÔNG await, KHÔNG throw.
+    const contactDisplayForLog =
+      resolvedDisplayName?.trim() || entry.nameRaw?.trim() || entry.phoneE164 || 'KH';
+    const nickDisplayForLog = nick.displayName?.trim() || nickId.slice(0, 8);
+    void logEvent({
+      orgId: worker.orgId,
+      triggerId: entry.triggerId,
+      contactId,
+      nickId,
+      eventType: 'friend_sent',
+      eventPriority: 'info',
+      summary: `Nick ${nickDisplayForLog} gửi lời kết bạn tới ${contactDisplayForLog} (row #${entry.rowIndex})`,
+      metadata: {
+        rowIndex: entry.rowIndex,
+        zaloLeadgenId,
+        isTentative,
+        phoneE164: entry.phoneE164,
+      },
+    });
   } finally {
     worker.isBusy = false;
   }

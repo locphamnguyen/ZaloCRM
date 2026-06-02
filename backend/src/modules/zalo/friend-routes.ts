@@ -312,7 +312,20 @@ export async function friendRoutes(app: FastifyInstance) {
       // ZaloApiError code 216 = no Zalo for phone (zca-js có thể throw thay vì trả empty)
       if (e?.code === 'NOT_CONNECTED' || e?.code === 'RATE_LIMITED') {
         await logEvent('rate_limited', null, e.code);
-        return reply.status(503).send({ error: e.code, detail: e.message });
+        // M55.3 2026-05-30: dịch message tiếng Việt sale-friendly thay tiếng Anh raw.
+        // NOT_CONNECTED = nick CRM của sale chưa kết nối Zalo (không phải KH chặn).
+        // userFriendly = label hiện toast nhỏ cho sale, detail = action message.
+        const isNotConnected = e.code === 'NOT_CONNECTED';
+        return reply.status(503).send({
+          error: e.code,
+          detail: isNotConnected
+            ? 'Nick Zalo của anh chưa kết nối. Vào "Quản lý nick" để kết nối lại, hoặc chuyển sang chat nội bộ với KH.'
+            : 'Nick đã bị Zalo chặn tạm thời (quá nhiều lượt tra cứu). Vui lòng thử lại sau vài phút.',
+          userFriendly: isNotConnected
+            ? 'KH chưa bật tìm kiếm Zalo công khai'
+            : 'Đã đạt giới hạn tra cứu Zalo',
+          suggestVirtualChat: isNotConnected,
+        });
       }
       // Default: treat as not found (Zalo phổ biến throw cho phone lạ)
       await logEvent('no_zalo', null, e?.code ?? null);

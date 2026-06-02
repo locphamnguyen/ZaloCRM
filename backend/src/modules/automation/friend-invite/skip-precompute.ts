@@ -59,14 +59,47 @@ export async function precomputeAndSeedPool(input: {
   const { triggerId, orgId, spec } = input;
   const { recencyDays, friendCap, entryStatuses } = spec.skipRules;
 
-  // 1. Set triggerId on entries (if not yet set) — claim ownership
+  // 1. Release entries owned by completed/cancelled triggers (Bug fix 2026-05-30)
+  //    Khi Mục tiêu cũ đã 'completed' hoặc 'cancelled', entries của nó vẫn giữ triggerId
+  //    cũ → Mục tiêu mới không claim được → 0 entry → không bao giờ chạy.
+  //    Pattern: release đầu tiên rồi mới claim.
+  await prisma.$executeRawUnsafe(
+    `
+    UPDATE customer_list_entries e
+    SET trigger_id = NULL
+    WHERE e.customer_list_id = $1
+      AND e.trigger_id IS NOT NULL
+      AND EXISTS (
+        SELECT 1 FROM automation_triggers t
+        WHERE t.id = e.trigger_id
+          AND t.state IN ('completed', 'cancelled', 'archived')
+      )
+    `,
+    spec.listId,
+  );
+
+  // 2. Set triggerId on entries (if not yet set) — claim ownership
+  //    Chỉ claim entry chưa có owner ACTIVE — entry đang thuộc trigger active/draft/paused
+  //    của Mục tiêu khác phải giữ nguyên (tránh 2 Mục tiêu giành cùng KH).
+  //
+  //    Bug fix 2026-05-30 #2: RESET failedNickIds + stuckRecoveryCount + claimedByNickId
+  //    cho entries claim mới. Lý do: failedNickIds tích lũy từ các Mục tiêu cũ → nếu cả
+  //    2 nick cùng có trong failedNickIds → Mục tiêu mới mark tất cả entries
+  //    'failed_permanent' ngay (xem pool-query.ts:73-74 — claimNextEntry yêu cầu
+  //    NOT failedNickIds @> [nickId]). Mục tiêu mới có thể đã đổi nick / template /
+  //    thời điểm — phải retry sạch.
   await prisma.customerListEntry.updateMany({
     where: {
       customerListId: spec.listId,
-      // Don't overwrite if already in another active trigger
       triggerId: null,
     },
-    data: { triggerId },
+    data: {
+      triggerId,
+      failedNickIds: [],
+      claimedByNickId: null,
+      lockedAt: null,
+      stuckRecoveryCount: 0,
+    },
   });
 
   // 2. Scoped batch UPDATE with CTE — per spike #1 query plan verified

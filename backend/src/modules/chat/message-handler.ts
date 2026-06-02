@@ -12,6 +12,7 @@ import { onInboundMessage as onInboundScoring, onOutboundMessage as onOutboundSc
 import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
+import { logEvent as logAutomationEvent } from '../automation/friend-invite/event-log-service.js';
 
 export interface IncomingMessage {
   accountId: string;
@@ -527,6 +528,99 @@ export async function handleIncomingMessage(
           : null,
         message: { id: message.id, content: message.content, contentType: message.contentType, senderType: message.senderType },
       });
+
+      // Wave 3 Event Log — customer_reply (KH trả lời, Mục tiêu dừng chuỗi).
+      // Hook sau runAutomationRules để KHÔNG block phase chính. Filter 1-1 theo memory
+      // feedback_crm_filter_1to1_not_group — bỏ qua group threads.
+      if (
+        contactId &&
+        conversationDetails?.threadType === 'user' &&
+        message.contentType === 'text'
+      ) {
+        void (async () => {
+          try {
+            // Tìm trigger Mục tiêu đang chạy cho (contact, nick) — outbox gần nhất.
+            const outbox = await prisma.friendRequestOutbox.findFirst({
+              where: {
+                contactId,
+                nickId: msg.accountId,
+                kind: 'FRIEND_REQUEST',
+              },
+              select: { triggerId: true },
+              orderBy: { createdAt: 'desc' },
+            });
+            if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu
+
+            const contactDisplay =
+              contact?.crmName?.trim() || contact?.fullName?.trim() || contact?.phone || 'KH';
+
+            void logAutomationEvent({
+              orgId: account.orgId,
+              triggerId: outbox.triggerId,
+              contactId,
+              nickId: msg.accountId,
+              eventType: 'customer_reply',
+              eventPriority: 'urgent',
+              summary: `🔥 ${contactDisplay} vừa trả lời chuỗi bám đuổi — Mục tiêu dừng`,
+              metadata: {
+                messageId: message.id,
+                conversationId: conversation.id,
+                contentPreview: (message.content ?? '').slice(0, 120),
+              },
+            });
+
+            // Wave 3 2026-05-30 — Update CustomerListEntry.queueStatus='customer_reply'
+            // để FE chip "🛑 KH reply" + counter customer_reply có thể filter qua
+            // ?status=customer_reply. Guard whereInclude tránh ghi đè terminal state
+            // (customer_block, converted_lead, cancelled) hoặc trùng lặp (customer_reply).
+            try {
+              await prisma.customerListEntry.updateMany({
+                where: {
+                  triggerId: outbox.triggerId,
+                  contactId,
+                  queueStatus: {
+                    notIn: ['customer_reply', 'customer_block', 'converted_lead', 'cancelled'],
+                  },
+                },
+                data: { queueStatus: 'customer_reply', updatedAt: new Date() },
+              });
+            } catch (updErr) {
+              logger.warn('[message-handler] customer_reply entry update failed:', updErr);
+            }
+
+            // Wave 3 CRITICAL #1 2026-05-30 — Dừng task chuỗi bám đuổi đang queued/running
+            // cho KH này (cả sequence gốc + successor). KH đã trả lời → KHÔNG còn lý do
+            // bám đuổi, tránh spam tiếp khi sale đã tiếp quản.
+            try {
+              const trigger = await prisma.automationTrigger.findUnique({
+                where: { id: outbox.triggerId },
+                select: { sequenceId: true, successorSequenceId: true },
+              });
+              const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
+              if (sequenceIds.length > 0) {
+                const stopped = await (prisma as any).automationTask.updateMany({
+                  where: {
+                    contactId,
+                    sequenceId: { in: sequenceIds },
+                    state: { in: ['queued', 'running'] },
+                  },
+                  data: {
+                    state: 'cancelled',
+                    skipReason: 'customer_reply',
+                  },
+                });
+                if (stopped.count > 0) {
+                  logger.info(`[message-handler] customer_reply stopped ${stopped.count} task(s) for contact=${contactId}`);
+                }
+              }
+            } catch (err) {
+              logger.warn('[message-handler] stop tasks on reply failed:', err);
+            }
+          } catch (err) {
+            logger.warn('[message-handler] customer_reply event-log failed:', err);
+          }
+        })();
+      }
 
       // Phase 7 — emit AutomationEvent for engine triggers.
       // Detect first_message_received (contact has 0 prior inbound msgs from this nick)

@@ -105,8 +105,25 @@ export async function markEntrySent(input: {
   sequenceSnapshot: unknown | null;
   zaloLeadgenId: string;
   isTentative: boolean;
+  kind?: string;
 }): Promise<void> {
+  // Default kind = 'FRIEND_REQUEST' for Wave 1 friend invite flow.
+  // Welcome-probe-worker enqueues a separate WELCOME_PROBE row AFTER friend accept
+  // (or here, alongside, if explicitly requested). Defaulting to WELCOME_PROBE was a
+  // Wave 2 regression that caused the welcome worker to send before the friend
+  // request was accepted, and broke P2002 composite unique on retries.
+  const kind = input.kind ?? 'FRIEND_REQUEST';
   await prisma.$transaction(async (tx) => {
+    // Fix 2026-05-30 23:35 — re-test cùng KH trên trigger mới phải reset outbox cũ
+    // (composite unique entry+kind chặn create row mới). Pattern: delete outbox của
+    // trigger CŨ trước upsert nếu workflow của trigger mới. Idempotent: nếu cùng
+    // triggerId thì upsert tiếp tục no-op như cũ.
+    await tx.friendRequestOutbox.deleteMany({
+      where: {
+        customerListEntryId: input.entryId,
+        triggerId: { not: input.triggerId },
+      },
+    });
     await tx.customerListEntry.update({
       where: { id: input.entryId },
       data: {
@@ -116,8 +133,18 @@ export async function markEntrySent(input: {
         // Phase Friend Invite uses Outbox.createdAt as send timestamp.
       },
     });
-    await tx.friendRequestOutbox.create({
-      data: {
+    // Upsert (idempotent) on composite unique [customerListEntryId, kind].
+    // P2002 was firing whenever a retry of an already-sent entry re-entered this
+    // path (rare under normal flow, but happens after worker restart while an
+    // entry was mid-tick). upsert lets the retry no-op safely.
+    await tx.friendRequestOutbox.upsert({
+      where: {
+        customerListEntryId_kind: {
+          customerListEntryId: input.entryId,
+          kind,
+        },
+      },
+      create: {
         customerListEntryId: input.entryId,
         triggerId: input.triggerId,
         nickId: input.nickId,
@@ -126,8 +153,43 @@ export async function markEntrySent(input: {
         sequenceVersionSnapshot: (input.sequenceSnapshot as object | undefined) ?? undefined,
         sendStatus: input.isTentative ? 'tentative' : 'success',
         zaloLeadgenId: input.zaloLeadgenId,
+        kind,
+        allowStrangerMessage: true,
+      },
+      update: {
+        // Re-affirm send status on retry, but never clear sequence materialization
+        // or welcome outcome fields — those belong to downstream workers.
+        sendStatus: input.isTentative ? 'tentative' : 'success',
+        zaloLeadgenId: input.zaloLeadgenId,
       },
     });
+
+    // Wave 2: enqueue the WELCOME_PROBE row at the same time as the FRIEND_REQUEST
+    // row, so welcome-probe-worker has a row to wait on. The probe worker honours
+    // its own `welcome_delay_after_friend_req_sec` floor, so this is safe.
+    if (kind === 'FRIEND_REQUEST') {
+      await tx.friendRequestOutbox.upsert({
+        where: {
+          customerListEntryId_kind: {
+            customerListEntryId: input.entryId,
+            kind: 'WELCOME_PROBE',
+          },
+        },
+        create: {
+          customerListEntryId: input.entryId,
+          triggerId: input.triggerId,
+          nickId: input.nickId,
+          contactId: input.contactId,
+          successorSequenceId: input.successorSequenceId,
+          sequenceVersionSnapshot: (input.sequenceSnapshot as object | undefined) ?? undefined,
+          sendStatus: 'success',
+          zaloLeadgenId: input.zaloLeadgenId,
+          kind: 'WELCOME_PROBE',
+          allowStrangerMessage: true,
+        },
+        update: {}, // no-op on retry — probe owns this row from here on
+      });
+    }
   });
 }
 

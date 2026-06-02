@@ -363,7 +363,7 @@ const NickRow = (rawProps: any) => {
 
 <style scoped>
 .npp-dropdown {
-  z-index: 2500;
+  z-index: 11000; /* trên panel lead (9999) + modal note (10000) để không bị che */
   background: #ffffff;
   border: 1px solid #d1d5db;
   border-radius: 10px;

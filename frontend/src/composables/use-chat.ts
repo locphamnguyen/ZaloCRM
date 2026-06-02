@@ -109,6 +109,8 @@ export interface Conversation {
   isReplied: boolean;
   isPinned?: boolean;
   messages?: ConversationMessage[];
+  /** M53 2026-05-30: Virtual conversation cho KH no-Zalo. Tin nhắn lưu nội bộ, KHÔNG gửi qua Zalo SDK. */
+  isVirtual?: boolean;
 }
 
 export interface MessageReactionView {
@@ -142,13 +144,19 @@ export interface Message {
   /** Read receipts (Wave 1+2) — chỉ có giá trị cho tin OUTGOING (senderType='self') */
   deliveredAt?: string | null;
   seenAt?: string | null;
+  /** M55 2026-05-30 — sender attribution cho multi-sale cùng chăm.
+   *  Tin self lưu sale nào gõ qua CRM UI. Khác user hiện viewer → render mini avatar. */
+  repliedByUserId?: string | null;
+  repliedBy?: { id: string; fullName: string | null; email: string | null } | null;
+  /** M55 — virtual chat indicators */
+  isLocal?: boolean;
   // ── Luồng Mục Tiêu M11 source identity 2026-06-01 ──
   // sentVia enum: 'user' | 'user_native' | 'automation' | 'ai_assistant' | 'system'
   sentVia?: string;
   // FK BullMQ jobId (string DASH pattern), null cho tin sale gõ tay
   automationTaskId?: string | null;
   automationStepIndex?: number | null;
-  // metadata.sender = { kind, name, detail?, sequenceId?, stepIdx? } cho M11 badge
+  // metadata mở rộng cho M11: sender = { kind, name, detail?, sequenceId?, stepIdx? }
   metadata?: {
     sender?: {
       kind?: 'user_crm' | 'user_native' | 'bot_automation' | 'bot_ai' | 'bot_system';

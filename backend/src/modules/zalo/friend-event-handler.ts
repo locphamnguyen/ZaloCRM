@@ -18,6 +18,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
+import { logEvent } from '../automation/friend-invite/event-log-service.js';
 
 // zca-js FriendEventType numeric values (mirrored from models/FriendEvent.d.ts)
 export const FriendEventType = {
@@ -390,6 +391,172 @@ export async function handleFriendEvent(
     logger.info(
       `[friend-event:${accountId}] type=${event.type} uid=${friendUid} → ${newStatus}`,
     );
+
+    // Wave 3 Event Log — log accept/reject vào Mục tiêu timeline.
+    // Tìm trigger gốc qua FriendRequestOutbox (contact, nick) → trigger_id.
+    // Nếu KH không thuộc Mục tiêu nào (chat thường) → skip log.
+    if (newStatus === 'accepted' || newStatus === 'rejected') {
+      void (async () => {
+        try {
+          const outbox = await prisma.friendRequestOutbox.findFirst({
+            where: {
+              contactId: contact.id,
+              nickId: accountId,
+              kind: 'FRIEND_REQUEST',
+            },
+            select: { triggerId: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu
+
+          const [contactRow, nickRow] = await Promise.all([
+            prisma.contact.findUnique({
+              where: { id: contact.id },
+              select: { fullName: true, crmName: true, phone: true },
+            }),
+            prisma.zaloAccount.findUnique({
+              where: { id: accountId },
+              select: { displayName: true },
+            }),
+          ]);
+          const contactDisplay =
+            contactRow?.crmName?.trim() ||
+            contactRow?.fullName?.trim() ||
+            contactRow?.phone ||
+            'KH';
+          const nickDisplay = nickRow?.displayName?.trim() || accountId.slice(0, 8);
+
+          if (newStatus === 'accepted') {
+            void logEvent({
+              orgId,
+              triggerId: outbox.triggerId,
+              contactId: contact.id,
+              nickId: accountId,
+              eventType: 'friend_accepted',
+              eventPriority: 'info',
+              summary: `${contactDisplay} đã đồng ý kết bạn với nick ${nickDisplay}`,
+              metadata: { friendUid },
+            });
+          } else {
+            void logEvent({
+              orgId,
+              triggerId: outbox.triggerId,
+              contactId: contact.id,
+              nickId: accountId,
+              eventType: 'friend_rejected',
+              eventPriority: 'warning',
+              summary: `${contactDisplay} từ chối kết bạn — vẫn tiếp tục chuỗi bám đuổi`,
+              metadata: { friendUid },
+            });
+          }
+        } catch (err) {
+          logger.warn(
+            `[friend-event:${accountId}] event-log lookup failed contact=${contact.id}:`,
+            err,
+          );
+        }
+      })();
+    }
+
+    // Wave 3 2026-05-30 — KH block nick → log customer_block + update
+    // CustomerListEntry.queueStatus='customer_block'. Filter 1-1: tìm trigger gốc qua
+    // FriendRequestOutbox (contact, nick); nếu không thuộc Mục tiêu thì skip.
+    // Guard whereInclude tránh ghi đè terminal state (converted_lead, cancelled);
+    // customer_reply có thể bị overwrite vì block là tín hiệu mạnh hơn (KH chặn hẳn).
+    if (newStatus === 'blocked') {
+      void (async () => {
+        try {
+          const outbox = await prisma.friendRequestOutbox.findFirst({
+            where: {
+              contactId: contact.id,
+              nickId: accountId,
+              kind: 'FRIEND_REQUEST',
+            },
+            select: { triggerId: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu
+
+          const [contactRow, nickRow] = await Promise.all([
+            prisma.contact.findUnique({
+              where: { id: contact.id },
+              select: { fullName: true, crmName: true, phone: true },
+            }),
+            prisma.zaloAccount.findUnique({
+              where: { id: accountId },
+              select: { displayName: true },
+            }),
+          ]);
+          const contactDisplay =
+            contactRow?.crmName?.trim() ||
+            contactRow?.fullName?.trim() ||
+            contactRow?.phone ||
+            'KH';
+          const nickDisplay = nickRow?.displayName?.trim() || accountId.slice(0, 8);
+
+          void logEvent({
+            orgId,
+            triggerId: outbox.triggerId,
+            contactId: contact.id,
+            nickId: accountId,
+            eventType: 'customer_block',
+            eventPriority: 'urgent',
+            summary: `🚫 ${contactDisplay} đã chặn nick ${nickDisplay} — Mục tiêu dừng cho nick này`,
+            metadata: { friendUid },
+          });
+
+          try {
+            await prisma.customerListEntry.updateMany({
+              where: {
+                triggerId: outbox.triggerId,
+                contactId: contact.id,
+                queueStatus: {
+                  notIn: ['customer_block', 'converted_lead', 'cancelled'],
+                },
+              },
+              data: { queueStatus: 'customer_block', updatedAt: new Date() },
+            });
+          } catch (updErr) {
+            logger.warn(
+              `[friend-event:${accountId}] customer_block entry update failed contact=${contact.id}:`,
+              updErr,
+            );
+          }
+
+          // Wave 3 CRITICAL #1 2026-05-30 — Dừng task chuỗi bám đuổi (sequence gốc +
+          // successor) cho KH này khi họ chặn nick. Block là tín hiệu chấm dứt mạnh
+          // hơn reply → cancel cả task queued lẫn running.
+          try {
+            const trigger = await prisma.automationTrigger.findUnique({
+              where: { id: outbox.triggerId },
+              select: { sequenceId: true, successorSequenceId: true },
+            });
+            const sequenceIds = [trigger?.sequenceId, trigger?.successorSequenceId].filter(Boolean) as string[];
+            if (sequenceIds.length > 0) {
+              const stopped = await (prisma as any).automationTask.updateMany({
+                where: {
+                  contactId: contact.id,
+                  sequenceId: { in: sequenceIds },
+                  state: { in: ['queued', 'running'] },
+                },
+                data: {
+                  state: 'cancelled',
+                  skipReason: 'customer_block',
+                },
+              });
+              logger.info(`[friend-event] customer_block stopped ${stopped.count} task(s) for contact=${contact.id}`);
+            }
+          } catch (err) {
+            logger.warn('[friend-event] stop tasks on block failed:', err);
+          }
+        } catch (err) {
+          logger.warn(
+            `[friend-event:${accountId}] customer_block event-log lookup failed contact=${contact.id}:`,
+            err,
+          );
+        }
+      })();
+    }
   } catch (err) {
     logger.error(`[friend-event:${accountId}] apply error:`, err);
   }

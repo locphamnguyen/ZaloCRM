@@ -41,9 +41,9 @@
           </div>
         </div>
         <div class="hero-actions">
-          <button class="at-btn at-btn--primary">
-            <v-icon size="16">mdi-send</v-icon>
-            Tạo campaign từ tệp này
+          <button class="at-btn at-btn--primary" @click="onCreateMucTieu">
+            <span style="font-size:14px; line-height:1;">📤</span>
+            Tạo Mục tiêu từ tệp này
           </button>
           <button class="at-btn" @click="onRescan">
             <v-icon size="16">mdi-refresh</v-icon>
@@ -237,6 +237,7 @@
             <th v-show="isColVisible('phoneE164')"      title="Phone E.164 chuẩn quốc tế">🌐 Phone (+84)</th>
             <th v-show="isColVisible('phoneLocal')"     title="Phone local VN (0xxx)">🇻🇳 Phone (local)</th>
             <th v-show="isColVisible('nameRaw')">Tên KH (file)</th>
+            <th v-show="isColVisible('fbName')" title="Tên thật trên Facebook của khách (lấy từ hội thoại, nếu khách đã nhắn tin)">Tên KH (Facebook)</th>
             <th v-show="isColVisible('nameZalo')">Tên KH (Zalo)</th>
             <th v-show="isColVisible('personalNote')"   title="Lời mời / tin nhắn riêng cho KH này (chỉ có khi import từ CSV/Excel)">💬 Lời mời riêng</th>
             <th v-show="isColVisible('lifecycle')"      title="Lifecycle 5 ô: Mới / Đang chờ Quét / Có Zalo / Không có Zalo / Lỗi">🔄 Trạng thái</th>
@@ -244,6 +245,12 @@
             <th v-show="isColVisible('resolvedByNick')">Nick tìm ra</th>
             <th v-show="isColVisible('zaloGlobalId')">Global ID</th>
             <th v-show="isColVisible('systemMessages')" title="Stack thông báo hệ thống — trùng, sale loại, số sai cụ thể... (newest top, hover xem full)">📨 Thông báo hệ thống</th>
+            <th v-show="isColVisible('fbCampaign')"     title="Tên chiến dịch quảng cáo Facebook">🎯 Chiến dịch</th>
+            <th v-show="isColVisible('fbAdset')"        title="Nhóm quảng cáo (ad set)">📊 Nhóm quảng cáo</th>
+            <th v-show="isColVisible('fbAd')"           title="Tên quảng cáo (ad creative)">🖼 Quảng cáo</th>
+            <th v-show="isColVisible('fbSubmittedAt')"  title="Thời điểm khách điền form (giờ Việt Nam)">🕑 Ngày giờ phát sinh</th>
+            <th v-show="isColVisible('fbForm')"         title="Form quảng cáo Facebook">📄 Form</th>
+            <th v-show="isColVisible('fbLeadId')"       title="Mã lead duy nhất từ Facebook">🔑 Mã lead</th>
             <th class="right">Action</th>
           </tr>
         </thead>
@@ -307,6 +314,14 @@
               />
               <span v-else-if="entry.nameRaw" class="cell-content">{{ entry.nameRaw }}</span>
               <span v-else class="muted-italic">(click để thêm)</span>
+            </td>
+            <!-- Tên thật trên Facebook (readonly, nhất quán với cột Zalo) -->
+            <td v-show="isColVisible('fbName')" class="name-fb readonly cell-scroll" :class="fbMeta(entry).fbProfileName ? 'has' : 'no'" :title="fbMeta(entry).fbProfileName || ''">
+              <span class="cell-content">
+                <span v-if="fbMeta(entry).fbProfileName" class="fb-ico-inline">f</span>
+                <template v-if="fbMeta(entry).fbProfileName">{{ fbMeta(entry).fbProfileName }}</template>
+                <template v-else class="muted-italic">(chưa có)</template>
+              </span>
             </td>
             <td v-show="isColVisible('nameZalo')" class="name-zalo readonly cell-scroll" :class="entry.zaloName ? 'has' : 'no'">
               <span class="cell-content">
@@ -387,8 +402,44 @@
                 </div>
               </template>
             </td>
+            <td v-show="isColVisible('fbCampaign')" class="fb-cell cell-scroll" :title="fbMeta(entry).campaignName || '—'">
+              <span v-if="fbMeta(entry).campaignName" class="cell-content">{{ fbMeta(entry).campaignName }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbAdset')" class="fb-cell cell-scroll" :title="fbMeta(entry).adsetName || '—'">
+              <span v-if="fbMeta(entry).adsetName" class="cell-content">{{ fbMeta(entry).adsetName }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbAd')" class="fb-cell cell-scroll" :title="fbMeta(entry).adName || '—'">
+              <span v-if="fbMeta(entry).adName" class="cell-content">{{ fbMeta(entry).adName }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbSubmittedAt')" class="fb-cell">
+              <span v-if="fbSubmittedAtVN(entry)">{{ fbSubmittedAtVN(entry) }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbForm')" class="fb-cell cell-scroll" :title="fbMeta(entry).formName || fbMeta(entry).formId || '—'">
+              <span v-if="fbMeta(entry).formName || fbMeta(entry).formId" class="cell-content">{{ fbMeta(entry).formName || fbMeta(entry).formId }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
+            <td v-show="isColVisible('fbLeadId')" class="fb-cell mono-cell">
+              <span v-if="fbMeta(entry).externalLeadId">{{ fbMeta(entry).externalLeadId }}</span>
+              <span v-else class="muted-italic">—</span>
+            </td>
             <td class="row-actions" @click.stop>
-              <button class="icon-btn" title="Mở Contact" v-if="entry.contactId">
+              <button class="icon-btn" title="Xem chi tiết" @click="openDetailPanel(entry.id)">
+                <v-icon size="13">mdi-eye-outline</v-icon>
+              </button>
+              <a v-if="entry.phoneE164 || entry.phoneLocal" class="icon-btn" title="Gọi" :href="`tel:${entry.phoneE164 || entry.phoneLocal}`">
+                <v-icon size="13">mdi-phone-outline</v-icon>
+              </a>
+              <button v-if="entry.hasZalo !== true" class="icon-btn zalo" title="Tìm Zalo cho KH này" :disabled="rowFinding === entry.id" @click="(e) => openRowFindZalo(entry, e)">
+                <v-icon size="13">mdi-magnify</v-icon>
+              </button>
+              <button v-if="entry.hasZalo === true" class="icon-btn ok" title="Mở chat Zalo" @click="openRowChat(entry)">
+                <v-icon size="13">mdi-chat-outline</v-icon>
+              </button>
+              <button class="icon-btn" title="Mở Contact" v-if="entry.contactId" @click="openContact(entry.contactId)">
                 <v-icon size="13">mdi-open-in-new</v-icon>
               </button>
               <button class="icon-btn danger" title="Xoá entry (có thể hoàn tác trong 5s)" @click="onDeleteRow(entry)">
@@ -457,6 +508,19 @@
     <LeadDetailPanel
       v-model="showDetailPanel"
       :entry-id="detailPanelEntryId"
+      :list-id="listId"
+      :nick-accounts="nickAccounts"
+      @entry-updated="onEntryUpdated"
+    />
+
+    <!-- Popup chọn nick để tìm Zalo từ nút trên bảng -->
+    <NickPickerPopup
+      v-model="showRowNickPicker"
+      :accounts="nickAccounts"
+      :trigger-el="rowFindTriggerEl"
+      title="Chọn nick để tìm Zalo cho khách này"
+      :busy="!!rowFinding"
+      @pick="onRowNickPicked"
     />
   </div>
 </template>
@@ -469,9 +533,72 @@ import { formatInOrgTz } from '@/composables/use-org-timezone';
 import '@/components/automation/phase7/airtable.css';
 // Phase Multi-Source Lead Ads Phase 2 2026-05-27 — Lead detail panel
 import LeadDetailPanel from '@/components/automation/lists/LeadDetailPanel.vue';
+// Phase 2026-05-30 — nút Tìm Zalo: cần danh sách nick theo quyền cho popup
+import { useZaloAccounts } from '@/composables/use-zalo-accounts';
+import NickPickerPopup, { type NickPickerAccount } from '@/components/zalo-accounts/NickPickerPopup.vue';
+import { api } from '@/api';
+import { useToast } from '@/composables/use-toast';
 
 const route = useRoute();
 const router = useRouter();
+
+const toast = useToast();
+const { accounts: zaloAccounts, fetchAccounts } = useZaloAccounts();
+const nickAccounts = computed(() => zaloAccounts.value as unknown as NickPickerAccount[]);
+// Sau khi tìm ra Zalo / lưu note cho 1 lead → refresh bảng + counter
+async function onEntryUpdated() {
+  await fetchEntries(listId.value);
+  await fetchListById(listId.value);
+}
+
+// ───── Action nút trên bảng (row-actions) ─────
+function openDetailPanel(entryId: string) {
+  detailPanelEntryId.value = entryId;
+  showDetailPanel.value = true;
+}
+function openContact(contactId: string) {
+  window.open(`/contacts/${contactId}`, '_blank');
+}
+function openRowChat(entry: CustomerListEntry) {
+  const phone = entry.phoneLocal || entry.phoneE164 || '';
+  router.push({ path: '/chat', query: { compose: phone } });
+}
+
+// Tìm Zalo từ nút trên bảng (dùng chung popup)
+const showRowNickPicker = ref(false);
+const rowFindTriggerEl = ref<HTMLElement | null>(null);
+const rowFinding = ref<string | null>(null);
+const rowFindEntry = ref<CustomerListEntry | null>(null);
+
+function openRowFindZalo(entry: CustomerListEntry, e: MouseEvent) {
+  if (!entry.phoneValid) {
+    toast.error('SĐT chưa hợp lệ, sửa số trước khi tìm Zalo');
+    return;
+  }
+  rowFindEntry.value = entry;
+  rowFindTriggerEl.value = e.currentTarget as HTMLElement;
+  showRowNickPicker.value = true;
+}
+async function onRowNickPicked(nick: NickPickerAccount) {
+  const entry = rowFindEntry.value;
+  if (!entry) return;
+  rowFinding.value = entry.id;
+  try {
+    const { data: res } = await api.post<{ found: boolean; zaloName?: string; detail?: string }>(
+      `/customer-lists/${listId.value}/entries/${entry.id}/find-zalo`,
+      { zaloAccountId: nick.id },
+    );
+    if (res.found) toast.success(`Đã tìm thấy Zalo: ${res.zaloName || 'KH'}`);
+    else toast.warning(res.detail || 'SĐT này không có Zalo');
+    showRowNickPicker.value = false;
+    await onEntryUpdated();
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { userFriendly?: string; detail?: string } } };
+    toast.warning(e.response?.data?.userFriendly || e.response?.data?.detail || 'Không tìm được Zalo');
+  } finally {
+    rowFinding.value = null;
+  }
+}
 const {
   currentList,
   entries,
@@ -516,6 +643,7 @@ const notScannedSdk = computed<number>(() => {
 onMounted(async () => {
   await fetchListById(listId.value);
   await fetchEntries(listId.value);
+  void fetchAccounts(); // nạp danh sách nick theo quyền cho nút Tìm Zalo
 });
 
 // Re-fetch khi route id change
@@ -601,6 +729,20 @@ async function onDelete() {
   if (!confirm('Xoá vĩnh viễn tệp này? Contact đã được tạo sẽ KHÔNG bị xoá.')) return;
   await deleteList(listId.value);
   router.push('/marketing/lists');
+}
+
+/**
+ * Phase Marketing rename 2026-05-23 — "Mục tiêu" namespace.
+ * Click "Tạo Mục tiêu từ tệp này" → navigate sang trang tạo Mục tiêu mới,
+ * truyền listId qua query để pre-fill (Ngày 2 sẽ refactor route đích thành MucTieuWizard).
+ * Hiện tại route /automation/muc-tieu/tao-moi alias trỏ FriendInviteCreateView.vue.
+ */
+function onCreateMucTieu() {
+  if (!listId.value) return;
+  router.push({
+    path: '/automation/muc-tieu/tao-moi',
+    query: { listId: listId.value },
+  });
 }
 
 // ───────── Inline edit: title ─────────
@@ -883,6 +1025,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'phoneE164',       label: '🌐 Phone (+84)',          defaultVisible: true  },
   { key: 'phoneLocal',      label: '🇻🇳 Phone (local)',         defaultVisible: true  },
   { key: 'nameRaw',         label: 'Tên KH (file)',           defaultVisible: true  },
+  { key: 'fbName',          label: 'Tên KH (Facebook)',       defaultVisible: true  },
   { key: 'nameZalo',        label: 'Tên KH (Zalo)',           defaultVisible: true  },
   { key: 'personalNote',    label: '💬 Lời mời riêng',         defaultVisible: true  },
   { key: 'lifecycle',       label: '🔄 Trạng thái',            defaultVisible: true  },
@@ -890,7 +1033,33 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'resolvedByNick',  label: 'Nick tìm ra',             defaultVisible: true  },
   { key: 'zaloGlobalId',    label: 'Global ID',               defaultVisible: false },
   { key: 'systemMessages',  label: '📨 Thông báo hệ thống',     defaultVisible: true  },
+  // Phase FB Pull 2026-05-30 — cột nguồn Facebook Lead Ads (mặc định ẩn, sale tự bật)
+  { key: 'fbCampaign',      label: '🎯 Chiến dịch',            defaultVisible: false },
+  { key: 'fbAdset',         label: '📊 Nhóm quảng cáo',         defaultVisible: false },
+  { key: 'fbAd',            label: '🖼 Quảng cáo',             defaultVisible: false },
+  { key: 'fbSubmittedAt',   label: '🕑 Ngày giờ phát sinh',     defaultVisible: false },
+  { key: 'fbForm',          label: '📄 Form',                  defaultVisible: false },
+  { key: 'fbLeadId',        label: '🔑 Mã lead',               defaultVisible: false },
 ];
+
+// ───────── FB Lead Ads source meta (Phase FB Pull 2026-05-30) ─────────
+// sourceMeta lưu campaignName/formName/externalLeadId/submittedAt từ lead Facebook.
+function fbMeta(entry: unknown): Record<string, string | undefined> {
+  const sm = (entry as { sourceMeta?: unknown })?.sourceMeta;
+  return (sm && typeof sm === 'object' ? sm : {}) as Record<string, string | undefined>;
+}
+// submittedAt (epoch ms) → giờ VN "25/05/2026 14:31"
+function fbSubmittedAtVN(entry: unknown): string {
+  const raw = fbMeta(entry).submittedAt;
+  if (!raw) return '';
+  const ms = typeof raw === 'number' ? raw : Number(raw);
+  if (!ms || Number.isNaN(ms)) return '';
+  const d = new Date(ms);
+  const date = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+  const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+  return `${date} ${time}`;
+}
+
 const COL_STORAGE_KEY = 'zalocrm:listDetail:visibleColumns:v1';
 
 function loadVisibleColumns(): Set<string> {
@@ -1256,6 +1425,14 @@ function nickAvatarStyle(name: string): Record<string, string> {
 .icon-btn.danger:hover { color: #B91C1C; }
 
 .muted-italic { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
+/* Cột Tên KH (Facebook) — nhất quán với cột Zalo */
+.name-fb.has .cell-content { color: #1877F2; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.name-fb.no .cell-content { color: #9CA3AF; font-style: italic; font-size: 11.5px; }
+.fb-ico-inline {
+  width: 13px; height: 13px; border-radius: 3px; background: #1877F2; color: #fff;
+  font-weight: 800; font-size: 9px; display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
 
 .status-pill {
   display: inline-flex; align-items: center; gap: 4px;

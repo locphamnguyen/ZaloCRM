@@ -289,6 +289,55 @@ export async function syncLabelsForAccount(
       },
       data: { archivedAt: new Date() },
     });
+
+    // M57 Wave 3 dual-write — sync Tag v2 (scope=friend, source=zalo_real) definitions.
+    // Khi Zalo thêm label mới hoặc đổi name/color → upsert Tag.
+    // Khi Zalo xoá label → archive Tag tương ứng.
+    for (const l of upserted) {
+      const tagSlug = (await import('../../shared/tag-slug.js')).slugifyTag(l.text);
+      if (!tagSlug) continue;
+      const existingTag = await prisma.tag.findFirst({
+        where: { orgId, zaloAccountId: accountId, sourceZaloLabelId: l.zaloLabelId },
+      });
+      if (existingTag) {
+        // Update name/color/emoji nếu Zalo đổi
+        if (existingTag.name !== l.text || existingTag.color !== l.color || existingTag.emoji !== l.emoji) {
+          await prisma.tag.update({
+            where: { id: existingTag.id },
+            data: { name: l.text, slug: tagSlug, color: l.color || '#1976D2', emoji: l.emoji ?? null, archivedAt: null },
+          });
+        } else if (existingTag.archivedAt) {
+          await prisma.tag.update({ where: { id: existingTag.id }, data: { archivedAt: null } });
+        }
+      } else {
+        // Tag mới (Zalo vừa thêm label, hoặc backfill bỏ lỡ)
+        await prisma.tag.create({
+          data: {
+            orgId,
+            name: l.text,
+            slug: tagSlug,
+            color: l.color || '#1976D2',
+            emoji: l.emoji ?? null,
+            scope: 'friend',
+            source: 'zalo_real',
+            priority: 1,
+            zaloAccountId: accountId,
+            sourceZaloLabelId: l.zaloLabelId,
+          },
+        }).catch(() => { /* race-safe */ });
+      }
+    }
+    // Archive Tag v2 zalo_real khi Zalo xoá label
+    await prisma.tag.updateMany({
+      where: {
+        orgId,
+        zaloAccountId: accountId,
+        source: 'zalo_real',
+        sourceZaloLabelId: { notIn: currentLabelIds.length ? currentLabelIds : [-1] },
+        archivedAt: null,
+      },
+      data: { archivedAt: new Date() },
+    });
   }
 
   // Bulk update friend.zaloLabels + diff log.
@@ -335,6 +384,56 @@ export async function syncLabelsForAccount(
       },
     });
     friendsUpdated++;
+
+    // M57 Wave 3 /plan-eng-review dual-write: sync vào FriendTag(source=zalo_real).
+    // Lookup Tag(scope=friend, source=zalo_real, zaloAccountId=accountId, sourceZaloLabelId)
+    // → upsert FriendTag với @@unique(friend_id, tag_id). Re-activate nếu đã soft-removed.
+    // Wave 5 sẽ remove block legacy update phía trên + đổi reader sang FriendTag JOIN.
+    try {
+      // Build set ID Zalo label hiện đang gắn vào friend (sau sync).
+      const currentLabelIds = new Set(newLabels.map((l) => l.id));
+      const previousLabelIds = new Set(oldLabels.map((l) => (l as { id?: number }).id).filter((id): id is number => typeof id === 'number'));
+
+      // Add: label mới được gắn
+      for (const labelId of currentLabelIds) {
+        if (previousLabelIds.has(labelId)) continue; // không đổi
+        const tagRow = await prisma.tag.findFirst({
+          where: { orgId, zaloAccountId: accountId, sourceZaloLabelId: labelId },
+          select: { id: true },
+        });
+        if (!tagRow) continue; // chưa backfill Tag → bỏ qua, lần sync sau sẽ catch
+        const existing = await prisma.friendTag.findUnique({
+          where: { friendId_tagId: { friendId: f.id, tagId: tagRow.id } },
+        });
+        if (existing) {
+          if (existing.removedAt) {
+            await prisma.friendTag.update({
+              where: { id: existing.id },
+              data: { removedAt: null, removedBy: null, addedVia: 'zalo_real', addedAt: new Date() },
+            });
+          }
+        } else {
+          await prisma.friendTag.create({
+            data: { friendId: f.id, tagId: tagRow.id, addedVia: 'zalo_real', addedBy: null },
+          }).catch(() => { /* race-safe absorb P2002 */ });
+        }
+      }
+      // Remove: label cũ không còn gắn nữa → soft remove FriendTag
+      for (const labelId of previousLabelIds) {
+        if (currentLabelIds.has(labelId)) continue;
+        const tagRow = await prisma.tag.findFirst({
+          where: { orgId, zaloAccountId: accountId, sourceZaloLabelId: labelId },
+          select: { id: true },
+        });
+        if (!tagRow) continue;
+        await prisma.friendTag.updateMany({
+          where: { friendId: f.id, tagId: tagRow.id, removedAt: null },
+          data: { removedAt: new Date(), removedBy: null },
+        });
+      }
+    } catch (err) {
+      logger.warn(`[zalo-labels] FriendTag dual-write skipped for friend ${f.id}: ${(err as Error).message}`);
+    }
 
     // ── ACTIVITY LOG — gộp tag_change_zalo nếu có CẢ remove + add cùng sync.
     //  Single-select Zalo tag (1 label/friend) → đổi A→B thường có 1 remove + 1 add.

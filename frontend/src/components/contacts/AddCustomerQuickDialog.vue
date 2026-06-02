@@ -83,6 +83,13 @@
           >
             Sale đang chăm: <strong>{{ duplicateContact.ownerName }}</strong>
           </div>
+          <!-- M55.2: Note gần nhất ngày — chỉ ngày, không nội dung (privacy + compact) -->
+          <div
+            v-if="duplicateContact && duplicateContact.lastNoteAt"
+            class="acqd-hint"
+          >
+            📝 Note gần nhất: <strong>{{ formatNoteDate(duplicateContact.lastNoteAt) }}</strong>
+          </div>
         </div>
       </div>
 
@@ -102,10 +109,22 @@
         >
           Hủy
         </button>
+        <!-- M55.2: Khi trùng SĐT → CTA chính là "Mở chat" (sale flow liền mạch) -->
         <button
+          v-if="duplicateContact"
           type="button"
           class="acqd-btn acqd-btn--primary"
-          :disabled="!canSubmit || loading || !!duplicateContact"
+          :disabled="openingChat"
+          @click="openChatWithDuplicate"
+        >
+          <span v-if="openingChat" class="acqd-spinner" />
+          {{ openingChat ? 'Đang mở...' : '💬 Mở chat' }}
+        </button>
+        <button
+          v-else
+          type="button"
+          class="acqd-btn acqd-btn--primary"
+          :disabled="!canSubmit || loading"
           @click="onSubmit"
         >
           <span v-if="loading" class="acqd-spinner" />
@@ -128,8 +147,16 @@ interface Props {
   leadSource?: string;
   /** Pre-fill SĐT — dùng từ NewMessageDialog khi lookup Zalo miss (sale đã gõ SĐT) */
   defaultPhone?: string;
+  /** M53.3 2026-05-30: Dialog tự navigate /chat/:convId sau khi tạo virtual conv.
+   *  Default true (ContactsView FAB). Set false khi parent tự xử lý emit `created`
+   *  (vd NewMessageDialog đang ở /chat, không cần dialog navigate gây race). */
+  autoOpenVirtualChat?: boolean;
 }
-const props = withDefaults(defineProps<Props>(), { leadSource: 'quick_add', defaultPhone: '' });
+const props = withDefaults(defineProps<Props>(), {
+  leadSource: 'quick_add',
+  defaultPhone: '',
+  autoOpenVirtualChat: true,
+});
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void;
@@ -149,7 +176,12 @@ const duplicateContact = ref<null | {
   hasZalo: boolean | null;
   ownerUserId: string | null;
   ownerName: string | null;
+  /** M55.2 2026-05-30 — Note gần nhất ngày (ISO), không nội dung */
+  lastNoteAt: string | null;
 }>(null);
+
+// M55.2 — Mở chat trực tiếp từ duplicate warning (sale flow liền mạch)
+const openingChat = ref(false);
 
 const nameInputRef = ref<HTMLInputElement | null>(null);
 const phoneInputRef = ref<HTMLInputElement | null>(null);
@@ -191,6 +223,46 @@ function openDuplicate() {
   router.push({ path: '/contacts', query: { focus: id } });
 }
 
+// M55.2 2026-05-30 — Format Note date: "Hôm nay" / "Hôm qua" / "N ngày trước" / dd/MM/yyyy
+function formatNoteDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const dayMs = 86_400_000;
+    const diffMs = now.getTime() - d.getTime();
+    const diffDays = Math.floor(diffMs / dayMs);
+    if (diffDays === 0) {
+      return `Hôm nay (${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })})`;
+    }
+    if (diffDays === 1) return 'Hôm qua';
+    if (diffDays < 7) return `${diffDays} ngày trước`;
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+  } catch {
+    return iso;
+  }
+}
+
+// M55.2 — Mở chat virtual ngay từ dialog warning (skip /contacts navigate vòng)
+async function openChatWithDuplicate() {
+  if (!duplicateContact.value || openingChat.value) return;
+  openingChat.value = true;
+  try {
+    const res = await api.post<{ conversationId: string; created: boolean }>(
+      `/contacts/${duplicateContact.value.id}/virtual-conversation`, {},
+    );
+    const convId = res.data?.conversationId;
+    emit('update:modelValue', false);
+    if (convId) {
+      await router.push(`/chat/${convId}`);
+    }
+  } catch (err: any) {
+    const msg = err?.response?.data?.message || err?.response?.data?.error || 'Không mở được chat';
+    toast.error(msg);
+  } finally {
+    openingChat.value = false;
+  }
+}
+
 async function onSubmit() {
   if (!canSubmit.value || loading.value) return;
   phoneError.value = null;
@@ -203,16 +275,55 @@ async function onSubmit() {
       leadSource: props.leadSource,
     });
 
-    // exists = true → show warning inline, không close
+    // exists = true → behavior khác nhau theo entry point
     if (res.data?.exists) {
-      duplicateContact.value = res.data.contact;
+      const dup = res.data.contact;
+      // M55.3 2026-05-30: NewMessageDialog flow (autoOpenVirtualChat=false) → KHÔNG
+      // hiện duplicate warning UI (sale đang bận gửi tin, muốn vào chat ngay).
+      // Skip warning, emit 'created' với KH cũ — parent onQuickAddCreated sẽ chain
+      // POST virtual-conv + emit opened. Backend AI welcome msg #2 sẽ thông báo
+      // "KH đã có sale chăm, note gần nhất ..." vào virtual chat.
+      if (!props.autoOpenVirtualChat) {
+        toast.success(`KH "${dup.fullName || dup.phone}" đã có — mở chat ngay`);
+        emit('created', { id: dup.id, fullName: dup.fullName, phone: dup.phone });
+        emit('update:modelValue', false);
+        return;
+      }
+      // ContactsView FAB: vẫn show warning để sale review trước khi vào chat
+      duplicateContact.value = dup;
       return;
     }
 
-    // Created → toast + emit + close
-    toast.success('Đã lưu khách hàng');
-    emit('created', res.data.contact);
-    emit('update:modelValue', false);
+    // M53.1 2026-05-30: Tạo xong KH → tự mở virtual chat để sale ghi nhật ký
+    // + AI Trợ Lý welcome ngay. Anh chốt: nhảy thẳng /chat để workflow liền mạch.
+    // M53.3 2026-05-30: Nếu autoOpenVirtualChat=false (NewMessageDialog),
+    // chỉ emit 'created' để parent tự xử lý — tránh race condition 2 lần POST virtual-conv.
+    const createdContact = res.data.contact;
+    if (!props.autoOpenVirtualChat) {
+      // Parent quyết định flow (vd NewMessageDialog onQuickAddCreated chain virtual-conv + emit opened)
+      toast.success('Đã lưu khách hàng');
+      emit('created', createdContact);
+      emit('update:modelValue', false);
+      return;
+    }
+
+    toast.success('Đã lưu khách hàng — đang mở chat nội bộ...');
+    emit('created', createdContact);
+
+    try {
+      const vcRes = await api.post(`/contacts/${createdContact.id}/virtual-conversation`, {});
+      const conversationId = vcRes.data?.conversationId;
+      emit('update:modelValue', false);
+      if (conversationId) {
+        await router.push(`/chat/${conversationId}`);
+      }
+    } catch (vcErr: any) {
+      // Tạo virtual conv fail (vd chưa kết nối nick Zalo) → vẫn báo thành công create KH,
+      // không block flow. Sale có thể vào Contacts > KH > nút "Mở chat nội bộ" sau.
+      const vcMsg = vcErr?.response?.data?.message;
+      toast.warning(vcMsg || 'KH đã lưu. Mở chat nội bộ ở trang Liên hệ khi cần.', 4000);
+      emit('update:modelValue', false);
+    }
   } catch (err: any) {
     const msg = err?.response?.data?.message || err?.response?.data?.error;
     if (msg === 'invalid_phone' || err?.response?.data?.error === 'invalid_phone') {

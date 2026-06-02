@@ -8,10 +8,15 @@
             <div class="ldp-avatar" :style="{ background: avatarGradient }">{{ initials }}</div>
             <div class="ldp-head-info">
               <div class="ldp-name">{{ data?.entry.nameRaw || 'Khách hàng' }}</div>
-              <div class="ldp-contact">
-                <span v-if="data?.entry.phoneE164">📞 {{ formatPhone(data.entry.phoneE164) }}</span>
-                <span v-if="customEmail">· 📧 {{ customEmail }}</span>
+              <div v-if="fbProfileName" class="ldp-fbname" title="Tên thật trên Facebook (lấy từ hội thoại)">
+                <span class="ldp-fb-ico">f</span> {{ fbProfileName }}
               </div>
+              <div v-if="data?.entry.phoneLocal || data?.entry.phoneE164" class="ldp-phone">
+                <span class="ldp-phone-num">{{ formatPhone(data.entry.phoneLocal || data.entry.phoneE164 || '') }}</span>
+                <button class="ldp-phone-btn" title="Sao chép số" @click="copyPhone">⧉</button>
+                <a class="ldp-phone-btn call" :href="`tel:${data.entry.phoneE164 || data.entry.phoneLocal}`" title="Gọi">📞</a>
+              </div>
+              <div v-if="customEmail" class="ldp-contact">📧 {{ customEmail }}</div>
               <div class="ldp-badges">
                 <span v-if="isFresh" class="ldp-badge fresh">Vừa mới · {{ relativeTime(data!.entry.createdAt) }}</span>
                 <span v-else class="ldp-badge time">{{ relativeTime(data?.entry.createdAt ?? '') }}</span>
@@ -25,10 +30,17 @@
           </div>
 
           <div class="ldp-actions">
-            <button class="ldp-btn-primary" :disabled="data?.entry.hasZalo !== true">💬 Mở chat Zalo</button>
-            <button class="ldp-btn-ghost">📞 Gọi</button>
-            <button class="ldp-btn-ghost">📝 Note</button>
-            <button class="ldp-btn-ghost">↪ Move</button>
+            <button class="ldp-btn-primary" :disabled="data?.entry.hasZalo !== true" @click="openZaloChat">💬 Mở chat Zalo</button>
+            <a class="ldp-btn-ghost" :class="{ disabled: !canCall }" :href="canCall ? `tel:${data?.entry.phoneE164 || data?.entry.phoneLocal}` : undefined">📞 Gọi</a>
+            <button class="ldp-btn-ghost" @click="openNote">📝 Note</button>
+            <button class="ldp-btn-ghost disabled" disabled title="Sắp có">↪ Chuyển tệp</button>
+          </div>
+          <!-- Nút Tìm Zalo riêng cho lead (chỉ khi chưa có Zalo) -->
+          <div v-if="data?.entry.hasZalo !== true" class="ldp-findzalo-row">
+            <button ref="findZaloBtnRef" class="ldp-btn-findzalo" :disabled="finding" @click="onFindZaloClick">
+              <span v-if="finding">⏳ Đang tìm Zalo...</span>
+              <span v-else>🔍 Tìm Zalo cho khách này</span>
+            </button>
           </div>
         </header>
 
@@ -38,18 +50,21 @@
           <div v-else-if="error" class="ldp-err">{{ error }}</div>
 
           <template v-else-if="data">
-            <!-- Section 1: Custom fields -->
-            <section v-if="hasCustomFields" class="ldp-section">
+            <!-- Section 1: Custom fields (câu hỏi khách trả lời) -->
+            <section v-if="hasCustomFields || inboxUrl" class="ldp-section">
               <div class="ldp-section-head">
                 <span class="ldp-icon">📝</span>
-                <span class="ldp-section-title">Câu hỏi form ({{ customFieldsList.length }} trường)</span>
+                <span class="ldp-section-title">Câu hỏi form ({{ customFieldsList.length }} câu)</span>
               </div>
-              <div class="ldp-custom-card">
+              <div v-if="hasCustomFields" class="ldp-custom-card">
                 <div v-for="(item, idx) in customFieldsList" :key="idx" class="ldp-custom-row" :class="{ last: idx === customFieldsList.length - 1 }">
                   <div class="ldp-custom-key">{{ item.key }}</div>
                   <div class="ldp-custom-val">{{ item.value }}</div>
                 </div>
               </div>
+              <a v-if="inboxUrl" :href="inboxUrl" target="_blank" class="ldp-inbox-link">
+                💬 Mở hội thoại Facebook của khách ↗
+              </a>
             </section>
 
             <!-- Section 2: Source attribution (FB/TikTok/Google/Zalo Ads) -->
@@ -59,12 +74,14 @@
                 <span class="ldp-section-title">Nguồn lead ({{ sourcePlatformLabel }} payload)</span>
               </div>
               <div class="ldp-source-card">
-                <SourceMetaRow v-if="meta.campaignName || meta.campaignId" icon="🎯" label="Campaign" :name="meta.campaignName" :id="meta.campaignId" :extra-pill="data.list.integrationKey ? '#' + data.list.integrationKey : null" />
-                <SourceMetaRow v-if="meta.adSetId" icon="📊" label="Ad Set" :id="meta.adSetId" />
-                <SourceMetaRow v-if="meta.adId" icon="🖼" label="Ad Creative" :id="meta.adId" />
-                <SourceMetaRow v-if="meta.formName || meta.formId" icon="📝" label="Form" :name="meta.formName" :id="meta.formId" :extra="customFieldsList.length > 0 ? `${customFieldsList.length} câu hỏi custom` : null" />
-                <SourceMetaRow v-if="meta.pageId" icon="📄" label="Page FB" :id="meta.pageId" />
-                <SourceMetaRow icon="🔑" label="Lead ID" :id="meta.externalLeadId" :extra="'Unique từ ' + sourcePlatformLabel + ' · idempotency key'" />
+                <SourceMetaRow v-if="meta.campaignName || meta.campaignId" icon="🎯" label="Chiến dịch" :name="meta.campaignName" :id="meta.campaignId" :extra-pill="data.list.integrationKey ? '#' + data.list.integrationKey : null" />
+                <SourceMetaRow v-if="meta.adsetName || meta.adsetId" icon="📊" label="Nhóm quảng cáo" :name="meta.adsetName" :id="meta.adsetId" />
+                <SourceMetaRow v-if="meta.adName || meta.adId" icon="🖼" label="Quảng cáo" :name="meta.adName" :id="meta.adId" />
+                <SourceMetaRow v-if="meta.formName || meta.formId" icon="📄" label="Form" :name="meta.formName" :id="meta.formId" :extra="customFieldsList.length > 0 ? `${customFieldsList.length} câu hỏi` : null" />
+                <SourceMetaRow v-if="meta.pageId" icon="📘" label="Trang FB" :id="meta.pageId" />
+                <SourceMetaRow icon="🔑" label="Mã lead" :id="meta.externalLeadId" :extra="'Mã duy nhất · chống trùng'" />
+                <SourceMetaRow v-if="submittedAtVN" icon="🕑" label="Phát sinh" :name="submittedAtVN" extra="giờ Việt Nam" />
+                <SourceMetaRow v-if="platformLabel" icon="📱" label="Nền tảng" :name="platformLabel" />
               </div>
 
               <!-- Mini stats từ campaign -->
@@ -166,30 +183,140 @@
           </template>
         </div>
       </div>
+
+      <!-- Popup chọn nick để tìm Zalo (theo phân quyền) -->
+      <NickPickerPopup
+        v-model="showNickPicker"
+        :accounts="nickAccounts"
+        :trigger-el="findZaloBtnRef"
+        title="Chọn nick để tìm Zalo cho khách này"
+        :busy="finding"
+        @pick="onNickPicked"
+      />
+
+      <!-- Modal ghi chú -->
+      <div v-if="showNote" class="ldp-note-bg" @click.self="showNote = false">
+        <div class="ldp-note-modal">
+          <div class="ldp-note-head">📝 Ghi chú khách hàng</div>
+          <textarea v-model="noteDraft" class="ldp-note-area" rows="4" placeholder="Nhập ghi chú về khách này..."></textarea>
+          <div class="ldp-note-foot">
+            <button class="ldp-btn-ghost" @click="showNote = false">Hủy</button>
+            <button class="ldp-btn-primary" :disabled="savingNote" @click="saveNote">{{ savingNote ? 'Đang lưu...' : 'Lưu' }}</button>
+          </div>
+        </div>
+      </div>
     </div>
   </Teleport>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, nextTick } from 'vue';
+import { useRouter } from 'vue-router';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import SourceMetaRow from './SourceMetaRow.vue';
+import NickPickerPopup, { type NickPickerAccount } from '@/components/zalo-accounts/NickPickerPopup.vue';
 
 const props = defineProps<{
   modelValue: boolean;
   entryId: string | null;
+  listId?: string | null;
+  nickAccounts?: NickPickerAccount[];
 }>();
-const emit = defineEmits<{ 'update:modelValue': [v: boolean] }>();
+const emit = defineEmits<{ 'update:modelValue': [v: boolean]; 'entry-updated': [] }>();
 
 const toast = useToast();
+const router = useRouter();
+const nickAccounts = computed(() => props.nickAccounts ?? []);
+
+// ───── Tìm Zalo + action state ─────
+const showNickPicker = ref(false);
+const finding = ref(false);
+const findZaloBtnRef = ref<HTMLElement | null>(null);
+const showNote = ref(false);
+const noteDraft = ref('');
+const savingNote = ref(false);
+
+const canCall = computed(() => !!(data.value?.entry.phoneE164 || data.value?.entry.phoneLocal));
+
+function onFindZaloClick() {
+  if (!data.value?.entry.phoneValid) {
+    toast.error('SĐT chưa hợp lệ, sửa số trước khi tìm Zalo');
+    return;
+  }
+  showNickPicker.value = true;
+}
+
+async function onNickPicked(nick: NickPickerAccount) {
+  if (!props.listId || !data.value) return;
+  finding.value = true;
+  try {
+    const { data: res } = await api.post<{ found: boolean; zaloName?: string; detail?: string; userFriendly?: string }>(
+      `/customer-lists/${props.listId}/entries/${data.value.entry.id}/find-zalo`,
+      { zaloAccountId: nick.id },
+    );
+    if (res.found) {
+      toast.success(`Đã tìm thấy Zalo: ${res.zaloName || 'KH'}`);
+      showNickPicker.value = false;
+      await refetchDetail();   // cập nhật panel
+      emit('entry-updated');   // cập nhật bảng list
+    } else {
+      toast.warning(res.detail || 'SĐT này không có Zalo');
+      showNickPicker.value = false;
+      await refetchDetail();
+      emit('entry-updated');
+    }
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { userFriendly?: string; detail?: string } } };
+    toast.warning(err.response?.data?.userFriendly || err.response?.data?.detail || 'Không tìm được Zalo');
+  } finally {
+    finding.value = false;
+  }
+}
+
+// Mở chat Zalo → sang trang Chat, mở ô soạn tin điền sẵn SĐT (anh chốt)
+function openZaloChat() {
+  if (data.value?.entry.hasZalo !== true) return;
+  const phone = data.value.entry.phoneLocal || data.value.entry.phoneE164 || '';
+  router.push({ path: '/chat', query: { compose: phone } });
+}
+
+function openNote() {
+  noteDraft.value = data.value?.entry.personalNote ?? '';
+  showNote.value = true;
+}
+async function saveNote() {
+  if (!props.listId || !data.value) return;
+  savingNote.value = true;
+  try {
+    await api.patch(`/customer-lists/${props.listId}/entries/${data.value.entry.id}`, { personalNote: noteDraft.value });
+    toast.success('Đã lưu ghi chú');
+    showNote.value = false;
+    await refetchDetail();
+    emit('entry-updated');
+  } catch {
+    toast.error('Lưu ghi chú thất bại');
+  } finally {
+    savingNote.value = false;
+  }
+}
+
+async function refetchDetail() {
+  if (!props.entryId) return;
+  try {
+    const res = await api.get<LeadDetailData>(`/customer-list-entries/${props.entryId}/lead-detail`);
+    data.value = res.data;
+  } catch { /* giữ data cũ */ }
+  await nextTick();
+}
 
 interface LeadDetailData {
   entry: {
     id: string; rowIndex: number;
     phoneRaw: string; nameRaw: string | null;
     phoneE164: string | null; phoneLocal: string | null; phoneValid: boolean;
+    personalNote: string | null;
     customFields: Record<string, unknown>;
     sourceMeta: Record<string, unknown>;
     status: string;
@@ -267,17 +394,56 @@ const sourcePlatformIcon = computed(() => {
   return '📋';
 });
 
+// Field kỹ thuật Facebook tự gắn (không phải câu hỏi khách trả lời) → tách riêng.
+function isTechnicalField(key: string): boolean {
+  const k = key.toLowerCase();
+  return k === 'inbox_url' || k.endsWith('_url') || k === 'lead_id' || k === 'platform' || k.startsWith('utm_');
+}
 const customFieldsList = computed(() => {
   const cf = data.value?.entry.customFields ?? {};
-  return Object.entries(cf).map(([key, value]) => ({ key, value: String(value ?? '—') }));
+  return Object.entries(cf)
+    .filter(([key]) => !isTechnicalField(key))
+    .map(([key, value]) => ({ key, value: String(value ?? '—') }));
 });
 const hasCustomFields = computed(() => customFieldsList.value.length > 0);
+// Link inbox Facebook (tách khỏi câu hỏi, hiện thành nút riêng)
+const inboxUrl = computed(() => {
+  const cf = (data.value?.entry.customFields ?? {}) as Record<string, unknown>;
+  return cf.inbox_url ? String(cf.inbox_url) : '';
+});
 const customEmail = computed(() => {
   const cf = (data.value?.entry.customFields ?? {}) as Record<string, unknown>;
   return cf.email ? String(cf.email) : '';
 });
 
 const hasSourceMeta = computed(() => Object.keys(meta.value).length > 0);
+
+// Tên thật trên Facebook (≠ tên khách tự điền form). Lấy từ inbox lúc pull.
+const fbProfileName = computed(() => {
+  const n = (meta.value as Record<string, unknown>).fbProfileName;
+  return n ? String(n) : '';
+});
+
+// Ngày giờ khách điền form (Facebook submittedAt) → giờ VN dễ đọc "25/05/2026 lúc 14:31"
+const submittedAtVN = computed(() => {
+  const raw = meta.value.submittedAt;
+  if (!raw) return '';
+  const ms = typeof raw === 'number' ? raw : Number(raw);
+  if (!ms || Number.isNaN(ms)) return '';
+  const d = new Date(ms);
+  const date = d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+  const time = d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+  return `${date} lúc ${time}`;
+});
+
+// Nền tảng + tự nhiên/quảng cáo (platform: fb/ig, isOrganic)
+const platformLabel = computed(() => {
+  const p = meta.value.platform;
+  if (!p) return '';
+  const base = p === 'fb' ? 'Facebook' : p === 'ig' ? 'Instagram' : String(p);
+  const organic = (meta.value as Record<string, unknown>).isOrganic;
+  return organic === true ? `${base} (tự nhiên)` : `${base} (quảng cáo)`;
+});
 
 const initials = computed(() => {
   const name = data.value?.entry.nameRaw || '?';
@@ -376,8 +542,10 @@ const canReplay = computed(() => data.value?.webhookLog?.status === 'failed');
 
 // ───── Helpers ─────
 function formatPhone(p: string): string {
-  // +84908123456 → +84 908 123 456
   if (!p) return '';
+  // Dạng local 0xxx xxx xxx (VN, dễ đọc cho sale)
+  if (p.startsWith('0')) return p.replace(/^(\d{4})(\d{3})(\d+)$/, '$1 $2 $3');
+  // Dạng quốc tế +84 908 123 456
   return p.replace(/^(\+\d{2})(\d{3})(\d{3})(\d+)$/, '$1 $2 $3 $4');
 }
 function relativeTime(iso: string): string {
@@ -410,6 +578,17 @@ async function copyJson() {
     toast.success('Đã copy JSON');
   } catch {
     toast.error('Không copy được');
+  }
+}
+
+async function copyPhone() {
+  const p = data.value?.entry.phoneLocal || data.value?.entry.phoneE164;
+  if (!p) return;
+  try {
+    await navigator.clipboard.writeText(p);
+    toast.success('Đã sao chép số điện thoại');
+  } catch {
+    toast.error('Không sao chép được');
   }
 }
 </script>
@@ -452,9 +631,31 @@ async function copyJson() {
 }
 .ldp-head-info { flex: 1; min-width: 0; }
 .ldp-name { font-size: 17px; font-weight: 700; color: #0F172A; }
+.ldp-fbname {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 2px; font-size: 12.5px; font-weight: 600; color: #1877F2;
+}
+.ldp-fb-ico {
+  width: 15px; height: 15px; border-radius: 3px; background: #1877F2; color: #fff;
+  font-weight: 800; font-size: 11px; display: inline-flex; align-items: center; justify-content: center;
+}
+.ldp-phone {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px;
+}
+.ldp-phone-num {
+  font-size: 18px; font-weight: 700; color: #0F172A;
+  font-family: ui-monospace, monospace; letter-spacing: 0.3px;
+}
+.ldp-phone-btn {
+  width: 26px; height: 26px; border-radius: 6px;
+  border: 1px solid #D1D5DB; background: #fff; color: #475569;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer; text-decoration: none;
+}
+.ldp-phone-btn:hover { background: #F3F4F6; }
+.ldp-phone-btn.call { color: #16A34A; border-color: #86EFAC; }
 .ldp-contact {
-  font-size: 12.5px; color: #6B7280; margin-top: 3px;
-  font-family: monospace;
+  font-size: 12.5px; color: #6B7280; margin-top: 4px;
 }
 .ldp-badges {
   display: flex; gap: 6px; flex-wrap: wrap;
@@ -498,8 +699,35 @@ async function copyJson() {
   border: 1px solid #D1D5DB; border-radius: 7px;
   padding: 6px 10px; font-size: 12px; cursor: pointer;
 }
-.ldp-btn-ghost:hover:not(:disabled) { background: #F3F4F6; }
-.ldp-btn-ghost:disabled { opacity: 0.5; cursor: not-allowed; }
+.ldp-btn-ghost:hover:not(:disabled):not(.disabled) { background: #F3F4F6; }
+.ldp-btn-ghost:disabled, .ldp-btn-ghost.disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.ldp-btn-ghost { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+
+/* Nút Tìm Zalo riêng */
+.ldp-findzalo-row { margin-top: 8px; }
+.ldp-btn-findzalo {
+  width: 100%; height: 36px; border-radius: 8px;
+  background: #ecfdf5; border: 1px solid #6ee7b7; color: #047857;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.ldp-btn-findzalo:hover:not(:disabled) { background: #d1fae5; }
+.ldp-btn-findzalo:disabled { opacity: 0.6; cursor: wait; }
+
+/* Modal note */
+.ldp-note-bg {
+  position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 10000;
+}
+.ldp-note-modal {
+  background: #fff; border-radius: 12px; width: 420px; max-width: calc(100vw - 40px);
+  padding: 18px; box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+}
+.ldp-note-head { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+.ldp-note-area {
+  width: 100%; border: 1px solid #D1D5DB; border-radius: 8px; padding: 10px;
+  font-size: 13px; font-family: inherit; resize: vertical;
+}
+.ldp-note-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
 /* Body scroll area */
 .ldp-body {
@@ -548,6 +776,14 @@ async function copyJson() {
 .ldp-custom-val {
   flex: 1; font-size: 13px; font-weight: 700; color: #451A03;
 }
+.ldp-inbox-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 7px 12px;
+  background: #e7f0fe; color: #1877F2;
+  border: 1px solid #c7ddfb; border-radius: 7px;
+  font-size: 12.5px; font-weight: 600; text-decoration: none;
+}
+.ldp-inbox-link:hover { background: #d7e7fd; }
 
 /* Source meta */
 .ldp-source-card {

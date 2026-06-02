@@ -5,7 +5,13 @@ import { updateStatusAction } from './actions/update-status-action.js';
 import { createAppointmentAction } from './actions/create-appointment-action.js';
 import { sendTemplateAction } from './actions/send-template-action.js';
 
-export type AutomationTriggerType = 'message_received' | 'contact_created' | 'status_changed';
+export type AutomationTriggerType =
+  | 'message_received'
+  | 'contact_created'
+  | 'status_changed'
+  // Wave 3 2026-05-30 — fired khi statusId (dynamic Status table) đổi.
+  // Phân biệt với legacy 'status_changed' (enum status string).
+  | 'contact_status_changed';
 
 type AutomationCondition = {
   field: string;

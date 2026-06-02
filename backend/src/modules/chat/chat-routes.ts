@@ -13,6 +13,10 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
+// M53 2026-05-30 — AI Trợ Lý cho Virtual Chat (KH no-Zalo)
+import { triggerVirtualChatAiReply } from '../ai/ai-virtual-chat-service.js';
+// M55 2026-05-30 — Auto-attach collaborator khi sale gửi tin virtual conv
+import { attachContactCollaboratorByUser } from '../contacts/contact-scope.js';
 
 type QueryParams = Record<string, string>;
 
@@ -360,6 +364,7 @@ export async function chatRoutes(app: FastifyInstance) {
               avatarUrl: true,
               phone: true,
               zaloUid: true,
+              hasZalo: true,
               tags: true,
               leadScore: true,
               engagementPattern: true,
@@ -368,6 +373,16 @@ export async function chatRoutes(app: FastifyInstance) {
               statusId: true,
               assignedUserId: true,
               priorityScore: true,
+              // M55 2026-05-30 — Cùng chăm indicator cho ConversationList cột 2
+              // (avatar stack +N). Limit 5 để tránh payload bloat ở list view.
+              contactAccess: {
+                select: {
+                  role: true,
+                  user: { select: { id: true, fullName: true, email: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+                take: 5,
+              },
             },
           },
           zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, privacyMode: true, ownerUserId: true } },
@@ -518,7 +533,22 @@ export async function chatRoutes(app: FastifyInstance) {
     const conversation = await prisma.conversation.findFirst({
       where: { id, orgId: user.orgId },
       include: {
-        contact: true,
+        contact: {
+          include: {
+            // M55 2026-05-30 — Full collaborators cho ChatContactPanel + header tooltip.
+            // Detail view nên KHÔNG limit (1 KH thường <10 sale chăm).
+            contactAccess: {
+              select: {
+                role: true,
+                source: true,
+                createdAt: true,
+                user: { select: { id: true, fullName: true, email: true } },
+              },
+              orderBy: { createdAt: 'asc' },
+              take: 20,
+            },
+          },
+        },
         zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true } },
         pins: { select: { id: true } },
       },
@@ -777,6 +807,14 @@ export async function chatRoutes(app: FastifyInstance) {
           albumIndex: true,
           albumTotal: true,
           reactions: { select: { emoji: true, reactorId: true } },
+          // M55 2026-05-30 — sender attribution cho multi-sale cùng chăm.
+          // Tin self (sale gửi qua CRM) lưu repliedByUserId — FE render mini avatar
+          // tên sale phía trên bubble khi sale khác (không phải mình) gửi.
+          repliedByUserId: true,
+          repliedBy: { select: { id: true, fullName: true, email: true } },
+          // M55: isLocal/metadata cho virtual chat (đã có sẵn nhưng chưa expose)
+          isLocal: true,
+          metadata: true,
         },
       }),
       prisma.message.count({ where: { conversationId: id } }),
@@ -811,6 +849,70 @@ export async function chatRoutes(app: FastifyInstance) {
       include: { zaloAccount: true },
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    // ── M53 2026-05-30: Virtual conversation gate ──────────────────────────
+    // KH no-Zalo có conversation ảo trong /chat. Tin nhắn lưu thẳng DB, KHÔNG qua Zalo SDK.
+    // Skip rate-limit + privacy check + SDK send. Anh chốt Approach A — sale dùng làm nhật ký.
+    if (conversation.isVirtual) {
+      try {
+        const localMsgId = `local:${randomUUID()}`;
+        const message = await prisma.message.create({
+          data: {
+            id: randomUUID(),
+            conversationId: id,
+            zaloMsgId: localMsgId, // synthetic — né NULL collision trên @@unique([conversationId, zaloMsgId])
+            zaloMsgIdNum: null,
+            senderType: 'self',
+            senderUid: conversation.zaloAccount.zaloUid || '',
+            senderName: 'Staff',
+            content,
+            contentType: 'text',
+            sentAt: new Date(),
+            repliedByUserId: user.id,
+            isLocal: true,
+            sentVia: 'user',
+          },
+        });
+
+        await prisma.conversation.update({
+          where: { id },
+          data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
+        });
+
+        const safeMessage = { ...message, zaloMsgIdNum: null as string | null };
+        const io = (app as any).io as Server;
+        io?.emit('chat:message', {
+          accountId: conversation.zaloAccountId,
+          message: safeMessage,
+          conversationId: id,
+          _virtual: true,
+        });
+
+        // M53 AI Trợ Lý — fire-and-forget, KHÔNG block response
+        void triggerVirtualChatAiReply(
+          { conversationId: id, triggerMessageId: message.id, orgId: user.orgId },
+          io,
+        );
+
+        // M55 2026-05-30 — Auto-attach collaborator khi sale gửi tin virtual.
+        // Sale chăm KH qua chat = counter "Cùng chăm" +1 (idempotent).
+        // Fire-and-forget, không block response.
+        if (conversation.contactId) {
+          void attachContactCollaboratorByUser({
+            orgId: user.orgId,
+            contactId: conversation.contactId,
+            userId: user.id,
+            source: 'virtual_chat_message',
+          });
+        }
+
+        return safeMessage;
+      } catch (err) {
+        logger.error('[chat] Virtual message save error:', err);
+        return reply.status(500).send({ error: 'Failed to save virtual message' });
+      }
+    }
+    // ── END M53 Virtual gate ───────────────────────────────────────────────
 
     const instance = zaloPool.getInstance(conversation.zaloAccountId);
     if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });

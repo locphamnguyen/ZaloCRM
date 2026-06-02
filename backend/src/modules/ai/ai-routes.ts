@@ -3,6 +3,8 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { getAiConfig, getAiUsage, updateAiConfig, generateAiOutput, aiFormatRichText, aiGenerateSalesHandoffMessage } from './ai-service.js';
+// M53 2026-05-30 — Trợ Lý AI Virtual Chat
+import { DEFAULT_VIRTUAL_CHAT_PROMPT } from './prompts/virtual-chat-assistant.js';
 import { getAvailableProviders } from './provider-registry.js';
 import { logger } from '../../shared/utils/logger.js';
 import { prisma } from '../../shared/database/prisma-client.js';
@@ -233,4 +235,191 @@ export async function aiRoutes(app: FastifyInstance) {
       return sendHandledError(reply, err, 'Không format được tin bằng AI');
     }
   });
+
+  // ── M53 2026-05-30 — AI Trợ Lý Virtual Chat ──────────────────────────────
+
+  // GET /ai/assistant-config — load prompt template + toggle + skip regex
+  app.get('/api/v1/ai/assistant-config', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const cfg = await getAiConfig(request.user!.orgId);
+      return {
+        aiAssistantEnabled: cfg.aiAssistantEnabled,
+        aiAssistantPromptTemplate: cfg.aiAssistantPromptTemplate ?? DEFAULT_VIRTUAL_CHAT_PROMPT,
+        aiAssistantSkipNoisePattern: cfg.aiAssistantSkipNoisePattern,
+        defaultPrompt: DEFAULT_VIRTUAL_CHAT_PROMPT,
+        provider: cfg.provider,
+        model: cfg.model,
+        maxDaily: cfg.maxDaily,
+        enabled: cfg.enabled,
+      };
+    } catch (err) {
+      logger.error('[ai] assistant-config GET error:', err);
+      return reply.status(500).send({ error: 'Failed to load AI assistant config' });
+    }
+  });
+
+  // PUT /ai/assistant-config — admin update prompt + toggle + skip regex
+  app.put(
+    '/api/v1/ai/assistant-config',
+    { preHandler: requireRole('owner', 'admin') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const body = request.body as {
+          aiAssistantEnabled?: boolean;
+          aiAssistantPromptTemplate?: string | null;
+          aiAssistantSkipNoisePattern?: string;
+        };
+        // Validate regex
+        if (body.aiAssistantSkipNoisePattern) {
+          try {
+            new RegExp(body.aiAssistantSkipNoisePattern);
+          } catch {
+            return reply.status(400).send({ error: 'Regex không hợp lệ' });
+          }
+        }
+        const updated = await prisma.aiConfig.update({
+          where: { orgId: request.user!.orgId },
+          data: {
+            aiAssistantEnabled: body.aiAssistantEnabled,
+            aiAssistantPromptTemplate: body.aiAssistantPromptTemplate,
+            aiAssistantSkipNoisePattern: body.aiAssistantSkipNoisePattern,
+          },
+        });
+        return { ok: true, aiAssistantEnabled: updated.aiAssistantEnabled };
+      } catch (err) {
+        logger.error('[ai] assistant-config PUT error:', err);
+        return reply.status(500).send({ error: 'Failed to update AI assistant config' });
+      }
+    },
+  );
+
+  // PATCH /contacts/:contactId/apply-ai-suggestion — sale apply field từ AiSuggestionCard
+  // Body: { messageId, acceptedFields: [{field, value}], rejectedFields?: string[] }
+  app.patch(
+    '/api/v1/contacts/:contactId/apply-ai-suggestion',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const user = request.user!;
+        const { contactId } = request.params as { contactId: string };
+        const body = request.body as {
+          messageId: string;
+          acceptedFields: Array<{ field: string; value: unknown }>;
+          rejectedFields?: string[];
+        };
+        if (!body.messageId || !Array.isArray(body.acceptedFields)) {
+          return reply.status(400).send({ error: 'messageId + acceptedFields required' });
+        }
+
+        // Load contact + verify org
+        const contact = await prisma.contact.findFirst({
+          where: { id: contactId, orgId: user.orgId },
+          select: { id: true, tags: true, metadata: true, notes: true },
+        });
+        if (!contact) return reply.status(404).send({ error: 'Contact not found' });
+
+        // M55.3 2026-05-30: Mở rộng whitelist — thêm tags + propertyNeed (lưu vào
+        // metadata.propertyNeed vì Contact schema chưa có cột riêng). Special handling:
+        // - tags: MERGE với tags hiện tại (không overwrite, dedup)
+        // - propertyNeed: serialize vào Contact.metadata.propertyNeed + tóm tắt vào notes
+        const ALLOWED_SCALAR = new Set([
+          'fullName', 'gender', 'birthYear', 'occupation', 'incomeRange',
+          'province', 'district', 'ward', 'source',
+        ]);
+        const update: Record<string, unknown> = {};
+        const acceptedLog: Array<{ field: string; value: unknown }> = [];
+
+        for (const item of body.acceptedFields) {
+          if (ALLOWED_SCALAR.has(item.field)) {
+            update[item.field] = item.value;
+            acceptedLog.push(item);
+          } else if (item.field === 'tags' && Array.isArray(item.value)) {
+            // M57 Wave 3 /plan-eng-review: route qua tag-service (source=ai_suggest).
+            // tag-service dual-write Contact.tags + ContactTag junction trong $transaction.
+            // KHÔNG còn set update.tags ở đây.
+            const newTags = (item.value as unknown[]).filter((t): t is string => typeof t === 'string');
+            const { addCrmTag } = await import('../tags/tag-service.js');
+            for (const tagName of newTags) {
+              try {
+                await addCrmTag({
+                  contactId,
+                  tagName,
+                  source: 'ai_suggest',
+                  addedBy: user.id,
+                  autoCreate: true,
+                });
+              } catch (err) {
+                logger.warn('[ai-routes] addCrmTag fail %s: %s', tagName, (err as Error).message);
+              }
+            }
+            acceptedLog.push(item);
+          } else if (item.field === 'propertyNeed' && item.value && typeof item.value === 'object') {
+            // Lưu vào metadata.propertyNeed — merge với existing metadata
+            const existingMeta = (contact.metadata && typeof contact.metadata === 'object')
+              ? contact.metadata as Record<string, unknown>
+              : {};
+            update.metadata = { ...existingMeta, propertyNeed: item.value };
+            // Bonus: append tóm tắt vào notes để sale đọc nhanh
+            const pn = item.value as {
+              type?: string;
+              budgetMin?: number;
+              budgetMax?: number;
+              purpose?: string;
+              area?: string;
+              decisionTimeline?: string;
+            };
+            const parts: string[] = [];
+            if (pn.type) parts.push(pn.type);
+            if (pn.budgetMin || pn.budgetMax) {
+              parts.push(pn.budgetMax ? `${pn.budgetMin || '?'}-${pn.budgetMax} tỷ` : `${pn.budgetMin} tỷ`);
+            }
+            if (pn.purpose) parts.push(pn.purpose);
+            if (pn.area) parts.push(`tại ${pn.area}`);
+            if (pn.decisionTimeline) parts.push(`quyết định ${pn.decisionTimeline}`);
+            if (parts.length > 0) {
+              const summary = `[AI ${new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}] Nhu cầu BĐS: ${parts.join(' · ')}`;
+              const oldNotes = (contact.notes || '').trim();
+              update.notes = oldNotes ? `${oldNotes}\n\n${summary}` : summary;
+            }
+            acceptedLog.push(item);
+          }
+        }
+
+        if (Object.keys(update).length > 0) {
+          await prisma.contact.update({ where: { id: contactId }, data: update });
+        }
+
+        // Audit log
+        await prisma.aiSuggestionApplied.create({
+          data: {
+            orgId: user.orgId,
+            contactId,
+            messageId: body.messageId,
+            userId: user.id,
+            acceptedFields: acceptedLog,
+            rejectedFields: body.rejectedFields ?? [],
+          },
+        });
+
+        // ActivityLog
+        await prisma.activityLog.create({
+          data: {
+            orgId: user.orgId,
+            userId: user.id,
+            actorType: 'user',
+            botName: null,
+            category: 'customer_info',
+            action: 'ai_suggestion_applied',
+            entityType: 'contact',
+            entityId: contactId,
+            details: { acceptedFields: acceptedLog, messageId: body.messageId },
+          },
+        });
+
+        return { ok: true, applied: Object.keys(update) };
+      } catch (err) {
+        logger.error('[ai] apply-suggestion error:', err);
+        return reply.status(500).send({ error: 'Failed to apply suggestion' });
+      }
+    },
+  );
 }

@@ -26,6 +26,8 @@
       </ScoreBanner>
     </header>
 
+    <!-- 2026-06-01: Wrapper conditional cho mainTab='profile' — content cũ giữ nguyên -->
+    <template v-if="mainTab === 'profile'">
     <!-- ════════ Tab bar ════════ -->
     <nav class="ip-tabs">
       <button
@@ -292,11 +294,35 @@
           </div>
         </section>
 
-        <!-- Widget 6: Đồng đội chăm KH -->
-        <section class="crm-widget crm-w-team">
+        <!-- M55 2026-05-30: Widget Cùng chăm theo ContactAccess (cover cả KH có Zalo
+             lẫn no-Zalo). Hiện luôn cả khi chỉ 1 sale chăm để minh bạch ai phụ trách. -->
+        <section v-if="cungChamList.length > 0" class="crm-widget crm-w-cung-cham">
+          <div class="crm-w-row">
+            <span class="crm-w-icon">👥</span>
+            <span class="crm-w-title">Sale đang/đã chăm KH ({{ cungChamList.length }})</span>
+          </div>
+          <div class="cung-cham-list">
+            <div v-for="acc in cungChamList" :key="acc.user?.id || acc.createdAt" class="cung-cham-row">
+              <div class="cc-avatar-circle" :style="{ background: ccAvatarColor(acc.user?.fullName || acc.user?.email || '') }">
+                {{ ccInitial(acc.user?.fullName || acc.user?.email || '?') }}
+              </div>
+              <div class="cc-info">
+                <div class="cc-name">
+                  {{ acc.user?.fullName || acc.user?.email || 'Sale' }}
+                  <span v-if="acc.role === 'primary'" class="cc-role-primary" title="Sale phụ trách chính">⭐ Chính</span>
+                  <span v-else class="cc-role-collab" title="Sale cùng chăm">🤝 Cùng chăm</span>
+                </div>
+                <div class="cc-meta">{{ ccSourceLabel(acc.source) }} · {{ ccDateLabel(acc.createdAt) }}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Widget 6: Đồng đội chăm KH (chỉ hiện cho KH có Zalo — based on Friend nicks chăm) -->
+        <section v-if="teammatesFiltered.length > 0" class="crm-widget crm-w-team">
           <div class="crm-w-row">
             <span class="crm-w-icon">🤝</span>
-            <span class="crm-w-title">Đồng đội cùng chăm KH ({{ teammatesFiltered.length }})</span>
+            <span class="crm-w-title">Nick CRM cùng chăm ({{ teammatesFiltered.length }})</span>
           </div>
           <div v-if="teammatesFiltered.length" class="team-banner">
             💡 {{ teammatesFiltered.length }} sale khác cùng chăm KH này — phối hợp để win-win
@@ -327,7 +353,7 @@
               </button>
             </div>
           </div>
-          <div v-else class="crm-w-empty">Chỉ mình bạn đang chăm KH này</div>
+          <div v-else-if="cungChamList.length === 0" class="crm-w-empty">Chỉ mình bạn đang chăm KH này</div>
         </section>
 
         <!-- Widget 7: Push to Getfly (placeholder) -->
@@ -415,6 +441,88 @@
       :friend-id="props.friendId ?? null"
       :contact-name="headerFullName"
     />
+    </template>
+    <!-- /v-if mainTab=profile -->
+
+    <!-- ════════ TAB AUTOMATION (placeholder) ════════ -->
+    <div v-if="mainTab === 'automation'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">⚡</div>
+        <h3>Automation</h3>
+        <p>Chọn block Marketing để gửi tin cho KH này.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — kết nối Marketing blocks</div>
+        <a class="mtp-link" href="/marketing/blocks" target="_blank">→ Mở Marketing để xem blocks</a>
+      </div>
+    </div>
+
+    <!-- ════════ TAB AI (placeholder) ════════ -->
+    <div v-if="mainTab === 'ai'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">✨</div>
+        <h3>Trợ lý AI Bất động sản</h3>
+        <p>Hỏi đáp về sản phẩm, dự án BĐS, giá, ưu đãi để tư vấn KH.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — kết nối knowledge base BĐS HS Holding</div>
+      </div>
+    </div>
+
+    <!-- ════════ TAB FOLLOW-UP (placeholder) ════════ -->
+    <div v-if="mainTab === 'followup'" class="main-tab-body">
+      <div class="main-tab-placeholder">
+        <div class="mtp-icon">🎯</div>
+        <h3>Luồng bám đuổi</h3>
+        <p>Quản lý Mục tiêu & luồng tự động bám đuổi KH này.</p>
+        <div class="mtp-coming">🚧 Đang phát triển — link tới Mục tiêu chứa KH</div>
+        <a class="mtp-link" href="/marketing/muc-tieu" target="_blank">→ Mở Mục tiêu</a>
+      </div>
+    </div>
+
+    <!-- ════════ Bottom 4-tab strip (Profile / Automation / AI / Follow-up) ════════ -->
+    <nav class="bottom-tabs" role="tablist" aria-label="Chuyển tab chính">
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'profile' }"
+        role="tab"
+        :aria-selected="mainTab === 'profile'"
+        title="Profile — Hồ sơ, CRM, Lịch hẹn, Điểm"
+        @click="mainTab = 'profile'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+        <span class="bt-label">PROFILE</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'automation' }"
+        role="tab"
+        :aria-selected="mainTab === 'automation'"
+        title="Automation — Gửi block Marketing cho KH"
+        @click="mainTab = 'automation'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg>
+        <span class="bt-label">AUTOMATION</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'ai' }"
+        role="tab"
+        :aria-selected="mainTab === 'ai'"
+        title="AI — Trợ lý hỏi đáp sản phẩm BĐS"
+        @click="mainTab = 'ai'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+        <span class="bt-label">AI</span>
+      </button>
+      <button
+        class="bottom-tab"
+        :class="{ active: mainTab === 'followup' }"
+        role="tab"
+        :aria-selected="mainTab === 'followup'"
+        title="Follow-up — Luồng bám đuổi KH"
+        @click="mainTab = 'followup'"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        <span class="bt-label">FOLLOW-UP</span>
+      </button>
+    </nav>
   </aside>
 </template>
 
@@ -504,6 +612,9 @@ async function saveAlias() {
 }
 
 // ════════ Tab state (persist sang tab khác KH khác) ════════
+// 2026-06-01: Refactor cột 4 4-tab — bottom strip Profile/Automation/AI/Follow-up.
+// `activeTab` (sub-tab) chỉ active trong scope 'profile'. 3 tab kia hiện placeholder.
+const mainTab = ref<'profile' | 'automation' | 'ai' | 'followup'>('profile');
 const activeTab = ref<'profile' | 'crm' | 'activity' | 'score'>('profile');
 
 // ════════════════════════════════════════════════════════════════════════
@@ -810,6 +921,49 @@ const teammatesFiltered = computed<Teammate[]>(() => {
 });
 
 const teammatesLoading = computed(() => cockpitLoading.teammates);
+
+// M55 2026-05-30 — Cùng chăm theo ContactAccess (primary + collaborator).
+// Cover cả KH có Zalo (đã có teammatesFiltered từ Friend) + KH no-Zalo (Friend=[]).
+interface CungChamRow {
+  role: 'primary' | 'collaborator';
+  source: string;
+  createdAt: string;
+  user: { id?: string; fullName: string | null; email: string | null } | null;
+}
+const cungChamList = computed<CungChamRow[]>(() => {
+  const list = (props.contact as { contactAccess?: CungChamRow[] } | null | undefined)?.contactAccess;
+  return Array.isArray(list) ? list : [];
+});
+function ccInitial(name: string): string {
+  const t = (name || '').trim();
+  if (!t) return '?';
+  const parts = t.split(/\s+/);
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+const CC_AVATAR_COLORS = ['#0ea5e9', '#f97316', '#10b981', '#a855f7', '#ec4899', '#eab308', '#06b6d4', '#ef4444'];
+function ccAvatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < (seed || '').length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return CC_AVATAR_COLORS[Math.abs(h) % CC_AVATAR_COLORS.length];
+}
+const CC_SOURCE_LABELS: Record<string, string> = {
+  quick_add: 'Tạo KH nhanh',
+  quick_add_duplicate: 'Thêm KH trùng SĐT',
+  virtual_chat_open: 'Mở chat nội bộ',
+  virtual_chat_message: 'Gửi tin chat nội bộ',
+  auto_from_friend: 'Tự động qua Zalo Friend',
+  manual: 'Thủ công',
+};
+function ccSourceLabel(source: string): string {
+  return CC_SOURCE_LABELS[source] || source || 'Khác';
+}
+function ccDateLabel(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
+  } catch { return ''; }
+}
 
 const patternIcon = computed(() => {
   const p = cockpit.value?.engagementPattern;
@@ -1717,6 +1871,68 @@ async function onRegenerateHandoff() {
   flex-direction: column;
   gap: 8px;
 }
+
+/* M55 2026-05-30 — Cùng chăm theo ContactAccess */
+.cung-cham-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cung-cham-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #fafbfc;
+  border: 1px solid var(--smax-grey-200);
+  border-radius: 6px;
+}
+.cc-avatar-circle {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+.cc-info { flex: 1; min-width: 0; }
+.cc-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--smax-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cc-role-primary {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid #fcd34d;
+}
+.cc-role-collab {
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid #93c5fd;
+}
+.cc-meta {
+  font-size: 10px;
+  color: var(--smax-grey-700);
+  margin-top: 1px;
+}
 .team-card {
   border: 1px solid var(--smax-grey-200);
   border-radius: 8px;
@@ -1788,4 +2004,98 @@ async function onRegenerateHandoff() {
   text-align: center;
   font-style: italic;
 }
+
+/* ═════════ 2026-06-01: Bottom 4-tab strip + placeholder panels ═════════ */
+.bottom-tabs {
+  display: flex;
+  border-top: 1px solid #dddddd;
+  background: white;
+  flex-shrink: 0;
+  margin-top: auto;
+}
+.bottom-tab {
+  flex: 1;
+  padding: 10px 4px 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  color: #6b7280;
+  transition: all 0.15s;
+  border-top: 3px solid transparent;
+  margin-top: -1px;
+  font-family: inherit;
+}
+.bottom-tab:hover { background: #fafbfc; }
+.bottom-tab.active {
+  color: #0068FF;
+  border-top-color: #0068FF;
+}
+.bottom-tab svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
+}
+.bottom-tab.active svg { stroke-width: 2; }
+.bt-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.main-tab-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.main-tab-placeholder {
+  text-align: center;
+  max-width: 280px;
+}
+.mtp-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+.main-tab-placeholder h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #181d26;
+  margin: 0 0 6px;
+}
+.main-tab-placeholder p {
+  font-size: 13px;
+  color: #41454d;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.mtp-coming {
+  display: inline-block;
+  padding: 6px 12px;
+  background: #FFF4E6;
+  border: 1px solid #FFA726;
+  color: #E65100;
+  font-size: 11px;
+  border-radius: 6px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+.mtp-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 8px 16px;
+  background: #0068FF;
+  color: white;
+  text-decoration: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.mtp-link:hover { background: #0050cc; }
 </style>
