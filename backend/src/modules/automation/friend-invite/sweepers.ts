@@ -61,11 +61,18 @@ async function runStuckSweeper(): Promise<void> {
  * Trigger completion sweeper — flip state='completed' khi:
  *   1) Pool friend-request empty (all entries processed/skipped/failed)
  *   2) AND all outbox WELCOME_PROBE rows đã materialize sequence (hoặc fail vĩnh viễn)
+ *   3) AND all automation_campaigns của trigger đã state='completed' (sequence steps hết)
  *
- * Fix #6 (2026-06-02): trước chỉ check #1 → flip ngay sau friend-request done dù
- * sequence bám đuổi chưa kích hoạt. Sale thấy "Hoàn tất" trong khi tiến độ 0%.
- * Thêm condition #2: chờ outbox-drainer enroll xong (sequenceMaterializedAt set)
- * hoặc attemptCount >= 5 (alert state, không còn retry).
+ * Fix #6 v2 (2026-06-02): version 1 chỉ check tới enroll (sequenceMaterializedAt SET) →
+ * trigger flip 'completed' NGAY khi enqueue jobs vào BullMQ delayed, dù step 1/2/3 chưa
+ * fire. Sale thấy "Hoàn tất" trong khi sequence còn 60p delay chờ step 1.
+ *
+ * Fix v2: thêm condition #3 — campaign.state phải 'completed' (sequence-step-worker flip
+ * sau khi xử lý step cuối cùng). Trigger chỉ thực sự "hoàn tất" khi cả friend-invite +
+ * welcome + toàn bộ sequence steps xong.
+ *
+ * Edge case: trigger không có successor_sequence (friend-only, no bám đuổi) → campaign
+ * không tồn tại → condition #3 trivially true (NOT EXISTS pending campaign).
  */
 async function runTriggerCompletionSweeper(): Promise<void> {
   try {
@@ -92,9 +99,16 @@ async function runTriggerCompletionSweeper(): Promise<void> {
             AND o.attempt_count < 5
             AND o.successor_sequence_id IS NOT NULL
         )
+        AND NOT EXISTS (
+          -- Fix v2 (2026-06-02): còn automation_campaigns đang 'active' của trigger này
+          -- (sequence-step-worker chưa xử lý hết step cuối → chưa flip campaign.state='completed').
+          SELECT 1 FROM automation_campaigns c
+          WHERE c.trigger_id = automation_triggers.id
+            AND c.state = 'active'
+        )
     `;
     if (result > 0) {
-      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed' (pool empty + sequence enrolled)`);
+      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed' (pool empty + welcome enrolled + all sequence campaigns done)`);
     }
   } catch (err) {
     logger.error('[trigger-sweeper] error:', err);

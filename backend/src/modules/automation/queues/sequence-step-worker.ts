@@ -371,9 +371,58 @@ async function processJob(
     await enqueueNextStep(job.data, nextStep.delayMinutes ?? 60);
   } else {
     await incrCompletedCounter(sequenceId);
+    // Fix #6 v2 (2026-06-02): KH này hoàn tất sequence → check xem CÒN KH nào của trigger
+    // chưa hoàn tất không. Nếu hết → flip campaign.state='completed' để sweeper trigger
+    // (sweepers.ts:runTriggerCompletionSweeper) có thể flip trigger.state='completed'.
+    await tryCompleteCampaign({ triggerId, sequenceId, contactId, orgId });
   }
 
   return { status: 'sent', stepIdx, messageId };
+}
+
+/**
+ * Sau khi 1 KH hoàn tất sequence (step cuối), check xem CÒN sequence-step jobs nào của
+ * trigger này đang chờ trong BullMQ (delayed/wait/active) không. Nếu hết → flip
+ * automation_campaigns.state='completed' để trigger-sweeper biết.
+ *
+ * Lưu ý: 1 campaign phục vụ nhiều KH cùng (triggerId, sequenceId). Phải đợi KH cuối cùng
+ * hoàn thành step cuối thì campaign mới thực sự "xong".
+ */
+async function tryCompleteCampaign(input: {
+  triggerId: string;
+  sequenceId: string;
+  contactId: string;
+  orgId: string;
+}): Promise<void> {
+  try {
+    const queue = getSequenceStepQueue();
+    // Đếm jobs còn pending của trigger này (delayed + waiting + active)
+    const [delayed, waiting, active] = await Promise.all([
+      queue.getDelayedCount(),
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+    ]);
+    if (delayed + waiting + active > 0) {
+      // Còn jobs khác đang chạy — chưa thể chắc chắn campaign xong. Để sweeper kiểm tra
+      // chính xác hơn qua DB scan ở lần tick tiếp.
+      logger.debug(
+        `[sequence-step-worker] tryCompleteCampaign trigger=${input.triggerId} contact=${input.contactId} — còn ${delayed + waiting + active} jobs pending in queue`,
+      );
+      return;
+    }
+    // Queue empty → flip campaign state. Atomic: chỉ flip nếu vẫn state='active'.
+    const result = await prisma.automationCampaign.updateMany({
+      where: { triggerId: input.triggerId, sequenceId: input.sequenceId, state: 'active' },
+      data: { state: 'completed', completedAt: new Date() },
+    });
+    if (result.count > 0) {
+      logger.info(
+        `[sequence-step-worker] campaign completed trigger=${input.triggerId} sequence=${input.sequenceId} (last contact=${input.contactId})`,
+      );
+    }
+  } catch (err) {
+    logger.warn(`[sequence-step-worker] tryCompleteCampaign failed: ${(err as Error).message}`);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -400,8 +449,10 @@ export function startSequenceStepWorker(): Worker {
   );
 
   workerInstance.on('completed', (job) => {
+    const rv = job.returnvalue;
+    const reason = rv?.reason ? ` reason=${rv.reason}` : '';
     logger.info(
-      `[sequence-step-worker] completed job=${job.id} step=${job.returnvalue?.stepIdx} status=${job.returnvalue?.status}`,
+      `[sequence-step-worker] completed job=${job.id} step=${rv?.stepIdx} status=${rv?.status}${reason}`,
     );
   });
 
