@@ -58,7 +58,14 @@ async function runStuckSweeper(): Promise<void> {
 }
 
 /**
- * Trigger completion sweeper — flip state='completed' khi pool empty.
+ * Trigger completion sweeper — flip state='completed' khi:
+ *   1) Pool friend-request empty (all entries processed/skipped/failed)
+ *   2) AND all outbox WELCOME_PROBE rows đã materialize sequence (hoặc fail vĩnh viễn)
+ *
+ * Fix #6 (2026-06-02): trước chỉ check #1 → flip ngay sau friend-request done dù
+ * sequence bám đuổi chưa kích hoạt. Sale thấy "Hoàn tất" trong khi tiến độ 0%.
+ * Thêm condition #2: chờ outbox-drainer enroll xong (sequenceMaterializedAt set)
+ * hoặc attemptCount >= 5 (alert state, không còn retry).
  */
 async function runTriggerCompletionSweeper(): Promise<void> {
   try {
@@ -76,9 +83,18 @@ async function runTriggerCompletionSweeper(): Promise<void> {
           HAVING COUNT(e.id) > 0
             AND COUNT(*) FILTER (WHERE e.queue_status IN ('queued_for_pickup', 'processing')) = 0
         )
+        AND NOT EXISTS (
+          -- Còn outbox WELCOME_PROBE chưa enroll sequence (chưa fail vĩnh viễn)
+          SELECT 1 FROM friend_request_outbox o
+          WHERE o.trigger_id = automation_triggers.id
+            AND o.kind = 'WELCOME_PROBE'
+            AND o.sequence_materialized_at IS NULL
+            AND o.attempt_count < 5
+            AND o.successor_sequence_id IS NOT NULL
+        )
     `;
     if (result > 0) {
-      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed'`);
+      logger.info(`[trigger-sweeper] flipped ${result} triggers to state='completed' (pool empty + sequence enrolled)`);
     }
   } catch (err) {
     logger.error('[trigger-sweeper] error:', err);
@@ -120,10 +136,13 @@ async function runOutboxDrainer(): Promise<void> {
   try {
     // Pick rows with sequence_materialized_at IS NULL, exclude rows already 5 attempts (alert state)
     // Wave 2: Gate sequence enrollment by welcome success. KH chặn tin lạ (BLOCKED_STRANGER) hoặc fail cứng (HARD_FAIL) sẽ KHÔNG enroll.
+    // Fix #1 (2026-06-02): thêm DUPLICATE_SKIP — khi KH đã nhận welcome từ trigger trước
+    // (cùng nick+contact), welcome-probe skip nhưng VẪN phải enroll sequence bám đuổi mới.
+    // Không enroll = trigger mới chạy nhưng sequence không bao giờ tới step 1.
     const rows = await prisma.friendRequestOutbox.findMany({
       where: {
         kind: 'WELCOME_PROBE',
-        welcomeOutcome: { in: ['SENT_STRANGER', 'SENT_FRIEND'] },
+        welcomeOutcome: { in: ['SENT_STRANGER', 'SENT_FRIEND', 'DUPLICATE_SKIP'] },
         sequenceMaterializedAt: null,
         successorSequenceId: { not: null },
         attemptCount: { lt: 5 },

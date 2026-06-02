@@ -1427,6 +1427,8 @@ function cosmeticForEventType(eventType: string): EventCosmetic {
     case 'friend_request_accepted':
     case 'friend_accepted':
       return { icon: '🤝', text: 'KH đã chấp nhận kết bạn', tone: 'success' };
+    case 'friend_already':
+      return { icon: '✅', text: 'KH đã là bạn (skip kết bạn, vào luôn bám đuổi)', tone: 'success' };
     case 'friend_request_failed':
     case 'friend_request_rejected':
       return { icon: '⚠️', text: 'Gửi lời mời thất bại', tone: 'warn' };

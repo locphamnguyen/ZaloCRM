@@ -114,7 +114,15 @@
             >
               <span class="mon-icon">{{ ev.icon }}</span>
               <span class="mon-time">{{ ev.timeLabel }}</span>
-              <span class="mon-text">{{ ev.text }}</span>
+              <span class="mon-text">
+                <!-- Fix #3b (2026-06-02) — Anh yêu cầu show rõ KH nào + nick nào làm gì -->
+                <strong v-if="ev.rowIndex != null" class="mon-row-idx">#{{ ev.rowIndex }}</strong>
+                {{ ev.text }}
+                <span v-if="ev.customerName || ev.nickName" class="mon-meta">
+                  — {{ ev.customerName || 'KH' }}
+                  <span v-if="ev.nickName" class="mon-nick">↔ nick {{ ev.nickName }}</span>
+                </span>
+              </span>
             </div>
             <div v-if="monitorEvents.length === 0" class="mon-empty">
               Chưa có sự kiện nào — feed sẽ xuất hiện ở đây khi worker chạy.
@@ -827,6 +835,10 @@ interface LiveEvent {
   text: string;
   tone?: 'stop' | 'block' | 'lead' | 'warn' | null;
   isNew?: boolean;
+  // Fix #3b (2026-06-02) — BE đã trả 3 field này nhưng FE quên render.
+  nickName?: string | null;
+  customerName?: string | null;
+  rowIndex?: number | null;
 }
 
 interface LogEvent {
@@ -1277,10 +1289,16 @@ async function pollMonitor(): Promise<void> {
     if (lastMonitorSince) params.since = lastMonitorSince;
     try {
       const r = await api.get(`/automation/triggers/${triggerId}/events/live`, { params });
-      const fresh = (r.data?.events ?? []) as Array<Omit<LiveEvent, 'isNew' | 'timeLabel' | 'icon' | 'text' | 'tone'> & {
+      const fresh = (r.data?.events ?? []) as Array<{
+        id: string;
+        at: string;
+        type: string;
         icon?: string;
         text?: string;
         tone?: LiveEvent['tone'];
+        nickName?: string | null;
+        customerName?: string | null;
+        rowIndex?: number | null;
       }>;
       mergeEvents(
         fresh.map((ev) => ({
@@ -1291,6 +1309,10 @@ async function pollMonitor(): Promise<void> {
           icon: ev.icon ?? '🤝',
           text: ev.text ?? '',
           tone: ev.tone ?? null,
+          // Fix #3b (2026-06-02) — map 3 field BE đã trả về (trước đây bị drop).
+          nickName: ev.nickName ?? null,
+          customerName: ev.customerName ?? null,
+          rowIndex: ev.rowIndex ?? null,
           isNew: true,
         })),
       );
@@ -1308,8 +1330,10 @@ async function pollMonitor(): Promise<void> {
 
 function mergeEvents(fresh: LiveEvent[]): void {
   if (fresh.length === 0) return;
-  // Newest first; cap at 20
-  monitorEvents.value = [...fresh.reverse(), ...monitorEvents.value].slice(0, 20);
+  // Newest first; cap at 20.
+  // Fix #2 (2026-06-02): BỎ .reverse() — BE đã orderBy desc nên fresh[0] = mới nhất.
+  // .reverse() trước đó đảo thành cũ → cũ lên đầu Monitor, mới xuống cuối (SAI).
+  monitorEvents.value = [...fresh, ...monitorEvents.value].slice(0, 20);
   lastMonitorSince = fresh[0]?.at ?? lastMonitorSince;
   // Auto-scroll to top if user hasn't scrolled down
   if (!userScrolledAway.value) {
@@ -1669,6 +1693,8 @@ onMounted(() => {
 
   // BE /events/live đã ship Day 4 — KHÔNG seed mock nữa.
   // Monitor sẽ render empty state "Chưa có sự kiện nào" cho tới khi worker emit event thật.
+  // Fix #5 (2026-06-02): gọi pollMonitor() NGAY khi mount để Anh không phải chờ 5s tick đầu.
+  void pollMonitor();
   monitorTimer = setInterval(pollMonitor, 5000);
 
   if (currentTab.value === 'log') void loadLog();
@@ -1939,6 +1965,21 @@ onUnmounted(() => {
 .mon-row.t-block  .mon-icon { color: var(--text-2); }
 .mon-row.t-lead   .mon-icon { color: var(--purple); }
 .mon-row.t-warn   .mon-icon { color: var(--warning); }
+/* Fix #3b (2026-06-02) — Monitor enrichment: row index pill + meta (KH ↔ nick) */
+.mon-row .mon-row-idx {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  margin-right: 4px;
+}
+.mon-row .mon-meta { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.mon-row .mon-nick { color: var(--primary); font-weight: 500; }
 .mon-empty { padding: 28px 14px; color: var(--text-3); font-style: italic; text-align: center; font-size: 12px; }
 
 /* eta */
