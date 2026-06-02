@@ -1168,6 +1168,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         id: trigger.id,
         name: trigger.name,
         state: trigger.state,
+        // 2026-06-03 — pausedUntil ISO khi pause TTL set (vd /pause body {ttlHours:24}).
+        // FE render countdown "Đang dừng (Xh Ym)" + hover "Tiếp tục". null khi pause vô hạn.
+        pausedUntil: trigger.pausedUntil ? trigger.pausedUntil.toISOString() : null,
         greetingTemplate: trigger.greetingTemplate,
         welcomeMessageTemplate: trigger.welcomeMessageTemplate,
         successorSequence: trigger.sequence

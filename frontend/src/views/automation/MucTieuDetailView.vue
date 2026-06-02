@@ -35,16 +35,24 @@
                draft | active | paused | cancelling | cancelled | completed.
                (UI gộp cancelled/completed → 'stopped' nhóm hiển thị.) -->
           <template v-if="data.trigger.state === 'active'">
-            <!-- P2 Wave 4 2026-06-03 — Tạm dừng 24h (TTL) + Dừng vĩnh viễn (pause vô hạn).
-                 BE: POST /pause với body { ttlHours:24 } → cron auto-resume sau 24h.
-                 POST /pause với body {} → pausedUntil=NULL → vô hạn (user phải bấm Tiếp tục). -->
+            <!-- 2026-06-03 Anh chốt re-label:
+                 - "Dừng vĩnh viễn" (paused indefinite) → "⏯️ Tạm dừng" (nhẹ, reversible)
+                 - "Dừng hẳn" (cancel terminal) → "🛑 Kết thúc"
+                 - "Tạm dừng 24h" giữ nguyên text khi active. State paused 24h sẽ hiện
+                   "⏸ Đang dừng (countdown)" và hover→ "▶️ Tiếp tục" (xem branch paused). -->
             <button class="btn" @click="pause24h">⏸ Tạm dừng 24h</button>
-            <button class="btn" @click="pauseForever">🛑 Dừng vĩnh viễn</button>
-            <button class="btn btn-danger" @click="onCancel">⏹ Dừng hẳn</button>
+            <button class="btn" @click="pauseForever">⏯️ Tạm dừng</button>
+            <button class="btn btn-danger" @click="onCancel">🛑 Kết thúc</button>
           </template>
           <template v-else-if="data.trigger.state === 'paused'">
-            <button class="btn btn-primary" @click="resume">▶ Tiếp tục</button>
-            <button class="btn btn-danger" @click="onCancel">⏹ Dừng hẳn</button>
+            <!-- 2026-06-03 — Pause card mới: text mặc định "Đang dừng (Xh Ym)" với countdown
+                 nếu paused_until set; hover → "▶️ Tiếp tục". Pause vô hạn (không TTL) thì
+                 text mặc định "⏸ Đang dừng" (không countdown), hover same. -->
+            <button class="btn btn-pause-hover" @click="resume" :title="pauseTooltip">
+              <span class="pause-label-default">{{ pauseLabel }}</span>
+              <span class="pause-label-hover">▶️ Tiếp tục</span>
+            </button>
+            <button class="btn btn-danger" @click="onCancel">🛑 Kết thúc</button>
           </template>
           <template v-else-if="data.trigger.state === 'draft'">
             <button class="btn btn-primary" @click="onActivate">▶ Kích hoạt</button>
@@ -819,6 +827,9 @@ interface DashboardData {
     createdBy?: { id: string; fullName: string } | null;
     // M13 — optional cho backward compat (deploy lệch BE chưa rebuild).
     safetyRules?: SafetyRules | null;
+    // 2026-06-03 — pausedUntil ISO khi pause TTL set (vd /pause body {ttlHours:24}).
+    // null khi pause vô hạn. FE dùng để render countdown "Đang dừng (Xh Ym)".
+    pausedUntil?: string | null;
   };
   counters: Record<string, number>;
   nicks: NickStat[];
@@ -911,6 +922,33 @@ type EntryFilterKey =
 // ===================================================================
 
 const creatorName = computed(() => data.value?.trigger.createdBy?.fullName ?? '—');
+
+// 2026-06-03 Anh chốt — nút Pause khi state=paused:
+// - Có pausedUntil tương lai → "⏸ Đang dừng (Xh Ym)" countdown
+// - Không pausedUntil hoặc đã quá → "⏸ Đang dừng" (vô hạn)
+// - Hover button: hiển thị "▶️ Tiếp tục" (xử lý qua CSS hover swap, không tick lại)
+function fmtCountdown(targetIso: string): string {
+  const ms = new Date(targetIso).getTime() - Date.now();
+  if (ms <= 0) return '';
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+const pauseLabel = computed(() => {
+  const until = data.value?.trigger.pausedUntil;
+  if (until) {
+    const cd = fmtCountdown(until);
+    if (cd) return `⏸ Đang dừng (${cd})`;
+  }
+  return '⏸ Đang dừng';
+});
+const pauseTooltip = computed(() => {
+  const until = data.value?.trigger.pausedUntil;
+  if (until) return `Tự động chạy lại sau ${fmtCountdown(until) || 'ít phút'}. Bấm để tiếp tục ngay.`;
+  return 'Bấm để tiếp tục.';
+});
 
 const stats = computed(() => {
   const c = data.value?.counters ?? {};
@@ -1828,6 +1866,15 @@ onUnmounted(() => {
   border-color: var(--danger, #de350b);
   color: white;
 }
+/* 2026-06-03 Anh chốt — Pause button: hiển thị "Đang dừng (countdown)", hover → "Tiếp tục". */
+.btn-pause-hover .pause-label-hover { display: none; }
+.btn-pause-hover:hover {
+  border-color: var(--primary, #0068ff);
+  color: var(--primary, #0068ff);
+  background: #ebf3ff;
+}
+.btn-pause-hover:hover .pause-label-default { display: none; }
+.btn-pause-hover:hover .pause-label-hover { display: inline; font-weight: 600; }
 .btn-icon { padding: 8px 10px; }
 .btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 4px; }
 
