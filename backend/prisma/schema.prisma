@@ -2408,6 +2408,12 @@ model CustomerListEntry {
   lockedAt           DateTime? @map("locked_at")
   failedNickIds      Json      @default("[]") @map("failed_nick_ids") @db.JsonB // string[] nick đã fail entry này
   stuckRecoveryCount Int       @default(0) @map("stuck_recovery_count")
+  // P2 2026-06-02 — đếm số lần soft fail (RATE_LIMITED/NOT_CONNECTED/timeout).
+  // Cap = 3 (hardcoded trong nick-worker). Khi đạt cap → escalate hard fail
+  // (releaseEntryFailed append failed_nick_ids). Tách khỏi stuckRecoveryCount
+  // để 2 cap (3 vs 10) + 2 semantic không trộn lẫn — stuck-sweeper KHÔNG reset
+  // count, nên reuse sẽ inflate rate-limit cap khi entry vốn chỉ stuck mạng.
+  rateLimitCount     Int       @default(0) @map("rate_limit_count")
   triggerId          String?   @map("trigger_id") // FK to AutomationTrigger (no relation enforced)
 
   // ── M9 Bám đuổi thủ công overrides (Luồng Mục Tiêu 2026-06-01) ──

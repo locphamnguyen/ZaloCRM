@@ -711,18 +711,65 @@ async function runTick(nickId: string): Promise<void> {
 
       // Distinguish RATE_LIMITED (retry) vs hard error (release pool)
       if (code === 'RATE_LIMITED' || code === 'NOT_CONNECTED' || msg.includes('timeout')) {
-        // Soft fail — release pool, nick có thể retry sau, KHÔNG append failedNickIds
-        await prisma.customerListEntry.update({
+        // Soft fail — release pool, nick có thể retry sau, KHÔNG append failedNickIds.
+        //
+        // P2 2026-06-02: cap 3 soft-fail per-entry. Trước fix này, RATE_LIMITED
+        // KHÔNG append failed_nick_ids → cùng entry retry vô hạn (cùng nick có thể
+        // claim lại nếu rate-limit hồi nhanh, hoặc đa số nick đều đang rate-limit
+        // cùng lúc → mỗi tick chỉ xoay vòng giữa các nick mà không tiến triển).
+        // Sau 3 lần soft fail → escalate hard fail (append failed_nick_ids như
+        // mọi lỗi cứng khác, để pool-query.releaseEntryFailed có thể flip
+        // failed_permanent khi tất cả nick đã exhaust).
+        const SOFT_FAIL_CAP = 3;
+        const updated = await prisma.customerListEntry.update({
           where: { id: entry.id },
           data: {
             queueStatus: 'queued_for_pickup',
             claimedByNickId: null,
             lockedAt: null,
+            rateLimitCount: { increment: 1 },
           },
+          select: { rateLimitCount: true },
         });
-        logger.warn(
-          `[nick-worker] ${nickId} entry=${entry.id} soft fail (${code || 'timeout'}): ${msg}`,
-        );
+        if (updated.rateLimitCount >= SOFT_FAIL_CAP) {
+          // Escalate: gọi releaseEntryFailed để append failed_nick_ids + check
+          // failed_permanent. Lưu ý: hàm này SET queueStatus='queued_for_pickup'
+          // lần nữa (no-op vì vừa set ở trên) → an toàn.
+          await releaseEntryFailed({
+            entryId: entry.id,
+            nickId,
+            reason: `soft_fail_escalated cap=${SOFT_FAIL_CAP} last=${code || 'timeout'} ${msg}`.slice(0, 200),
+          });
+          logger.warn(
+            `[nick-worker] ${nickId} entry=${entry.id} soft fail escalated to hard fail (count=${updated.rateLimitCount}/${SOFT_FAIL_CAP}, last=${code || 'timeout'}): ${msg}`,
+          );
+          // Wave 3 Event Log — anh thấy trong tab Log sự kiện vì sao entry bị
+          // append failed_nick_ids dù không phải lỗi cứng.
+          {
+            const cd = resolvedDisplayName?.trim() || entry.nameRaw?.trim() || entry.phoneE164 || 'KH';
+            const nd = nick.displayName?.trim() || nickId.slice(0, 8);
+            void logEvent({
+              orgId: worker.orgId,
+              triggerId: entry.triggerId,
+              nickId,
+              eventType: 'soft_fail_escalated',
+              eventPriority: 'warning',
+              summary: `⚠️ ${cd} bị nick ${nd} soft-fail ${updated.rateLimitCount} lần (${code || 'timeout'}) — escalate hard fail (row #${entry.rowIndex})`,
+              metadata: {
+                rowIndex: entry.rowIndex,
+                phoneE164: entry.phoneE164,
+                rateLimitCount: updated.rateLimitCount,
+                cap: SOFT_FAIL_CAP,
+                lastCode: code || 'timeout',
+                lastMessage: msg.slice(0, 200),
+              },
+            });
+          }
+        } else {
+          logger.warn(
+            `[nick-worker] ${nickId} entry=${entry.id} soft fail (${code || 'timeout'}) count=${updated.rateLimitCount}/${SOFT_FAIL_CAP}: ${msg}`,
+          );
+        }
       } else {
         // Hard fail — append failedNickIds
         await releaseEntryFailed({

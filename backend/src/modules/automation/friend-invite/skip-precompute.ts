@@ -99,6 +99,9 @@ export async function precomputeAndSeedPool(input: {
       claimedByNickId: null,
       lockedAt: null,
       stuckRecoveryCount: 0,
+      // P2 2026-06-02: reset rate-limit count khi entry claim trigger mới, tránh
+      // counter cũ từ Mục tiêu trước escalate hard fail trên Mục tiêu mới.
+      rateLimitCount: 0,
     },
   });
 

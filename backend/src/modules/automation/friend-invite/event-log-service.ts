@@ -43,7 +43,11 @@ export type EventType =
   // P2 2026-06-02 — campaign-timeout-sweeper flip automation_campaigns.state='active'
   // bị kẹt (worker crash + Redis mất việc) sang 'timeout' sau >12h không advance + zero
   // pending sequence-step jobs trong BullMQ. Alert urgent vì cần ops kiểm tra.
-  | 'campaign_timeout';
+  | 'campaign_timeout'
+  // P2 2026-06-02 — nick-worker đếm 3 lần soft fail (RATE_LIMITED/NOT_CONNECTED/timeout)
+  // cho cùng entry rồi escalate hard fail (append failed_nick_ids). Trước fix này entry
+  // có thể bị 1 nick retry vô hạn vì soft fail không append failedNickIds.
+  | 'soft_fail_escalated';
 
 export interface LogEventInput {
   orgId: string;
