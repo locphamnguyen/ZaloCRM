@@ -175,26 +175,17 @@
           <!-- Smart friendship button: state-aware -->
           <!-- Đã kết bạn: hover hiện thêm nút Huỷ kết bạn (destructive secondary) -->
           <div v-if="friendshipState === 'friend'" class="friend-hover-group">
-            <v-tooltip :text="friendshipTitle" location="bottom">
-              <template #activator="{ props: tipProps }">
-                <button v-bind="tipProps" class="btn-action btn-friend-already" disabled>
-                  <span class="ic">✓</span> Đã KB
-                  <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
-                </button>
-              </template>
-            </v-tooltip>
-            <v-tooltip text="Huỷ kết bạn với KH (Zalo unfriend)" location="bottom">
-              <template #activator="{ props: tipProps }">
-                <button
-                  v-bind="tipProps"
-                  class="btn-action btn-remove-friend"
-                  :disabled="actionLoading"
-                  @click="onRemoveFriend"
-                >
-                  <span class="ic">✗</span> Huỷ KB
-                </button>
-              </template>
-            </v-tooltip>
+            <button class="btn-action btn-friend-already" disabled>
+              <span class="ic">✓</span> Đã KB
+              <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
+            </button>
+            <button
+              class="btn-action btn-remove-friend"
+              :disabled="actionLoading"
+              @click="onRemoveFriend"
+            >
+              <span class="ic">✗</span> Huỷ KB
+            </button>
           </div>
           <!-- Sale đã gửi mời, đợi KH accept: primary "Đã mời" + secondary "Thu hồi" -->
           <template v-else-if="friendshipState === 'pending_sent' || friendshipState === 'pending_friend'">
@@ -1623,12 +1614,8 @@ const pendingSentTooltip = computed(() => {
   return `Sale đã gửi mời kết bạn từ ${time}. Click để huỷ.`;
 });
 
-const friendshipTitle = computed(() => {
-  if (friendshipState.value === 'friend') {
-    return friendDaysLabel.value ? `Đã kết bạn ${friendDaysLabel.value}` : 'Đã kết bạn';
-  }
-  return '';
-});
+// 2026-06-03: bỏ tooltip Đã KB vì button đã có sub-meta "{{ friendDaysLabel }}"
+// inline; tooltip native + v-tooltip đều gây visual đè row 1.
 
 // ── Friendship action handlers ──────────────────────────────────────────────
 // Tất cả dùng externalThreadId (per-nick UID) — KHÔNG dùng contact.zaloUid (cross-nick bug).
@@ -3161,6 +3148,8 @@ watch(() => props.editingMessage?.id, async (id) => {
   color: var(--smax-grey-700);
   transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
   max-width: 180px;
+  white-space: nowrap; /* 2026-06-03: chống "Phân loại" wrap khi row 1 chật */
+  flex-shrink: 0;
 }
 .zlbl-trigger:hover {
   background: var(--smax-primary-soft, #e3f2fd);
