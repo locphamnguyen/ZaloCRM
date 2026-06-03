@@ -1,6 +1,5 @@
 /**
- * Plugin architecture (open-core) — unit tests cho 2 primitive + license gating.
- * Xem plans/260602-2229-open-core-plugin-architecture/.
+ * Plugin architecture — unit tests cho 2 primitive + license gating.
  */
 import { describe, it, expect } from 'vitest';
 import { createCapabilityRegistry } from '../src/plugin-api/capability-registry.js';

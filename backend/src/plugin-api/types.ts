@@ -1,12 +1,11 @@
 /**
  * @zalocrm/plugin-api — Hợp đồng plugin CÔNG KHAI (ổn định, semver).
  *
- * Đây là biên giới DUY NHẤT giữa core (open source) và Enterprise (private).
+ * Đây là biên giới ổn định giữa core và các plugin mở rộng.
  * - Core implement các capability/policy và expose qua PluginContext.
- * - Plugin EE CHỈ được import từ file này (không import backend/src/modules/*).
+ * - Plugin CHỈ được import từ file này (không import backend/src/modules/*).
  *
- * NGUYÊN TẮC VÀNG: core không bao giờ import EE; EE chỉ import plugin-api.
- * Xem plans/260602-2229-open-core-plugin-architecture/.
+ * NGUYÊN TẮC VÀNG: core không bao giờ import plugin; plugin chỉ import plugin-api.
  */
 import type { FastifyInstance } from 'fastify';
 import type { Server as SocketServer } from 'socket.io';
