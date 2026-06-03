@@ -25,7 +25,6 @@ import { config } from './config/index.js';
 import { prisma } from './shared/database/prisma-client.js';
 import { logger } from './shared/utils/logger.js';
 import { authRoutes } from './modules/auth/auth-routes.js';
-import { brandingRoutes } from './modules/branding/branding-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
 import { folderRoutes } from './modules/chat/folder-routes.js';
@@ -40,13 +39,9 @@ import { startInteractionCron } from './modules/contacts/interaction-cron.js';
 import { crmTagRoutes } from './modules/contacts/crm-tag-routes.js';
 import { crmTagGroupRoutes } from './modules/contacts/crm-tag-group-routes.js';
 import { userPreferenceRoutes } from './modules/auth/user-preference-routes.js';
-import { timelineRoutes } from './modules/activity/timeline-routes.js';
-import { scoringRoutes } from './modules/scoring/scoring-routes.js';
 import { zaloLabelsRoutes, startLabelsBackgroundSync } from './modules/zalo/zalo-labels-routes.js';
 import { startAppointmentReminder } from './modules/contacts/appointment-reminder.js';
 import { zinstantProxyRoutes } from './modules/contacts/zinstant-proxy-routes.js';
-import { dashboardRoutes } from './modules/dashboard/dashboard-routes.js';
-import { reportRoutes } from './modules/dashboard/report-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
 import { teamRoutes } from './modules/auth/team-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
@@ -55,14 +50,8 @@ import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
 import { zaloDashboardRoutes } from './modules/zalo/zalo-dashboard-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
-import { notificationRoutes } from './modules/notifications/notification-routes.js';
-import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
-import { publicApiRoutes } from './modules/api/public-api-routes.js';
-import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
 import { startContactIntelligence } from './modules/contacts/contact-intelligence.js';
-import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
-import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
 import { facebookRoutes } from './modules/integrations/providers/facebook/facebook-routes.js';
 import { automationRoutes } from './modules/automation/automation-routes.js';
@@ -79,7 +68,6 @@ import { customerListRoutes } from './modules/automation/lists/list-routes.js';
 import { customerListEntryRoutes } from './modules/automation/lists/list-entry-routes.js';
 import { startListEnrichmentWorker } from './modules/automation/lists/list-enrichment-service.js';
 import { registerCustomerListEventHandlers } from './modules/automation/lists/list-event-handlers.js';
-import { aiRoutes } from './modules/ai/ai-routes.js';
 import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js';
@@ -87,6 +75,9 @@ import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
 import { credentialRoutes } from './modules/zalo/credential-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
+// Plugin architecture (open-core) — xem plans/260602-2229-open-core-plugin-architecture/
+import { buildContext } from './core/build-context.js';
+import { loadPlugins } from './core/plugin-host.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -157,7 +148,15 @@ async function bootstrap() {
   // ── Routes ────────────────────────────────────────────────────────────────
 
   await app.register(authRoutes);
-  await app.register(brandingRoutes);
+
+  // ── Plugin host (open-core) ───────────────────────────────────────────────
+  // Nạp plugin core (12 module: branding, dashboard, analytics, search,
+  // notifications, scoring, activity, ai, api, engagement, rbac, privacy)
+  // + enterprise (nếu có). Migrate dần phần còn lại ở Phase 4.
+  // Xem core/plugin-host.ts + modules/plugins-index.ts.
+  const { ctx } = buildContext(app, io);
+  await loadPlugins(ctx);
+
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
   await app.register(folderRoutes);
@@ -171,37 +170,16 @@ async function bootstrap() {
   await app.register(crmTagRoutes);
   await app.register(crmTagGroupRoutes);
   await app.register(userPreferenceRoutes);
-  await app.register(timelineRoutes);
-  await app.register(scoringRoutes);
-  // Phase 8 — Engagement heatmap timeline + admin recompute/backfill
-  const { registerEngagementRoutes } = await import('./modules/engagement/engagement-routes.js');
-  await registerEngagementRoutes(app);
-  // RBAC Phase Phân Quyền 2026-05-21 — Department + PermissionGroup (M2 Getfly Clone)
-  const { registerDepartmentRoutes } = await import('./modules/rbac/department-routes.js');
-  await registerDepartmentRoutes(app);
-  const { registerPermissionGroupRoutes } = await import('./modules/rbac/permission-group-routes.js');
-  await registerPermissionGroupRoutes(app);
-  const { registerUserAssignmentRoutes } = await import('./modules/rbac/user-assignment-routes.js');
-  await registerUserAssignmentRoutes(app);
-  // Phase Riêng Tư 2026-05-22 — PIN-gated visual privacy
-  const { registerPrivacyRoutes } = await import('./modules/privacy/privacy-routes.js');
-  await registerPrivacyRoutes(app);
+  // engagement (heatmap), rbac (department/permission/user-assignment), privacy (PIN)
+  // đã chuyển sang plugin-host (batch 3). Xem modules/plugins-index.ts.
   await app.register(zaloLabelsRoutes);
   await app.register(zinstantProxyRoutes);
-  await app.register(dashboardRoutes);
-  await app.register(reportRoutes);
   await app.register(userRoutes);
   await app.register(teamRoutes);
   await app.register(orgRoutes);
   await app.register(zaloAccessRoutes);
   await app.register(zaloSyncRoutes);
   await app.register(zaloDashboardRoutes);
-  await app.register(notificationRoutes);
-  await app.register(searchRoutes);
-  await app.register(publicApiRoutes);
-  await app.register(webhookSettingsRoutes);
-  await app.register(analyticsRoutes);
-  await app.register(savedReportRoutes);
   await app.register(integrationRoutes);
   await app.register(facebookRoutes);
   await app.register(automationRoutes);
@@ -216,7 +194,6 @@ async function bootstrap() {
   // Tệp khách hàng — CustomerList CRUD + entries + enrichment + event handlers
   await app.register(customerListRoutes);
   await app.register(customerListEntryRoutes);
-  await app.register(aiRoutes);
   await app.register(chatOperationsRoutes);
   await app.register(groupRoutes);
   await app.register(groupModerationRoutes);

@@ -8,6 +8,9 @@ backups/
 .DS_Store
 .gstack/
 
+# Understand-anything generated knowledge-graph cache (local only)
+.understand-anything/
+
 # Local dev artifacts — không commit
 .backfill*.sql
 .diag.sql

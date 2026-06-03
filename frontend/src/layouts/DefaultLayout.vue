@@ -95,6 +95,9 @@
         <v-icon size="18">mdi-account-group-outline</v-icon>
       </RouterLink>
 
+      <!-- Điểm mở rộng UI: plugin có thể chèn action vào topbar. Rỗng nếu không có plugin. -->
+      <ExtensionSlot name="topbar.actions" />
+
       <NotificationBell class="icon-btn-wrap" />
 
       <v-menu>
@@ -133,6 +136,7 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
+import ExtensionSlot from '@/components/ExtensionSlot.vue';
 const theme = useTheme();
 const route = useRoute();
 const authStore = useAuthStore();
