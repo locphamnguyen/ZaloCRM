@@ -62,9 +62,33 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (status) where.status = status;
       if (statusId) where.statusId = statusId;
       if (assignedUserId) where.assignedUserId = assignedUserId;
-      if (hasZalo === 'true') where.hasZalo = true;
-      else if (hasZalo === 'false') where.hasZalo = false;
-      else if (hasZalo === 'unknown') where.hasZalo = null;
+      // 2026-06-03 fix (office-hours review): filter Zalo phải KHỚP logic hiển thị
+      // zaloDisplay() ở frontend — "Có Zalo" = có Friend row HOẶC zalo identity HOẶC
+      // hasZalo=true (không chỉ hasZalo raw). Trước đây filter dùng hasZalo raw nên
+      // 1.360 KH có Friend nhưng hasZalo=null bị filter "Có Zalo" bỏ sót (lệch 33%).
+      //
+      //   "Có Zalo"        = hasZalo=true OR có Friend OR có zaloUid/globalId/username
+      //   "Không tìm thấy" = KHÔNG có Zalo (none of yesShape) VÀ hasZalo=false (đã quét ra no)
+      //   "Chưa tìm"       = KHÔNG có Zalo VÀ hasZalo=null (chưa quét)
+      // Push vào where.AND để KHÔNG đụng where.OR của search.
+      if (hasZalo === 'true' || hasZalo === 'false' || hasZalo === 'unknown') {
+        // hasIdentity = các nguồn suy ra "có Zalo" NGOÀI hasZalo (friend/uid/globalId/username)
+        const hasIdentityShape = [
+          { friends: { some: {} } },
+          { zaloUid: { not: null } },
+          { zaloGlobalId: { not: null } },
+          { zaloUsername: { not: null } },
+        ];
+        where.AND = where.AND ?? [];
+        if (hasZalo === 'true') {
+          // Có Zalo: hasZalo=true HOẶC có identity (Friend/uid/...)
+          where.AND.push({ OR: [{ hasZalo: true }, ...hasIdentityShape] });
+        } else {
+          // Không có identity nào + KHÔNG verified true → đúng nhóm "chưa quét / không có"
+          where.AND.push({ NOT: { OR: hasIdentityShape } });
+          where.AND.push({ hasZalo: hasZalo === 'false' ? false : null });
+        }
+      }
       // Score range — fallback Contact.leadScore (aggregate displayLeadScore tính sau)
       if (scoreMin || scoreMax) {
         where.leadScore = {};
