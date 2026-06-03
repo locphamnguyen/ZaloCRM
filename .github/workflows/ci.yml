@@ -1,0 +1,42 @@
+# CI — đảm bảo backend build ĐỘC LẬP và toàn vẹn.
+#
+# Mục tiêu: bản open source phải tự build được, không phụ thuộc package local nào.
+# Một dependency `file:` (link package ngoài cây repo) sẽ phá tính độc lập đó →
+# guard dưới đây chặn ngay. `npm ci` + `tsc` cũng fail nếu có import package thiếu.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Integrity guard — không cho dependency local `file:`
+        run: |
+          if grep -nE '"file:' package.json; then
+            echo "::error::package.json chứa dependency 'file:'. Backend phải build độc lập — không link package nằm ngoài repo."
+            exit 1
+          fi
+          echo "OK: không có dependency file: nào."
+
+      - name: Cài deps (sạch, khoá lock)
+        run: npm ci
+
+      - name: Prisma generate
+        run: DATABASE_URL="postgresql://ci:ci@localhost:5432/ci" npx prisma generate
+
+      - name: Build (tsc)
+        run: npm run build
