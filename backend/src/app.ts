@@ -44,8 +44,6 @@ import { scoringRoutes } from './modules/scoring/scoring-routes.js';
 import { zaloLabelsRoutes, startLabelsBackgroundSync } from './modules/zalo/zalo-labels-routes.js';
 import { startAppointmentReminder } from './modules/contacts/appointment-reminder.js';
 import { zinstantProxyRoutes } from './modules/contacts/zinstant-proxy-routes.js';
-import { dashboardRoutes } from './modules/dashboard/dashboard-routes.js';
-import { reportRoutes } from './modules/dashboard/report-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
 import { teamRoutes } from './modules/auth/team-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
@@ -54,14 +52,10 @@ import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
 import { zaloDashboardRoutes } from './modules/zalo/zalo-dashboard-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
-import { notificationRoutes } from './modules/notifications/notification-routes.js';
-import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
 import { startContactIntelligence } from './modules/contacts/contact-intelligence.js';
-import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
-import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
 import { facebookRoutes } from './modules/integrations/providers/facebook/facebook-routes.js';
 import { automationRoutes } from './modules/automation/automation-routes.js';
@@ -161,8 +155,9 @@ async function bootstrap() {
   await app.register(authRoutes);
 
   // ── Plugin host (open-core) ───────────────────────────────────────────────
-  // Nạp plugin core (hiện: branding) + enterprise (nếu có). Thay dần các
-  // app.register() bên dưới ở Phase 4. Xem core/plugin-host.ts.
+  // Nạp plugin core (branding, dashboard, analytics, search, notifications)
+  // + enterprise (nếu có). Migrate dần các app.register() còn lại ở Phase 4.
+  // Xem core/plugin-host.ts + modules/plugins-index.ts.
   const { ctx } = buildContext(app, io);
   await loadPlugins(ctx);
 
@@ -196,20 +191,14 @@ async function bootstrap() {
   await registerPrivacyRoutes(app);
   await app.register(zaloLabelsRoutes);
   await app.register(zinstantProxyRoutes);
-  await app.register(dashboardRoutes);
-  await app.register(reportRoutes);
   await app.register(userRoutes);
   await app.register(teamRoutes);
   await app.register(orgRoutes);
   await app.register(zaloAccessRoutes);
   await app.register(zaloSyncRoutes);
   await app.register(zaloDashboardRoutes);
-  await app.register(notificationRoutes);
-  await app.register(searchRoutes);
   await app.register(publicApiRoutes);
   await app.register(webhookSettingsRoutes);
-  await app.register(analyticsRoutes);
-  await app.register(savedReportRoutes);
   await app.register(integrationRoutes);
   await app.register(facebookRoutes);
   await app.register(automationRoutes);

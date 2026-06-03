@@ -9,8 +9,17 @@
  */
 import type { ZaloCrmPlugin } from '../plugin-api/index.js';
 import { brandingPlugin } from './branding/index.js';
+import { dashboardPlugin } from './dashboard/index.js';
+import { analyticsPlugin } from './analytics/index.js';
+import { searchPlugin } from './search/index.js';
+import { notificationsPlugin } from './notifications/index.js';
 
 export const corePlugins: ZaloCrmPlugin[] = [
+  // Route thuần, độc lập theo path — thứ tự nội bộ không quan trọng.
   brandingPlugin,
-  // Phase 4 — thêm dần: authPlugin, zaloPlugin, chatPlugin, contactsPlugin, ...
+  dashboardPlugin,
+  analyticsPlugin,
+  searchPlugin,
+  notificationsPlugin,
+  // Phase 4 (tiếp) — auth/zalo/chat/contacts/automation... (nhạy thứ tự, migrate sau).
 ];
