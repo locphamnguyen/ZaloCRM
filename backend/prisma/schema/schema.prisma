@@ -20,6 +20,7 @@ model Organization {
   users                   User[]
   zaloAccounts            ZaloAccount[]
   contacts                Contact[]
+  contactAccess           ContactAccess[]
   conversations           Conversation[]
   appointments            Appointment[]
   activityLogs            ActivityLog[]
@@ -126,6 +127,7 @@ model User {
   zaloAccounts              ZaloAccount[]
   zaloAccess                ZaloAccountAccess[]
   assignedContacts          Contact[]                    @relation("AssignedContacts")
+  contactAccess             ContactAccess[]
   appointments              Appointment[]
   statusChangedAppointments Appointment[]                @relation("AppointmentStatusChanger")
   repliedMessages           Message[]                    @relation("RepliedMessages")
@@ -359,6 +361,7 @@ model Contact {
   parent            Contact?            @relation("ContactFather", fields: [parentContactId], references: [id], onDelete: SetNull)
   children          Contact[]           @relation("ContactFather")
   statusRef         Status?             @relation(fields: [statusId], references: [id], onDelete: SetNull)
+  contactAccess     ContactAccess[]
   conversations     Conversation[]
   appointments      Appointment[]
   attempts          FriendshipAttempt[]
@@ -437,6 +440,30 @@ model Contact {
   @@index([orgId, stuckSinceAggregate])
   @@index([orgId, aggregateScoreUpdatedAt(sort: Desc)])
   @@map("contacts")
+}
+
+// Phase Contact Scope Hybrid — quyền sở hữu KH (primary + collaborator).
+// 1 Contact có thể có nhiều User cùng truy cập (1 primary + N collaborator).
+// role: primary | collaborator. source: manual | <khác> (audit nguồn tạo row).
+// Logic enforce scope nằm ở plugin EE; Core chỉ giữ data model + populate.
+model ContactAccess {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  contactId String   @map("contact_id")
+  userId    String   @map("user_id")
+  role      String   @default("collaborator")
+  source    String   @default("manual")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, userId])
+  @@index([orgId, userId])
+  @@index([orgId, contactId])
+  @@map("contact_access")
 }
 
 // Status (Trạng thái KH) — per-org config replacing Contact.status enum cũ.

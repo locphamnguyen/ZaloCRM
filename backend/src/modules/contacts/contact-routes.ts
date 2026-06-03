@@ -18,6 +18,7 @@ import { runAutomationRules } from '../automation/automation-service.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
+import { setPrimaryOwner } from './contact-access.js';
 
 type QueryParams = Record<string, string>;
 
@@ -104,6 +105,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           { zaloUsername: { equals: search } },
         ];
       }
+
+      // Scope slot (primitive 3): EE plugin có thể giới hạn KH user được thấy.
+      // Community: chưa ai register → resolve trả null → không lọc thêm.
+      const scopeWhere = await app.scope.resolve('contact', user.id, user.orgId);
+      if (scopeWhere) Object.assign(where, scopeWhere);
 
       const pageNum = parseInt(page);
       const limitNum = parseInt(limit);
@@ -327,6 +333,21 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           metadata: body.metadata ?? {},
         },
       });
+
+      // Populate ContactAccess primary owner khi KH được gán ngay lúc tạo.
+      // try/catch: không block tạo contact nếu ghi access lỗi.
+      if (contact.assignedUserId) {
+        try {
+          await setPrimaryOwner(prisma, {
+            orgId: user.orgId,
+            contactId: contact.id,
+            userId: contact.assignedUserId,
+            source: 'manual',
+          });
+        } catch (err) {
+          logger.warn({ err, contactId: contact.id }, '[contact] setPrimaryOwner failed');
+        }
+      }
 
       const org = await prisma.organization.findUnique({
         where: { id: user.orgId },
@@ -1183,6 +1204,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
             select: { id: true },
           });
           linkedContactId = newC.id;
+          // Compose-new: sale tạo KH từ nick của mình → set primary owner = sale hiện tại.
+          // try/catch: không block luồng compose nếu ghi access lỗi.
+          try {
+            await setPrimaryOwner(prisma, {
+              orgId: user.orgId,
+              contactId: newC.id,
+              userId: user.id,
+              source: 'compose_new',
+            });
+          } catch (err) {
+            logger.warn({ err, contactId: newC.id }, '[contact] setPrimaryOwner failed');
+          }
         } else if (linkedContactId) {
           // Backfill zaloUid/global/username vào Contact đã có (nếu thiếu)
           await prisma.contact.update({
