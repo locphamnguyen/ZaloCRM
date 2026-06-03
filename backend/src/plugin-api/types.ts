@@ -77,6 +77,21 @@ export interface PolicyRegistry {
 }
 
 /* ────────────────────────────────────────────────────────────────────────
+ * PRIMITIVE 3 — Scope Registry (data-scoping slot)
+ * Khác policy (boolean gate 1 resource): scope trả 1 WHERE-fragment để LỌC list.
+ * Core gọi resolve(name, user, org) rồi merge fragment vào Prisma `where`.
+ * Chưa ai register → null (không lọc → community thấy hết). EE register → giới hạn.
+ * ──────────────────────────────────────────────────────────────────────── */
+/** Mảnh điều kiện Prisma `where` để merge vào query. null = không giới hạn. */
+export type ScopeWhere = Record<string, unknown>;
+
+export interface ScopeRegistry {
+  register(name: string, fn: (userId: string, orgId: string) => Promise<ScopeWhere | null>): void;
+  /** Trả null nếu chưa ai register (mặc định không lọc). */
+  resolve(name: string, userId: string, orgId: string): Promise<ScopeWhere | null>;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
  * License (chi tiết đầy đủ ở Phase 6 — đây là contract dùng chung).
  * ──────────────────────────────────────────────────────────────────────── */
 export interface LicenseService {
@@ -103,6 +118,7 @@ export interface PluginContext {
   registerCron: (job: CronJob) => void;
   capabilities: CapabilityRegistry; // primitive 1
   policy: PolicyRegistry; // primitive 2
+  scope: ScopeRegistry; // primitive 3
 }
 
 /* ────────────────────────────────────────────────────────────────────────
