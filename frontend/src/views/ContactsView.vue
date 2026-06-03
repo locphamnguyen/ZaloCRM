@@ -34,9 +34,12 @@
         <option value="user">👤 User 1-1</option>
         <option value="group">👥 Nhóm</option>
       </select>
-      <select v-model="filters.source" @change="fetchContacts" title="Nguồn KH">
-        <option value="">Tất cả nguồn</option>
-        <option v-for="o in SOURCE_OPTIONS" :key="o.value" :value="o.value">{{ o.text }}</option>
+      <!-- 2026-06-03: Trạng thái Zalo lên toolbar chính (đổi chỗ với Nguồn) -->
+      <select v-model="filters.hasZalo" @change="fetchContacts" title="Trạng thái Zalo">
+        <option value="">Trạng thái Zalo: tất cả</option>
+        <option value="true">🟢 Có Zalo</option>
+        <option value="false">🔴 Không tìm thấy</option>
+        <option value="unknown">⚪ Chưa tìm</option>
       </select>
       <select v-model="filters.statusId" @change="fetchContacts" title="Trạng thái KH (dynamic)">
         <option value="">Tất cả trạng thái KH</option>
@@ -127,13 +130,12 @@
     <!-- Advanced filter panel (collapsible) — 2026-06-03 fix UI gọn -->
     <div v-if="showAdvanced" class="advanced-panel">
       <div class="adv-panel-title">🔎 Bộ lọc nâng cao</div>
+      <!-- 2026-06-03: Nguồn khách ẩn vào đây (đổi chỗ với Trạng thái Zalo) -->
       <div class="adv-group">
-        <label>Trạng thái Zalo</label>
-        <select v-model="filters.hasZalo" @change="fetchContacts">
-          <option value="">Tất cả</option>
-          <option value="true">🟢 Có Zalo</option>
-          <option value="false">🔴 Không tìm thấy</option>
-          <option value="unknown">⚪ Chưa tìm</option>
+        <label>Nguồn khách</label>
+        <select v-model="filters.source" @change="fetchContacts">
+          <option value="">Tất cả nguồn</option>
+          <option v-for="o in SOURCE_OPTIONS" :key="o.value" :value="o.value">{{ o.text }}</option>
         </select>
       </div>
       <div class="adv-group">
@@ -161,7 +163,7 @@
           <input type="number" v-model.number="filters.scoreMax" min="0" max="100" placeholder="Max" class="score-input-mini" @change="fetchContacts" />
         </div>
       </div>
-      <div class="adv-group adv-inline">
+      <div class="adv-group adv-inline adv-wide">
         <label>📅 Khoảng tương tác</label>
         <div class="adv-row">
           <input type="date" v-model="filters.dateFrom" class="date-input" @change="fetchContacts" />
@@ -1651,6 +1653,9 @@ watch(
 /* hàng khoảng tương tác + lead score: 2 input cạnh nhau gọn */
 .adv-group.adv-inline { flex-direction: column; }
 .adv-inline .adv-row { display: flex; align-items: center; gap: 6px; }
+/* 2026-06-03: Khoảng tương tác cần rộng hơn (2 ô date không bị che chữ dd/mm/yyyy) */
+.adv-group.adv-wide { grid-column: span 2; }
+.adv-wide .date-input { min-width: 0; }
 .adv-inline .date-input, .score-input-mini { flex: 1; min-width: 0; }
 .score-input-mini { text-align: center; }
 .adv-group .dash { color: var(--smax-grey-400); font-size: 13px; flex-shrink: 0; }
