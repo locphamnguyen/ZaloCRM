@@ -68,8 +68,9 @@ if [[ $SKIP_BACKEND -eq 0 ]]; then
 
   if [[ $SKIP_PRISMA -eq 0 ]]; then
     step "Prisma: copy schema + regen client trong container"
-    docker cp "$ROOT/backend/prisma/schema.prisma" \
-      "$CONTAINER:/app/prisma/schema.prisma" >/dev/null
+    docker exec "$CONTAINER" sh -c 'mkdir -p /app/prisma/schema' >/dev/null
+    docker cp "$ROOT/backend/prisma/schema/." \
+      "$CONTAINER:/app/prisma/schema/" >/dev/null
     docker exec "$CONTAINER" sh -c 'cd /app && npx prisma generate' 2>&1 | tail -3
     ok "client regenerated"
   fi
