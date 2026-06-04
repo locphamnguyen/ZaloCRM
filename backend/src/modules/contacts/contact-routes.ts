@@ -837,6 +837,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         },
       });
       if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+      if (friend.contactId && !(await ensureContactVisible(app, request, reply, user, friend.contactId))) return;
 
       if (body.statusId !== undefined && body.statusId !== null) {
         const s = await prisma.status.findFirst({ where: { id: body.statusId, orgId: user.orgId } });
@@ -986,6 +987,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         select: { id: true, contactId: true, zaloAccountId: true, zaloUidInNick: true },
       });
       if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+      if (friend.contactId && !(await ensureContactVisible(app, request, reply, user, friend.contactId))) return;
 
       // Find-or-create conversation for (zaloAccount, externalThreadId=zaloUidInNick).
       // threadType='user' vì Friend = 1-1 Zalo identity (group conv không qua đây).
@@ -1336,6 +1338,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         },
       });
       if (!friend) return reply.status(404).send({ error: 'Friend not found' });
+      if (friend.contactId && !(await ensureContactVisible(app, request, reply, user, friend.contactId))) return;
 
       // Get default status for org (fallback)
       const defaultStatus = await prisma.status.findFirst({
@@ -1562,6 +1565,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (!candidate.contactIds.includes(parentContactId)) {
         return reply.status(400).send({ error: 'parentContactId must be in candidate group' });
       }
+      if (!(await ensureContactVisible(app, request, reply, user, parentContactId))) return;
 
       // Set parentContactId cho các contact khác trong cụm
       const childrenIds = candidate.contactIds.filter(cid => cid !== parentContactId);
@@ -1596,6 +1600,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const { id } = request.params as { id: string };
       const candidate = await prisma.parentCandidate.findFirst({ where: { id, orgId: user.orgId } });
       if (!candidate) return reply.status(404).send({ error: 'Candidate not found' });
+      const firstCid = candidate.contactIds?.[0];
+      if (firstCid && !(await ensureContactVisible(app, request, reply, user, firstCid))) return;
       await prisma.parentCandidate.update({
         where: { id },
         data: { dismissed: true, resolvedAt: new Date(), resolvedBy: user.id },
