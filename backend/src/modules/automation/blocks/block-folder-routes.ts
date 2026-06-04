@@ -18,12 +18,23 @@ const BASE = '/api/v1/automation/block-folders';
 export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
-  // List folders (flat, client builds tree from parentId)
+  // List folders — 2026-06-04: visibility scoping
+  // Public folders: mọi sale org thấy
+  // Private folders: chỉ ownerUserId thấy
   app.get(BASE, async (request: FastifyRequest) => {
     const user = request.user!;
     const folders = await prisma.blockFolder.findMany({
-      where: { orgId: user.orgId },
-      orderBy: [{ ownerUserId: 'asc' }, { name: 'asc' }],
+      where: {
+        orgId: user.orgId,
+        OR: [
+          { visibility: 'public' },
+          { visibility: 'private', ownerUserId: user.id },
+        ],
+      },
+      orderBy: [
+        { visibility: 'asc' }, // 'private' < 'public' alphabet, nhưng UI sort theo section sau
+        { name: 'asc' },
+      ],
       include: {
         _count: { select: { blocks: { where: { archivedAt: null } } } },
       },
@@ -40,23 +51,25 @@ export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'name is required' });
       }
 
-      // Validate parent exists in same org if provided
-      if (body.parentId) {
-        const parent = await prisma.blockFolder.findFirst({
-          where: { id: body.parentId, orgId: user.orgId },
-          select: { id: true },
-        });
-        if (!parent) return reply.status(400).send({ error: 'parent folder not found' });
+      // 2026-06-04: Phase 1 enforce parentId IS NULL (1 cấp). Anh chốt: folder = chức năng + visibility, không nested.
+      if (body.parentId != null) {
+        return reply.status(400).send({ error: 'PARENT_NOT_ALLOWED', detail: 'Phase 1 chỉ hỗ trợ folder 1 cấp' });
       }
+
+      // 2026-06-04: visibility = 'public' | 'private'. Default 'public'.
+      const visibility = body.visibility === 'private' ? 'private' : 'public';
+      // Private folder phải có ownerUserId (chính sale tạo)
+      const ownerUserId = visibility === 'private' ? user.id : (body.ownerUserId ?? null);
 
       const folder = await prisma.blockFolder.create({
         data: {
           id: randomUUID(),
           orgId: user.orgId,
           name: body.name.trim(),
-          parentId: body.parentId ?? null,
+          visibility,
+          parentId: null, // enforced
           ownerNickId: body.ownerNickId ?? null,
-          ownerUserId: body.ownerUserId ?? null,
+          ownerUserId,
           createdById: user.id,
         },
       });
@@ -80,20 +93,27 @@ export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!existing) return reply.status(404).send({ error: 'folder not found' });
 
-      // Prevent setting parentId to self or descendant (simple guard: not self;
-      // deeper cycle check would need recursive traversal — skip for now).
-      if (body.parentId === id) {
-        return reply.status(400).send({ error: 'folder cannot be its own parent' });
+      // 2026-06-04 Phase 1: reject parentId != null
+      if (body.parentId != null) {
+        return reply.status(400).send({ error: 'PARENT_NOT_ALLOWED', detail: 'Phase 1 chỉ hỗ trợ folder 1 cấp' });
       }
+
+      const updateData: Record<string, unknown> = {};
+      if (typeof body.name === 'string') updateData.name = body.name.trim();
+      if (body.visibility === 'public' || body.visibility === 'private') {
+        updateData.visibility = body.visibility;
+        // Đổi sang private → set ownerUserId = current user nếu chưa có
+        if (body.visibility === 'private') {
+          updateData.ownerUserId = user.id;
+        } else {
+          updateData.ownerUserId = null;
+        }
+      }
+      if (body.ownerNickId !== undefined) updateData.ownerNickId = body.ownerNickId;
 
       const folder = await prisma.blockFolder.update({
         where: { id },
-        data: {
-          name: body.name?.trim(),
-          parentId: body.parentId === null ? null : body.parentId ?? undefined,
-          ownerNickId: body.ownerNickId === null ? null : body.ownerNickId ?? undefined,
-          ownerUserId: body.ownerUserId === null ? null : body.ownerUserId ?? undefined,
-        },
+        data: updateData,
       });
       return folder;
     } catch (error) {
