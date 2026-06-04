@@ -24,6 +24,7 @@ import { logger } from '../shared/utils/logger.js';
 import { loadLicense } from './license-service.js';
 import { zaloMessagingImpl } from './zalo-messaging-impl.js';
 import { internalContactImpl } from './internal-contact-impl.js';
+import { zaloDirectoryImpl } from './zalo-directory-impl.js';
 
 export interface BuildContextResult {
   ctx: PluginContext;
@@ -45,6 +46,8 @@ export function buildContext(app: FastifyInstance, io: SocketServer): BuildConte
   capabilities.provide('zalo.messaging', zaloMessagingImpl);
   // Core resolve "liên lạc nội bộ" của user (nick hệ thống + thread) cho plugin gửi tin nội bộ.
   capabilities.provide('internal.contact', internalContactImpl);
+  // Core tra danh bạ Zalo theo SĐT qua 1 nick (bọc + normalize SDK findUser).
+  capabilities.provide('zalo.directory', zaloDirectoryImpl);
 
   const ctx: PluginContext = {
     app,

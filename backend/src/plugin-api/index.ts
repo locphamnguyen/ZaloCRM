@@ -20,6 +20,8 @@ export type {
   ZaloMessagingCapability,
   InternalContactCapability,
   InternalContactTarget,
+  ZaloDirectoryCapability,
+  ZaloUserLookup,
   AppConfig,
   AppLogger,
   AppPrisma,

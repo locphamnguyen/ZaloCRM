@@ -59,6 +59,30 @@ export interface InternalContactCapability {
   resolve(userId: string, orgId: string): Promise<InternalContactTarget | null>;
 }
 
+/** Hồ sơ user Zalo tra theo SĐT (đã normalize từ SDK). uid null = không tìm thấy. */
+export interface ZaloUserLookup {
+  uid: string | null;
+  zaloName: string | null;
+  username: string | null;
+  avatar: string | null;
+  globalId: string | null;
+  gender: number | null;
+  dob: string | number | null;
+  bio: string | null;
+  bizPkg: unknown | null;
+  accountStatus: number | null;
+  isFriend: boolean | null;
+}
+
+/**
+ * Capability tra cứu danh bạ Zalo — key 'zalo.directory'.
+ * Core bọc SDK findUser(accountId, phone) + normalize. Plugin dùng để tìm UID Zalo
+ * của 1 SĐT qua 1 nick, KHÔNG đụng internal zaloPool/zaloOps. null nếu không thấy/lỗi.
+ */
+export interface ZaloDirectoryCapability {
+  findUser(accountId: string, phone: string): Promise<ZaloUserLookup | null>;
+}
+
 /* ────────────────────────────────────────────────────────────────────────
  * PRIMITIVE 2 — Policy Registry (guard slot)
  * Core gọi check(name, req) trước khi trả nội dung nhạy cảm.
