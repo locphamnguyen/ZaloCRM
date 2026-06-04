@@ -29,6 +29,7 @@ import {
   checkRuleEnabled,
 } from './gate-evaluator.js';
 import { dispatchAction } from './action-dispatcher.js';
+import { checkPolicy } from '../../../core/runtime-policy.js';
 import { pickNickForTask } from './nick-selector.js';
 import type { SequenceStep } from '../sequences/types.js';
 import type { BlockActionType } from '../blocks/types.js';
@@ -266,6 +267,25 @@ async function processTask(taskId: string): Promise<void> {
     const capCheck = checkDailyCap(actionType, executedToday, cap);
     if (!capCheck.passed) {
       await rescheduleForRetry(taskId, capCheck.retryAfter!, capCheck.detail);
+      return;
+    }
+  }
+
+  // ── Marketing dispatch guard (điểm mở rộng) ────────────────────────────
+  // EE plugin (marketing-guard) register policy 'automation.dispatch' để áp
+  // frequency-cap / mutex per-contact. Community chưa ai register → TRUE (gửi tự do).
+  // Chỉ áp cho send_message (tin marketing); deny → reschedule thử lại sau.
+  if (actionType === 'send_message') {
+    const allowed = await checkPolicy('automation.dispatch', {
+      req: null,
+      orgId: task.orgId,
+      contactId: task.contact.id,
+      campaignId: task.campaign.id,
+      actionType,
+    });
+    if (!allowed) {
+      const retryAt = new Date(now.getTime() + 60 * 60 * 1000); // thử lại sau 1h
+      await rescheduleForRetry(taskId, retryAt, 'marketing-guard: dispatch bị chặn (frequency-cap/mutex)');
       return;
     }
   }

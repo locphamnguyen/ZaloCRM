@@ -24,6 +24,7 @@ import { config } from '../config/index.js';
 import { prisma } from '../shared/database/prisma-client.js';
 import { logger } from '../shared/utils/logger.js';
 import { loadLicense } from './license-service.js';
+import { setRuntimePolicy } from './runtime-policy.js';
 import { zaloMessagingImpl } from './zalo-messaging-impl.js';
 import { internalContactImpl } from './internal-contact-impl.js';
 import { zaloDirectoryImpl } from './zalo-directory-impl.js';
@@ -44,6 +45,8 @@ export function buildContext(app: FastifyInstance, io: SocketServer): BuildConte
   // Decorate app → route core (đăng ký sau loadPlugins) gọi được app.scope.resolve(...) / app.policy.check(...).
   app.decorate('scope', scope);
   app.decorate('policy', policy);
+  // Cho background worker (không có app) gọi policy.check qua checkPolicy().
+  setRuntimePolicy(policy);
 
   // Core cung cấp capability gửi tin Zalo (key ổn định cho EE dùng).
   capabilities.provide('zalo.messaging', zaloMessagingImpl);
