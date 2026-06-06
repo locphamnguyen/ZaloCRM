@@ -111,9 +111,18 @@ export async function registerPrivacyRoutes(app: FastifyInstance): Promise<void>
         ipAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
       });
-      // HttpOnly cookie (XSS-safe) — giống flow PIN cũ.
-      setSessionCookie(reply, result.sessionToken, result.expiresAt);
-      return reply.send({ ok: true, expiresAt: result.expiresAt, durationMinutes: result.durationMinutes });
+      // CHỈ mở khoá XEM (action='unlock') mới tạo session → set cookie. Gạt (enable/disable)
+      // chỉ xác nhận mã, không có session/cookie (anh chốt 2026-06-06 — Q6).
+      if (result.action === 'unlock' && result.sessionToken && result.expiresAt) {
+        setSessionCookie(reply, result.sessionToken, result.expiresAt);
+        return reply.send({
+          ok: true,
+          action: result.action,
+          expiresAt: result.expiresAt,
+          durationMinutes: result.durationMinutes,
+        });
+      }
+      return reply.send({ ok: true, action: result.action });
     } catch (e: any) {
       if (e instanceof PrivacyOtpError) {
         return reply.status(e.statusCode).send({ error: e.message, code: e.errorCode });

@@ -15,7 +15,7 @@
   <div v-if="open" class="otp-overlay" @click.self="tryClose">
     <div class="otp-modal">
       <header class="otp-header">
-        <h3>🔒 Mở khóa Riêng tư</h3>
+        <h3>{{ headerTitle }}</h3>
         <button class="otp-close" :disabled="busy" @click="tryClose">×</button>
       </header>
 
@@ -120,7 +120,9 @@
         <div v-if="errorText" class="otp-alert error">{{ errorText }}</div>
 
         <footer class="otp-footer">
-          <button class="btn-secondary" :disabled="busy" @click="backToPick">← Quay lại</button>
+          <button class="btn-secondary" :disabled="busy" @click="isToggleMode ? tryClose() : backToPick()">
+            {{ isToggleMode ? '✕ Huỷ' : '← Quay lại' }}
+          </button>
           <button
             class="btn-link"
             :disabled="busy || resendCooldown > 0"
@@ -135,7 +137,21 @@
       <div v-else-if="view === 'success'" class="otp-body">
         <div class="otp-banner banner-success">
           <div class="banner-icon">✅</div>
-          <div>
+          <!-- Mode gạt bật/tắt -->
+          <div v-if="isToggleMode">
+            <div class="banner-title">
+              Đã xác nhận {{ context?.action === 'enable' ? 'BẬT' : 'TẮT' }} Riêng tư
+            </div>
+            <div class="banner-sub">
+              Nick <strong>{{ context?.nickName }}</strong> đã chuyển sang chế độ
+              <strong>{{ context?.action === 'enable' ? 'Riêng tư' : 'Thường' }}</strong>.
+            </div>
+            <div v-if="context?.action === 'enable'" class="banner-sub muted-text">
+              Muốn xem nội dung nick này, bấm "Mở khoá" để mở phiên xem.
+            </div>
+          </div>
+          <!-- Mode mở khoá xem -->
+          <div v-else>
             <div class="banner-title">Đã mở khóa Riêng tư</div>
             <div class="banner-sub">
               Phiên có hiệu lực <strong>{{ successDurationText }}</strong>.
@@ -160,9 +176,18 @@ import { usePrivacyStore } from '@/stores/privacy';
 
 const props = defineProps<{
   open: boolean;
-  /** Context hành động (gạt nick) — tin OTP sẽ nêu cụ thể nick + bật/tắt. */
-  context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string };
+  /** Context hành động — tin OTP nêu cụ thể nick + bật/tắt. action quyết flow:
+   *  'unlock' = mở khoá XEM (chọn duration → có session); 'enable'/'disable' = gạt nick (no session). */
+  context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string; nickId?: string };
 }>();
+
+// Gạt bật/tắt 1 nick → KHÔNG chọn session, vào thẳng nhập OTP. unlock → giữ bước chọn duration.
+const isToggleMode = computed(() => props.context?.action === 'enable' || props.context?.action === 'disable');
+const headerTitle = computed(() => {
+  if (props.context?.action === 'enable') return '🔒 Xác nhận BẬT Riêng tư';
+  if (props.context?.action === 'disable') return '🔓 Xác nhận TẮT Riêng tư';
+  return '🔒 Mở khóa Riêng tư';
+});
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'unlocked'): void;
@@ -242,12 +267,15 @@ async function checkInitialStatus() {
       const min = Math.ceil((new Date(s.lockedUntil).getTime() - Date.now()) / 60000);
       lockedMessage.value = `Sai mã 5 lần liên tiếp. Vui lòng đợi ${min} phút.`;
       view.value = 'locked';
+    } else if (isToggleMode.value) {
+      // Gạt nick → KHÔNG chọn duration, gửi OTP ngay rồi vào 'enter'.
+      await onRequestOtp();
     } else {
       view.value = 'pick';
     }
   } catch (err: any) {
     errorText.value = err?.response?.data?.error || 'Không kiểm tra được trạng thái';
-    view.value = 'pick';
+    view.value = isToggleMode.value ? 'enter' : 'pick';
   }
 }
 
@@ -292,7 +320,10 @@ async function onVerify() {
   errorText.value = '';
   try {
     const result = await privacyStore.verifyOtp(tokenId.value, code);
-    successDurationText.value = formatDuration(result.durationMinutes);
+    // Chỉ mode unlock mới có durationMinutes (gạt không có session).
+    if (result.action === 'unlock' && result.durationMinutes) {
+      successDurationText.value = formatDuration(result.durationMinutes);
+    }
     view.value = 'success';
     emit('unlocked');
   } catch (err: any) {
@@ -380,7 +411,8 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
-      view.value = 'pick';
+      // Toggle mode bỏ view 'pick' → hiện loading tạm tới khi checkInitialStatus chuyển 'enter'.
+      view.value = isToggleMode.value ? 'enter' : 'pick';
       digits.value = ['', '', '', ''];
       errorText.value = '';
       tokenId.value = '';

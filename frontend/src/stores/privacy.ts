@@ -89,18 +89,28 @@ export const usePrivacyStore = defineStore('privacy', {
     /** Sinh + gửi OTP 4 số qua Zalo nick nội bộ. context nêu rõ hành động gạt nick. */
     async requestOtp(
       durationMinutes: 5 | 15 | 480 | 720,
-      context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string },
+      context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string; nickId?: string },
     ): Promise<RequestOtpResult> {
       const { data } = await api.post<RequestOtpResult>('/privacy/otp/request', { durationMinutes, context });
       return data;
     },
-    /** Verify OTP → server set HttpOnly cookie session. */
-    async verifyOtp(tokenId: string, code: string): Promise<{ ok: boolean; expiresAt: string; durationMinutes: number }> {
-      const { data } = await api.post<{ ok: boolean; expiresAt: string; durationMinutes: number }>(
-        '/privacy/otp/verify',
-        { tokenId, code },
-      );
-      await this.fetchStatus(true);
+    /**
+     * Verify OTP. 2 kết quả:
+     *  - action='unlock': server set cookie session → có expiresAt/durationMinutes, fetchStatus refresh.
+     *  - action='enable'/'disable': chỉ xác nhận mã (gạt nick) → KHÔNG session, không cần fetchStatus.
+     */
+    async verifyOtp(
+      tokenId: string,
+      code: string,
+    ): Promise<{ ok: boolean; action: 'enable' | 'disable' | 'unlock'; expiresAt?: string; durationMinutes?: number }> {
+      const { data } = await api.post<{
+        ok: boolean;
+        action: 'enable' | 'disable' | 'unlock';
+        expiresAt?: string;
+        durationMinutes?: number;
+      }>('/privacy/otp/verify', { tokenId, code });
+      // Chỉ refresh status khi thực sự mở phiên (unlock) — gạt không đổi session.
+      if (data.action === 'unlock') await this.fetchStatus(true);
       return data;
     },
   },

@@ -201,13 +201,14 @@ async function onToggleRequest(nick: MyNick) {
 }
 
 // Context cho OTP modal: nick đang gạt + hành động (bật=enable / tắt=disable Riêng tư).
-const unlockContext = computed<{ action: 'enable' | 'disable' | 'unlock'; nickName?: string }>(() => {
+const unlockContext = computed<{ action: 'enable' | 'disable' | 'unlock'; nickName?: string; nickId?: string }>(() => {
   const n = pendingToggle.value;
   if (!n) return { action: 'unlock' };
   // privacyMode='main' = đang Riêng tư → gạt sẽ TẮT (disable); ngược lại BẬT (enable).
   return {
     action: n.privacyMode === 'main' ? 'disable' : 'enable',
     nickName: n.displayName || 'Nick chưa đặt tên',
+    nickId: n.id,
   };
 });
 

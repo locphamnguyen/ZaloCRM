@@ -384,7 +384,40 @@ export async function verifyOtp(args: {
     throw new PrivacyOtpError(401, 'WRONG_CODE', `Mã sai. Còn ${left} lần thử.`);
   }
 
-  // Correct — tạo UserPrivacySession + revoke prior + send confirmation
+  // ── Mã ĐÚNG — rẽ nhánh theo action (anh chốt 2026-06-06) ──────────────────
+  const tokenAction = (token.action as 'enable' | 'disable' | 'unlock') ?? 'unlock';
+
+  // NHÁNH GẠT (enable/disable): chỉ xác nhận mã đúng → FE flip nick. KHÔNG tạo session,
+  // KHÔNG revoke session đang mở (Q4 — nếu revoke thì gạt 1 nick sẽ khoá lại phiên unlock
+  // của user giữa chừng), KHÔNG set cookie, KHÔNG gửi confirm.
+  if (tokenAction === 'enable' || tokenAction === 'disable') {
+    await prisma.$transaction(async (tx) => {
+      await tx.privacyOtpToken.update({ where: { id: token.id }, data: { usedAt: new Date() } });
+      // Reset fail counter + clear lock (verify đúng → coi như đáng tin lại).
+      await tx.user.update({
+        where: { id: args.userId },
+        data: { privacyFailedCount: 0, privacyLockedUntil: null },
+      });
+    });
+    // Audit log riêng (không phải unlock) — fire-and-forget.
+    void prisma.activityLog
+      .create({
+        data: {
+          orgId: args.orgId,
+          userId: args.userId,
+          action: 'privacy_toggle_otp_verified',
+          entityType: 'zalo_account',
+          entityId: token.nickId ?? args.userId,
+          category: 'security',
+          details: { toggle: tokenAction, nickId: token.nickId ?? null, ip: args.ipAddress ?? null },
+        },
+      })
+      .catch((e) => logger.warn(`[privacy-otp] toggle audit log fail: ${String(e)}`));
+    logger.info(`[privacy-otp] toggle OTP verified user=${args.userId} action=${tokenAction} nick=${token.nickId ?? '-'}`);
+    return { action: tokenAction };
+  }
+
+  // ── NHÁNH MỞ KHOÁ XEM (unlock): tạo UserPrivacySession + revoke prior + send confirmation ──
   const sessionToken = genSessionToken();
   const unlockedAt = new Date();
   const expiresAt = new Date(unlockedAt.getTime() + token.sessionDurationMinutes * 60 * 1000);
@@ -449,7 +482,7 @@ export async function verifyOtp(args: {
   }
 
   logger.info(`[privacy-otp] unlock OK user=${args.userId} duration=${token.sessionDurationMinutes}m`);
-  return { sessionToken, expiresAt, durationMinutes: token.sessionDurationMinutes as SessionDuration };
+  return { action: 'unlock', sessionToken, expiresAt, durationMinutes: token.sessionDurationMinutes as SessionDuration };
 }
 
 // ── Op 3: Admin reset lock ─────────────────────────────────────────────────
