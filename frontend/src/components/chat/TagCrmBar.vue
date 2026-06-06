@@ -252,6 +252,14 @@ function onEnterSearch() {
   }
 }
 
+// Sau khi gắn/gỡ tag manual → báo timeline KH refresh (BE đã log tag_add_crm/remove
+// với entityType=contact). CustomerTimelineSection nghe event này, lọc theo contactId.
+function notifyTimeline() {
+  if (props.contactId) {
+    window.dispatchEvent(new CustomEvent('timeline-updated', { detail: { contactId: props.contactId } }));
+  }
+}
+
 async function onPickTag(def: TagV2) {
   if (!props.friendId) return;
   // Toggle: nếu đã có → remove, chưa có → add
@@ -266,6 +274,7 @@ async function onPickTag(def: TagV2) {
       source: 'manual_per_nick',
     });
     await loadFriendTags();
+    notifyTimeline();
     dropdownOpen.value = false;
   } catch (err) {
     const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Gắn tag thất bại';
@@ -284,6 +293,7 @@ async function onCreateNewTag() {
     fetchedDefsOnce = false; // refetch defs để dropdown thấy tag mới
     await loadManualTagDefs();
     await loadFriendTags();
+    notifyTimeline();
     search.value = '';
     dropdownOpen.value = false;
     toast.success('Đã tạo và gắn tag mới');
@@ -298,6 +308,7 @@ async function removeManualTag(tag: TagV2) {
   try {
     await api.delete(`/friends/${props.friendId}/tags/${tag.id}`);
     await loadFriendTags();
+    notifyTimeline();
   } catch (err) {
     toast.error('Gỡ tag thất bại');
   }

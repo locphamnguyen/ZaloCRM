@@ -25,6 +25,11 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { slugifyTag } from '../../shared/tag-slug.js';
 import { markContactAutoTagsDirty } from './contact-autotags-dirty.js';
+import { logActivity } from '../activity/activity-logger.js';
+
+// Chỉ log activity cho tag THỦ CÔNG (sale tự gắn). KHÔNG log auto_* (bot scoring/detect
+// chạy liên tục → ngập timeline). Anh chốt 2026-06-06.
+const MANUAL_TAG_SOURCES: TagSource[] = ['manual_per_nick', 'manual_crm', 'zalo_real'];
 
 // ─────────────────────────────────────────────────────────────────────────
 // Constants
@@ -166,7 +171,7 @@ export async function addFriendTag(input: AddFriendTagInput): Promise<{ tag: Tag
   });
   if (!friend) throw new Error('FRIEND_NOT_FOUND');
 
-  return retryOnUniqueViolation(
+  const result = await retryOnUniqueViolation(
     () =>
       prisma.$transaction(async (tx) => {
         // 1. Resolve Tag
@@ -227,6 +232,21 @@ export async function addFriendTag(input: AddFriendTagInput): Promise<{ tag: Tag
       }, { timeout: 10000 }),
     'addFriendTag'
   );
+
+  // 4. Activity log — CHỈ tag thủ công, ghi vào timeline KH (entityType='contact' để
+  // hiện ở cột 4 panel của contact). Anh báo: gắn tag manual không lên timeline (2026-06-06).
+  if (friend.contactId && MANUAL_TAG_SOURCES.includes(input.source)) {
+    logActivity({
+      orgId: friend.orgId,
+      userId: input.addedBy,
+      action: 'tag_add_crm',
+      entityType: 'contact',
+      entityId: friend.contactId,
+      details: { tag: result.tag.name, slug: result.tag.slug, source: input.source, friendId: friend.id, level: 'friend' },
+    });
+  }
+
+  return result;
 }
 
 export async function removeFriendTag(input: {
@@ -240,11 +260,11 @@ export async function removeFriendTag(input: {
   });
   if (!friend) throw new Error('FRIEND_NOT_FOUND');
 
-  await prisma.$transaction(async (tx) => {
+  const removedTag = await prisma.$transaction(async (tx) => {
     const existing = await tx.friendTag.findUnique({
       where: { friendId_tagId: { friendId: friend.id, tagId: input.tagId } },
     });
-    if (!existing || existing.removedAt) return; // idempotent
+    if (!existing || existing.removedAt) return null; // idempotent
 
     await tx.friendTag.update({
       where: { id: existing.id },
@@ -255,7 +275,20 @@ export async function removeFriendTag(input: {
     if (tag) {
       await dualWriteLegacyFriend(tx, friend.id, friend.contactId, tag, tag.source, 'remove');
     }
+    return tag;
   });
+
+  // Activity log — chỉ tag thủ công (giống addFriendTag). Anh chốt 2026-06-06.
+  if (removedTag && friend.contactId && MANUAL_TAG_SOURCES.includes(removedTag.source)) {
+    logActivity({
+      orgId: friend.orgId,
+      userId: input.removedBy,
+      action: 'tag_remove_crm',
+      entityType: 'contact',
+      entityId: friend.contactId,
+      details: { tag: removedTag.name, slug: removedTag.slug, source: removedTag.source, friendId: friend.id, level: 'friend' },
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

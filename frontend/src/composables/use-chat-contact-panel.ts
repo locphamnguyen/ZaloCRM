@@ -25,8 +25,9 @@ export function useChatContactPanel(
     fullName: '',
     crmName: '',
     phone: '',
-    phone2: '',
-    phone3: '',
+    // SĐT phụ — list động nhãn tự nhập (Anh chốt 2026-06-06). [{label, phone}].
+    // phone2/phone3 cũ được GỘP vào đây lúc populate để không mất số KH cũ.
+    phonesExtra: [] as Array<{ label: string; phone: string }>,
     email: '',
     gender: null as string | null,
     birthDate: '',
@@ -44,8 +45,26 @@ export function useChatContactPanel(
     form.fullName = c.fullName ?? '';
     form.crmName = c.crmName ?? '';
     form.phone = c.phone ?? '';
-    form.phone2 = c.phone2 ?? '';
-    form.phone3 = c.phone3 ?? '';
+    // Gộp phonesExtra (mới) + phone2/phone3 (cũ) → 1 list. Số cũ gắn nhãn mặc định
+    // 'SĐT 2'/'SĐT 3' để sale thấy + đổi nhãn lại. Dedup theo số để không lặp khi
+    // số cũ đã được migrate vào phonesExtra.
+    {
+      const extra: Array<{ label: string; phone: string }> = [];
+      const seen = new Set<string>();
+      const pushPhone = (phone: string | null | undefined, label: string) => {
+        const p = (phone ?? '').trim();
+        if (!p || seen.has(p)) return;
+        seen.add(p);
+        extra.push({ label, phone: p });
+      };
+      const raw = (c as { phonesExtra?: Array<{ label?: string; phone?: string }> }).phonesExtra;
+      if (Array.isArray(raw)) {
+        for (const e of raw) pushPhone(e?.phone, e?.label || '');
+      }
+      pushPhone(c.phone2, 'SĐT 2');
+      pushPhone(c.phone3, 'SĐT 3');
+      form.phonesExtra = extra;
+    }
     form.email = c.email ?? '';
     form.gender = c.gender ?? null;
     form.birthDate = c.birthDate ? c.birthDate.slice(0, 10) : '';
@@ -117,8 +136,13 @@ export function useChatContactPanel(
       fullName: form.fullName || null,
       crmName: form.crmName || null,
       phone: form.phone || null,
-      phone2: form.phone2 || null,
-      phone3: form.phone3 || null,
+      // Lưu list động phonesExtra (lọc dòng rỗng). phone2/phone3 cũ đã gộp vào đây lúc
+      // populate → set null để không nhân đôi số. Số cũ vẫn còn trong phonesExtra.
+      phonesExtra: form.phonesExtra
+        .map((p) => ({ label: (p.label || '').trim(), phone: (p.phone || '').trim() }))
+        .filter((p) => p.phone),
+      phone2: null,
+      phone3: null,
       email: form.email || null,
       gender: form.gender || null,
       birthDate: form.birthDate

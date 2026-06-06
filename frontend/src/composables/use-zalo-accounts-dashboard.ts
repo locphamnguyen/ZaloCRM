@@ -77,6 +77,9 @@ export interface NickMetricsToday {
   msgSentByUser: number;
   msgSentByBot: number;
   msgSentTotal: number;
+  // 2026-06-06 — gửi đi tách bạn/lạ (cap chỉ áp gửi-người-lạ).
+  msgSentToStrangers?: number;
+  msgSentToFriends?: number;
   friendReqSent: number;
   friendReqAccepted: number;
   friendReqRejected: number;

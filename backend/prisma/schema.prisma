@@ -2738,6 +2738,12 @@ model PrivacyOtpToken {
   usedAt                 DateTime? @map("used_at")
   ipAddress              String?   @map("ip_address")
   userAgent              String?   @map("user_agent")
+  // 2026-06-06 — tách 2 luồng (anh chốt):
+  //   'unlock'  = mở khoá XEM nội dung → verify tạo UserPrivacySession (có session, chọn duration).
+  //   'enable'/'disable' = GẠT bật/tắt Riêng tư 1 nick → verify CHỈ xác nhận mã, KHÔNG tạo session.
+  // nickId: bind OTP với đúng nick đang gạt (chống token-verify-nick-A-flip-nick-B). Null cho 'unlock'.
+  action                 String    @default("unlock") @map("action")
+  nickId                 String?   @map("nick_id")
 
   user User @relation("PrivacyOtpUser", fields: [userId], references: [id], onDelete: Cascade)
 

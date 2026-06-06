@@ -162,6 +162,8 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
         proxyUrl: true,
         lastConnectedAt: true,
         createdAt: true,
+        // 2026-06-06 — cap tin gửi người lạ (Msg today so với cap này, KHÔNG phải 500 cũ).
+        dailyStrangerMessageCap: true,
         // Phase 4 redesign 2026-05-22: include owner's department để FE hiển thị
         // cột Department + cascade visibility filter chip "Phòng ban".
         // Phase Privacy v2 2026-05-23: include reverse "internalContactForUsers" để show
@@ -229,7 +231,9 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
       const u = uptimeMap.get(a.id);
       const uptime7d = u?.uptimePct ?? 0;
       const todayMetrics: NickDayMetrics | undefined = metricsToday.get(a.id);
-      const msgToday = (todayMetrics?.msgSentTotal ?? 0) + (todayMetrics?.msgReceivedTotal ?? 0);
+      // 2026-06-06 (Anh chốt) — "Msg today" CHỈ đếm tin GỬI ĐI cho NGƯỜI LẠ (bị cap).
+      // Bạn bè + tin nhận KHÔNG tính. So với dailyStrangerMessageCap của nick.
+      const msgToday = todayMetrics?.msgSentToStrangers ?? 0;
       const lastActivity = lastActivityMap.get(a.id) ?? a.lastConnectedAt;
       // Owner's department — FE dùng cho cột Department + filter chip Phòng ban.
       const ownerDept = a.owner?.departmentMember?.department ?? null;
@@ -264,9 +268,9 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
           user: ac.user,
         })),
         crewCount: a.access.length,
-        // Metrics
+        // Metrics — 2026-06-06: msgToday = gửi-người-lạ, quota = cap người lạ của nick.
         msgToday,
-        quota: DAILY_QUOTA,
+        quota: a.dailyStrangerMessageCap ?? 300,
         uptime7d,
         lastActivityAt: lastActivity,
         // Phase metrics layer 2026-05-22: breakdown chi tiết per nick today.
@@ -276,6 +280,8 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
           msgReceivedFromStrangers: todayMetrics.msgReceivedFromStrangers,
           msgSentByUser: todayMetrics.msgSentByUser,
           msgSentByBot: todayMetrics.msgSentByBot,
+          msgSentToStrangers: todayMetrics.msgSentToStrangers,
+          msgSentToFriends: todayMetrics.msgSentToFriends,
           friendReqSent: todayMetrics.friendReqSent,
           friendReqAccepted: todayMetrics.friendReqAccepted,
           friendReqRejected: todayMetrics.friendReqRejected,

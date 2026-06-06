@@ -18,6 +18,10 @@ export interface NickDayMetrics {
   msgSentByBot: number;
   msgSentTotal: number;
   msgReceivedTotal: number;
+  // 2026-06-06 (Anh chốt) — tách tin GỬI ĐI theo bạn/lạ. Cap chỉ áp cho gửi-người-lạ
+  // (dailyStrangerMessageCap). Gửi bạn bè + tin nhận KHÔNG tính vào giới hạn.
+  msgSentToStrangers: number;
+  msgSentToFriends: number;
 
   // Friend requests (từ FriendshipAttempt)
   friendReqSent: number;
@@ -45,6 +49,8 @@ const ZERO_METRICS: NickDayMetrics = {
   msgSentByBot: 0,
   msgSentTotal: 0,
   msgReceivedTotal: 0,
+  msgSentToStrangers: 0,
+  msgSentToFriends: 0,
   friendReqSent: 0,
   friendReqAccepted: 0,
   friendReqRejected: 0,
@@ -99,7 +105,7 @@ export async function getNickDayMetrics(
 
   // Query nguồn parallel: messages by category, friendship attempts, phone search,
   // friend-status join, phone search split by userId (manual vs automation).
-  const [msgRows, friendReqRows, phoneRows, msgFromFriends, msgFromStrangers, phoneByUserCount, phoneByBotCount] = await Promise.all([
+  const [msgRows, friendReqRows, phoneRows, msgFromFriends, msgFromStrangers, msgSentToStrangers, phoneByUserCount, phoneByBotCount] = await Promise.all([
     // Messages aggregate by (senderType, sentVia)
     prisma.message.groupBy({
       by: ['senderType', 'sentVia'],
@@ -160,6 +166,22 @@ export async function getNickDayMetrics(
         AND f.id IS NULL
     `,
 
+    // 2026-06-06 (Anh chốt) — tin GỬI ĐI cho NGƯỜI LẠ (self → contact KHÔNG phải bạn accepted).
+    // Đây là con số bị cap dailyStrangerMessageCap. Gửi cho bạn bè KHÔNG tính.
+    prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint as count
+      FROM messages m
+      INNER JOIN conversations c ON c.id = m.conversation_id
+      LEFT JOIN friends f ON f.contact_id = c.contact_id
+        AND f.zalo_account_id = c.zalo_account_id
+        AND f.friendship_status = 'accepted'
+      WHERE c.zalo_account_id = ${accountId}
+        AND m.sender_type = 'self'
+        AND m.sent_at >= ${day}
+        AND m.sent_at < ${dayEnd}
+        AND f.id IS NULL
+    `,
+
     // Phone search split by userId: NULL = automation, NOT NULL = manual user.
     prisma.phoneSearchEvent.count({
       where: { accountId, occurredAt: { gte: day, lt: dayEnd }, userId: { not: null } },
@@ -189,6 +211,9 @@ export async function getNickDayMetrics(
   // Friend/Stranger split (raw query returns bigint)
   metrics.msgReceivedFromFriends = Number(msgFromFriends[0]?.count ?? 0n);
   metrics.msgReceivedFromStrangers = Number(msgFromStrangers[0]?.count ?? 0n);
+  // 2026-06-06 — tin gửi đi cho người lạ (bị cap) vs bạn bè (không cap).
+  metrics.msgSentToStrangers = Number(msgSentToStrangers[0]?.count ?? 0n);
+  metrics.msgSentToFriends = Math.max(0, metrics.msgSentTotal - metrics.msgSentToStrangers);
 
   // FriendshipAttempt state
   for (const r of friendReqRows) {

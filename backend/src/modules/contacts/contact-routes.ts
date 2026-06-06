@@ -1029,14 +1029,31 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       }
       // Ngày 1 fix: log status_id diff song song với legacy status enum.
       // Khi sale đổi trạng thái dynamic (Status table) → activity feed phải show.
+      // 2026-06-06 (Anh): lookup TÊN status để timeline hiện "Tiếp Cận → Hẹn gặp"
+      // (giống tag Zalo old→new). ActivityItem đọc details.old/.new → lưu tên vào đó.
       if (existing.statusId !== updated.statusId) {
+        const statusIds = [existing.statusId, updated.statusId].filter(
+          (id): id is string => !!id,
+        );
+        const statusRows = statusIds.length
+          ? await prisma.status.findMany({
+              where: { id: { in: statusIds }, orgId: user.orgId },
+              select: { id: true, name: true },
+            })
+          : [];
+        const nameById = new Map(statusRows.map((s) => [s.id, s.name]));
         logActivity({
           orgId: user.orgId,
           userId: user.id,
           action: 'status_change',
           entityType: 'contact',
           entityId: updated.id,
-          details: { oldStatusId: existing.statusId, newStatusId: updated.statusId },
+          details: {
+            old: existing.statusId ? nameById.get(existing.statusId) ?? null : null,
+            new: updated.statusId ? nameById.get(updated.statusId) ?? null : null,
+            oldStatusId: existing.statusId,
+            newStatusId: updated.statusId,
+          },
         });
       }
       if (existing.leadScore !== updated.leadScore) {

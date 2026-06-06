@@ -217,9 +217,12 @@ export async function requestOtp(args: {
   ipAddress?: string | null;
   userAgent?: string | null;
   /** Context hành động (gạt nick) để tin OTP nêu cụ thể — anh chốt 2026-06-06. */
-  context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string };
+  context?: { action: 'enable' | 'disable' | 'unlock'; nickName?: string; nickId?: string };
 }): Promise<RequestOtpResult> {
-  if (!(DURATIONS_MIN as readonly number[]).includes(args.durationMinutes)) {
+  const action = args.context?.action ?? 'unlock';
+  // 'unlock' (mở khoá XEM) cần duration hợp lệ; 'enable'/'disable' (gạt) KHÔNG dùng duration
+  // → bỏ qua guard, lưu sessionDurationMinutes=0.
+  if (action === 'unlock' && !(DURATIONS_MIN as readonly number[]).includes(args.durationMinutes)) {
     throw new PrivacyOtpError(400, 'INVALID_DURATION', 'Thời gian session phải là 5/15/480/720 phút');
   }
 
@@ -274,11 +277,15 @@ export async function requestOtp(args: {
       data: {
         userId: args.userId,
         otpHash,
-        sessionDurationMinutes: args.durationMinutes,
+        // Gạt (enable/disable) không dùng session → lưu duration=0 cho rõ.
+        sessionDurationMinutes: action === 'unlock' ? args.durationMinutes : 0,
         expiresAt,
         lastSentAt: new Date(),
         ipAddress: args.ipAddress ?? null,
         userAgent: args.userAgent ?? null,
+        // 2026-06-06 — persist action + nickId để verifyOtp rẽ nhánh đúng + bind nick.
+        action,
+        nickId: args.context?.nickId ?? null,
       },
       select: { id: true },
     });
@@ -308,9 +315,11 @@ export async function requestOtp(args: {
 // ── Op 2: Verify OTP ───────────────────────────────────────────────────────
 
 export interface VerifyOtpResult {
-  sessionToken: string;
-  expiresAt: Date;
-  durationMinutes: number;
+  action: 'enable' | 'disable' | 'unlock';
+  // Chỉ có khi action='unlock' (mở khoá XEM → tạo session). Gạt (enable/disable) → undefined.
+  sessionToken?: string;
+  expiresAt?: Date;
+  durationMinutes?: number;
 }
 
 export async function verifyOtp(args: {
@@ -338,7 +347,7 @@ export async function verifyOtp(args: {
 
   const token = await prisma.privacyOtpToken.findFirst({
     where: { id: args.tokenId, userId: args.userId },
-    select: { id: true, otpHash: true, sessionDurationMinutes: true, expiresAt: true, verifyAttempts: true, usedAt: true },
+    select: { id: true, otpHash: true, sessionDurationMinutes: true, expiresAt: true, verifyAttempts: true, usedAt: true, action: true, nickId: true },
   });
   if (!token) {
     throw new PrivacyOtpError(404, 'TOKEN_NOT_FOUND', 'OTP không tồn tại');

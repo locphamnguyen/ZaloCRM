@@ -15,7 +15,7 @@
             SDK / Giới hạn hôm nay
             <button class="sdk-cfg-btn" title="Cài đặt trần giới hạn SDK" @click.stop="emit('configLimits')">⚙️ Trần</button>
           </th>
-          <th>Msg today</th>
+          <th title="Tin nhắn GỬI ĐI cho người lạ hôm nay / giới hạn người lạ. Bạn bè + tin nhận KHÔNG tính.">Gửi người lạ</th>
           <th>Hôm nay <span class="th-hint">📥📤🤖🤝🔍</span></th>
           <th>Hoạt động 7d</th>
           <th>Hoạt động cuối</th>
