@@ -2,6 +2,19 @@
 
 Tất cả thay đổi đáng chú ý của ZaloCRM được ghi lại tại đây. Dự án dùng nhánh `main` làm dòng phát hành chính.
 
+## v3.3.4 — 06/06/2026
+
+> Bản phát hành tài liệu — không thay đổi code runtime. Bổ sung tài liệu kiến trúc, API và thiết kế tích hợp TCRM.
+
+### Added
+
+- **Tài liệu kiến trúc source code** (`docs/system-architecture.md`): sơ đồ tổng quan Frontend ↔ Backend ↔ dịch vụ ngoài, luồng khởi động `app.ts`, 20 module nghiệp vụ, kiến trúc Plugin Host (13 core plugin), `ZaloAccountPool`, webhook OUTGOING — kèm 8 sơ đồ Mermaid.
+- **Tài liệu kiến trúc database** (`docs/database-architecture.md`): 64 model, mô hình danh tính Zalo 3 lớp (`ZaloAccount ↔ Friend ↔ Contact`), ER diagram lõi, phân nhóm 8 miền, vòng đời dữ liệu khi có tin nhắn.
+- **Tài liệu API đầy đủ** (`docs/api-documentation.md` + bản tiếng Việt `docs/api-documentation-vi.md`): 19 nhóm endpoint, xác thực JWT, rate limit, webhook & WebSocket events.
+- **Postman collection** (`postman-collection.json`): document chi tiết cho cả 19 nhóm; request **Login** tự lưu `token → {{TOKEN}}`, `orgId`, `userId`; hướng dẫn lấy `{{CONVERSATION_ID}}` và `{{ZALO_ACCOUNT_ID}}`.
+- **Thiết kế tích hợp TCRM** (`plans/260605-2128-tcrm-webhook-receiver/`): nhận tin nhắn Zalo real-time qua webhook `message.received`, map qua `conversationId` + `senderUid`, idempotency theo `messageId`. Xác nhận ảnh/file đẩy được ngay MVP — URL media đã mirror sẵn vào `content` và public tải được (`docker-compose.yml` đặt bucket `anonymous download`).
+- **Tài liệu hướng dẫn agent** (`CLAUDE.md`, `AGENTS.md`) và skill GitNexus (`.claude/skills/gitnexus/`).
+
 ## v3.3.3 — 28/05/2026
 
 ### Fixed

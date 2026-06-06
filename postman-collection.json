@@ -1,0 +1,2290 @@
+{
+  "info": {
+    "name": "Zalo CRM API",
+    "description": "Complete API collection for Zalo CRM system",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "TOKEN",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "ORG_ID",
+      "value": "org-123",
+      "type": "string"
+    },
+    {
+      "key": "USER_ID",
+      "value": "user-123",
+      "type": "string"
+    },
+    {
+      "key": "CONTACT_ID",
+      "value": "contact-001",
+      "type": "string"
+    },
+    {
+      "key": "CONVERSATION_ID",
+      "value": "conv-001",
+      "type": "string"
+    },
+    {
+      "key": "ZALO_ACCOUNT_ID",
+      "value": "acc-001",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication & Setup",
+      "item": [
+        {
+          "name": "Check Setup Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/setup/status",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "setup",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Initial Setup",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orgName\": \"Acme Corporation\",\n  \"fullName\": \"John Doe\",\n  \"email\": \"john@acme.com\",\n  \"password\": \"SecurePassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/setup",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "setup"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@acme.com\",\n  \"password\": \"SecurePassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/auth/login",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Tự động lưu token + thông tin user sau khi Login thành công.",
+                  "// Nhờ vậy mọi request sau tự dùng {{TOKEN}} mà không cần copy thủ công.",
+                  "try {",
+                  "    const res = pm.response.json();",
+                  "    if (res && res.token) {",
+                  "        pm.collectionVariables.set('TOKEN', res.token);",
+                  "        console.log('✅ Đã lưu TOKEN:', res.token.slice(0, 20) + '...');",
+                  "    } else {",
+                  "        console.warn('⚠️ Response không có token — kiểm tra email/password.');",
+                  "    }",
+                  "    if (res && res.user) {",
+                  "        if (res.user.orgId) pm.collectionVariables.set('ORG_ID', res.user.orgId);",
+                  "        if (res.user.id)    pm.collectionVariables.set('USER_ID', res.user.id);",
+                  "    }",
+                  "} catch (e) {",
+                  "    console.error('❌ Không parse được response Login:', e);",
+                  "}",
+                  "pm.test('Login thành công (200)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Current Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/profile",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 1. Xác Thực & Thiết Lập (Authentication & Setup)\n\nNhóm này là **bước đầu tiên bắt buộc** trước khi gọi bất kỳ API nào khác.\n\n---\n\n### 🔑 Token tự động map vào biến {{TOKEN}}\n\nRequest **Login** đã được gắn sẵn **test script** (tab *Scripts → Post-response*).\nKhi bạn gọi Login thành công, script tự động:\n\n| Lấy từ response | Lưu vào biến Postman | Dùng cho |\n|---|---|---|\n| `token` | `{{TOKEN}}` | Header `Authorization: Bearer {{TOKEN}}` mọi request |\n| `user.orgId` | `{{ORG_ID}}` | Các API cần orgId |\n| `user.id` | `{{USER_ID}}` | Các API cần userId |\n\n➡️ **Bạn KHÔNG cần copy token thủ công.** Chỉ cần:\n1. Chạy request **Login** (sửa email/password trong Body cho đúng tài khoản)\n2. Token tự lưu → mọi request sau tự dùng `{{TOKEN}}`\n3. Token sống 7 ngày, hết hạn thì Login lại\n\n> Response Login có dạng: `{ \"token\": \"eyJhbGc...\", \"user\": { \"id\", \"email\", \"role\", \"orgId\" } }`\n\n---\n\n### 💬 Lấy CONVERSATION_ID ở đâu để đưa vào biến {{CONVERSATION_ID}}?\n\nNhiều request (Send Message, Get Conversation Details, Archive...) cần `{{CONVERSATION_ID}}`.\nLấy giá trị này theo 1 trong 3 cách:\n\n**Cách 1 — Từ API List Conversations (khuyến nghị):**\n- Mở nhóm `3. Chat & Messaging` → chạy **List Conversations**\n  (`GET {{BASE_URL}}/api/v1/conversations?page=1&limit=50`)\n- Response trả về mảng hội thoại, mỗi phần tử có field `id`:\n  ```json\n  { \"data\": [ { \"id\": \"conv-abc123\", \"contactName\": \"Khách A\", ... } ] }\n  ```\n- Copy `id` (vd `conv-abc123`) → dán vào biến `{{CONVERSATION_ID}}`\n  (Collection variables → CONVERSATION_ID → Current value)\n\n**Cách 2 — Từ Webhook `message.received` (cho tích hợp TCRM):**\n- Khi có tin nhắn đến, ZaloCRM POST webhook chứa sẵn `conversationId`:\n  ```json\n  { \"event\": \"message.received\",\n    \"data\": { \"conversationId\": \"conv-abc123\", \"senderUid\": \"uid-789\", \"content\": \"...\" } }\n  ```\n- Dùng `conversationId` này trực tiếp — đây là cùng giá trị với `id` ở Cách 1.\n\n**Cách 3 — Từ giao diện ZaloCRM:**\n- Mở 1 cuộc hội thoại trên web → `conversationId` nằm trên URL.\n\n> ⚠️ `CONVERSATION_ID` gắn với 1 cuộc hội thoại Zalo cụ thể. Đổi hội thoại → đổi ID.\n"
+    },
+    {
+      "name": "2. Zalo Account Management",
+      "item": [
+        {
+          "name": "List Zalo Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Zalo Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayName\": \"My Business Account\",\n  \"proxyUrl\": null\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Initiate QR Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts/{{ZALO_ACCOUNT_ID}}/login",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts",
+                "{{ZALO_ACCOUNT_ID}}",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Force Reconnect",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts/{{ZALO_ACCOUNT_ID}}/reconnect",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts",
+                "{{ZALO_ACCOUNT_ID}}",
+                "reconnect"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts/{{ZALO_ACCOUNT_ID}}?purge=false",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts",
+                "{{ZALO_ACCOUNT_ID}}"
+              ],
+              "query": [
+                {
+                  "key": "purge",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts/{{ZALO_ACCOUNT_ID}}/status",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts",
+                "{{ZALO_ACCOUNT_ID}}",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Proxy",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"proxyUrl\": \"http://user:pass@proxy.com:8080\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/zalo-accounts/{{ZALO_ACCOUNT_ID}}/proxy",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "zalo-accounts",
+                "{{ZALO_ACCOUNT_ID}}",
+                "proxy"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 2. Quản Lý Tài Khoản Zalo (Zalo Account Management)\n\nKết nối & quản lý các **nick Zalo cá nhân** mà nhân viên dùng để chăm sóc khách.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /zalo-accounts` | Liệt kê tất cả nick Zalo của org |\n| `POST /zalo-accounts` | Thêm nick mới (tạo bản ghi, chưa đăng nhập) |\n| `POST /zalo-accounts/{{ZALO_ACCOUNT_ID}}/login` | **Đăng nhập bằng QR** — trả về mã QR để quét bằng app Zalo |\n| `POST /zalo-accounts/{{ZALO_ACCOUNT_ID}}/reconnect` | Kết nối lại nick bị rớt session |\n| `GET /zalo-accounts/{{ZALO_ACCOUNT_ID}}/status` | Trạng thái nick (online/offline/cần login lại) |\n| `PUT /zalo-accounts/{{ZALO_ACCOUNT_ID}}/proxy` | Cấu hình proxy riêng cho nick |\n| `DELETE /zalo-accounts/{{ZALO_ACCOUNT_ID}}?purge=false` | Xóa nick (purge=true xóa cả dữ liệu) |\n\n---\n\n### 🔑 Lấy {{ZALO_ACCOUNT_ID}} ở đâu?\nChạy `GET /zalo-accounts` → copy field `id` của nick cần dùng → dán vào biến `{{ZALO_ACCOUNT_ID}}`.\n\n### 📲 Luồng đăng nhập QR\n1. `POST /zalo-accounts/{{ZALO_ACCOUNT_ID}}/login` → nhận mã QR (hoặc lắng nghe WebSocket `account:qr`)\n2. Quét QR bằng app Zalo trên điện thoại\n3. WebSocket bắn `account:login` khi thành công → nick chuyển sang online\n\n> ⚠️ Đăng nhập QR là điều kiện tiên quyết để nhận tin nhắn (webhook `message.received`)."
+    },
+    {
+      "name": "3. Chat & Messaging",
+      "item": [
+        {
+          "name": "Get Conversation Counts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/conversations/counts",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "counts"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Conversations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/conversations?page=1&limit=50&status=active",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Conversation Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/conversations/{{CONVERSATION_ID}}?page=1&limit=30",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{CONVERSATION_ID}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Thanks for reaching out!\",\n  \"contentType\": \"text\",\n  \"attachments\": []\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/conversations/{{CONVERSATION_ID}}/messages",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{CONVERSATION_ID}}",
+                "messages"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Archive Conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/conversations/{{CONVERSATION_ID}}/archive",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "conversations",
+                "{{CONVERSATION_ID}}",
+                "archive"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Chat Folder",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Hot Leads\",\n  \"color\": \"#FF5722\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/chat/folders",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chat",
+                "folders"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Chat Presets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/chat/presets",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chat",
+                "presets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Attachment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "/path/to/file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/chat/attachments",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "chat",
+                "attachments"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 3. Chat & Tin Nhắn (Chat & Messaging)\n\nĐọc danh sách hội thoại, lấy lịch sử tin nhắn, gửi tin, đính kèm file.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /conversations/counts` | Đếm số hội thoại theo trạng thái (active/archived...) |\n| `GET /conversations?page=1&limit=50` | **Liệt kê hội thoại** — nguồn lấy `{{CONVERSATION_ID}}` |\n| `GET /conversations/{{CONVERSATION_ID}}?page=1&limit=30` | Chi tiết 1 hội thoại + lịch sử tin nhắn (phân trang) |\n| `POST /conversations/{{CONVERSATION_ID}}/messages` | Gửi tin nhắn vào hội thoại |\n| `POST /conversations/{{CONVERSATION_ID}}/archive` | Lưu trữ hội thoại |\n| `POST /chat/folders` | Tạo thư mục sắp xếp hội thoại |\n| `GET /chat/presets` | Danh sách tin nhắn mẫu (quick reply) |\n| `POST /chat/attachments` | Upload file đính kèm (ảnh/tài liệu) trước khi gửi |\n\n---\n\n### 💬 Lấy {{CONVERSATION_ID}}\nChạy `GET /conversations` → response `data[].id` (vd `conv-abc123`) → dán vào biến `{{CONVERSATION_ID}}`.\nĐây cũng là `conversationId` xuất hiện trong webhook `message.received` (xem nhóm 18).\n\n### 🔗 Liên quan tích hợp TCRM\n- `GET /conversations/{{CONVERSATION_ID}}` = API **kéo lịch sử** (pull) cho TCRM hiển thị.\n- Webhook `message.received` = **đẩy real-time** (push) tin mới sang TCRM."
+    },
+    {
+      "name": "4. Contacts & CRM",
+      "item": [
+        {
+          "name": "List Contacts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts?page=1&limit=50&search=&status=lead",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "key": "status",
+                  "value": "lead"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contact Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tran Thi B\",\n  \"email\": \"b@example.com\",\n  \"phone\": \"+84.9.yyyy.yyyy\",\n  \"source\": \"facebook\",\n  \"status\": \"lead\",\n  \"notes\": \"Referred by existing customer\",\n  \"tags\": [\"referral\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Contact",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Tran Thi B\",\n  \"email\": \"b.tran@example.com\",\n  \"status\": \"customer\",\n  \"tags\": [\"vip\", \"referral\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Contact",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contact Friends",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}/friends",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}",
+                "friends"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Appointment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contactId\": \"{{CONTACT_ID}}\",\n  \"title\": \"Product Demo\",\n  \"description\": \"Show premium features\",\n  \"scheduledAt\": \"2026-06-10T14:00:00Z\",\n  \"duration\": 60,\n  \"type\": \"meeting\",\n  \"location\": \"Video Call\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/appointments",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Appointments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/appointments?page=1&limit=50&status=scheduled",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "appointments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "status",
+                  "value": "scheduled"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Note to Contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Customer interested in annual plan. Follow up next week.\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}/notes",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}",
+                "notes"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 4. Liên Hệ & CRM (Contacts & CRM)\n\nQuản lý khách hàng/lead, bạn bè Zalo, lịch hẹn, ghi chú.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /contacts?search=&status=lead` | Liệt kê + lọc contact theo trạng thái/từ khóa |\n| `GET /contacts/{{CONTACT_ID}}` | Chi tiết 1 contact |\n| `POST /contacts` | Tạo contact mới |\n| `PUT /contacts/{{CONTACT_ID}}` | Cập nhật contact |\n| `DELETE /contacts/{{CONTACT_ID}}` | Xóa contact |\n| `GET /contacts/{{CONTACT_ID}}/friends` | Danh sách bạn bè Zalo của contact |\n| `POST /contacts/{{CONTACT_ID}}/notes` | Thêm ghi chú cho contact |\n| `POST /appointments` | Tạo lịch hẹn |\n| `GET /appointments?status=scheduled` | Liệt kê lịch hẹn |\n\n---\n\n### 🔑 Lấy {{CONTACT_ID}}\nChạy `GET /contacts` → copy `data[].id` → dán vào biến `{{CONTACT_ID}}`.\n\n### 🔗 Liên quan tích hợp TCRM\n`senderUid` trong webhook map sang contact ở đây. Field `phone` của contact dùng để\nkhớp khách hàng với customer bên TCRM (xem design doc B.1)."
+    },
+    {
+      "name": "5. Automation & Marketing",
+      "item": [
+        {
+          "name": "List Automation Rules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/automation/rules?page=1&limit=50&status=active",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "automation",
+                "rules"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Automation Rule",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Welcome New Leads\",\n  \"description\": \"Send welcome message to new leads\",\n  \"type\": \"sequence\",\n  \"trigger\": {\n    \"type\": \"contact_created\",\n    \"conditions\": [{\"field\": \"source\", \"operator\": \"equals\", \"value\": \"zalo\"}]\n  },\n  \"actions\": [{\"type\": \"send_message\", \"template\": \"welcome_message\"}]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/automation/rules",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "automation",
+                "rules"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Message Templates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/automation/templates",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "automation",
+                "templates"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Message Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Welcome Message\",\n  \"content\": \"Hi {{contactName}}, welcome to our service!\",\n  \"category\": \"greeting\",\n  \"variables\": [\"contactName\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/automation/templates",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "automation",
+                "templates"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Customer Lists",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/customer-lists",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customer-lists"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Customer List",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"VIP Customers\",\n  \"description\": \"Customers with purchase history > $5000\",\n  \"criteria\": {\n    \"filters\": [\n      {\"field\": \"status\", \"operator\": \"equals\", \"value\": \"customer\"},\n      {\"field\": \"leadScore\", \"operator\": \"gte\", \"value\": 85}\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/customer-lists",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "customer-lists"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Campaigns",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/campaigns",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "campaigns"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Campaign",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"July Sale Campaign\",\n  \"description\": \"Announce July sale to all customers\",\n  \"type\": \"broadcast\",\n  \"listId\": \"list-001\",\n  \"templateId\": \"tpl-001\",\n  \"schedule\": \"2026-07-01T08:00:00Z\",\n  \"variables\": {\"discount\": \"30%\"}\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/campaigns",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "campaigns"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 5. Tự Động Hóa & Marketing (Automation & Marketing)\n\nQuy tắc tự động, template tin nhắn, danh sách khách hàng, chiến dịch gửi hàng loạt.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /automation/rules?status=active` | Liệt kê rule tự động (vd: tự gắn tag khi có tin) |\n| `POST /automation/rules` | Tạo rule mới |\n| `GET /automation/templates` | Danh sách template tin nhắn |\n| `POST /automation/templates` | Tạo template |\n| `GET /customer-lists` | Danh sách phân khúc khách hàng |\n| `POST /customer-lists` | Tạo danh sách mới |\n| `GET /campaigns` | Liệt kê chiến dịch marketing |\n| `POST /campaigns` | Tạo chiến dịch gửi hàng loạt |\n\n> 💡 Automation rules có thể trigger gửi webhook/hành động khi có sự kiện — hữu ích để\n> mở rộng tích hợp TCRM về sau."
+    },
+    {
+      "name": "6. Analytics & Reporting",
+      "item": [
+        {
+          "name": "Get Conversion Funnel",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/analytics/conversion-funnel?dateFrom=2026-06-01&dateTo=2026-06-05&groupBy=day",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analytics",
+                "conversion-funnel"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-06-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-06-05"
+                },
+                {
+                  "key": "groupBy",
+                  "value": "day"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Team Performance",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/analytics/team-performance?dateFrom=2026-06-01&dateTo=2026-06-05",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analytics",
+                "team-performance"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-06-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-06-05"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Response Time",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/analytics/response-time",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analytics",
+                "response-time"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Custom Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Q2 Sales Report\",\n  \"metrics\": [\"revenue\", \"lead_count\", \"conversion_rate\"],\n  \"dimensions\": [\"source\", \"assignedUser\"],\n  \"dateFrom\": \"2026-04-01T00:00:00Z\",\n  \"dateTo\": \"2026-06-30T23:59:59Z\",\n  \"filters\": [{\"field\": \"status\", \"operator\": \"equals\", \"value\": \"customer\"}]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/analytics/custom",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "analytics",
+                "custom"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 6. Phân Tích & Báo Cáo (Analytics & Reporting)\n\nBáo cáo hiệu suất: phễu chuyển đổi, hiệu suất đội, thời gian phản hồi, báo cáo tùy chỉnh.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /analytics/conversion-funnel?dateFrom=&dateTo=&groupBy=day` | Phễu chuyển đổi lead → khách |\n| `GET /analytics/team-performance?dateFrom=&dateTo=` | Hiệu suất từng nhân viên/đội |\n| `GET /analytics/response-time` | Thời gian phản hồi trung bình |\n| `POST /analytics/custom` | Báo cáo tùy chỉnh (truyền tham số trong body) |\n\n> 📅 Tham số ngày dạng `YYYY-MM-DD`. `groupBy` nhận `day`/`week`/`month`."
+    },
+    {
+      "name": "7. Team & Organization",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users?page=1&limit=50&status=active",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "status",
+                  "value": "active"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"jane@acme.com\",\n  \"fullName\": \"Jane Smith\",\n  \"role\": \"agent\",\n  \"department\": \"Support\",\n  \"phone\": \"+84.9.yyyy.yyyy\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Jane Smith\",\n  \"role\": \"team_lead\",\n  \"department\": \"Sales\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/{{USER_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{USER_ID}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/{{USER_ID}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{USER_ID}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Teams",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/teams",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "teams"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Team",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Enterprise Sales\",\n  \"description\": \"Enterprise customer sales team\",\n  \"memberIds\": [\"user-123\", \"user-124\"]\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/teams",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "teams"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 7. Đội & Tổ Chức (Team & Organization)\n\nQuản lý nhân viên (user) và đội nhóm (team) trong tổ chức.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /users?status=active` | Liệt kê nhân viên |\n| `POST /users` | Tạo nhân viên mới |\n| `PUT /users/{{USER_ID}}` | Cập nhật nhân viên |\n| `DELETE /users/{{USER_ID}}` | Xóa/vô hiệu hóa nhân viên |\n| `GET /teams` | Liệt kê đội nhóm |\n| `POST /teams` | Tạo đội nhóm |\n\n---\n\n### 🔑 {{USER_ID}}\nTự lưu sau khi Login (xem nhóm 1), hoặc lấy từ `GET /users` → `data[].id`."
+    },
+    {
+      "name": "8. RBAC & Permissions",
+      "item": [
+        {
+          "name": "List Departments",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/departments",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "departments"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Department",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Marketing\",\n  \"description\": \"Marketing and campaigns department\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/departments",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "departments"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 8. Phân Quyền (RBAC & Permissions)\n\nSơ đồ phòng ban & kiểm soát truy cập theo vai trò.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /departments` | Cây phòng ban của tổ chức |\n| `POST /departments` | Tạo phòng ban mới |\n\n> 🛡 Quyền theo vai trò: `everyone` / `admin` / `owner`. Hầu hết endpoint quản trị yêu cầu\n> `admin` hoặc `owner`."
+    },
+    {
+      "name": "9. Search",
+      "item": [
+        {
+          "name": "Global Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/search?q=nguyen&type=contacts&limit=20",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "nguyen"
+                },
+                {
+                  "key": "type",
+                  "value": "contacts"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 9. Tìm Kiếm (Search)\n\nTìm kiếm toàn cục theo nhiều loại đối tượng.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /search?q=&type=contacts&limit=20` | Tìm theo từ khóa `q`, lọc theo `type` |\n\n> 🔎 `type` nhận: `contacts`, `conversations`, `messages`... Bỏ `type` để tìm tất cả."
+    },
+    {
+      "name": "10. Scoring & Lead Management",
+      "item": [
+        {
+          "name": "Get Scoring Configuration",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scoring/config",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scoring",
+                "config"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Scoring Rules",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scoring/rules",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scoring",
+                "rules"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Contact Score",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/contacts/{{CONTACT_ID}}/scores",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "contacts",
+                "{{CONTACT_ID}}",
+                "scores"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 10. Chấm Điểm & Quản Lý Lead (Scoring & Lead Management)\n\nCấu hình & xem điểm lead (lead scoring).\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /scoring/config` | Cấu hình chấm điểm của org |\n| `GET /scoring/rules` | Danh sách quy tắc cộng/trừ điểm |\n| `GET /contacts/{{CONTACT_ID}}/scores` | Điểm hiện tại của 1 contact |\n\n> 📊 Khi điểm đổi, webhook `friend.score_changed` được bắn (xem nhóm 18)."
+    },
+    {
+      "name": "11. Engagement",
+      "item": [
+        {
+          "name": "Get Engagement Heatmap",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/engagement/heatmap?dateFrom=2026-06-01&dateTo=2026-06-05",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "engagement",
+                "heatmap"
+              ],
+              "query": [
+                {
+                  "key": "dateFrom",
+                  "value": "2026-06-01"
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-06-05"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 11. Sự Tham Gia (Engagement)\n\nPhân tích mức độ tương tác của khách theo thời gian.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /engagement/heatmap?dateFrom=&dateTo=` | Bản đồ nhiệt tương tác (giờ/ngày khách hay nhắn) |\n\n> 🔥 Dùng để biết khung giờ vàng nên nhắn khách."
+    },
+    {
+      "name": "12. Activity & Timeline",
+      "item": [
+        {
+          "name": "Get Activity Timeline",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/timeline?limit=50&offset=0",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "timeline"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 12. Hoạt Động & Dòng Thời Gian (Activity & Timeline)\n\nNhật ký hoạt động toàn hệ thống (audit/timeline).\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /timeline?limit=50&offset=0` | Dòng thời gian sự kiện (tạo contact, gửi tin, đổi status...) |\n\n> 🕒 Phân trang bằng `limit` + `offset`."
+    },
+    {
+      "name": "13. Notifications",
+      "item": [
+        {
+          "name": "List Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications?page=1&limit=50&unreadOnly=false",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "unreadOnly",
+                  "value": "false"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Mark as Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/notif-001/read",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "notif-001",
+                "read"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 13. Thông Báo (Notifications)\n\nThông báo trong ứng dụng cho nhân viên.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /notifications?unreadOnly=false` | Liệt kê thông báo (lọc chưa đọc) |\n| `POST /notifications/{id}/read` | Đánh dấu 1 thông báo đã đọc |\n\n> 🔔 `unreadOnly=true` để chỉ lấy thông báo chưa đọc."
+    },
+    {
+      "name": "14. Integrations",
+      "item": [
+        {
+          "name": "List Integrations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/integrations",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Facebook - Get Pages",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/integrations/facebook/pages",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "facebook",
+                "pages"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Facebook - Sync Leads",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pageId\": \"page-001\",\n  \"formId\": \"form-001\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/integrations/facebook/leads/sync",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "integrations",
+                "facebook",
+                "leads",
+                "sync"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 14. Tích Hợp (Integrations)\n\nKết nối dịch vụ bên thứ 3 **VÀO** ZaloCRM (chiều INCOMING): Facebook, Google Sheets, Telegram, Zapier.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /integrations` | Liệt kê tích hợp đang bật |\n| `GET /integrations/facebook/pages` | Trang Facebook đã kết nối |\n| `POST /integrations/facebook/leads/sync` | Đồng bộ lead từ Facebook Lead Ads |\n\n---\n\n### ⚠️ Phân biệt với Webhook (nhóm 18)\n- **Nhóm 14 (Integrations) = INCOMING:** kéo dữ liệu TỪ dịch vụ ngoài VÀO ZaloCRM.\n- **Nhóm 18 (Webhook) = OUTGOING:** ZaloCRM ĐẨY sự kiện RA hệ thống ngoài (vd TCRM).\n- **Để tích hợp TCRM nhận tin nhắn → dùng NHÓM 18, KHÔNG phải nhóm 14.**"
+    },
+    {
+      "name": "15. AI & Assistant",
+      "item": [
+        {
+          "name": "Generate Reply Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": \"{{CONVERSATION_ID}}\",\n  \"messageId\": \"msg-001\",\n  \"tone\": \"professional\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/reply-draft",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "reply-draft"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Summary",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversationId\": \"{{CONVERSATION_ID}}\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/summary",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "summary"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Analyze Sentiment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"text\": \"I'm really happy with your service! Great support team.\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/sentiment",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "sentiment"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 15. AI & Trợ Lý (AI & Assistant)\n\nTrợ lý AI: soạn nháp trả lời, tóm tắt hội thoại, phân tích cảm xúc.\n\n| Endpoint | Mô tả |\n|---|---|\n| `POST /ai/reply-draft` | Gợi ý nội dung trả lời khách dựa trên ngữ cảnh |\n| `POST /ai/summary` | Tóm tắt 1 hội thoại dài |\n| `POST /ai/sentiment` | Phân tích cảm xúc tin nhắn (tích cực/tiêu cực) |\n\n> 🤖 Cấu hình provider AI (Anthropic/Gemini/OpenAI) tại `/settings/dev/api`."
+    },
+    {
+      "name": "16. Branding",
+      "item": [
+        {
+          "name": "Get Branding Settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/branding",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "branding"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Branding",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"primaryColor\": \"#FF5722\",\n  \"secondaryColor\": \"#2196F3\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/branding",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "branding"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 16. Thương Hiệu (Branding)\n\nTùy chỉnh nhận diện thương hiệu (logo, màu sắc) cho org — phục vụ white-label.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /branding` | Lấy cấu hình thương hiệu hiện tại |\n| `PUT /branding` | Cập nhật logo/màu/tên hiển thị |\n\n> 🎨 Hữu ích khi bán lại tính năng cho khách hàng khác dưới thương hiệu riêng."
+    },
+    {
+      "name": "17. Privacy & Security",
+      "item": [
+        {
+          "name": "Set Privacy PIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/privacy/pin/set",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "pin",
+                "set"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Privacy PIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/privacy/pin/verify",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "privacy",
+                "pin",
+                "verify"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 17. Bảo Mật & Quyền Riêng Tư (Privacy & Security)\n\nMã PIN bảo vệ truy cập dữ liệu nhạy cảm theo từng nhân viên.\n\n| Endpoint | Mô tả |\n|---|---|\n| `POST /privacy/pin/set` | Đặt mã PIN |\n| `POST /privacy/pin/verify` | Xác minh PIN để mở khóa |\n\n> 🔒 PIN gate dùng để che (blur) thông tin nhạy cảm khi cần."
+    },
+    {
+      "name": "18. Public API & Webhooks",
+      "item": [
+        {
+          "name": "List Webhook Settings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/webhook-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhook-settings"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{TOKEN}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://your-app.com/webhooks/contacts\",\n  \"events\": [\"contact.created\", \"contact.updated\"],\n  \"secret\": \"your-webhook-secret\"\n}"
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/webhook-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "webhook-settings"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 18. API Công Khai & Webhook (Public API & Webhooks) ⭐ QUAN TRỌNG CHO TÍCH HỢP TCRM\n\nZaloCRM **ĐẨY (push) sự kiện RA hệ thống ngoài** như TCRM. Đây là trái tim của tích hợp.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /webhook-settings` | Xem webhook đang cấu hình |\n| `POST /webhook-settings` | Đăng ký webhook mới (URL + events + secret) |\n\n> ℹ️ Trên UI, cấu hình nhanh tại **`/settings/dev/api`** (KHÔNG phải `/settings/channels/integrations`).\n\n---\n\n### 📡 Cách hoạt động\n1. Đăng ký URL của TCRM + secret (ký HMAC-SHA256).\n2. Khi có sự kiện, ZaloCRM POST tới URL đó kèm header `X-Webhook-Signature`, `X-Webhook-Event`.\n3. TCRM verify chữ ký bằng secret → xử lý.\n\n### 🔔 Các sự kiện ZaloCRM gửi (xác nhận từ code)\n| Event | Khi nào | Code |\n|---|---|---|\n| `message.received` | Khách nhắn tin đến | `message-handler.ts:484` |\n| `message.sent` | Nhân viên gửi tin | `message-handler.ts:484` |\n| `contact.created` | Có contact mới | `message-handler.ts:622,678` |\n| `contact.updated` | Sửa contact | `contact-routes.ts:528` |\n| `friend.status_changed` | Đổi trạng thái KH | `contact-routes.ts:957` |\n| `friend.score_changed` | Đổi điểm lead | `contact-routes.ts:963` |\n| `zalo.connected` | Nick Zalo login | `zalo-pool.ts:180,238` |\n| `zalo.disconnected` | Nick Zalo logout | `zalo-pool.ts:297` |\n\n### 📦 Payload mẫu (message.received)\n```json\n{\n  \"event\": \"message.received\",\n  \"timestamp\": \"2026-06-05T21:00:00.000Z\",\n  \"data\": {\n    \"messageId\": \"msg-123\",\n    \"conversationId\": \"conv-456\",\n    \"senderUid\": \"uid-789\",\n    \"content\": \"Tôi muốn mua sản phẩm\",\n    \"contentType\": \"text\",\n    \"sentAt\": \"2026-06-05T21:00:00.000Z\"\n  }\n}\n```\n\n> 📄 Chi tiết triển khai TCRM receiver: xem `plans/260605-2128-tcrm-webhook-receiver/design-doc.md`."
+    },
+    {
+      "name": "19. System",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/health",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "API Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/status",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "status"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "## 19. Hệ Thống (System)\n\nKiểm tra sức khỏe & trạng thái API — không cần xác thực.\n\n| Endpoint | Mô tả |\n|---|---|\n| `GET /health` | Sức khỏe hệ thống + kết nối DB |\n| `GET /api/v1/status` | Phiên bản & trạng thái API |\n\n> ✅ Dùng để monitoring/uptime check. Không cần `{{TOKEN}}`."
+    }
+  ]
+}
