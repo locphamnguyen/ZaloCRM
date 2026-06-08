@@ -2185,6 +2185,11 @@ onMounted(async () => {
   font-size: 20px;
   margin: 0;
 }
+/* Icon "Nhận khách" giờ là SVG Lucide — phóng to khi sidebar thu gọn (2026-06-08). */
+.c-nhan-khach-wrap :deep(.lfb-btn .lfb-icon svg) {
+  width: 21px;
+  height: 21px;
+}
 .c-nhan-khach-wrap :deep(.lfb-btn .lfb-badge) {
   position: absolute;
   top: -4px;
