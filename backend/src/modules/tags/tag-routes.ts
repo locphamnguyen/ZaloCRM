@@ -241,6 +241,14 @@ export async function registerFriendTagRoutes(app: FastifyInstance): Promise<voi
         autoCreate: req.body.autoCreate,
         color: req.body.color,
       });
+      // CareSession 2026-06-07 (anh chốt): gắn friend tag → đóng phiên nếu tag ∈ closeConditions.
+      try {
+        const fr = await prisma.friend.findUnique({ where: { id: req.params.id }, select: { contactId: true, orgId: true } });
+        if (fr?.contactId) {
+          const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+          await onTagAdded({ orgId: fr.orgId, contactId: fr.contactId, tagKind: 'friendTag', tagId: result.tag.id });
+        }
+      } catch { /* non-fatal */ }
       return reply.send(result);
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });
@@ -278,6 +286,11 @@ export async function registerContactCrmTagRoutes(app: FastifyInstance): Promise
         autoCreate: req.body.autoCreate,
         color: req.body.color,
       });
+      // CareSession 2026-06-07 (anh chốt): gắn CRM tag → đóng phiên nếu tag ∈ closeConditions.
+      try {
+        const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+        await onTagAdded({ orgId: user.orgId, contactId: req.params.id, tagKind: 'crmTag', tagId: result.tag.id });
+      } catch { /* non-fatal */ }
       return reply.send(result);
     } catch (err) {
       return reply.code(400).send({ error: (err as Error).message });

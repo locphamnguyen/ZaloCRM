@@ -2,7 +2,42 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
-import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
+import { getBullMQRedis } from '../automation/queues/redis-connection.js';
+
+// ════════════════════════════════════════════════════════════════════════
+// T8 2026-06-07 (eng-review D7): tin nội bộ KHÔNG bị rate-limit của Zalo.
+// Anh chốt: gửi tới nick ĐÃ KẾT BẠN + nhóm → Zalo KHÔNG bóp (300/ngày chỉ áp
+// gửi NGƯỜI LẠ). Code cũ áp nhầm checkLimits('message') cap 200/ngày → nick hệ
+// thống chạm trần ngừng báo. Bỏ rate-limit, thay bằng CAP CHỐNG-SPAM: chặn burst
+// LỖI (vd loop lỗi 15-20 tin/vài giây tới cùng đích) — bảo vệ nick khỏi spam tự
+// gây, KHÔNG phải giới hạn nghiệp vụ.
+// ════════════════════════════════════════════════════════════════════════
+const ANTISPAM_WINDOW_MS = 10_000; // 10s
+const ANTISPAM_MAX_IN_WINDOW = 15; // >15 tin/10s tới cùng đích = nghi spam lỗi
+
+/**
+ * Anti-spam gate: đếm số tin tới cùng (sender, thread) trong cửa sổ ngắn.
+ * Trả false (chặn) nếu vượt ngưỡng — chống loop lỗi, KHÔNG phải rate-limit Zalo.
+ */
+async function antiSpamAllow(senderId: string, threadId: string): Promise<boolean> {
+  try {
+    const redis = getBullMQRedis();
+    const key = `notify-antispam:${senderId}:${threadId}`;
+    const count = await redis.incr(key);
+    if (count === 1) {
+      await redis.pexpire(key, ANTISPAM_WINDOW_MS);
+    }
+    if (count > ANTISPAM_MAX_IN_WINDOW) {
+      logger.warn(
+        `[system-notify] ANTI-SPAM chặn: ${count} tin/${ANTISPAM_WINDOW_MS}ms tới thread=${threadId} (nghi loop lỗi)`,
+      );
+      return false;
+    }
+    return true;
+  } catch {
+    return true; // lỗi Redis → an toàn: vẫn gửi (không chặn nghiệp vụ)
+  }
+}
 
 // 2026-06-04 (Anh chốt) — định dạng Zalo: styled text + urgency cờ Khẩn.
 // st khớp zca-js TextStyle (b/i/u/c_*/f_*). urgency 0=Default 1=Important 2=Urgent.
@@ -35,6 +70,9 @@ interface SendToUserInput {
   // KHÔNG ghép title nữa (tránh lặp). urgency đẩy cờ Khẩn native Zalo.
   styles?: ZaloTextStyle[];
   urgency?: 0 | 1 | 2;
+  // T8 2026-06-07 (D7): đích nhận — 'user' (1-1, mặc định) | 'group' (nhóm Zalo).
+  // Gửi nhóm = sendMessage(threadId, threadType=1). SDK đã support (4 chỗ code dùng).
+  recipientType?: 'user' | 'group';
 }
 
 function extractZaloMsgId(sendResult: unknown): string | null {
@@ -187,11 +225,14 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
     });
   }
 
-  const limits = await zaloRateLimiter.checkLimits(resolved.senderZaloAccountId, 'message');
-  if (!limits.allowed) {
+  // T8 2026-06-07 (D7): tin nội bộ tới nick ĐÃ KẾT BẠN/nhóm KHÔNG bị Zalo bóp →
+  // BỎ checkLimits('message') (cap 200/ngày sai bản chất). Thay bằng anti-spam gate
+  // chống loop lỗi (burst >15 tin/10s cùng đích).
+  const spamOk = await antiSpamAllow(resolved.senderZaloAccountId, resolved.threadIdInSenderView);
+  if (!spamOk) {
     return prisma.systemNotification.update({
       where: { id: notification.id },
-      data: { status: 'failed', channel: 'crm_panel', error: limits.reason ?? 'Rate limit' },
+      data: { status: 'failed', channel: 'crm_panel', error: 'Anti-spam: quá nhiều tin tới cùng đích trong 10s' },
     });
   }
 
@@ -199,7 +240,6 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
     const api = zaloPool.getApi(resolved.senderZaloAccountId);
     if (!api) throw new Error('Nick gửi hệ thống chưa connected trong Zalo pool');
 
-    await zaloRateLimiter.recordSend(resolved.senderZaloAccountId, 'message');
     const hasStyles = Array.isArray(input.styles) && input.styles.length > 0;
     const msg = buildMessage(input.title, input.content, priority, hasStyles);
     // 2026-06-04 — payload Zalo: styles (định dạng chữ) + urgency (cờ Khẩn).
@@ -208,10 +248,12 @@ export async function sendSystemNotificationToUser(input: SendToUserInput) {
     const messageContent: Record<string, unknown> = { msg };
     if (hasStyles) messageContent.styles = input.styles;
     if (input.urgency && input.urgency > 0) messageContent.urgency = input.urgency;
+    // T8: threadType 0=user (mặc định) | 1=group. SDK đã support (zalo-operations.ts:243).
+    const threadType = input.recipientType === 'group' ? 1 : 0;
     const sendResult = await api.sendMessage(
       messageContent as Parameters<typeof api.sendMessage>[0],
       resolved.threadIdInSenderView,
-      0,
+      threadType,
     );
     const zaloMsgId = extractZaloMsgId(sendResult);
     const now = new Date();

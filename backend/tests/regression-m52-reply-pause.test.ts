@@ -25,8 +25,12 @@ const redisMock = {
   del: vi.fn().mockResolvedValue(1),
   pttl: vi.fn().mockResolvedValue(0),
 };
+// T4 2026-06-07 (R1): cancelPendingStepsForContact đổi getJobs(1000) full-scan →
+// getJob(jobId) trực tiếp theo deterministic jobId. Mock cả 2 (getJobs giữ cho
+// các caller cũ, getJob cho hành vi mới).
 const queueMock = {
   getJobs: vi.fn().mockResolvedValue([]),
+  getJob: vi.fn().mockResolvedValue(null),
 };
 const notifyCustomerReplyMock = vi.fn().mockResolvedValue(undefined);
 const enqueueSequenceStartMock = vi.fn().mockResolvedValue(undefined);
@@ -59,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   redisMock.set.mockResolvedValue('OK');
   queueMock.getJobs.mockResolvedValue([]);
+  queueMock.getJob.mockResolvedValue(null);
   prismaMock.contact.findUnique.mockResolvedValue({
     id: 'c1', fullName: 'KH Test', phone: '0901', leadScore: 50,
   });
@@ -96,8 +101,8 @@ describe('M52 — customer_reply → pause + cancel jobs', () => {
       }),
     );
 
-    // Queue cancel attempted (getJobs called cho delayed + waiting)
-    expect(queueMock.getJobs).toHaveBeenCalled();
+    // T4 (R1): cancel attempted qua getJob theo jobId (KHÔNG còn getJobs full-scan).
+    expect(queueMock.getJob).toHaveBeenCalled();
   });
 
   it('honours custom pauseOnActivityHours (vd 48h)', async () => {

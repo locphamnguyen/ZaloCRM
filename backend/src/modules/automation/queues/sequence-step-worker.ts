@@ -287,6 +287,24 @@ async function processJob(
     return { status: 'skipped', stepIdx, reason: `nick_${nick.status}` };
   }
 
+  // ── CareSession SELF-HEAL (anh chốt 2026-06-07) ──
+  // Luồng chạy nhiều STEP nhưng phiên chỉ tạo 1 lần ở STEP 0. Nếu phiên mồ côi
+  // (bị xóa/chưa kịp tạo) → tái tạo để luồng + phiên luôn đồng bộ. KHÔNG hồi sinh
+  // phiên đã đóng có chủ ý (chặn/sale/điều kiện). Fail không làm hỏng STEP.
+  if (nick.ownerUserId) {
+    try {
+      const { ensureCareSessionForStep } = await import(
+        '../care-session/care-session-service.js'
+      );
+      await ensureCareSessionForStep({
+        orgId, triggerId, contactId, nickId, sequenceId,
+        ownerUserId: nick.ownerUserId,
+      });
+    } catch (err) {
+      logger.warn(`${tag} care-session self-heal failed (non-fatal): ${(err as Error).message}`);
+    }
+  }
+
   const steps = await loadSequenceSteps(sequence.id); // 2026-06-04 dual-read
   if (stepIdx >= steps.length) {
     return { status: 'skipped', stepIdx, reason: 'step_out_of_range' };

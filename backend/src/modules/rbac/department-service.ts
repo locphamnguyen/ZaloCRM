@@ -385,3 +385,44 @@ export async function getUserDepartment(userId: string): Promise<{
   });
   return m ? { departmentId: m.departmentId, deptRole: m.deptRole as DeptRole } : null;
 }
+
+/**
+ * Resolve "quản lý trực tiếp" của 1 user theo sơ đồ tổ chức (CareSession notify
+ * manager — 2026-06-07). Dùng cho thông báo "để biết" tới cấp trên.
+ *
+ * Quy tắc (cha xem con):
+ *   - User là member/deputy của dept D → manager = leader của D.
+ *   - User là leader của dept D → manager = leader của dept CHA của D (lên 1 cấp).
+ *   - Không có cha hoặc cha không có leader → null (không gửi manager).
+ *
+ * @returns userId của manager, hoặc null.
+ */
+export async function getManagerOfUser(userId: string): Promise<string | null> {
+  const m = await prisma.departmentMember.findUnique({
+    where: { userId },
+    select: { departmentId: true, deptRole: true },
+  });
+  if (!m) return null;
+
+  // member/deputy → leader của chính dept này.
+  if (m.deptRole !== 'leader') {
+    const leader = await prisma.departmentMember.findFirst({
+      where: { departmentId: m.departmentId, deptRole: 'leader' },
+      select: { userId: true },
+    });
+    if (leader && leader.userId !== userId) return leader.userId;
+  }
+
+  // leader (hoặc dept không có leader khác) → lên dept cha.
+  const dept = await prisma.department.findUnique({
+    where: { id: m.departmentId },
+    select: { parentId: true },
+  });
+  if (!dept?.parentId) return null;
+
+  const parentLeader = await prisma.departmentMember.findFirst({
+    where: { departmentId: dept.parentId, deptRole: 'leader' },
+    select: { userId: true },
+  });
+  return parentLeader && parentLeader.userId !== userId ? parentLeader.userId : null;
+}

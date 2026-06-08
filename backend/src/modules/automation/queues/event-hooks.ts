@@ -31,6 +31,10 @@ import {
   notifyReactionNegative,
 } from './internal-notify-worker.js';
 import { enqueueSequenceStart } from './sequence-step-worker.js';
+import {
+  enrollFromTrigger,
+  closeCareSessionsForContact,
+} from '../care-session/care-session-service.js';
 
 // ════════════════════════════════════════════════════════════════════════
 // I13 2026-06-04 — Thông báo nội bộ per-event (Anh chốt bật/tắt riêng từng event)
@@ -97,39 +101,76 @@ export async function getContactPauseRemaining(
 // ════════════════════════════════════════════════════════════════════════
 // I8 2026-06-03: export để message-handler (customer_reply path) tái dùng — trước
 // đây nó dừng chuỗi qua automationTask stub (no-op) → BullMQ jobs vẫn fire (spam).
+//
+// T4 2026-06-07 (eng-review D6, regression R1): hủy theo deterministic jobId thay
+// vì getJobs(1000) full-scan toàn queue. Bug cũ: chi phí tỉ lệ KÍCH THƯỚC QUEUE
+// (lục 2000 job tìm vài cái của 1 contact) + bỏ sót nếu queue > 1000 job. CareSession
+// gọi hàm này mỗi reply → khuếch đại. jobId = `${triggerId}-${contactId}-${stepIdx}`;
+// lazy-chain nên tại 1 thời điểm contact chỉ có ≤1 step pending, nhưng stepIdx có thể
+// là bất kỳ 0..N-1 → thử getJob từng stepIdx (chi phí O(số step) ≤ vài chục, KHÔNG
+// theo kích thước queue). maxSteps optional: caller biết thì truyền, không thì query.
+//
+// ⚠️ Codex (eng-review): getJob chỉ xóa waiting/delayed, KHÔNG hủy job đang ACTIVE
+// (đang chạy). → worker phải re-check pause flag trước send (đã có ở sequence-step-worker
+// pause check) nên job active vẫn bị chặn gửi → ghost vô hại.
 export async function cancelPendingStepsForContact(
   triggerId: string,
   contactId: string,
+  maxSteps?: number,
 ): Promise<{ removed: number }> {
   const queue = getSequenceStepQueue();
 
-  // Lấy tất cả jobs với jobId matching pattern
-  // BullMQ không có wildcard query → list jobs delayed + waiting và filter manual
-  const [delayedJobs, waitingJobs] = await Promise.all([
-    queue.getJobs(['delayed'], 0, 1000),
-    queue.getJobs(['waiting'], 0, 1000),
-  ]);
+  // Upper bound số step để dò jobId. Caller biết totalSteps thì truyền (rẻ nhất).
+  // Không biết → query sequence steps của trigger (1 query, ≤vài chục step).
+  let upper = maxSteps;
+  if (upper == null) {
+    upper = await resolveTriggerSequenceStepCount(triggerId);
+  }
 
   let removed = 0;
-  const prefix = `${triggerId}-${contactId}-`;
-
-  for (const job of [...delayedJobs, ...waitingJobs]) {
-    if (job.id && job.id.startsWith(prefix)) {
-      try {
+  for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
+    const jobId = buildSequenceStepJobId(triggerId, contactId, stepIdx);
+    try {
+      const job = await queue.getJob(jobId);
+      if (job) {
         await job.remove();
         removed++;
-      } catch (err) {
-        logger.warn(`[event-hooks] failed to remove job ${job.id}: ${(err as Error).message}`);
       }
+    } catch (err) {
+      logger.warn(`[event-hooks] failed to remove job ${jobId}: ${(err as Error).message}`);
     }
   }
 
   if (removed > 0) {
     logger.info(
-      `[event-hooks] cancelled ${removed} pending step(s) for contact ${contactId} trigger ${triggerId}`,
+      `[event-hooks] cancelled ${removed} pending step(s) for contact ${contactId} trigger ${triggerId} (jobId-direct)`,
     );
   }
   return { removed };
+}
+
+/**
+ * Số step của sequence gắn với trigger — upper bound để dò jobId khi cancel.
+ * Fallback 30 nếu không resolve được (an toàn: dò thừa vài jobId không tồn tại = no-op).
+ */
+async function resolveTriggerSequenceStepCount(triggerId: string): Promise<number> {
+  try {
+    const trigger = await prisma.automationTrigger.findUnique({
+      where: { id: triggerId },
+      select: { sequenceId: true, successorSequenceId: true },
+    });
+    const seqId = trigger?.successorSequenceId ?? trigger?.sequenceId;
+    if (!seqId) return 30;
+    const seq = await prisma.automationSequence.findUnique({
+      where: { id: seqId },
+      select: { steps: true },
+    });
+    const steps = seq?.steps;
+    if (Array.isArray(steps) && steps.length > 0) return steps.length;
+    return 30;
+  } catch {
+    return 30;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -251,6 +292,8 @@ export async function onFriendAccepted(input: {
         thankYouTemplate: true,
         thankYouDelaySeconds: true,
         enableThankYou: true,
+        // CareSession 2026-06-07 — snapshot điều kiện đóng phiên.
+        closeConditions: true,
       },
     }),
     prisma.contact.findUnique({
@@ -272,11 +315,24 @@ export async function onFriendAccepted(input: {
   // (friend-event-handler) đã logEvent('friend_accepted') trước khi gọi hook này,
   // tạo thêm sẽ double dòng trong timeline Mục tiêu.
 
-  // Enqueue sequence start (Section 6.4 chain pattern).
-  // jobId dedup (triggerId-contactId-0) → nếu luồng stranger (drainer) đã enroll
-  // rồi thì lần này no-op, không double sequence.
+  // CareSession 2026-06-07 (D2): TẠO PHIÊN (Postgres chân lý) + enqueue sequence.
+  // enrollFromTrigger lo thứ tự an toàn: INSERT phiên trước → enqueue BullMQ sau
+  // (jobId dedup: luồng stranger drainer đã enroll thì no-op) → mark enqueued.
+  // Phiên tạo NGAY cả khi không có sequence (vẫn cần lắng nghe event khách).
   const sequenceId = trigger.successorSequenceId ?? trigger.sequenceId;
-  if (sequenceId) {
+  if (nick?.ownerUserId) {
+    await enrollFromTrigger({
+      orgId,
+      triggerId,
+      contactId,
+      nickId,
+      ownerUserId: nick.ownerUserId,
+      sequenceId: sequenceId ?? null,
+      sequenceStartDelayMinutes: trigger.sequenceStartDelayMinutes,
+      // closeConditions đọc từ ORG (cấu hình lắng nghe chung) — không truyền per-trigger.
+    });
+  } else if (sequenceId) {
+    // Nick không có owner (hiếm) → không tạo phiên được nhưng vẫn chạy sequence cũ.
     await enqueueSequenceStart({
       triggerId,
       contactId,
@@ -494,6 +550,14 @@ export async function onCustomerBlock(input: {
   await cancelPendingStepsForContact(triggerId, contactId);
   // KHÔNG clear pause flag — keep paused forever (no point retry)
   await setContactPauseFlag(triggerId, contactId, 24 * 365); // 1 năm = practically forever
+
+  // CareSession 2026-06-07 (T7): khách chặn = tín hiệu chấm dứt mạnh nhất → đóng
+  // mọi phiên của khách trên nick này (event-driven, đóng ngay).
+  try {
+    await closeCareSessionsForContact({ orgId, contactId, nickId, reason: 'customer_blocked' });
+  } catch (err) {
+    logger.warn(`[hook:customer_block] close care session failed contact=${contactId}: ${(err as Error).message}`);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════

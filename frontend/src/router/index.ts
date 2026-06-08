@@ -190,8 +190,15 @@ const routes: RouteRecordRaw[] = [
       { path: 'triggers/new/friend-invite', name: 'Marketing.FriendInviteCreate', component: () => import('@/views/automation/FriendInviteCreateView.vue') },
       // Mục tiêu — danh sách (thay TriggersView.vue cũ đã bỏ).
       { path: 'triggers',     name: 'Marketing.MucTieuList',   component: () => import('@/views/automation/MucTieuListView.vue') },
+      // Mục tiêu hệ thống "Bám đuổi thủ công" — bảng full KH gắn tay (2026-06-07).
+      { path: 'manual-followup', name: 'Marketing.ManualFollowup', component: () => import('@/views/automation/ManualFollowupView.vue') },
       // Mục tiêu — chi tiết (Dashboard + Log). Param, đứng SAU mọi literal triggers/*.
       { path: 'triggers/:id', name: 'Marketing.MucTieuDetail', component: () => import('@/views/automation/MucTieuDetailView.vue') },
+      // CareSession (Phiên chăm sóc) 2026-06-07 — list + side panel phiên.
+      { path: 'care-sessions', name: 'Marketing.CareSessions', component: () => import('@/views/automation/CareSessionListView.vue') },
+      // "Lắng nghe & Nhắc" GỘP thành tab "Cài đặt" trong Phiên chăm sóc (anh chốt 2026-06-07).
+      // Giữ route cũ → redirect để link cũ không 404.
+      { path: 'care-listen', redirect: '/marketing/care-sessions' },
       { path: 'blocks',     name: 'Marketing.Blocks',     component: () => import('@/views/automation/BlocksView.vue') },
       { path: 'sequences',           name: 'Marketing.Sequences',     component: () => import('@/views/automation/SequencesView.vue') },
       { path: 'sequences/:id/stats', name: 'Marketing.SequenceStats', component: () => import('@/views/automation/SequenceStatsView.vue') },

@@ -71,6 +71,8 @@ model Organization {
   automationCampaigns       AutomationCampaign[]
   // automationTasks       AutomationTask[]  ← REMOVED 2026-06-01 Luồng Mục Tiêu M0
   automationEventLogs       AutomationEventLog[]
+  // CareSession (Phiên chăm sóc) 2026-06-07
+  careSessions              CareSession[]
   // RBAC Phase Phân Quyền 2026-05-21
   departments               Department[]
   permissionGroups          PermissionGroup[]
@@ -84,6 +86,18 @@ model Organization {
   systemNotifyNick          ZaloAccount?            @relation("OrgSystemNotify", fields: [systemNotifyZaloAccountId], references: [id], onDelete: SetNull)
   systemNotifyRecipients    SystemNotifyRecipient[]
   systemNotifications       SystemNotification[]
+  // CareSession 2026-06-07 — UID nhóm Zalo nhận thông báo "đích nhóm" (nhìn từ góc
+  // nick hệ thống gửi, giống per-nick UID 1-1). Admin nhập tay ở Settings. Gửi qua
+  // sendMessage(threadId, threadType=1). null = đích nhóm tắt.
+  internalNotifyGroupThreadId String?               @map("internal_notify_group_thread_id")
+  // CareSession 2026-06-07 (anh chốt): "Lắng nghe & Nhắc chăm sóc" là cấu hình CHUNG
+  // toàn tổ chức (KHÔNG per-trigger). 1 bộ quy tắc cho mọi Mục tiêu.
+  //   careNotifyChannels: { "<eventKey>": { owner, manager, zaloGroup } }
+  //     eventKey care event: reply|reactionPositive|reactionNegative|lead|block|friendAccept|friendReject
+  //   careCloseConditions: { onStatusIds, onFriendTagIds, onCrmTagIds, silenceDays }
+  // (Field cùng tên trên AutomationTrigger giữ lại làm legacy, backend đọc ORG trước.)
+  careNotifyChannels          Json?                  @map("care_notify_channels")
+  careCloseConditions         Json?                  @map("care_close_conditions")
 
   // Phase user-create-with-zalo 2026-05-27 — config dùng cho welcome message tự động
   // khi admin tạo sale mới. Admin sửa toàn bộ template trong UI Thông báo hệ thống,
@@ -105,16 +119,16 @@ model Organization {
   // nick-worker. Đưa ra trang "Cài đặt kỹ thuật" cho admin, KHÔNG trộn vào wizard
   // tạo Mục tiêu. Default = đúng giá trị hardcode cũ để không đổi hành vi.
   // Nhịp quét các bộ dọn nền (giây).
-  autoStuckSweepSeconds         Int     @default(60)  @map("auto_stuck_sweep_seconds")
-  autoDrainerSweepSeconds       Int     @default(30)  @map("auto_drainer_sweep_seconds")
-  autoWelcomeProbeSeconds       Int     @default(10)  @map("auto_welcome_probe_seconds")
-  autoRemindSweepMinutes        Int     @default(30)  @map("auto_remind_sweep_minutes")
+  autoStuckSweepSeconds     Int @default(60) @map("auto_stuck_sweep_seconds")
+  autoDrainerSweepSeconds   Int @default(30) @map("auto_drainer_sweep_seconds")
+  autoWelcomeProbeSeconds   Int @default(10) @map("auto_welcome_probe_seconds")
+  autoRemindSweepMinutes    Int @default(30) @map("auto_remind_sweep_minutes")
   // Ngưỡng coi 1 KH là "kẹt" trong lúc xử lý (phút) + số lần cứu tối đa.
-  autoStuckThresholdMinutes     Int     @default(5)   @map("auto_stuck_threshold_minutes")
-  autoStuckMaxRecovery          Int     @default(10)  @map("auto_stuck_max_recovery")
+  autoStuckThresholdMinutes Int @default(5) @map("auto_stuck_threshold_minutes")
+  autoStuckMaxRecovery      Int @default(10) @map("auto_stuck_max_recovery")
   // Ngưỡng coi 1 chiến dịch bị treo (giờ) + reset KH khi nick offline lâu (giờ).
-  autoCampaignTimeoutHours      Int     @default(24)  @map("auto_campaign_timeout_hours")
-  autoNickOfflineResetHours     Int     @default(24)  @map("auto_nick_offline_reset_hours")
+  autoCampaignTimeoutHours  Int @default(24) @map("auto_campaign_timeout_hours")
+  autoNickOfflineResetHours Int @default(24) @map("auto_nick_offline_reset_hours")
 
   // Phase Tag Taxonomy v2 2026-05-31 (M57 /plan-eng-review Big-Bang Refactor)
   // Schema mới Tag + TagGroup + FriendTag + ContactTag chạy song song với CrmTag/CrmTagGroup
@@ -324,13 +338,13 @@ model ZaloAccount {
 // org cũng chưa cấu hình loại đó → fallback hằng số code (DEFAULT_SDK_LIMITS).
 // MỌI nơi gọi SDK (automation/trigger/sequence/broadcast qua zalo-rate-limiter) đọc từ đây.
 model SdkLimit {
-  id             String  @id @default(uuid())
-  orgId          String  @map("org_id")
-  zaloAccountId  String? @map("zalo_account_id") // NULL = org default; có giá trị = nick override
-  category       String  // 'message'|'reaction'|'chat_action'|'group_admin'|'group_read'|'friend_action'|'friend_read'|'profile'|'query'
-  dailyLimit     Int     @map("daily_limit")
-  burstLimit     Int     @map("burst_limit")
-  burstWindowMs  Int     @default(30000) @map("burst_window_ms")
+  id            String  @id @default(uuid())
+  orgId         String  @map("org_id")
+  zaloAccountId String? @map("zalo_account_id") // NULL = org default; có giá trị = nick override
+  category      String // 'message'|'reaction'|'chat_action'|'group_admin'|'group_read'|'friend_action'|'friend_read'|'profile'|'query'
+  dailyLimit    Int     @map("daily_limit")
+  burstLimit    Int     @map("burst_limit")
+  burstWindowMs Int     @default(30000) @map("burst_window_ms")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2014,23 +2028,27 @@ model BlockFolder {
 // `usageCount` cache để UI hiện badge "đang dùng trong N sequence/broadcast".
 // `archivedAt`: soft delete — block bị archive vẫn giữ snapshot trong task đang chạy.
 model Block {
-  id          String    @id @default(uuid())
-  orgId       String    @map("org_id")
-  folderId    String?   @map("folder_id")
-  name        String
-  channel     String    @default("zalo_user")
-  actionType  String    @map("action_type") // 'request_friend' | 'send_message' | 'update_status' | ...
-  content     Json      @default("{}")
-  ownerNickId String?   @map("owner_nick_id")
+  id               String    @id @default(uuid())
+  orgId            String    @map("org_id")
+  folderId         String?   @map("folder_id")
+  name             String
+  channel          String    @default("zalo_user")
+  actionType       String    @map("action_type") // 'request_friend' | 'send_message' | 'update_status' | ...
+  content          Json      @default("{}")
+  ownerNickId      String?   @map("owner_nick_id")
   // 2026-06-04: isShared DEPRECATED — visibility lên Folder. Giữ field để migrate dual-read 2 tuần.
-  isShared    Boolean   @default(true) @map("is_shared")
-  tagIds      String[]  @default([]) @map("tag_ids") // 2026-06-04 — dự án/mục đích, multi free-form
-  usageCount  Int       @default(0) @map("usage_count")
-  lastUsedAt  DateTime? @map("last_used_at")
-  archivedAt  DateTime? @map("archived_at")
-  createdById String    @map("created_by_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  isShared         Boolean   @default(true) @map("is_shared")
+  tagIds           String[]  @default([]) @map("tag_ids") // 2026-06-04 — dự án/mục đích, multi free-form
+  usageCount       Int       @default(0) @map("usage_count")
+  lastUsedAt       DateTime? @map("last_used_at")
+  // 2026-06-07 — đếm RIÊNG số lần sale GỬI TAY Khối từ chat (KHÔNG tính automation/sequence).
+  // usageCount gộp cả 2 nguồn; manualSendCount chỉ tăng ở endpoint /conversations/:id/send-block.
+  manualSendCount  Int       @default(0) @map("manual_send_count")
+  lastManualSentAt DateTime? @map("last_manual_sent_at")
+  archivedAt       DateTime? @map("archived_at")
+  createdById      String    @map("created_by_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   org           Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
   folder        BlockFolder?   @relation(fields: [folderId], references: [id], onDelete: SetNull)
@@ -2104,7 +2122,7 @@ model AutomationSequence {
   createdBy     User                 @relation("SequenceCreatedBy", fields: [createdById], references: [id])
   triggers      AutomationTrigger[]  @relation("TriggerSequence")
   campaigns     AutomationCampaign[] @relation("CampaignSequence")
-  sequenceSteps SequenceStep[]       // 2026-06-04 — replace JSON `steps` (dual-read 2 weeks)
+  sequenceSteps SequenceStep[] // 2026-06-04 — replace JSON `steps` (dual-read 2 weeks)
 
   @@index([orgId, channel, enabled])
   @@map("automation_sequences")
@@ -2116,60 +2134,64 @@ model AutomationSequence {
 // `ruleOverrides` JSON: override sequence.runtimeRules tại trigger level
 // (vd trigger sinh nhật chỉ chạy giờ 9-18).
 model AutomationTrigger {
-  id                     String    @id @default(uuid())
-  orgId                  String    @map("org_id")
-  name                   String
-  category               String    @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai' | 'manual'
-  eventType              String    @map("event_type")
-  eventFilter            Json?     @map("event_filter")
-  bindingKind            String    @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
-  sequenceId             String?   @map("sequence_id")
-  blockId                String?   @map("block_id")
-  broadcastId            String?   @map("broadcast_id")
-  segmentSpec            Json?     @map("segment_spec")
-  ruleOverrides          Json?     @map("rule_overrides")
-  enabled                Boolean   @default(true)
+  id                      String    @id @default(uuid())
+  orgId                   String    @map("org_id")
+  name                    String
+  category                String    @default("general") // 'general' | 'keyword' | 'bot_api' | 'livechat' | 'genai' | 'manual'
+  eventType               String    @map("event_type")
+  eventFilter             Json?     @map("event_filter")
+  bindingKind             String    @map("binding_kind") // 'sequence' | 'block' | 'broadcast'
+  sequenceId              String?   @map("sequence_id")
+  blockId                 String?   @map("block_id")
+  broadcastId             String?   @map("broadcast_id")
+  segmentSpec             Json?     @map("segment_spec")
+  ruleOverrides           Json?     @map("rule_overrides")
+  enabled                 Boolean   @default(true)
   // Phase Friend Invite 2026-05-28 — successor sequence + greeting template
-  successorSequenceId    String?   @map("successor_sequence_id")
-  greetingTemplate       String?   @map("greeting_template") @db.Text
+  successorSequenceId     String?   @map("successor_sequence_id")
+  greetingTemplate        String?   @map("greeting_template") @db.Text
   // Wave 2 2026-05-29 — per-trigger welcome probe (split from Org-level)
-  welcomeMessageTemplate String?   @map("welcome_message_template") @db.Text
-  welcomeDelaySeconds    Int       @default(60) @map("welcome_delay_seconds")
+  welcomeMessageTemplate  String?   @map("welcome_message_template") @db.Text
+  welcomeDelaySeconds     Int       @default(60) @map("welcome_delay_seconds")
   // ── Cấu trúc 5 tin 2026-06-04 (I10 — Anh chốt qua /design-html) ──
   // Tin 2 · Cảm ơn KH đã đồng ý KB — gửi khi event friend_accepted (KHÁC welcome=Tin1
   // gửi sau khi mời, không chờ accept). thankYouDelay tính từ lúc KH accept.
-  thankYouTemplate       String?   @map("thank_you_template") @db.Text
-  thankYouDelaySeconds   Int       @default(60) @map("thank_you_delay_seconds")
+  thankYouTemplate        String?   @map("thank_you_template") @db.Text
+  thankYouDelaySeconds    Int       @default(60) @map("thank_you_delay_seconds")
   // Tin 3 · Nhắc KH đồng ý KB sau N ngày (cron quét, tự bỏ qua nếu đã accept).
-  remindTemplate         String?   @map("remind_template") @db.Text
-  remindDelayDays        Int       @default(3) @map("remind_delay_days")
+  remindTemplate          String?   @map("remind_template") @db.Text
+  remindDelayDays         Int       @default(3) @map("remind_delay_days")
   // Tin 4 · Khi KH từ chối KB — gửi qua hộp người lạ ngay khi event friend_rejected.
-  rejectedTemplate       String?   @map("rejected_template") @db.Text
+  rejectedTemplate        String?   @map("rejected_template") @db.Text
   // 4 cờ bật/tắt từng tin (Lời mời = greetingTemplate luôn bắt buộc, không có cờ).
   // Tin 1 Chào mừng / Tin 2 Cảm ơn / Tin 3 Nhắc / Tin 4 Từ chối.
-  enableWelcome          Boolean   @default(true)  @map("enable_welcome")
-  enableThankYou         Boolean   @default(true)  @map("enable_thank_you")
-  enableRemind           Boolean   @default(true)  @map("enable_remind")
-  enableRejectedFollowUp Boolean   @default(false) @map("enable_rejected_follow_up")
+  enableWelcome           Boolean   @default(true) @map("enable_welcome")
+  enableThankYou          Boolean   @default(true) @map("enable_thank_you")
+  enableRemind            Boolean   @default(true) @map("enable_remind")
+  enableRejectedFollowUp  Boolean   @default(false) @map("enable_rejected_follow_up")
   // ── #1 2026-06-06 (Anh chốt): 2 công tắc bám đuổi theo trạng thái kết bạn ──
   // followUpStrangerEnabled: bám đuổi cả khi KH CHƯA đồng ý kết bạn (gửi qua hộp
   //   người lạ). BẬT = hành vi cũ (spam hết luồng). TẮT = chỉ bám đuổi sau khi accept.
   // followUpFriendEnabled: bám đuổi khi KH ĐÃ là bạn — kích hoạt khi nhận event
   //   accept thật từ Zalo (onFriendAccepted). TẮT = KH duyệt cũng không bám đuổi.
   // Default cả 2 = true → Mục tiêu cũ giữ nguyên hành vi.
-  followUpStrangerEnabled Boolean  @default(true)  @map("follow_up_stranger_enabled")
-  followUpFriendEnabled   Boolean  @default(true)  @map("follow_up_friend_enabled")
+  followUpStrangerEnabled Boolean   @default(true) @map("follow_up_stranger_enabled")
+  followUpFriendEnabled   Boolean   @default(true) @map("follow_up_friend_enabled")
   // Thông báo nội bộ per-event: { "<eventKey>": { "owner": bool, "manager": bool, "zaloGroup": bool } }
-  // eventKey: welcome|thankYou|remind|rejected|reply|reactionPositive|reactionNegative|lead|block.
-  // owner = Sale phụ trách nick (LÀM THẬT). manager + zaloGroup = defer (FE khóa "Đang phát triển").
-  notifyChannels         Json?     @map("notify_channels")
-  state                  String    @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed' (UI derive 'scheduled' khi state=draft + scheduledAt set)
+  // eventKey: welcome|thankYou|remind|rejected|reply|reactionPositive|reactionNegative|lead|block|friendAccept|friendReject.
+  // owner = Sale phụ trách nick (LÀM THẬT). manager auto org-tree (RBAC M2). zaloGroup = UID nhập Settings.
+  notifyChannels          Json?     @map("notify_channels")
+  // ── CareSession (Phiên chăm sóc) 2026-06-07 — điều kiện ĐÓNG phiên per-Mục-tiêu ──
+  // { onStatusIds: [...], onFriendTagIds: [...], onCrmTagIds: [...], silenceDays: 7 }
+  // Snapshot vào CareSession.closeConditions khi tạo phiên → khách ở 2 Mục tiêu áp 2 luật riêng.
+  closeConditions         Json?     @map("close_conditions")
+  state                   String    @default("draft") // 'draft' | 'active' | 'paused' | 'cancelling' | 'cancelled' | 'completed' (UI derive 'scheduled' khi state=draft + scheduledAt set)
   // BE T4 2026-05-30 — friend-invite lên lịch hẹn giờ. NULL = activate ngay khi gọi /activate.
-  scheduledAt            DateTime? @map("scheduled_at")
+  scheduledAt             DateTime? @map("scheduled_at")
   // P2 Wave 4 2026-06-02 — Tạm dừng có thời hạn. NULL = pause vô hạn (user phải bấm "Tiếp tục").
   // Set khi gọi /pause với body { ttlHours }. Cron sweep mỗi 1 phút auto-flip state='paused'→'active'
   // khi pausedUntil <= NOW() (đồng thời reset pausedUntil=NULL).
-  pausedUntil            DateTime? @map("paused_until")
+  pausedUntil             DateTime? @map("paused_until")
 
   // ── Luồng Mục Tiêu rebuild 2026-06-01 (Marketing BullMQ Rebuild M0) ──
   // P1: Delay sau khi gửi lời mời → step 1 bám đuổi (phút). Cấu hình per-trigger qua Wizard B3.
@@ -2210,13 +2232,15 @@ model AutomationTrigger {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  sequence  AutomationSequence?  @relation("TriggerSequence", fields: [sequenceId], references: [id], onDelete: SetNull)
-  broadcast AutomationBroadcast? @relation("TriggerBroadcast", fields: [broadcastId], references: [id], onDelete: SetNull)
-  createdBy User                 @relation("TriggerCreatedBy", fields: [createdById], references: [id])
-  campaigns AutomationCampaign[] @relation("CampaignTrigger")
+  org          Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sequence     AutomationSequence?  @relation("TriggerSequence", fields: [sequenceId], references: [id], onDelete: SetNull)
+  broadcast    AutomationBroadcast? @relation("TriggerBroadcast", fields: [broadcastId], references: [id], onDelete: SetNull)
+  createdBy    User                 @relation("TriggerCreatedBy", fields: [createdById], references: [id])
+  campaigns    AutomationCampaign[] @relation("CampaignTrigger")
   // #2 2026-06-06 — hàng đợi per-trigger (mỗi Mục tiêu độc lập, không tranh khách).
   queueEntries TriggerQueueEntry[]
+  // CareSession 2026-06-07 — phiên chăm sóc sinh từ trigger này.
+  careSessions CareSession[]
 
   @@index([orgId, eventType, enabled])
   @@index([orgId, category])
@@ -2258,12 +2282,12 @@ model AutomationBroadcast {
 
   // Broadcasts Đợt 1 (2026-06-05): worker E2E + resume cursor.
   // resumeCursor = last sent contactId — worker pause/resume picks up where it left off.
-  resumeCursor    String?   @map("resume_cursor")
+  resumeCursor String? @map("resume_cursor")
   // workerStats — Json blob worker tự ghi: { perNickSent: { nickId: count }, lastTickAt, lastError, ... }
-  workerStats     Json?     @map("worker_stats")
+  workerStats  Json?   @map("worker_stats")
   // variantSpec / abTestStats — placeholder for Đợt 2 A/B test. Đợt 1 chưa dùng.
-  variantSpec     Json?     @map("variant_spec")
-  abTestStats     Json?     @map("ab_test_stats")
+  variantSpec  Json?   @map("variant_spec")
+  abTestStats  Json?   @map("ab_test_stats")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2285,26 +2309,26 @@ model AutomationBroadcast {
 // `rulesSnapshot` frozen runtimeRules → task chạy trong campaign này dùng snapshot
 // này, không bị ảnh hưởng nếu Sequence.runtimeRules edit sau.
 model AutomationCampaign {
-  id              String    @id @default(uuid())
-  orgId           String    @map("org_id")
-  triggerId       String?   @map("trigger_id")
-  broadcastId     String?   @map("broadcast_id")
-  executionKind   String    @map("execution_kind") // 'sequence' | 'single_block' | 'broadcast'
-  sequenceId      String?   @map("sequence_id")
-  blockId         String?   @map("block_id")
-  segmentSnapshot Json      @map("segment_snapshot")
-  rulesSnapshot   Json      @map("rules_snapshot")
-  state           String    @default("active") // 'active' | 'paused' | 'completed' | 'cancelled' | 'on_hold' | 'timeout'
-  activatedAt     DateTime  @default(now()) @map("activated_at")
-  completedAt     DateTime? @map("completed_at")
+  id                 String    @id @default(uuid())
+  orgId              String    @map("org_id")
+  triggerId          String?   @map("trigger_id")
+  broadcastId        String?   @map("broadcast_id")
+  executionKind      String    @map("execution_kind") // 'sequence' | 'single_block' | 'broadcast'
+  sequenceId         String?   @map("sequence_id")
+  blockId            String?   @map("block_id")
+  segmentSnapshot    Json      @map("segment_snapshot")
+  rulesSnapshot      Json      @map("rules_snapshot")
+  state              String    @default("active") // 'active' | 'paused' | 'completed' | 'cancelled' | 'on_hold' | 'timeout'
+  activatedAt        DateTime  @default(now()) @map("activated_at")
+  completedAt        DateTime? @map("completed_at")
   // ── Sticky Nick 24h Hold (Sprint v3 2026-06-03) ──
   // Mốc nick sticky của campaign offline lần đầu. Sequence-step worker SET
   // khi gặp nick.status != connected → flip campaign state='on_hold' +
   // moveToDelayed(30 phút). Sweeper sticky-hold đọc để compute 23h timeout.
   // Reset NULL khi nick hồi → state='active'.
   nickFirstOfflineAt DateTime? @map("nick_first_offline_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   org       Organization         @relation(fields: [orgId], references: [id], onDelete: Cascade)
   trigger   AutomationTrigger?   @relation("CampaignTrigger", fields: [triggerId], references: [id], onDelete: SetNull)
@@ -2616,13 +2640,113 @@ model TriggerQueueEntry {
   entry   CustomerListEntry @relation(fields: [customerListEntryId], references: [id], onDelete: Cascade)
 
   @@unique([triggerId, customerListEntryId]) // 1 cặp = 1 hàng đợi
-  @@index([queueStatus, triggerId])          // dashboard groupBy + completion sweeper
-  @@index([queueStatus, lockedAt])           // stuck sweeper
-  @@index([claimedByNickId, queueStatus])    // sticky-hold disconnect/reconnect
-  @@index([nickHoldSince])                   // sticky-hold sweeper
-  @@index([triggerId, contactId])            // chat-handler + accept/reject theo contact
-  @@index([customerListEntryId])             // join entry→queue cho dashboard
+  @@index([queueStatus, triggerId]) // dashboard groupBy + completion sweeper
+  @@index([queueStatus, lockedAt]) // stuck sweeper
+  @@index([claimedByNickId, queueStatus]) // sticky-hold disconnect/reconnect
+  @@index([nickHoldSince]) // sticky-hold sweeper
+  @@index([triggerId, contactId]) // chat-handler + accept/reject theo contact
+  @@index([customerListEntryId]) // join entry→queue cho dashboard
   @@map("trigger_queue_entries")
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// CARESESSION (Phiên chăm sóc) — 2026-06-07
+// Tách lớp LẮNG NGHE sự kiện khách + NHẮC sale khỏi trigger/sequence engine.
+// Spec: ~/.gstack/projects/locphamnguyen-ZaloCRM/EVO-THANH-private-hs-design-engagement-session-20260607-023703.md
+//
+//   ┌─ TẠO ──────────────────────────────────────────────────────────────┐
+//   │ Khách vào luồng (trigger auto HOẶC gắn tay) → INSERT CareSession    │
+//   │ (Postgres = CHÂN LÝ, D2) → enqueue BullMQ sequence SAU → reconcile  │
+//   └────────────────────────────────────────────────────────────────────┘
+//   ┌─ NGHE (listener) ──────────────────────────────────────────────────┐
+//   │ Tin/reaction/friend-event của KH → query phiên ĐANG MỞ              │
+//   │ (orgId,contactId,nickId) JOIN trigger.state (D10).                  │
+//   │ allowlist NGHE = [active, paused] (D12: paused VẪN nghe!).          │
+//   │ nguồn ∈ [completed,cancelling,cancelled] → lazy-close + bỏ qua.     │
+//   │ → reset interestWindowUntil + pause luồng + bắn notify.             │
+//   └────────────────────────────────────────────────────────────────────┘
+//   ┌─ ĐÓNG (BẤT KỲ cái nào tới trước) ──────────────────────────────────┐
+//   │ • nguồn completed/cancelled (cascade hoặc lazy-close)               │
+//   │ • đạt status/tag trong closeConditions (event-driven, đóng ngay)    │
+//   │ • khách chặn                                                        │
+//   │ • janitor: im lặng quá interestWindowUntil (set-based UPDATE, D5)   │
+//   └────────────────────────────────────────────────────────────────────┘
+// ════════════════════════════════════════════════════════════════════════
+
+model CareSession {
+  id    String @id @default(uuid())
+  orgId String @map("org_id")
+
+  // ── Khóa nhận diện (lookup phiên mở theo tuple này, có index) ──
+  contactId String @map("contact_id")
+  nickId    String @map("nick_id")
+  // Per-nick UID của khách (góc nhìn nick sale → nick khách) = Conversation.externalThreadId
+  // = Friend.zaloUidInNick. Anh chốt 2026-06-08: phiên neo theo (nick, thread) để 1 nick có
+  // 2 hội thoại cùng 1 Contact CHA vẫn tách phiên đúng. NULLABLE: phiên cũ + phiên no-Zalo
+  // (virtual) để null → listener fallback "OR null" (khớp mọi thread) để không vỡ phiên cũ.
+  externalThreadId String? @map("external_thread_id")
+
+  // ── Sở hữu / nguồn ──
+  ownerUserId      String  @map("owner_user_id") // sale phụ trách (chủ nick) — người HÀNH ĐỘNG
+  enrolledByUserId String? @map("enrolled_by_user_id") // ai gắn tay (manager) — null nếu auto
+  sourceType       String  @map("source_type") // 'trigger' | 'sequence_manual'
+  sourceTriggerId  String? @map("source_trigger_id")
+  sourceSequenceId String? @map("source_sequence_id")
+
+  // ── Vòng đời ──
+  state                   String    @default("active") // 'active' | 'closed'
+  closedReason            String?   @map("closed_reason") // 'source_done'|'sale_resolved'|'customer_blocked'|'janitor_silence'|'deal_won'
+  // Snapshot điều kiện đóng từ trigger.closeConditions lúc tạo (mỗi phiên luật riêng).
+  closeConditions         Json?     @map("close_conditions")
+  // Cửa sổ im lặng: RESET mỗi event khách (D13 — reset mọi event, không chặn abuse).
+  interestWindowUntil     DateTime  @map("interest_window_until")
+  lastCustomerActivityAt  DateTime? @map("last_customer_activity_at")
+  // CareSession 2026-06-07 (anh chốt): hiển thị pause cho sale ở trang Phiên chăm sóc.
+  //   lastReplyAt  = KH trả lời lần cuối lúc nào (badge "💬 Vừa trả lời X phút trước").
+  //   pausedUntil  = luồng bám đuổi tạm dừng tới khi nào (badge "⏸ chạy lại sau X giờ").
+  //                  Đồng bộ với Redis pause flag (contact:paused TTL) — nguồn hiển thị.
+  lastReplyAt             DateTime? @map("last_reply_at")
+  pausedUntil             DateTime? @map("paused_until")
+  // D2 reconcile marker: đã enqueue BullMQ start chưa (tránh enqueue trùng / mồ côi).
+  sequenceStartEnqueuedAt DateTime? @map("sequence_start_enqueued_at")
+
+  openedAt DateTime  @default(now()) @map("opened_at")
+  closedAt DateTime? @map("closed_at")
+
+  org     Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  trigger AutomationTrigger? @relation(fields: [sourceTriggerId], references: [id], onDelete: SetNull)
+  events  CareSessionEvent[]
+
+  // Lookup phiên mở cho listener (hot-path) — tuple + state.
+  @@index([orgId, contactId, nickId, state])
+  // Lookup theo (nick, thread) cho UI/SDK + per-conversation precision (2026-06-08).
+  @@index([nickId, externalThreadId])
+  // Janitor quét im-lặng đến hạn (D5: state + window).
+  @@index([state, interestWindowUntil])
+  // Cascade close + reconcile theo nguồn trigger.
+  @@index([sourceTriggerId, state])
+  // List "Phiên chăm sóc" theo sale (RBAC scope, D-frontend).
+  @@index([orgId, ownerUserId, state])
+  @@map("care_sessions")
+}
+
+// CareSessionEvent — append-only event log của phiên. Unique (sessionId, eventId)
+// LÀ cơ chế idempotency chống double-process (D4): INSERT trùng → biết đã xử lý.
+model CareSessionEvent {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  // eventId chuẩn hóa (D-notify): nickId:contactId:eventType:<providerMsgId|reactionId|timestampBucket>.
+  // Phân tán (UUID-ish), KHÔNG sequential per-session → tránh hot unique-index (audit S2).
+  eventId   String   @map("event_id")
+  eventType String   @map("event_type") // 'reply'|'reaction_pos'|'reaction_neg'|'friend_accept'|'friend_reject'|'blocked'|'opened'|'paused'|'notified'|'closed'
+  payload   Json? // nội dung tin / emoji (đưa vào notify)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  session CareSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, eventId]) // idempotency gate
+  @@index([sessionId, createdAt]) // timeline per-phiên
+  @@map("care_session_events")
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -3027,8 +3151,8 @@ model FriendRequestOutbox {
   // lại sau reset mà không vi phạm unique index.
   // nickFirstOfflineAt = mốc nick gốc disconnect lần đầu khi welcome-probe
   // gặp nick offline → set 1 lần, dùng để compute thời gian chờ nick hồi.
-  attemptRound         Int       @default(0) @map("attempt_round")
-  nickFirstOfflineAt   DateTime? @map("nick_first_offline_at")
+  attemptRound       Int       @default(0) @map("attempt_round")
+  nickFirstOfflineAt DateTime? @map("nick_first_offline_at")
 
   // Legacy unique constraint từ Wave 2 Welcome Probe (di sản DB).
   // Declare lại trong schema để Prisma db push không cố drop khi restart container.

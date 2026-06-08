@@ -1178,13 +1178,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       for (const tagName of added) {
         try {
-          await addCrmTag({
+          const res = await addCrmTag({
             contactId: id,
             tagName,
             source: 'manual_crm',
             addedBy: user.id,
             autoCreate: true,
           });
+          // CareSession 2026-06-07: gắn CRM tag → đóng phiên nếu ∈ closeConditions.
+          if (res?.tag?.id) {
+            const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+            await onTagAdded({ orgId: user.orgId, contactId: id, tagKind: 'crmTag', tagId: res.tag.id });
+          }
         } catch (err) {
           logger.warn('[PUT /contacts/:id/tags] addCrmTag fail %s: %s', tagName, (err as Error).message);
         }

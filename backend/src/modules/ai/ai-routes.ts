@@ -340,13 +340,18 @@ export async function aiRoutes(app: FastifyInstance) {
             const { addCrmTag } = await import('../tags/tag-service.js');
             for (const tagName of newTags) {
               try {
-                await addCrmTag({
+                const res = await addCrmTag({
                   contactId,
                   tagName,
                   source: 'ai_suggest',
                   addedBy: user.id,
                   autoCreate: true,
                 });
+                // CareSession 2026-06-07: gắn CRM tag (AI) → đóng phiên nếu ∈ closeConditions.
+                if (res?.tag?.id) {
+                  const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+                  await onTagAdded({ orgId: user.orgId, contactId, tagKind: 'crmTag', tagId: res.tag.id });
+                }
               } catch (err) {
                 logger.warn('[ai-routes] addCrmTag fail %s: %s', tagName, (err as Error).message);
               }

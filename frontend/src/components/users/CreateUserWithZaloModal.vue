@@ -45,7 +45,7 @@
           <input
             v-model="form.phone"
             type="tel"
-            placeholder="VD: 0931 536 109"
+            placeholder="VD: 0908278807"
             :class="{ 'has-check': zaloCheck.result.value }"
           />
           <div class="cuwz-hint">SĐT này dùng để: (1) Sale đăng nhập CRM, (2) Nick hệ thống tìm + gửi tin login qua Zalo</div>
@@ -171,23 +171,18 @@
         </div>
 
         <div class="cuwz-creds">
-          <h4>Credentials (anh có thể copy gửi sale manual nếu cần)</h4>
-          <div class="cuwz-cred-row">
-            <span>SĐT đăng nhập:</span>
-            <code>{{ createResult.user.phone }}</code>
-            <button class="btn-copy" @click="copy(createResult.user.phone)">Copy</button>
-          </div>
-          <div v-if="createResult.user.email" class="cuwz-cred-row">
-            <span>Email:</span>
-            <code>{{ createResult.user.email }}</code>
-            <button class="btn-copy" @click="copy(createResult.user.email!)">Copy</button>
-          </div>
-          <div class="cuwz-cred-row">
-            <span>Mật khẩu tạm:</span>
-            <code>{{ createResult.tempPassword }}</code>
-            <button class="btn-copy" @click="copy(createResult.tempPassword)">Copy</button>
-          </div>
-          <div class="cuwz-cred-note">Sale sẽ bị bắt buộc đổi password ngay lần đăng nhập đầu tiên.</div>
+          <h4>Thông tin đăng nhập (copy gửi cho sale)</h4>
+          <textarea
+            class="cuwz-cred-textarea"
+            :value="credentialsText"
+            readonly
+            rows="6"
+            @focus="($event.target as HTMLTextAreaElement).select()"
+          ></textarea>
+          <button class="btn-copy-all" @click="copy(credentialsText)">
+            {{ copiedAll ? '✅ Đã copy' : '📋 Copy toàn bộ' }}
+          </button>
+          <div class="cuwz-cred-note">Sale sẽ bị bắt buộc đổi mật khẩu ngay lần đăng nhập đầu tiên.</div>
         </div>
 
         <div v-if="createResult.zalo.error" class="cuwz-alert warning">
@@ -322,8 +317,38 @@ function finish() {
   emit('update:open', false);
 }
 
+// 2026-06-07 anh chốt: bước 3 gộp credentials thành 1 text copy gửi sale thủ công.
+const loginUrl = window.location.origin + '/login';
+const credentialsText = computed(() => {
+  const r = createResult.value;
+  if (!r) return '';
+  const lines = [
+    `Tài khoản CRM — ${r.user.fullName}`,
+    '',
+    `SĐT đăng nhập: ${r.user.phone}`,
+  ];
+  if (r.user.email) lines.push(`Email: ${r.user.email}`);
+  lines.push(`Mật khẩu tạm: ${r.tempPassword}`);
+  lines.push(`Link đăng nhập: ${loginUrl}`);
+  lines.push('');
+  lines.push('Lưu ý: Đăng nhập lần đầu sẽ được yêu cầu đổi sang mật khẩu riêng.');
+  return lines.join('\n');
+});
+
+const copiedAll = ref(false);
 function copy(text: string) {
-  navigator.clipboard?.writeText(text);
+  try {
+    navigator.clipboard?.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  copiedAll.value = true;
+  window.setTimeout(() => { copiedAll.value = false; }, 2000);
 }
 
 // Reset state when modal opens fresh
@@ -453,4 +478,16 @@ watch(
 }
 .btn-copy:hover { background: #f5f5f5; }
 .cuwz-cred-note { font-size: 12px; color: #888; margin-top: 6px; }
+/* 2026-06-07 — credentials gộp 1 text copy gửi sale thủ công */
+.cuwz-cred-textarea {
+  width: 100%; box-sizing: border-box; font-family: var(--mono, monospace);
+  font-size: 12.5px; line-height: 1.6; background: white; border: 1px solid #ddd;
+  border-radius: 7px; padding: 10px 12px; color: #1f2937; resize: vertical;
+}
+.cuwz-cred-textarea:focus { outline: none; border-color: var(--brand, #1786be); }
+.btn-copy-all {
+  margin-top: 8px; border: none; background: var(--brand, #1786be); color: white;
+  padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.btn-copy-all:hover { filter: brightness(0.95); }
 </style>

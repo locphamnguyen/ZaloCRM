@@ -21,6 +21,13 @@ import { attachContactCollaboratorByUser } from '../contacts/contact-scope.js';
 import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 // Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
 import { getUserFullName } from './chat-helpers.js';
+// 2026-06-07 — Gửi Khối Marketing thẳng vào hội thoại (cột 4 tab Automation).
+import { zaloOps } from '../../shared/zalo-operations.js';
+import { sendNativeVideo } from '../../shared/video-processor.js';
+import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
+import { resolveBlockContent } from '../automation/blocks/resolve-block-content.js';
+import { renderTemplate } from '../automation/blocks/render-template.js';
+import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 
 type QueryParams = Record<string, string>;
 
@@ -1170,6 +1177,290 @@ export async function chatRoutes(app: FastifyInstance) {
       logger.error('[chat] Send message error:', err);
       return reply.status(500).send({ error: 'Failed to send message' });
     }
+  });
+
+  // ── Gửi cả 1 Khối Marketing vào hội thoại (cột 4 tab Automation) 2026-06-07 ──
+  // Sale chọn Khối → gửi ĐỦ MỌI THÀNH PHẦN (text/image/album/file/video) theo ĐÚNG
+  // THỨ TỰ, giữ rich-text styles, render {gender}/{name}/{sale}, có delay 0.8–2.5s
+  // giữa các tin (chống Zalo coi spam). Tái dùng đường media đã chứng minh ở forward:
+  // tải URL về tmp → đưa LOCAL PATH cho zca-js (attachments cần path, không nhận URL).
+  //
+  // KHÔNG idempotent: sale có thể gửi lại Khối. Chống double-send: FE disable nút khi
+  // đang gửi; BE break khi gửi dở (đã gửi ≥1 tin mà tin sau lỗi → KHÔNG retry). KHÔNG
+  // được bọc route này bằng retry kiểu BullMQ.
+  app.post('/api/v1/conversations/:id/send-block', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const { blockId } = (request.body ?? {}) as { blockId?: string };
+    if (!blockId || typeof blockId !== 'string') {
+      return reply.status(400).send({ error: 'blockId required' });
+    }
+
+    // ── Gate 1: load conversation ──────────────────────────────────────────
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, orgId: user.orgId },
+      include: { zaloAccount: true },
+    });
+    if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    // ── Gate 2: virtual conv = KH no-Zalo → không dispatch SDK được ────────
+    if (conversation.isVirtual) {
+      return reply.status(400).send({ error: 'Không thể gửi Khối vào hội thoại ảo (KH chưa có Zalo)' });
+    }
+
+    // ── Gate 3: nick đã kết nối ────────────────────────────────────────────
+    const instance = zaloPool.getInstance(conversation.zaloAccountId);
+    if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
+
+    // ── Gate 4: privacy (nick 'main' chỉ chính chủ gửi) ────────────────────
+    if (conversation.zaloAccount.privacyMode === 'main') {
+      const senderUserId = (user as any).userId ?? user.id;
+      if (conversation.zaloAccount.ownerUserId !== senderUserId) {
+        return reply.status(403).send({
+          error: 'Nick này đang bật Riêng tư — chỉ chính chủ mới gửi tin nhắn được. Vui lòng nhờ chủ nick gửi.',
+          code: 'PRIVACY_LOCKED',
+        });
+      }
+    }
+
+    // ── Gate 5: rate-limit up-front (per-tin vẫn check trong zaloOps.exec) ──
+    const limits = await zaloRateLimiter.checkLimits(conversation.zaloAccountId);
+    if (!limits.allowed) {
+      return reply.status(429).send({ error: limits.reason });
+    }
+
+    // ── Gate 6: load + authorize block (owner-scope như block-list) ────────
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+    });
+    const block = await prisma.block.findFirst({
+      where: { id: blockId, orgId: user.orgId, archivedAt: null, ...applyOwnerScope(ownerScope) },
+    });
+    if (!block) return reply.status(404).send({ error: 'block not found' });
+    if (block.actionType !== 'send_message') {
+      return reply.status(422).send({
+        error: 'UNSUPPORTED_BLOCK',
+        detail: 'Chỉ Khối gửi tin (send_message) mới gửi được từ chat',
+      });
+    }
+
+    // ── Resolve Khối → danh sách tin theo ĐÚNG THỨ TỰ (module dùng chung) ──
+    const resolveResult = resolveBlockContent('send_message', block.content as Record<string, unknown>);
+    if (!resolveResult.ok || resolveResult.resolved.length === 0) {
+      return reply.status(422).send({ error: resolveResult.error ?? 'BLOCK_EMPTY', detail: resolveResult.detail });
+    }
+    const resolved = resolveResult.resolved;
+    if (resolved.length > 20) {
+      return reply.status(422).send({ error: 'TOO_MANY_COMPONENTS', detail: 'Khối tối đa 20 thành phần khi gửi từ chat' });
+    }
+
+    const threadId = conversation.externalThreadId || '';
+    const threadType = conversation.threadType === 'group' ? 1 : 0;
+    const contactId = conversation.contactId;
+    const zaloAccountId = conversation.zaloAccountId;
+    const userFullName = await getUserFullName(user.id);
+    const io = (app as any).io as Server;
+    // Bubble hiện như tin sale bình thường; attribution Khối trong metadata.detail/blockId.
+    const senderMeta = {
+      sender: { kind: 'user_crm' as const, name: userFullName, detail: `Khối: ${block.name}`, blockId: block.id },
+    };
+
+    // ── STUB QA: không chạm Zalo, log chuỗi resolved đã render ─────────────
+    if (process.env.AUTOMATION_STUB_MODE === 'true') {
+      const seq = resolved.map((m) => m.messageType).join(' → ');
+      logger.info(`[send-block STUB] would send ${resolved.length} tin (${seq}) từ nick=${zaloAccountId} → conv=${id} block="${block.name}"`);
+      return { ok: true, sentCount: resolved.length, totalMessages: resolved.length, partial: false, errors: [], stub: true };
+    }
+
+    // Render caption media (có thể chứa {name}) — helper nhỏ.
+    const renderCaption = (cap?: string) =>
+      cap && contactId ? renderTemplate(cap, contactId, zaloAccountId) : Promise.resolve(cap ?? '');
+
+    let sentCount = 0;
+    const errors: Array<{ index: number; type: string; message: string }> = [];
+    let lastMessageRow: { id: string; content: string | null; contentType: string; sentAt: Date } | null = null;
+
+    for (let i = 0; i < resolved.length; i++) {
+      const m = resolved[i];
+      if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.floor(Math.random() * 1700))); // 0.8–2.5s
+
+      const cleanups: Array<() => Promise<void>> = [];
+      // 1 component → 1+ tin cần persist. Album = N ảnh gửi riêng từng cái (mỗi cái
+      // 1 zaloMsgId riêng → tránh đụng @@unique([conversationId, zaloMsgId])).
+      // content lưu THEO shape chat UI native render: image {href,thumb,size},
+      // file {href,name,size,mime}, video {href,thumb,...} (khớp chat-attachment-routes).
+      const toPersist: Array<{ sdkResult: unknown; content: string; contentType: string }> = [];
+      try {
+        if (m.messageType === 'text') {
+          const rendered = contactId ? await renderTemplate(m.payload.text, contactId, zaloAccountId) : m.payload.text;
+          const styles = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+          // Render template làm lệch offset → bỏ styles khi text có biến {…}.
+          const useStyles = !m.payload.text.includes('{') && styles.length > 0;
+          const sendPayload: Record<string, unknown> = { msg: rendered };
+          if (useStyles) sendPayload.styles = styles;
+          const sdkResult = await zaloOps.sendMessage(zaloAccountId, threadId, threadType, sendPayload, io);
+          toPersist.push({
+            sdkResult,
+            content: useStyles
+              ? JSON.stringify({ title: rendered, action: 'rtf', params: JSON.stringify({ styles }) })
+              : rendered,
+            contentType: useStyles ? 'rich' : 'text',
+          });
+        } else if (m.messageType === 'image') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url }, 'image');
+          cleanups.push(dl.cleanup);
+          const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, thumb: m.payload.url, size: 0 }),
+            contentType: 'image',
+          });
+        } else if (m.messageType === 'album') {
+          // Gửi từng ảnh riêng → mỗi ảnh 1 bubble + 1 zaloMsgId. Delay nhỏ giữa ảnh.
+          for (let k = 0; k < m.payload.items.length; k++) {
+            if (k > 0) await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 700)));
+            const it = m.payload.items[k];
+            const caption = await renderCaption(it.caption);
+            const dl = await downloadMediaToTemp({ url: it.url }, 'image');
+            cleanups.push(dl.cleanup);
+            const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+            toPersist.push({
+              sdkResult,
+              content: JSON.stringify({ href: it.url, thumb: it.url, size: 0 }),
+              contentType: 'image',
+            });
+          }
+        } else if (m.messageType === 'video') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url }, 'video');
+          cleanups.push(dl.cleanup);
+          let sdkResult: unknown;
+          try {
+            sdkResult = await sendNativeVideo({ api: instance.api as any, threadId, threadType, videoPath: dl.path });
+          } catch (vErr) {
+            logger.warn('[send-block] native video lỗi, fallback sendFile:', vErr);
+            sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          }
+          const thumb = m.payload.thumbnailUrl ?? m.payload.url;
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, thumb, thumbUrl: thumb, thumbnail: thumb, size: 0 }),
+            contentType: 'video',
+          });
+        } else if (m.messageType === 'file') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url, filename: m.payload.filename }, 'file');
+          cleanups.push(dl.cleanup);
+          const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, name: m.payload.filename ?? 'file', size: m.payload.sizeBytes ?? 0, mime: m.payload.mimeType ?? '' }),
+            contentType: 'file',
+          });
+        } else {
+          continue; // friend_request / update_status không áp dụng cho send_message block
+        }
+
+        for (const p of toPersist) {
+          const zaloMsgId = extractZaloMsgId(p.sdkResult);
+          const created = await prisma.message.create({
+            data: {
+              id: randomUUID(),
+              conversationId: id,
+              zaloMsgId: zaloMsgId || null,
+              zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+              senderType: 'self',
+              senderUid: conversation.zaloAccount.zaloUid || '',
+              senderName: 'Staff',
+              content: p.content,
+              contentType: p.contentType,
+              sentAt: new Date(),
+              repliedByUserId: user.id,
+              sentVia: 'user',
+              metadata: senderMeta,
+            },
+            select: { id: true, content: true, contentType: true, sentAt: true, zaloMsgId: true, zaloMsgIdNum: true, senderType: true, senderUid: true, senderName: true, conversationId: true, repliedByUserId: true, sentVia: true, metadata: true },
+          });
+          lastMessageRow = { id: created.id, content: created.content, contentType: created.contentType, sentAt: created.sentAt };
+          sentCount++;
+
+          const safeMessage = { ...created, zaloMsgIdNum: created.zaloMsgIdNum?.toString() ?? null };
+          io?.emit('chat:message', {
+            accountId: zaloAccountId,
+            message: safeMessage,
+            conversationId: id,
+            _privacyMeta: {
+              privacyMode: conversation.zaloAccount.privacyMode,
+              ownerUserId: conversation.zaloAccount.ownerUserId,
+            },
+          });
+        }
+      } catch (err: any) {
+        const code = err?.code as string | undefined;
+        const msg = err?.message ?? String(err);
+        errors.push({ index: i, type: m.messageType, message: msg });
+        if (sentCount > 0) {
+          // Đã gửi ≥1 tin → KH nhận rồi, KHÔNG retry (tránh double-send cả Khối) → dừng.
+          logger.warn(`[send-block] tin ${i + 1}/${resolved.length} (${m.messageType}) lỗi sau khi đã gửi ${sentCount} tin: ${msg} — dừng`);
+          break;
+        }
+        // Lỗi ngay tin đầu → fail sạch, sale retry được.
+        if (code === 'RATE_LIMITED') return reply.status(429).send({ error: msg });
+        if (code === 'NOT_CONNECTED') return reply.status(400).send({ error: msg });
+        return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: msg });
+      } finally {
+        for (const c of cleanups) await c().catch(() => {});
+      }
+    }
+
+    if (sentCount === 0) {
+      return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: 'không gửi được tin nào', errors });
+    }
+
+    // Cập nhật aggregate (theo tin cuối) + bump usage Khối.
+    if (lastMessageRow) {
+      try {
+        await prisma.conversation.update({
+          where: { id },
+          data: { lastMessageAt: lastMessageRow.sentAt, isReplied: true, unreadCount: 0 },
+        });
+      } catch (err) {
+        logger.warn(`[send-block] conversation aggregate update failed (conv=${id}):`, err);
+      }
+      const aggInput = {
+        conversationId: id,
+        message: {
+          id: lastMessageRow.id,
+          content: lastMessageRow.content,
+          contentType: lastMessageRow.contentType,
+          sentAt: lastMessageRow.sentAt,
+          senderType: 'self' as const,
+        },
+        outboundUserId: user.id,
+      };
+      void applyContactAggregateFromMessage(aggInput);
+      void applyFriendAggregate(aggInput);
+    }
+    // Bump cả usageCount (tổng) + manualSendCount (RIÊNG gửi tay, không tính automation).
+    void prisma.block.update({
+      where: { id: block.id },
+      data: {
+        lastUsedAt: new Date(),
+        usageCount: { increment: 1 },
+        manualSendCount: { increment: 1 },
+        lastManualSentAt: new Date(),
+      },
+    }).catch((err) => logger.warn(`[send-block] bump usage failed: ${err}`));
+
+    logger.info(`[send-block] sent ${sentCount}/${resolved.length} tin từ nick=${zaloAccountId} → conv=${id} block="${block.name}"`);
+    return {
+      ok: true,
+      sentCount,
+      totalMessages: resolved.length,
+      partial: sentCount < resolved.length,
+      errors,
+    };
   });
 
   // ── Upload image(s) and send qua Zalo (paste image / nút Gửi ảnh) ────────

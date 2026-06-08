@@ -99,7 +99,7 @@
                   :key="tag"
                   class="bp-tag-mini"
                 >{{ tag }}</span>
-                <span v-if="variantCount(block) > 0"> · 🎲 {{ variantCount(block) }} biến thể</span>
+                <span v-if="variantCount(block) > 0"> · 🔀 {{ variantCount(block) }} mẫu</span>
                 <span v-if="block.lastUsedAt"> · {{ timeAgo(block.lastUsedAt) }}</span>
               </div>
             </div>

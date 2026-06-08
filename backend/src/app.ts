@@ -78,6 +78,7 @@ import { registerBullBoardRoutes } from './modules/automation/queues/bull-board-
 import { registerManualControlRoutes } from './modules/automation/queues/manual-control-routes.js';
 import { triggerRoutes } from './modules/automation/triggers/trigger-routes.js';
 import { friendInviteRoutes } from './modules/automation/friend-invite/friend-invite-routes.js';
+import { careSessionRoutes } from './modules/automation/care-session/care-session-routes.js';
 import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
 import { startWelcomeProbeWorker, stopWelcomeProbeWorker } from './modules/automation/friend-invite/welcome-probe-worker.js';
 import { bootstrapFriendInviteWorkers, stopAllNickWorkers, setNickWorkerIO } from './modules/automation/friend-invite/nick-worker.js';
@@ -251,6 +252,8 @@ async function bootstrap() {
   await registerManualControlRoutes(app);
   await app.register(triggerRoutes);
   await app.register(friendInviteRoutes);
+  // CareSession (Phiên chăm sóc) 2026-06-07 — list/detail/close phiên
+  await app.register(careSessionRoutes);
   await app.register(broadcastRoutes);
   await app.register(automationWebhookRoutes);
   // Tệp khách hàng — CustomerList CRUD + entries + enrichment + event handlers

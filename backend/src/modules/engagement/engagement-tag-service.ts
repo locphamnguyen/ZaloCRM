@@ -155,6 +155,14 @@ export async function syncEngagementTag(contactId: string): Promise<void> {
       },
       { timeout: 15000 },
     );
+
+    // CareSession 2026-06-07: tag engagement gắn xong → đóng phiên nếu ∈ closeConditions.
+    if (wantTagId) {
+      try {
+        const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+        await onTagAdded({ orgId: contact.orgId, contactId, tagKind: 'friendTag', tagId: wantTagId });
+      } catch { /* non-fatal */ }
+    }
   } catch (err) {
     logger.warn('[engagement-tag] syncEngagementTag failed', {
       contactId,

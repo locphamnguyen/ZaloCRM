@@ -472,14 +472,19 @@
     </template>
     <!-- /v-if mainTab=profile -->
 
-    <!-- ════════ TAB AUTOMATION (placeholder) ════════ -->
-    <div v-if="mainTab === 'automation'" class="main-tab-body">
-      <div class="main-tab-placeholder">
+    <!-- ════════ TAB AUTOMATION — danh sách Khối Marketing để gửi (2026-06-07) ════════ -->
+    <div v-if="mainTab === 'automation'" class="main-tab-body main-tab-body--no-padding">
+      <AutomationBlocksPanel
+        v-if="props.conversationId"
+        :conversation-id="props.conversationId"
+        :contact="props.contact"
+        :owner-nick-id="props.activeZaloAccountId"
+        :nick-name="props.activeZaloAccountName"
+      />
+      <div v-else class="main-tab-placeholder">
         <div class="mtp-icon">⚡</div>
         <h3>Automation</h3>
-        <p>Chọn block Marketing để gửi tin cho KH này.</p>
-        <div class="mtp-coming">🚧 Đang phát triển — kết nối Marketing blocks</div>
-        <a class="mtp-link" href="/marketing/blocks" target="_blank">→ Mở Marketing để xem blocks</a>
+        <p>Chưa chọn hội thoại để gửi Khối cho khách.</p>
       </div>
     </div>
 
@@ -499,6 +504,8 @@
         v-if="contact?.id"
         ref="automationCardListRef"
         :contact-id="contact.id"
+        :nick-id="props.activeZaloAccountId || null"
+        :nick-name="props.activeZaloAccountName || null"
         @add-flow="openAddFlowModal"
       />
       <div v-else class="main-tab-placeholder">
@@ -581,6 +588,7 @@ import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList from './AutomationCardList.vue';
 import AddFlowModal from './AddFlowModal.vue';
+import AutomationBlocksPanel from './AutomationBlocksPanel.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
 import { useAuthStore } from '@/stores/auth';

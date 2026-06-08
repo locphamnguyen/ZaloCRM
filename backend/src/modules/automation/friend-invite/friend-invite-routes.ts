@@ -13,6 +13,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
 import { requireRole } from '../../auth/role-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { closeCareSessionsForTrigger } from '../care-session/care-session-service.js';
 import { precomputeAndSeedPool, isFriendInviteSegmentSpec } from './skip-precompute.js';
 import { startNickWorker, stopNickWorker, getNickWorkerState } from './nick-worker.js';
 import {
@@ -359,6 +360,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       followUpStrangerEnabled?: boolean;
       followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
+      // CareSession 2026-06-07 — điều kiện đóng phiên per-Mục-tiêu.
+      closeConditions?: { onStatusIds?: string[]; onFriendTagIds?: string[]; onCrmTagIds?: string[]; silenceDays?: number };
       // BE T4 2026-05-30 — Lên lịch hẹn giờ activate.
       // startMode='now'      → kích hoạt ngay khi gọi /activate (default).
       // startMode='scheduled'→ giữ state='draft' + lưu scheduledAt, cron sẽ flip.
@@ -641,6 +644,10 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         followUpFriendEnabled: body.followUpFriendEnabled ?? true,
         notifyChannels: (body.notifyChannels && typeof body.notifyChannels === 'object'
           ? body.notifyChannels
+          : undefined) as object | undefined,
+        // CareSession 2026-06-07 — điều kiện đóng phiên.
+        closeConditions: (body.closeConditions && typeof body.closeConditions === 'object'
+          ? body.closeConditions
           : undefined) as object | undefined,
         // BE T4 2026-05-30 — lưu scheduledAt ngay từ lúc create (UI cho phép lập
         // Mục tiêu trước rồi bấm "Lên lịch" sau, BE đã có sẵn để cron sweep nhìn thấy).
@@ -926,6 +933,13 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         void stopNickWorker(nickId);
       }
     }
+
+    // CareSession 2026-06-07 (T7): cascade close phiên của trigger bị hủy.
+    // Fire-and-forget SAU response (audit: KHÔNG đóng đồng bộ trong request — set-based
+    // 1 câu nên rẻ, nhưng vẫn để ngoài critical path). lazy-close ở listener là backstop.
+    void closeCareSessionsForTrigger(trigger.id, 'source_done').catch((err) => {
+      logger.warn(`[friend-invite] cascade close care sessions failed trigger=${trigger.id}: ${err?.message ?? err}`);
+    });
 
     return reply.send({ ok: true, state: 'cancelled' });
   });
@@ -1734,6 +1748,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       followUpStrangerEnabled?: boolean;
       followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
+      closeConditions?: { onStatusIds?: string[]; onFriendTagIds?: string[]; onCrmTagIds?: string[]; silenceDays?: number };
       safetyRules?: {
         quietHoursStart?: string;
         quietHoursEnd?: string;
@@ -1850,6 +1865,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     if (body.followUpFriendEnabled !== undefined) data.followUpFriendEnabled = !!body.followUpFriendEnabled;
     if (body.notifyChannels !== undefined && body.notifyChannels && typeof body.notifyChannels === 'object')
       data.notifyChannels = body.notifyChannels;
+    // CareSession 2026-06-07 — điều kiện đóng phiên (edit).
+    if (body.closeConditions !== undefined && body.closeConditions && typeof body.closeConditions === 'object')
+      data.closeConditions = body.closeConditions;
 
     // ── welcomeDelaySeconds ─────────────────────────────────────────────────
     if (body.welcomeDelaySeconds !== undefined) {

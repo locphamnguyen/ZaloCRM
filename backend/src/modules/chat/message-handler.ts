@@ -548,7 +548,7 @@ export async function handleIncomingMessage(
         : null;
       const conversationDetails = await prisma.conversation.findUnique({
         where: { id: conversation.id },
-        select: { id: true, unreadCount: true, externalThreadId: true, threadType: true, zaloAccountId: true },
+        select: { id: true, unreadCount: true, externalThreadId: true, threadType: true, zaloAccountId: true, contactId: true },
       });
 
       void runAutomationRules({
@@ -571,152 +571,187 @@ export async function handleIncomingMessage(
       // Wave 3 Event Log — customer_reply (KH trả lời, Mục tiêu dừng chuỗi).
       // Hook sau runAutomationRules để KHÔNG block phase chính. Filter 1-1 theo memory
       // feedback_crm_filter_1to1_not_group — bỏ qua group threads.
+      //
+      // BUG FIX 2026-06-08: dùng contactId CỦA CONVERSATION (nơi tin thật sự lưu), KHÔNG
+      // dùng contactId từ upsertContact. Lý do: cùng 1 người Zalo có thể bị trùng thành
+      // nhiều Contact (per-account UID / global_id lệch — xem memory reference_zalo_per_account_uid).
+      // upsertContact resolve theo global_id → ra Contact A; nhưng findOrCreateConversation tìm
+      // theo (nick, externalThreadId) → trả conversation cũ gắn Contact B, và tin nhắn lưu vào B.
+      // CareSession gắn theo Contact của conversation (B). Nếu listener dùng A → tìm phiên cho A
+      // → found=0 → không báo. Phải khớp với Contact mà tin nhắn + phiên thật sự thuộc về.
+      const careContactId = conversationDetails?.contactId ?? contactId;
       if (
-        contactId &&
+        careContactId &&
         conversationDetails?.threadType === 'user' &&
         message.contentType === 'text'
       ) {
         void (async () => {
           try {
-            // Tìm trigger Mục tiêu đang chạy cho (contact, nick) — outbox gần nhất.
-            const outbox = await prisma.friendRequestOutbox.findFirst({
-              where: {
-                contactId,
-                nickId: msg.accountId,
-                kind: 'FRIEND_REQUEST',
-              },
-              select: { triggerId: true },
-              orderBy: { createdAt: 'desc' },
+            // ── CareSession 2026-06-07 (T3): lắng nghe qua PHIÊN, không tra outbox ──
+            // Đọc phiên ĐANG MỞ cho (org, contact, nick) + lazy-close nguồn chết (D12).
+            // Phiên = chân lý; bao được cả luồng gắn tay (outbox cũ chỉ thấy friend-request).
+            const { findListeningSessionsForEvent, recordCustomerEventOnSession, buildCareEventId } =
+              await import('../automation/care-session/care-session-service.js');
+            const sessions = await findListeningSessionsForEvent({
+              orgId: account.orgId,
+              contactId: careContactId,
+              nickId: msg.accountId,
+              // Per-nick thread (2026-06-08): chỉ phiên của ĐÚNG hội thoại này (hoặc legacy null).
+              externalThreadId: conversationDetails?.externalThreadId ?? null,
             });
-            if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu
+            if (sessions.length === 0) return; // KH không trong phiên chăm sóc nào
 
             const contactDisplay =
               contact?.crmName?.trim() || contact?.fullName?.trim() || contact?.phone || 'KH';
 
-            void logAutomationEvent({
-              orgId: account.orgId,
-              triggerId: outbox.triggerId,
-              contactId,
+            // Idempotency gate per phiên (reply 2 lần / Zalo gửi trùng → chỉ xử lý 1).
+            const eventId = buildCareEventId({
               nickId: msg.accountId,
-              eventType: 'customer_reply',
-              eventPriority: 'urgent',
-              summary: `🔥 ${contactDisplay} vừa trả lời chuỗi bám đuổi — Mục tiêu dừng`,
-              metadata: {
-                messageId: message.id,
-                conversationId: conversation.id,
-                contentPreview: (message.content ?? '').slice(0, 120),
-              },
+              contactId: careContactId,
+              eventType: 'reply',
+              providerId: message.id,
             });
 
-            // Wave 3 2026-05-30 — Update CustomerListEntry.queueStatus='customer_reply'
-            // để FE chip "🛑 KH reply" + counter customer_reply có thể filter qua
-            // ?status=customer_reply. Guard whereInclude tránh ghi đè terminal state
-            // (customer_block, converted_lead, cancelled) hoặc trùng lặp (customer_reply).
-            try {
-              // #2 2026-06-06 — queueStatus ở bảng nối per-trigger (filter theo contactId denormalized).
-              await prisma.triggerQueueEntry.updateMany({
-                where: {
-                  triggerId: outbox.triggerId,
-                  contactId,
-                  queueStatus: {
-                    notIn: ['customer_reply', 'customer_block', 'converted_lead', 'cancelled'],
-                  },
+            // Xử lý từng phiên (khách có thể ở nhiều phiên — đa Mục tiêu / gắn tay).
+            for (const session of sessions) {
+              const isNew = await recordCustomerEventOnSession({
+                sessionId: session.id,
+                eventId,
+                eventType: 'reply',
+                payload: {
+                  messageId: message.id,
+                  conversationId: conversation.id,
+                  contentPreview: (message.content ?? '').slice(0, 120),
                 },
-                data: { queueStatus: 'customer_reply' },
               });
-            } catch (updErr) {
-              logger.warn('[message-handler] customer_reply entry update failed:', updErr);
-            }
+              if (!isNew) continue; // dup → bỏ qua phiên này
 
-            // I8 FIX 2026-06-03 — Dừng chuỗi bám đuổi khi KH trả lời.
-            // Bug cũ (Wave 3 CRITICAL #1): dừng qua automationTask stub (no-op) →
-            // BullMQ sequence-step jobs KHÔNG bị cancel → chuỗi VẪN gửi tin dù KH đã
-            // trả lời (spam khi sale đã tiếp quản). Đổi sang cancelPendingStepsForContact
-            // (xoá job BullMQ thật) + setContactPauseFlag (pauseOnActivityHours giờ) để
-            // chuỗi tạm dừng đếm ngược — đồng nhất với onCustomerReply (event-hooks).
-            try {
-              const trigger = await prisma.automationTrigger.findUnique({
-                where: { id: outbox.triggerId },
-                select: { pauseOnActivityHours: true },
-              });
-              const { cancelPendingStepsForContact, setContactPauseFlag } = await import(
-                '../automation/queues/event-hooks.js'
-              );
-              await setContactPauseFlag(
-                outbox.triggerId,
-                contactId,
-                trigger?.pauseOnActivityHours ?? 24,
-              );
-              const { removed } = await cancelPendingStepsForContact(outbox.triggerId, contactId);
-              if (removed > 0) {
-                logger.info(`[message-handler] customer_reply paused + cancelled ${removed} BullMQ step(s) for contact=${contactId}`);
-              }
+              const triggerId = session.sourceTriggerId;
 
-              // FIX 2026-06-03 (code-review PLAUSIBLE): bắn notify nội bộ KHẨN cho sale
-              // chủ nick khi KH trả lời — block + reaction đều có notify, reply thiếu →
-              // sale không được báo "KH đang nhắn, vào trả lời ngay". Bổ sung cho nhất quán.
-              const nickOwner = await prisma.zaloAccount.findUnique({
-                where: { id: msg.accountId },
-                select: { ownerUserId: true, displayName: true },
-              });
-              if (nickOwner?.ownerUserId) {
-                const triggerRow = await prisma.automationTrigger.findUnique({
-                  where: { id: outbox.triggerId },
-                  select: { name: true, successorSequenceId: true },
-                });
-                let sequenceName = '';
-                if (triggerRow?.successorSequenceId) {
-                  const seqRow = await prisma.automationSequence.findUnique({
-                    where: { id: triggerRow.successorSequenceId },
-                    select: { name: true },
+              // CareSession 2026-06-07 (anh chốt): ghi pause vào PHIÊN để trang Phiên
+              // chăm sóc hiển thị "💬 vừa trả lời" + "⏸ chạy lại sau X giờ". pausedUntil
+              // = now + pauseOnActivityHours (đồng bộ Redis pause flag set bên dưới).
+              try {
+                let pauseHours = 24;
+                if (triggerId) {
+                  const tg = await prisma.automationTrigger.findUnique({
+                    where: { id: triggerId },
+                    select: { pauseOnActivityHours: true },
                   });
-                  sequenceName = seqRow?.name ?? '';
+                  if (tg?.pauseOnActivityHours && tg.pauseOnActivityHours > 0) pauseHours = tg.pauseOnActivityHours;
                 }
-                // 2026-06-04 — bổ sung bước gần nhất cho dòng "📍 Luồng › Bước x/y"
-                // (Anh chốt: tin nội bộ ghi rõ KH ở luồng nào, bước nào). Parse từ
-                // event sequence_step_sent gần nhất của (trigger, contact).
-                let stepInfo: { idx: number; total: number } | undefined;
-                try {
-                  const lastSent = await prisma.automationEventLog.findFirst({
-                    where: {
-                      triggerId: outbox.triggerId,
-                      contactId,
-                      eventType: 'sequence_step_sent',
-                    },
-                    orderBy: { createdAt: 'desc' },
-                    select: { metadata: true, detail: true },
-                  });
-                  const meta = lastSent?.metadata as { stepIdx?: number; totalSteps?: number } | null;
-                  if (meta && typeof meta.stepIdx === 'number' && typeof meta.totalSteps === 'number') {
-                    stepInfo = { idx: meta.stepIdx + 1, total: meta.totalSteps };
-                  } else {
-                    const m = lastSent?.detail?.match(/step (\d+)\/(\d+)/);
-                    if (m) stepInfo = { idx: parseInt(m[1], 10) + 1, total: parseInt(m[2], 10) };
-                  }
-                } catch { /* best-effort — thiếu bước thì dòng Luồng chỉ có tên */ }
-                const { notifyCustomerReply } = await import(
-                  '../automation/queues/internal-notify-worker.js'
-                );
-                await notifyCustomerReply({
-                  orgId: account.orgId,
-                  targetUserId: nickOwner.ownerUserId,
-                  contactId,
-                  contactName: contact?.fullName ?? contact?.crmName ?? '',
-                  contactPhone: contact?.phone ?? '',
-                  nickId: msg.accountId,
-                  nickName: nickOwner.displayName ?? '',
-                  triggerId: outbox.triggerId,
-                  triggerName: triggerRow?.name ?? '',
-                  sequenceName,
-                  stepInfo,
-                  replyPreview: message.content ?? '',
+                await prisma.careSession.update({
+                  where: { id: session.id },
+                  data: {
+                    lastReplyAt: new Date(),
+                    pausedUntil: new Date(Date.now() + pauseHours * 3600_000),
+                  },
                 });
+              } catch (e) {
+                logger.warn(`[message-handler] update care-session pause failed session=${session.id}`);
               }
-            } catch (err) {
-              logger.warn('[message-handler] stop sequence on reply failed:', err);
+
+              // T5 — Guard log: CHỈ ghi AutomationEventLog(triggerId) cho Monitor khi
+              // trigger ĐANG nghe (active+paused). Trigger chết → KHÔNG ghi rác (chỉ Phiên).
+              // findListeningSessionsForEvent đã lazy-close phiên nguồn chết → tới đây
+              // session.triggerState ∈ [active,paused,null]. null = gắn tay (không log Monitor).
+              if (triggerId && session.triggerState != null) {
+                void logAutomationEvent({
+                  orgId: account.orgId,
+                  triggerId,
+                  contactId: careContactId,
+                  nickId: msg.accountId,
+                  eventType: 'customer_reply',
+                  eventPriority: 'urgent',
+                  summary: `🔥 ${contactDisplay} vừa trả lời chuỗi bám đuổi — Mục tiêu dừng`,
+                  metadata: {
+                    messageId: message.id,
+                    conversationId: conversation.id,
+                    contentPreview: (message.content ?? '').slice(0, 120),
+                    careSessionId: session.id,
+                  },
+                });
+
+                // FE chip "🛑 KH reply" — queueStatus per-trigger (chỉ khi có trigger).
+                try {
+                  await prisma.triggerQueueEntry.updateMany({
+                    where: {
+                      triggerId,
+                      contactId: careContactId,
+                      queueStatus: {
+                        notIn: ['customer_reply', 'customer_block', 'converted_lead', 'cancelled'],
+                      },
+                    },
+                    data: { queueStatus: 'customer_reply' },
+                  });
+                } catch (updErr) {
+                  logger.warn('[message-handler] customer_reply entry update failed:', updErr);
+                }
+              }
+
+              // Dừng chuỗi + báo sale khi khách reply.
+              //   - Cancel BullMQ steps + pause flag: CHỈ khi phiên có trigger (chuỗi đang gửi).
+              //   - dispatchCareNotify (BÁO SALE): cho MỌI phiên — kể cả phiên GẮN TAY
+              //     (sourceTriggerId=null, chỉ-theo-dõi). Anh chốt 2026-06-08: khách chat tay
+              //     được "ghim" theo dõi → trả lời (dù chậm) vẫn phải báo sale.
+              try {
+                let triggerName: string | null = session.triggerName ?? null;
+
+                // Phần dừng chuỗi tự động — chỉ phiên có trigger mới có gì để dừng.
+                if (triggerId) {
+                  const trigger = await prisma.automationTrigger.findUnique({
+                    where: { id: triggerId },
+                    select: { pauseOnActivityHours: true, name: true },
+                  });
+                  if (trigger?.name) triggerName = trigger.name;
+                  const { cancelPendingStepsForContact, setContactPauseFlag } = await import(
+                    '../automation/queues/event-hooks.js'
+                  );
+                  await setContactPauseFlag(triggerId, careContactId, trigger?.pauseOnActivityHours ?? 24);
+                  const { removed } = await cancelPendingStepsForContact(triggerId, careContactId);
+                  if (removed > 0) {
+                    logger.info(`[message-handler] customer_reply paused + cancelled ${removed} BullMQ step(s) for contact=${careContactId}`);
+                  }
+                }
+
+                // Notify KHẨN sale chủ nick — "KH đang nhắn, vào trả lời ngay" (mọi phiên).
+                const nickOwner = await prisma.zaloAccount.findUnique({
+                  where: { id: msg.accountId },
+                  select: { ownerUserId: true, displayName: true },
+                });
+                // ownerUserId ưu tiên chủ nick; phiên gắn tay nick chưa gán chủ → dùng owner phiên.
+                const notifyOwnerId = nickOwner?.ownerUserId ?? session.ownerUserId;
+                if (notifyOwnerId) {
+                  // T10c — bắn notify 3 đích (owner/manager/group) + privacy.
+                  // Lấy tên sale (cho đích nhóm "KH của [sale]"). notifyChannels đọc từ ORG.
+                  const saleUser = await prisma.user.findUnique({
+                    where: { id: notifyOwnerId },
+                    select: { fullName: true },
+                  });
+                  const { dispatchCareNotify } = await import(
+                    '../automation/care-session/care-session-service.js'
+                  );
+                  await dispatchCareNotify({
+                    orgId: account.orgId,
+                    eventType: 'reply',
+                    eventKey: 'reply',
+                    eventId,
+                    ownerUserId: notifyOwnerId,
+                    contactId: careContactId,
+                    contactName: contact?.fullName ?? contact?.crmName ?? contactDisplay,
+                    contactPhone: contact?.phone ?? '',
+                    contentPreview: message.content ?? '',
+                    saleName: saleUser?.fullName ?? '',
+                    triggerId, // null cho phiên gắn tay → template "theo dõi tay"
+                    triggerName, // null cho phiên gắn tay
+                  });
+                }
+              } catch (err) {
+                logger.warn('[message-handler] stop sequence on reply failed:', err);
+              }
             }
           } catch (err) {
-            logger.warn('[message-handler] customer_reply event-log failed:', err);
+            logger.warn('[message-handler] customer_reply care-session handling failed:', err);
           }
         })();
       }

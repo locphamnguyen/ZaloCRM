@@ -66,6 +66,8 @@ export interface Block {
   tagIds: string[]; // 2026-06-04 — Anh chốt: dự án/mục đích, multi
   usageCount: number;
   lastUsedAt: string | null;
+  manualSendCount?: number; // 2026-06-07 — riêng số lần sale gửi tay từ chat (ko tính automation)
+  lastManualSentAt?: string | null;
   archivedAt: string | null;
   createdById: string;
   createdAt: string;
@@ -83,10 +85,18 @@ export interface SequenceStep {
 
 export interface SequenceRuntimeRules {
   allowedHourRange?: [number, number];
+  // 2026-06-07 — khung giờ tới PHÚT ("HH:mm"). Engine cũ vẫn đọc allowedHourRange
+  // (giờ tròn, làm tròn xuống từ allowedTimeRange). Trigger BullMQ mới của anh đọc
+  // allowedTimeRange để chạy chuẩn tới phút.
+  allowedTimeRange?: [string, string];
   randomDelayPerSend?: { min: number; max: number };
   perNickThrottle?: boolean;
   crossNickRecencyDays?: number;
   stopOnAccept?: boolean;
+  // ── Dừng bám đuổi (giao diện sẵn — anh code logic BullMQ sau) ──────────────
+  pauseHoursOnReply?: number;     // KH reply/react → tạm dừng N giờ (0 = tắt)
+  maxAttemptsPerContact?: number; // mỗi KH nhận tối đa N tin của luồng (0 = không giới hạn)
+  stopOnStatusIds?: string[];     // KH đạt 1 trong các trạng thái này → dừng hẳn
 }
 
 export interface AutomationSequence {

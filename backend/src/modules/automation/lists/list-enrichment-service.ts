@@ -77,7 +77,7 @@ async function enrichListOnce(listId: string): Promise<{ processed: number; enri
         hasZalo: null,
         status: 'validated',
       },
-      select: { id: true, phoneE164: true, phoneLocal: true },
+      select: { id: true, phoneE164: true, phoneLocal: true, nameRaw: true, contactId: true },
       take: CHUNK_SIZE,
     });
 
@@ -140,6 +140,29 @@ async function enrichListOnce(listId: string): Promise<{ processed: number; enri
 
       if (matches && matches.length > 0) {
         const first = matches[0];
+        // BUG-FIX 2026-06-07 (anh chốt): enrich PHẢI nối Contact ngay. Trước đây chỉ
+        // set zalo_uid + status='enriched' mà KHÔNG tạo contact_id → 1362 entry mồ côi,
+        // skip rules (đã-là-bạn/recency) dùng f.contact_id=NULL → lọc sai. Giờ resolve
+        // Contact tại đây để entry luôn có contactId trước khi vào pool gửi.
+        let contactId = entry.contactId;
+        if (!contactId) {
+          try {
+            const { resolveOrCreateContact } = await import('../../contacts/resolve-contact.js');
+            const c = await resolveOrCreateContact({
+              orgId: list.orgId,
+              zaloAccountId: first.zaloAccountId,
+              zaloUidInNick: first.zaloUidInNick,
+              zaloGlobalId: first.zaloGlobalId,
+              phone: entry.phoneE164,
+              fallbackFullName: entry.nameRaw ?? first.zaloDisplayName,
+            });
+            contactId = c.id;
+          } catch (err) {
+            logger.warn(
+              `[list-enrich] resolveOrCreateContact failed entry=${entry.id}: ${(err as Error).message}`,
+            );
+          }
+        }
         await prisma.customerListEntry.update({
           where: { id: entry.id },
           data: {
@@ -151,6 +174,7 @@ async function enrichListOnce(listId: string): Promise<{ processed: number; enri
             multiNickCount: matches.length - 1,
             status: 'enriched',
             enrichedAt: new Date(),
+            ...(contactId ? { contactId } : {}),
           },
         });
         enriched++;

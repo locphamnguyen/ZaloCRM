@@ -73,6 +73,7 @@ const navItems = [
   // Khối = nội dung dùng hàng ngày (sale gửi 1-1 + ghép vào Luồng), KHÔNG phải admin-only.
   { to: '/marketing/triggers/tao-moi',  label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         isPrimary: true },
   { to: '/marketing/triggers',          label: 'Mục tiêu',           icon: 'mdi-target' },
+  { to: '/marketing/care-sessions',     label: 'Phiên chăm sóc',     icon: 'mdi-account-heart' },
   { to: '/marketing/sequences',         label: 'Luồng kịch bản',     icon: 'mdi-format-list-numbered' },
   { to: '/marketing/blocks',            label: 'Khối nội dung',      icon: 'mdi-puzzle' },
   { to: '/marketing/broadcasts',        label: 'Gửi tin hàng loạt',  icon: 'mdi-bullhorn' },

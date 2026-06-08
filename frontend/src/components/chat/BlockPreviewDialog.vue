@@ -20,7 +20,7 @@
             <span v-else class="bpd-vis public">🔓 Công khai</span>
             <span v-if="block.folder"> · 📁 {{ block.folder.name }}</span>
             <span> · 📦 {{ componentsCount }} thành phần</span>
-            <span v-if="variantCount > 0"> · 🎲 {{ variantCount }} biến thể</span>
+            <span v-if="variantCount > 0"> · 🔀 {{ variantCount }} mẫu</span>
             <span v-if="randomBadge" class="bpd-random-chip">🎲 {{ randomBadge }}</span>
           </div>
         </div>
@@ -35,9 +35,8 @@
         <div class="bpd-zalo-window">
           <template v-if="block.actionType === 'send_message'">
             <template v-for="(c, idx) in renderedComponents" :key="idx">
-              <div v-if="c.kind === 'text'" class="bpd-bubble out">
-                {{ c.text }}
-              </div>
+              <!-- eslint-disable-next-line vue/no-v-html — render Zalo rich-text (đậm/nghiêng), text từ Khối nội bộ -->
+              <div v-if="c.kind === 'text'" class="bpd-bubble out" v-html="textHtml(c)"></div>
               <div v-else-if="c.kind === 'image'" class="bpd-image-card">
                 <div class="bpd-image-thumb"></div>
                 <div v-if="c.caption" class="bpd-image-caption">{{ c.caption }}</div>
@@ -79,15 +78,23 @@
 
       <!-- Footer -->
       <footer class="bpd-foot">
-        <div class="bpd-recipient">
+        <!-- previewOnly: dùng trong builder Luồng → chỉ xem trước, không gửi -->
+        <div v-if="previewOnly" class="bpd-recipient">
+          <div class="bpd-recipient-avatar">👁️</div>
+          <div class="bpd-recipient-info">
+            <div class="bpd-recipient-label">Xem trước khối</div>
+            <div class="bpd-recipient-nick">KH mẫu thấy như thế này trên Zalo</div>
+          </div>
+        </div>
+        <div v-else class="bpd-recipient">
           <div class="bpd-recipient-avatar">{{ contactName.charAt(0).toUpperCase() }}</div>
           <div class="bpd-recipient-info">
             <div class="bpd-recipient-label">Gửi tới <b>{{ contactName }}</b></div>
             <div class="bpd-recipient-nick">Qua nick <b>{{ nickName }}</b></div>
           </div>
         </div>
-        <button class="bpd-btn" @click="emit('close')">← Quay lại chọn Khối</button>
-        <button class="bpd-btn-primary" @click="onConfirmSend">📤 Gửi cho KH</button>
+        <button class="bpd-btn" @click="emit('close')">{{ previewOnly ? 'Đóng' : '← Quay lại chọn Khối' }}</button>
+        <button v-if="!previewOnly" class="bpd-btn-primary" @click="onConfirmSend">📤 Gửi cho KH</button>
       </footer>
     </div>
   </v-dialog>
@@ -96,13 +103,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { Block } from '@/api/automation/types';
+import { applyRichFormat, plainFormat, type StyleMark } from '@/composables/use-rich-format';
 
-const props = defineProps<{
-  visible: boolean;
-  block: Block;
-  contactName: string;
-  nickName: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    visible: boolean;
+    block: Block;
+    contactName: string;
+    nickName: string;
+    // 2026-06-07 — builder Luồng dùng chế độ chỉ-xem-trước: ẩn nút "Gửi cho KH",
+    // đổi footer thành "KH mẫu". Mặc định false → giữ nguyên hành vi ở chat.
+    previewOnly?: boolean;
+  }>(),
+  { previewOnly: false },
+);
 
 const emit = defineEmits<{
   send: [blockId: string];
@@ -111,7 +125,7 @@ const emit = defineEmits<{
 
 const rerollKey = ref(0);
 
-interface RenderedTextComponent { kind: 'text'; text: string }
+interface RenderedTextComponent { kind: 'text'; text: string; styles?: StyleMark[] }
 interface RenderedImage { kind: 'image'; url: string; caption?: string }
 interface RenderedAlbum { kind: 'album'; items: Array<{ url: string }> }
 interface RenderedFile { kind: 'file'; filename?: string; url: string; sizeBytes?: number }
@@ -122,6 +136,12 @@ const blockIcon = computed(() => {
   if (props.block.actionType === 'request_friend') return '🤝';
   return '📨';
 });
+
+// Render text component → HTML (đậm/nghiêng/gạch theo styles Zalo). Có styles thì
+// applyRichFormat, không thì plainFormat (escape + linebreak). Fix preview HTML 2026-06-07.
+function textHtml(c: RenderedTextComponent): string {
+  return c.styles && c.styles.length > 0 ? applyRichFormat(c.text, c.styles, []) : plainFormat(c.text);
+}
 
 const currentHHmm = computed(() => {
   const d = new Date();
@@ -165,7 +185,7 @@ const renderedComponents = computed((): RenderedComponent[] => {
         const pool = [def, ...variants].filter((v: any) => v && typeof v.text === 'string' && v.text.length > 0);
         if (pool.length === 0) continue;
         const pick = pool[Math.floor(Math.random() * pool.length)];
-        out.push({ kind: 'text', text: pick.text });
+        out.push({ kind: 'text', text: pick.text, styles: Array.isArray(pick.styles) ? pick.styles : [] });
       } else if (cmp.kind === 'image') {
         out.push({ kind: 'image', url: cmp.url, caption: cmp.caption });
       } else if (cmp.kind === 'album') {
@@ -332,8 +352,9 @@ function onConfirmSend() {
   word-wrap: break-word;
 }
 .bpd-bubble.out {
-  background: #0084ff;
-  color: #fff;
+  background: #fff;
+  color: #1f2328;
+  border: 1px solid #e3e6ea;
   align-self: flex-end;
   border-bottom-right-radius: 5px;
 }

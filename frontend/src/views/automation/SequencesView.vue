@@ -204,26 +204,38 @@
               </div>
               <div class="rule-card__body">
                 <div class="rule-row">
-                  <label>Giờ làm việc</label>
+                  <div class="rule-row__head">
+                    <label>Giờ làm việc</label>
+                    <span class="rule-pill">{{ timeStart }} – {{ timeEnd }}</span>
+                  </div>
                   <div class="rule-input-pair">
-                    <input class="rule-num" :value="hourStart" type="number" min="0" max="23" @input="setHourStart(($event.target as HTMLInputElement).value)" />
-                    <span class="suffix">h</span>
+                    <input class="rule-time" :value="timeStart" type="time" @input="setTimeStart(($event.target as HTMLInputElement).value)" />
                     <v-icon size="15" class="rule-arrow">mdi-arrow-right</v-icon>
-                    <input class="rule-num" :value="hourEnd" type="number" min="0" max="23" @input="setHourEnd(($event.target as HTMLInputElement).value)" />
-                    <span class="suffix">h</span>
+                    <input class="rule-time" :value="timeEnd" type="time" @input="setTimeEnd(($event.target as HTMLInputElement).value)" />
                   </div>
                   <p class="rule-hint">
-                    Chỉ gửi từ {{ hourStart }}h đến {{ hourEnd }}h (giờ Việt Nam). Ngoài khung này sẽ hoãn sang sáng hôm sau.
+                    Chỉ gửi từ {{ timeStart }} đến {{ timeEnd }} (giờ Việt Nam). Ngoài khung này sẽ hoãn sang khung kế tiếp.
                   </p>
                 </div>
                 <div class="rule-row">
-                  <label>Giãn cách giữa các lần gửi</label>
-                  <div class="rule-input-pair">
-                    <input class="rule-num" :value="delayMin" type="number" min="0" @input="setDelayMin(($event.target as HTMLInputElement).value)" />
-                    <span class="suffix">phút</span>
-                    <v-icon size="15" class="rule-arrow">mdi-arrow-right</v-icon>
-                    <input class="rule-num" :value="delayMax" type="number" min="0" @input="setDelayMax(($event.target as HTMLInputElement).value)" />
-                    <span class="suffix">phút</span>
+                  <div class="rule-row__head">
+                    <label>Giãn cách giữa các lần gửi</label>
+                  </div>
+                  <div class="rule-input-pair rule-input-pair--gap">
+                    <span class="rule-mini-label">Từ</span>
+                    <TimeAmountInput
+                      :model-value="delayMin"
+                      base-unit="minute"
+                      :units="['second','minute','hour','day']"
+                      @update:model-value="(v: number) => setDelayMin(v)"
+                    />
+                    <span class="rule-mini-label">đến</span>
+                    <TimeAmountInput
+                      :model-value="delayMax"
+                      base-unit="minute"
+                      :units="['second','minute','hour','day']"
+                      @update:model-value="(v: number) => setDelayMax(v)"
+                    />
                   </div>
                   <p class="rule-hint">
                     Mỗi nick chờ ngẫu nhiên {{ delayMin === delayMax ? delayMin : `${delayMin}–${delayMax}` }} phút trước khi gửi tin tiếp theo. Giả lập tự nhiên, tránh Zalo phát hiện bot.
@@ -275,6 +287,7 @@
                 <strong>Khi nào dừng bám đuổi</strong>
               </div>
               <div class="rule-card__body">
+                <!-- 3.1 Dừng khi 1 nick đã kết bạn -->
                 <div class="rule-row rule-row--switch">
                   <button
                     class="toggle"
@@ -286,6 +299,70 @@
                     <p class="rule-hint">
                       Nếu 1 nick được KH đồng ý kết bạn → các nick còn lại tự dừng gửi tin nhắn (tránh nhiều nick cùng chăm 1 KH).
                     </p>
+                  </div>
+                </div>
+
+                <div class="rule-divider"></div>
+
+                <!-- 3.2 Tạm dừng khi KH tương tác (pause hours) -->
+                <div class="rule-row">
+                  <div class="rule-row__head">
+                    <label>Tạm dừng khi KH trả lời / thả cảm xúc</label>
+                    <span class="rule-pill">KH reply tiếp → reset</span>
+                  </div>
+                  <div class="rule-input-pair rule-input-pair--gap">
+                    <TimeAmountInput
+                      :model-value="pauseHoursOnReply"
+                      base-unit="hour"
+                      :units="['hour','day']"
+                      @update:model-value="(v: number) => setPauseHoursOnReply(v)"
+                    />
+                    <span class="rule-mini-label">(0 = không tạm dừng)</span>
+                  </div>
+                  <p class="rule-hint">
+                    KH nhắn lại hoặc thả cảm xúc giữa chuỗi → hoãn các bước còn lại
+                    <strong v-if="pauseHoursOnReply > 0">{{ pauseHoursOnReply }} giờ</strong>
+                    <strong v-else>(đang tắt)</strong>, đồng thời báo gấp cho sale vào trả lời.
+                  </p>
+                </div>
+
+                <div class="rule-divider"></div>
+
+                <!-- 3.3 Dừng sau số lần gửi tối đa -->
+                <div class="rule-row">
+                  <div class="rule-row__head">
+                    <label>Dừng sau số tin tối đa mỗi KH</label>
+                  </div>
+                  <div class="rule-input-pair rule-input-pair--gap">
+                    <input class="rule-num" :value="maxAttempts" type="number" min="0" @input="setMaxAttempts(($event.target as HTMLInputElement).value)" />
+                    <span class="suffix">tin</span>
+                    <span class="rule-mini-label">(0 = không giới hạn)</span>
+                  </div>
+                  <p class="rule-hint">
+                    <template v-if="maxAttempts > 0">Mỗi KH chỉ nhận tối đa <strong>{{ maxAttempts }} tin</strong> của luồng này rồi dừng — chống bám đuổi quá đà.</template>
+                    <template v-else>KH sẽ nhận đủ tất cả các bước trong luồng (không giới hạn số tin).</template>
+                  </p>
+                </div>
+
+                <div class="rule-divider"></div>
+
+                <!-- 3.4 Phản ứng nâng cao (cố định — như Mục tiêu) -->
+                <div class="rule-row">
+                  <div class="rule-row__head">
+                    <label>Phản ứng nâng cao</label>
+                    <span class="rule-pill rule-pill--muted">cố định</span>
+                  </div>
+                  <div class="rule-fixed-list">
+                    <div class="rule-fixed-item">
+                      <v-icon size="15" color="success">mdi-heart-outline</v-icon>
+                      <span class="rfi-key">Cảm xúc tích cực (tim, like)</span>
+                      <span class="rfi-val">Không dừng chuỗi · +5 điểm CRM</span>
+                    </div>
+                    <div class="rule-fixed-item">
+                      <v-icon size="15" color="error">mdi-emoticon-sad-outline</v-icon>
+                      <span class="rfi-key">Cảm xúc tiêu cực (giận, tim vỡ)</span>
+                      <span class="rfi-val">Tạm dừng 48h · −5 điểm · báo sale</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -353,6 +430,7 @@ import {
   type BlockActionType,
 } from '@/api/automation/types';
 import SequenceStepEditor from '@/components/automation/phase7/SequenceStepEditor.vue';
+import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
 
 const router = useRouter();
 const sequences = ref<AutomationSequence[]>([]);
@@ -491,20 +569,39 @@ function ruleLabels(rules: SequenceRuntimeRules | null | undefined): string[] {
   return out;
 }
 
-const hourStart = computed(() => editing.value?.runtimeRules.allowedHourRange?.[0] ?? 6);
-const hourEnd   = computed(() => editing.value?.runtimeRules.allowedHourRange?.[1] ?? 22);
+// ── Giờ làm việc tới PHÚT (Anh chốt 2026-06-07) ───────────────────────────
+// Hiển thị/nhập "HH:mm" qua <input type="time">. Lưu cả allowedTimeRange (phút,
+// cho trigger BullMQ mới của anh) lẫn allowedHourRange (giờ tròn, cho engine cũ).
+function hourToHHmm(h: number): string {
+  const hh = Math.min(23, Math.max(0, Math.floor(h || 0)));
+  return `${String(hh).padStart(2, '0')}:00`;
+}
+const timeStart = computed(() =>
+  editing.value?.runtimeRules.allowedTimeRange?.[0]
+  ?? hourToHHmm(editing.value?.runtimeRules.allowedHourRange?.[0] ?? 6),
+);
+const timeEnd = computed(() =>
+  editing.value?.runtimeRules.allowedTimeRange?.[1]
+  ?? hourToHHmm(editing.value?.runtimeRules.allowedHourRange?.[1] ?? 22),
+);
 const delayMin  = computed(() => editing.value?.runtimeRules.randomDelayPerSend?.min ?? 15);
 const delayMax  = computed(() => editing.value?.runtimeRules.randomDelayPerSend?.max ?? 45);
 const recencyDays = computed(() => editing.value?.runtimeRules.crossNickRecencyDays ?? 30);
 
-function setHourStart(v: string | number) {
-  if (!editing.value) return;
-  editing.value.runtimeRules.allowedHourRange = [Number(v) || 0, hourEnd.value];
+// "HH:mm" → giờ tròn (làm tròn XUỐNG) để giữ tương thích engine cũ.
+function hhmmToHour(s: string): number {
+  const h = parseInt((s || '').split(':')[0] || '0', 10);
+  return Math.min(23, Math.max(0, Number.isFinite(h) ? h : 0));
 }
-function setHourEnd(v: string | number) {
+function applyTimeRange(start: string, end: string) {
   if (!editing.value) return;
-  editing.value.runtimeRules.allowedHourRange = [hourStart.value, Number(v) || 0];
+  editing.value.runtimeRules.allowedTimeRange = [start, end];
+  // Mirror sang giờ tròn cho engine hiện tại (chưa đọc phút).
+  editing.value.runtimeRules.allowedHourRange = [hhmmToHour(start), hhmmToHour(end)];
 }
+function setTimeStart(v: string) { applyTimeRange(v || '00:00', timeEnd.value); }
+function setTimeEnd(v: string)   { applyTimeRange(timeStart.value, v || '23:59'); }
+
 function setDelayMin(v: string | number) {
   if (!editing.value) return;
   editing.value.runtimeRules.randomDelayPerSend = { min: Number(v) || 0, max: delayMax.value };
@@ -516,6 +613,18 @@ function setDelayMax(v: string | number) {
 function setRecencyDays(v: string | number) {
   if (!editing.value) return;
   editing.value.runtimeRules.crossNickRecencyDays = Number(v) || 0;
+}
+
+// ── Dừng bám đuổi (giao diện — logic anh code BullMQ sau) ──────────────────
+const pauseHoursOnReply = computed(() => editing.value?.runtimeRules.pauseHoursOnReply ?? 24);
+const maxAttempts = computed(() => editing.value?.runtimeRules.maxAttemptsPerContact ?? 0);
+function setPauseHoursOnReply(v: number) {
+  if (!editing.value) return;
+  editing.value.runtimeRules.pauseHoursOnReply = Math.max(0, Number(v) || 0);
+}
+function setMaxAttempts(v: string | number) {
+  if (!editing.value) return;
+  editing.value.runtimeRules.maxAttemptsPerContact = Math.max(0, Number(v) || 0);
 }
 
 async function loadAll() {
@@ -563,10 +672,13 @@ function openCreateDrawer() {
     steps: [],
     runtimeRules: {
       allowedHourRange: [6, 22],
+      allowedTimeRange: ['06:00', '22:00'],
       randomDelayPerSend: { min: 15, max: 45 },
       perNickThrottle: true,
       crossNickRecencyDays: 30,
       stopOnAccept: true,
+      pauseHoursOnReply: 24,
+      maxAttemptsPerContact: 0,
     },
   };
   error.value = '';
@@ -868,10 +980,13 @@ function onDocClick() {
 }
 .rule-row { display: flex; flex-direction: column; gap: 6px; }
 .rule-row > label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.rule-row__head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rule-row__head > label { font-size: 13px; font-weight: 600; color: var(--ink); }
 .rule-row--switch { flex-direction: row; align-items: flex-start; gap: 12px; }
 .rule-row--switch > div { flex: 1; }
 .rule-row--switch .toggle { margin-top: 2px; }
-.rule-input-pair { display: flex; align-items: center; gap: 6px; }
+.rule-input-pair { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rule-input-pair--gap { gap: 8px; }
 .rule-num {
   width: 64px;
   height: 34px;
@@ -884,10 +999,68 @@ function onDocClick() {
   background: var(--surface);
 }
 .rule-num:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+/* type=time picker — đẹp, gọn, đồng bộ với rule-num */
+.rule-time {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--surface);
+}
+.rule-time:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 .rule-input-pair .suffix { font-size: 12.5px; color: var(--ink-3); }
+.rule-mini-label { font-size: 12px; color: var(--ink-3); }
 .rule-arrow { color: var(--ink-4); margin: 0 2px; }
 .rule-hint { font-size: 12px; color: var(--ink-3); line-height: 1.45; margin: 0; }
 .rule-hint strong { color: var(--ink); font-weight: 600; }
+
+/* pill nhỏ hiển thị tóm tắt giá trị bên phải nhãn */
+.rule-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand);
+  background: var(--brand-soft);
+  padding: 1px 8px;
+  border-radius: var(--r-pill, 999px);
+  white-space: nowrap;
+}
+.rule-pill--muted { color: var(--ink-3); background: var(--surface-3); }
+
+.rule-divider { height: 1px; background: var(--line); margin: 2px 0; }
+
+/* Phản ứng nâng cao — danh sách cố định read-only */
+.rule-fixed-list { display: flex; flex-direction: column; gap: 6px; }
+.rule-fixed-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+.rfi-key { color: var(--ink-2); flex-shrink: 0; }
+.rfi-val { color: var(--ink-3); margin-left: auto; text-align: right; }
+
+/* ── TimeAmountInput nhúng trong rule-card (đồng bộ size 34px) ──────────── */
+.rule-card :deep(.time-amount) { gap: 4px; }
+.rule-card :deep(.ta-num) {
+  width: 58px; height: 34px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r-xs);
+  font-size: 13.5px; text-align: right; color: var(--ink);
+  background: var(--surface); font-family: inherit;
+}
+.rule-card :deep(.ta-unit) {
+  height: 34px; padding: 0 6px;
+  border: 1px solid var(--line); border-radius: var(--r-xs);
+  font-size: 13px; background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.rule-card :deep(.ta-num:focus),
+.rule-card :deep(.ta-unit:focus) { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 
 /* ── Inline error banner ──────────────────────────────────────────────── */
 .panel-error-banner {

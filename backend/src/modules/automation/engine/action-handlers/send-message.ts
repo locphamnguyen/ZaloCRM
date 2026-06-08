@@ -17,6 +17,7 @@ import { logger } from '../../../../shared/utils/logger.js';
 import { zaloOps } from '../../../../shared/zalo-operations.js';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../../../contacts/contact-aggregate.js';
 import { resolveBlockContent, type ResolvedMessage } from '../../blocks/resolve-block-content.js';
+import { renderTemplate } from '../../blocks/render-template.js';
 import type { ActionContext, ActionResult } from '../types.js';
 
 const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
@@ -306,39 +307,4 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
       messageId: lastMessageRow?.id,
     },
   };
-}
-
-/**
- * Render template variables theo chuẩn anh chốt 2026-05-28:
- *   {gender} — "Anh"/"Chị"/"Anh Chị" lấy từ Contact.gender (fallback "Anh Chị")
- *   {name}   — last word của Contact.fullName (VN convention)
- *   {sale}   — last word của user.fullName (chủ nick được assigned)
- */
-async function renderTemplate(
-  raw: string,
-  contactId: string,
-  assignedNickId: string,
-): Promise<string> {
-  if (!raw.includes('{')) return raw;
-
-  const [contact, ownerUser] = await Promise.all([
-    prisma.contact.findUnique({
-      where: { id: contactId },
-      select: { fullName: true, gender: true },
-    }),
-    prisma.user.findFirst({
-      where: { zaloAccounts: { some: { id: assignedNickId } } },
-      select: { fullName: true },
-    }),
-  ]);
-
-  const genderStr =
-    contact?.gender === 'female' ? 'Chị' : contact?.gender === 'male' ? 'Anh' : 'Anh Chị';
-  const name = (contact?.fullName ?? '').trim().split(/\s+/).pop() ?? 'Anh Chị';
-  const sale = (ownerUser?.fullName ?? 'em').trim().split(/\s+/).pop() ?? 'em';
-
-  return raw
-    .replaceAll('{gender}', genderStr)
-    .replaceAll('{name}', name)
-    .replaceAll('{sale}', sale);
 }

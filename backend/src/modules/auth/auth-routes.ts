@@ -59,7 +59,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const payload = await login(id, password);
     const token = app.jwt.sign(payload, { expiresIn: '7d' });
     autoSeedScoringIfNeeded(payload.orgId);
-    return { token, user: payload };
+    // Fix 2026-06-07: login response phải kèm passwordChangedAt + onboarding fields để router
+    // guard force /setup-password lần đầu (trước đây chỉ trả JwtPayload thiếu → guard so
+    // undefined===null = false → user mới vào thẳng dashboard, bỏ qua đổi pass).
+    const profile = await getProfile(payload.id);
+    return { token, user: { ...payload, ...profile } };
   });
 
   // GET /api/v1/profile — return current user (requires auth)

@@ -70,6 +70,21 @@ export async function updateStatusHandler(ctx: ActionContext): Promise<ActionRes
 
   logger.debug(`[update-status] contact ${contact.id}: ${contact.statusId} → ${snap.statusId}`);
 
+  // CareSession 2026-06-07 (T7/T10f): đạt status trong closeConditions → đóng phiên (event-driven).
+  try {
+    const { closeCareSessionsOnConditionMatch } = await import(
+      '../../care-session/care-session-service.js'
+    );
+    await closeCareSessionsOnConditionMatch({
+      orgId: ctx.orgId,
+      contactId: contact.id,
+      matchKind: 'status',
+      matchedId: snap.statusId,
+    });
+  } catch (err) {
+    logger.warn(`[update-status] close care session on status failed: ${(err as Error).message}`);
+  }
+
   return {
     outcome: 'success',
     data: {
