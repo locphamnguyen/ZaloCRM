@@ -105,7 +105,7 @@ export async function getNickDayMetrics(
 
   // Query nguồn parallel: messages by category, friendship attempts, phone search,
   // friend-status join, phone search split by userId (manual vs automation).
-  const [msgRows, friendReqRows, phoneRows, msgFromFriends, msgFromStrangers, msgSentToStrangers, phoneByUserCount, phoneByBotCount] = await Promise.all([
+  const [msgRows, friendReqRows, phoneRows, msgFromFriends, msgFromStrangers, msgSentToStrangers, phoneByUserCount, phoneByBotCount, friendReqByUserCount, friendReqByBotCount] = await Promise.all([
     // Messages aggregate by (senderType, sentVia)
     prisma.message.groupBy({
       by: ['senderType', 'sentVia'],
@@ -189,6 +189,13 @@ export async function getNickDayMetrics(
     prisma.phoneSearchEvent.count({
       where: { accountId, occurredAt: { gte: day, lt: dayEnd }, userId: null },
     }),
+    // 2026-06-09: Friend req split by source ('user' = sale tay, 'automation' = engine).
+    prisma.friendshipAttempt.count({
+      where: { zaloAccountId: accountId, queuedAt: { gte: day, lt: dayEnd }, source: 'user' },
+    }),
+    prisma.friendshipAttempt.count({
+      where: { zaloAccountId: accountId, queuedAt: { gte: day, lt: dayEnd }, source: 'automation' },
+    }),
   ]);
 
   const metrics: NickDayMetrics = { ...ZERO_METRICS };
@@ -225,10 +232,9 @@ export async function getNickDayMetrics(
       metrics.friendReqPending += count;
     }
   }
-  // 2026-05-28: tạm tất cả vào byUser cho tới khi schema có FriendshipAttempt.source.
-  // Khi Marketing engine track → migrate sang split thực sự.
-  metrics.friendReqByUser = metrics.friendReqSent;
-  metrics.friendReqByBot = 0;
+  // 2026-06-09: split thực theo FriendshipAttempt.source ('user' tay vs 'automation' engine).
+  metrics.friendReqByUser = friendReqByUserCount;
+  metrics.friendReqByBot = friendReqByBotCount;
 
   // PhoneSearchEvent
   for (const r of phoneRows) {

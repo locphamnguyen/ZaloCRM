@@ -209,7 +209,9 @@ export const DEFAULT_PERMISSION_GROUPS = [
       sequence: { access: true },
       trigger: { access: true },
       block: { access: true },
-      zalo_account: { access: true },
+      // 2026-06-09 (Anh chốt): sale tự kết nối nick mới + xóa MỀM nick CỦA MÌNH.
+      // Ownership check ở requireAccountManagement đảm bảo chỉ đụng nick mình owner.
+      zalo_account: { access: true, create: true, delete: true },
       engagement_score: { access: true },
     } as GrantsJson,
   },

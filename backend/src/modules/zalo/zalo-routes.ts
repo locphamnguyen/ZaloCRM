@@ -18,9 +18,15 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
     const user = request.user!;
     const userId = (user as any).userId ?? user.id;
     const scope = await getZaloScope(userId, user.orgId, user.role);
+    // 2026-06-09: mặc định ẩn nick đã xóa mềm. ?includeArchived=true → admin xem lại để khôi phục.
+    const includeArchived = (request.query as Record<string, string>)?.includeArchived === 'true';
 
     const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId, id: { in: scope.accessibleIds } },
+      where: {
+        orgId: user.orgId,
+        id: { in: scope.accessibleIds },
+        ...(includeArchived ? {} : { archivedAt: null }),
+      },
       select: {
         id: true,
         zaloUid: true,
@@ -32,6 +38,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         proxyUrl: true,
         privacyMode: true,
         lastConnectedAt: true,
+        archivedAt: true,
         createdAt: true,
         owner: { select: { id: true, fullName: true, email: true } },
       },
@@ -139,20 +146,98 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // DELETE /api/v1/zalo-accounts/:id — disconnect and delete record
+  // DELETE /api/v1/zalo-accounts/:id — XÓA MỀM (2026-06-09, Anh chốt).
+  // Trước: hard delete + cascade (mất Conversation/Message/Friend/Log...). NGUY HIỂM.
+  // Giờ: set archivedAt = now() → ẩn khỏi danh sách nhưng GIỮ toàn bộ dữ liệu trong DB.
+  // Listener stop, health-check bỏ qua nick archived (không reconnect).
+  // RBAC: requireAccountManagement đã chặn — owner-of-nick + admin (sale chỉ xóa nick mình).
   app.delete<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id',
     async (request, reply) => {
       const { id } = request.params;
-      // Phase Zalo Account Mutation Gate 2026-05-27 CRITICAL: chặn sale xoá
-      // nick người khác (trước fix chỉ check orgId — sale curl được id là xoá).
       const gate = await requireAccountManagement(request, reply, id);
       if (!gate) return reply;
 
+      // Stop listener trước (nick archived không cần kết nối nữa).
       zaloPool.disconnect(id);
-      await prisma.zaloAccount.delete({ where: { id } });
+      await prisma.zaloAccount.update({
+        where: { id },
+        data: { archivedAt: new Date(), status: 'disconnected' },
+      });
 
       return reply.status(204).send();
+    },
+  );
+
+  // POST /api/v1/zalo-accounts/:id/restore — khôi phục nick đã xóa mềm (admin).
+  app.post<{ Params: { id: string } }>(
+    '/api/v1/zalo-accounts/:id/restore',
+    async (request, reply) => {
+      const { id } = request.params;
+      const gate = await requireAccountManagement(request, reply, id);
+      if (!gate) return reply;
+      await prisma.zaloAccount.update({ where: { id }, data: { archivedAt: null } });
+      return { message: 'Account restored — kết nối lại bằng QR/reconnect nếu cần' };
+    },
+  );
+
+  // POST /api/v1/zalo-accounts/check-phone — Bước 1 luồng kết nối mới (Anh chốt 2026-06-09).
+  // Dùng NICK HỆ THỐNG (organization.systemNotifyZaloAccountId) findUser(SĐT) → trả info
+  // để sale XÁC NHẬN đúng nick trước khi quét QR. FALLBACK: nick hệ thống chưa cấu hình /
+  // disconnect → trả {available:false} để FE cho sale BỎ QUA Check, quét QR thẳng.
+  app.post<{ Body: { phone?: string } }>(
+    '/api/v1/zalo-accounts/check-phone',
+    async (request, reply) => {
+      const user = request.user!;
+      const phone = (request.body?.phone ?? '').trim();
+      // Validate SĐT VN cơ bản (10 số, đầu 0 hoặc +84).
+      const normalized = phone.replace(/[\s.\-()]/g, '');
+      if (!/^(0|\+84)\d{9}$/.test(normalized)) {
+        return reply.status(400).send({ error: 'invalid_phone', message: 'Số điện thoại không hợp lệ' });
+      }
+
+      // Lấy nick hệ thống của org.
+      const org = await prisma.organization.findUnique({
+        where: { id: user.orgId },
+        select: { systemNotifyZaloAccountId: true, systemNotifyNick: { select: { id: true, status: true } } },
+      });
+      const sysNick = org?.systemNotifyNick;
+      if (!sysNick || sysNick.status !== 'connected') {
+        // Fallback: không kiểm tra được → FE cho quét QR thẳng.
+        return { available: false, reason: 'system_nick_unavailable' };
+      }
+
+      // Trùng nick đã kết nối trong org? (cảnh báo, vẫn cho tiếp)
+      const existing = await prisma.zaloAccount.findFirst({
+        where: { orgId: user.orgId, phone: normalized, archivedAt: null },
+        select: { id: true, displayName: true, owner: { select: { fullName: true } } },
+      });
+
+      try {
+        const { zaloOps } = await import('../../shared/zalo-operations.js');
+        const found = await zaloOps.findUser(sysNick.id, normalized);
+        if (!found || !(found as any).uid) {
+          return { available: true, found: false, message: 'Số này chưa có Zalo (vẫn có thể quét QR nếu chắc chắn)' };
+        }
+        const u = found as any;
+        return {
+          available: true,
+          found: true,
+          info: {
+            zaloUid: u.uid ?? null,
+            displayName: u.display_name ?? u.zalo_name ?? u.username ?? null,
+            avatarUrl: u.avatar ?? null,
+            phone: normalized,
+          },
+          duplicate: existing
+            ? { displayName: existing.displayName, owner: existing.owner?.fullName ?? null }
+            : null,
+        };
+      } catch (err) {
+        request.log?.warn?.({ err }, '[check-phone] findUser failed');
+        // Lỗi gọi Zalo → fallback cho quét QR thẳng.
+        return { available: false, reason: 'lookup_failed' };
+      }
     },
   );
 

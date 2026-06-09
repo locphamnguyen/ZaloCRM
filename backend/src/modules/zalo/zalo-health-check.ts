@@ -17,7 +17,7 @@ export function startZaloHealthCheck(): void {
       // Cross-org admin sweep (account theo sessionData, không gắn 1 org) → runSystemQuery.
       const accounts = await runSystemQuery(() =>
         prisma.zaloAccount.findMany({
-          where: { sessionData: { not: Prisma.JsonNull } },
+          where: { sessionData: { not: Prisma.JsonNull }, archivedAt: null },
           select: { id: true, displayName: true, sessionData: true },
         }),
       );
@@ -46,7 +46,7 @@ export function startZaloHealthCheck(): void {
       // Cross-org admin sweep (account theo sessionData, không gắn 1 org) → runSystemQuery.
       const accounts = await runSystemQuery(() =>
         prisma.zaloAccount.findMany({
-          where: { sessionData: { not: Prisma.JsonNull } },
+          where: { sessionData: { not: Prisma.JsonNull }, archivedAt: null },
           select: { id: true, sessionData: true },
         }),
       );

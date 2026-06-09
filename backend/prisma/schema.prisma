@@ -320,6 +320,10 @@ model ZaloAccount {
   // chỉ owner unlock PIN xem được. Default 'sub' (org public). Xem design doc:
   // ~/.gstack/projects/zalocrm/thanh-private-mode-design-20260521.md
   privacyMode     String    @default("sub") @map("privacy_mode")
+  // 2026-06-09 (Anh chốt): xóa MỀM — sale/admin xóa nick khỏi danh sách nhưng GIỮ
+  // dữ liệu (hội thoại/tin/bạn bè) trong DB. archivedAt != null = đã ẩn khỏi danh sách.
+  // Listener + health-check BỎ QUA nick đã archive (không reconnect).
+  archivedAt      DateTime? @map("archived_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   org                Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -1593,6 +1597,9 @@ model FriendshipAttempt {
   zaloAccountId String    @map("zalo_account_id")
   contactId     String    @map("contact_id")
   state         String    @default("queued")
+  // 2026-06-09 — phân biệt sale gửi tay vs automation gửi (cột "Hôm nay" tách Bot/User).
+  // 'user' = sale bấm tay, 'automation' = engine/campaign. Default 'automation' (đa số qua engine).
+  source        String    @default("automation")
   zaloUidFound  String?   @map("zalo_uid_found")
   requestMsg    String?   @map("request_msg")
   errorCode     String?   @map("error_code")

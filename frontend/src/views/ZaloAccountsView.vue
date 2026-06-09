@@ -60,6 +60,29 @@
 
     <!-- Tab content: manage (default) -->
     <template v-if="activeTab === 'manage'">
+    <!-- Sub-tab Đơn giản (grid card, sale) / Nâng cao (bảng, admin) — Anh chốt 2026-06-09 -->
+    <div class="za-subtabs">
+      <button class="za-subtab" :class="{ active: viewMode === 'simple' }" @click="viewMode = 'simple'">
+        <v-icon size="15">mdi-view-grid-outline</v-icon> Đơn giản
+      </button>
+      <button class="za-subtab" :class="{ active: viewMode === 'advanced' }" @click="viewMode = 'advanced'">
+        <v-icon size="15">mdi-table</v-icon> Nâng cao
+      </button>
+    </div>
+
+    <!-- ===== TAB ĐƠN GIẢN: grid card ===== -->
+    <template v-if="viewMode === 'simple'">
+      <NickGridCards
+        :accounts="visibleAccounts"
+        @reconnect="onCardReconnect"
+        @delete="onConfirmDelete"
+        @open-detail="openDrawer"
+        @add="openAddDialog"
+      />
+    </template>
+
+    <!-- ===== TAB NÂNG CAO: bảng đầy đủ ===== -->
+    <template v-else>
     <!-- STATS CARDS -->
     <StatsCards :stats="stats" />
 
@@ -75,40 +98,11 @@
         <option value="idle">Idle</option>
         <option value="error">Error / Disconnected</option>
       </select>
-      <!-- Phòng ban filter (multi-select) — Phase 4 2026-05-22 -->
-      <div class="chip-multi" :class="{ open: showDeptPicker }">
-        <button class="chip-btn" type="button" @click.stop="showDeptPicker = !showDeptPicker">
-          <span>Phòng ban</span>
-          <span v-if="deptFilter.length" class="chip-count">{{ deptFilter.length }}</span>
-          <span class="chip-caret">▾</span>
-        </button>
-        <div v-if="showDeptPicker" class="chip-pop" @click.stop>
-          <div class="chip-pop-head">
-            <span>Lọc theo phòng ban (cascade)</span>
-            <button v-if="deptFilter.length" class="chip-clear" @click="deptFilter = []">Bỏ tất cả</button>
-          </div>
-          <div class="chip-pop-list">
-            <label
-              v-for="d in deptFlatOptions"
-              :key="d.id"
-              class="chip-pop-row"
-              :style="{ paddingLeft: 10 + d.depth * 14 + 'px' }"
-            >
-              <input type="checkbox" :value="d.id" v-model="deptFilter" />
-              <span>{{ d.name }}</span>
-            </label>
-            <div v-if="!deptFlatOptions.length" class="chip-pop-empty">Chưa có phòng ban</div>
-          </div>
-        </div>
-      </div>
+      <!-- 2026-06-09: BỎ filter Phòng ban (nick không gắn phòng ban, chỉ Owner + Sale hỗ trợ). -->
       <select v-model="saleFilter" class="select">
         <option value="">Owner: Tất cả</option>
         <option v-for="u in ownerOptions" :key="u.id" :value="u.id">{{ u.fullName || u.email }}</option>
       </select>
-      <label class="toggle-group">
-        <input type="checkbox" v-model="groupByDept" />
-        <span>Group theo phòng ban</span>
-      </label>
       <select v-model="sortMode" class="select select-sort">
         <option value="recent">Sort: Hoạt động mới</option>
         <option value="msg-desc">Sort: Msg today (nhiều→ít)</option>
@@ -135,6 +129,8 @@
       @reassign-owner="onOpenReassign"
       @config-limits="showSdkLimits = true"
     />
+    </template>
+    <!-- /viewMode advanced -->
 
     <!-- 2026-06-06 — Dialog cài đặt trần SDK (org default + nick override) -->
     <SdkLimitsDialog
@@ -196,62 +192,21 @@
       @clear="clearSelection"
     />
 
-    <!-- ADD ACCOUNT DIALOG -->
-    <div v-if="showAddDialog" class="modal-backdrop" @click.self="showAddDialog = false">
-      <div class="modal">
-        <div class="modal-head">
-          <h3>Kết nối nick Zalo mới</h3>
-          <button class="x-btn" @click="showAddDialog = false">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="field">
-            <label>Tên hiển thị</label>
-            <input v-model="newAccountName" placeholder="VD: Sale Hùng — Vinhomes" />
-          </div>
-          <div class="field">
-            <label>Proxy URL (tùy chọn)</label>
-            <input v-model="newAccountProxy" placeholder="http://user:pass@host:port" />
-            <div class="hint">Để trống nếu kết nối Zalo trực tiếp qua internet</div>
-          </div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn" @click="closeAddDialog">Huỷ</button>
-          <button class="btn btn-primary" :disabled="adding" @click="handleAddAccount">
-            {{ adding ? 'Đang tạo...' : 'Tạo + Quét QR' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- QR CODE DIALOG (reuse từ composable QR socket flow) -->
-    <div v-if="showQRDialog" class="modal-backdrop">
-      <div class="modal modal-qr">
-        <div class="modal-head">
-          <h3>Quét QR để đăng nhập Zalo</h3>
-        </div>
-        <div class="modal-body text-center">
-          <div v-if="qrImage" class="qr-img-wrap">
-            <img :src="'data:image/png;base64,' + qrImage" alt="QR" />
-            <div class="qr-step active"><span class="n">1</span> Mở app Zalo trên điện thoại</div>
-            <div class="qr-step"><span class="n">2</span> Cài đặt → Quản lý thiết bị → Quét QR</div>
-            <div class="qr-step"><span class="n">3</span> Đợi xác thực hoàn tất</div>
-          </div>
-          <div v-else-if="qrScanned" class="qr-scanned">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-            <p>Đã quét! Xác nhận trên điện thoại…</p>
-            <p v-if="scannedName" class="muted">{{ scannedName }}</p>
-          </div>
-          <div v-else>
-            <div class="loading-spinner"></div>
-            <p>Đang tạo QR code…</p>
-          </div>
-          <div v-if="qrError" class="error-text">{{ qrError }}</div>
-        </div>
-        <div class="modal-foot">
-          <button class="btn" @click="cancelQR">Đóng</button>
-        </div>
-      </div>
-    </div>
+    <!-- KẾT NỐI NICK — wizard 4 bước (Anh chốt 2026-06-09): SĐT→Check→xác nhận→QR→chúc mừng -->
+    <ConnectNickWizard
+      v-if="wizardOpen"
+      v-model:step="wizardStep"
+      :qr-image="qrImage"
+      :qr-scanned="qrScanned"
+      :scanned-name="scannedName"
+      :qr-error="qrError"
+      :sale-name="saleShortName"
+      :connected-nick-name="connectedNickName"
+      @checked="onWizardChecked"
+      @confirm-connect="onWizardConfirmConnect"
+      @retry-qr="onWizardRetryQr"
+      @close="closeWizard"
+    />
 
     <!-- DELETE CONFIRM -->
     <div v-if="showDeleteDialog" class="modal-backdrop" @click.self="showDeleteDialog = false">
@@ -281,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import { useZaloAccountsDashboard } from '@/composables/use-zalo-accounts-dashboard';
 import StatsCards from '@/components/zalo-accounts/StatsCards.vue';
 import AccountsTable from '@/components/zalo-accounts/AccountsTable.vue';
@@ -289,6 +244,8 @@ import SdkLimitsDialog from '@/components/zalo-accounts/SdkLimitsDialog.vue';
 import AccountDetailDrawer from '@/components/zalo-accounts/AccountDetailDrawer.vue';
 import BulkActionBar from '@/components/zalo-accounts/BulkActionBar.vue';
 import OwnerReassignDrawer from '@/components/zalo-accounts/OwnerReassignDrawer.vue';
+import NickGridCards from '@/components/zalo-accounts/NickGridCards.vue';
+import ConnectNickWizard from '@/components/zalo-accounts/ConnectNickWizard.vue';
 import PrivacyNicksTab from '@/components/zalo-accounts/PrivacyNicksTab.vue';
 import InternalContactSetupPage from '@/components/zalo-accounts/InternalContactSetupPage.vue';
 import ZaloAccessDialog from '@/components/settings/ZaloAccessDialog.vue';
@@ -315,7 +272,7 @@ const {
   relativeTime, statusLabel, uptimeColor,
   // QR/socket from base composable
   showQRDialog, qrImage, qrScanned, scannedName, qrError,
-  adding, deleting,
+  deleting,
   addAccount, loginAccount, reconnectAccount, deleteAccount,
   cancelQR, setupSocket,
 } = dash;
@@ -339,9 +296,13 @@ function limitFor(nickId: string, category: string): number {
 }
 
 // Local UI state
-const showAddDialog = ref(false);
-const newAccountName = ref('');
-const newAccountProxy = ref('');
+// 2026-06-09: sub-tab Đơn giản (grid card sale) / Nâng cao (bảng admin). Mặc định Đơn giản.
+const viewMode = ref<'simple' | 'advanced'>('simple');
+// Wizard kết nối 4 bước (thay 2 dialog Add+QR cũ).
+const wizardOpen = ref(false);
+const wizardStep = ref<'phone' | 'confirm' | 'qr' | 'done'>('phone');
+const wizardPhone = ref('');
+const connectedNickName = ref<string | null>(null);
 const showDeleteDialog = ref(false);
 const deleteTargetId = ref<string | null>(null);
 const bulkLoading = ref(false);
@@ -511,27 +472,81 @@ async function onRefresh() {
   lastRefresh.value = new Date();
 }
 
+// ── Wizard kết nối 4 bước (2026-06-09) ──
+// Tên sale ngắn (last word) cho màn chúc mừng.
+const saleShortName = computed(() => {
+  const f = authStore.user?.fullName?.trim();
+  return f ? (f.split(/\s+/).pop() || f) : 'Bạn';
+});
+
 function openAddDialog() {
-  newAccountName.value = '';
-  newAccountProxy.value = '';
-  showAddDialog.value = true;
+  wizardStep.value = 'phone';
+  wizardPhone.value = '';
+  connectedNickName.value = null;
+  wizardOpen.value = true;
 }
-function closeAddDialog() {
-  showAddDialog.value = false;
+function closeWizard() {
+  wizardOpen.value = false;
+  cancelQR(); // hủy phiên QR đang chờ (tránh nick treo qr_pending rác)
 }
 
-async function handleAddAccount() {
-  const ok = await addAccount(newAccountName.value, newAccountProxy.value);
-  if (ok) {
-    showAddDialog.value = false;
-    await refreshAll();
-    // Auto-launch QR for the latest account
-    // The created account is the most recent — find it and trigger login
-    setTimeout(async () => {
-      const list = await api.get('/zalo-accounts');
-      const latest = list.data[list.data.length - 1];
-      if (latest) await loginAccount(latest.id);
-    }, 300);
+// B1→B2: wizard đã gọi check-phone, lưu phone.
+function onWizardChecked(payload: { phone: string; info: any }) {
+  wizardPhone.value = payload.phone;
+  if (payload.info?.found && payload.info?.info?.displayName) {
+    connectedNickName.value = payload.info.info.displayName;
+  }
+}
+
+// B2→B3: sale xác nhận → tạo nick (không cần tên/proxy) + login QR ngay tại modal.
+async function onWizardConfirmConnect() {
+  wizardStep.value = 'qr';
+  const ok = await addAccount('', undefined); // displayName/proxy để trống — lấy tên thật sau QR
+  if (!ok) {
+    wizardStep.value = 'phone';
+    alert('Không tạo được nick. Thử lại.');
+    return;
+  }
+  // Nick vừa tạo là mới nhất → trigger QR login (socket cập qrImage/qrScanned ở composable).
+  const list = await api.get('/zalo-accounts');
+  const latest = list.data[list.data.length - 1];
+  if (latest) await loginAccount(latest.id);
+}
+
+function onWizardRetryQr() {
+  // Tạo QR mới cho nick đang chờ.
+  const id = (dash as any).currentLoginAccountId?.value;
+  if (id) loginAccount(id);
+}
+
+// Khi composable nhận 'zalo:connected' → showQRDialog chuyển false. Nếu wizard đang ở
+// bước QR → tự chuyển sang màn CHÚC MỪNG + reload danh sách (Anh chốt).
+watch(showQRDialog, async (open, was) => {
+  if (was && !open && wizardOpen.value && wizardStep.value === 'qr') {
+    if (scannedName.value) connectedNickName.value = scannedName.value;
+    wizardStep.value = 'done';
+    await refreshAll(); // refresh danh sách nick mới nhất
+  }
+});
+
+// ── Grid card (tab Đơn giản) handlers ──
+function onCardReconnect(account: any) {
+  const live = (account.liveStatus || account.status || '').toLowerCase();
+  if (live === 'qr_pending') {
+    // Session hết hạn / circuit breaker → cần quét QR lại: mở wizard thẳng bước QR.
+    wizardStep.value = 'qr';
+    wizardOpen.value = true;
+    connectedNickName.value = account.displayName ?? null;
+    loginAccount(account.id);
+  } else {
+    // Còn session → reconnect ngầm 1 chạm.
+    reconnectAccount(account.id);
+  }
+}
+function onConfirmDelete(account: any) {
+  // Xác nhận xóa MỀM (ẩn khỏi danh sách, giữ dữ liệu).
+  if (confirm(`Xóa nick "${account.displayName || account.phone || ''}" khỏi danh sách?\n(Dữ liệu hội thoại vẫn được giữ trong hệ thống.)`)) {
+    deleteAccount(account.id);
   }
 }
 

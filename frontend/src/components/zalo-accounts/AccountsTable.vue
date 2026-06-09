@@ -9,7 +9,6 @@
           <th>Nick Zalo</th>
           <th>Trạng thái</th>
           <th>Sale phụ trách (Owner)</th>
-          <th>Phòng ban</th>
           <th>Đội ngũ chia sẻ</th>
           <th class="th-sdk">
             SDK / Giới hạn hôm nay
@@ -18,7 +17,7 @@
           <th title="Tin nhắn GỬI ĐI cho người lạ hôm nay / giới hạn người lạ. Bạn bè + tin nhận KHÔNG tính.">Gửi người lạ</th>
           <th>Hôm nay <span class="th-hint">📥📤🤖🤝🔍</span></th>
           <th>Hoạt động 7d</th>
-          <th>Hoạt động cuối</th>
+          <th>Kết nối / Hoạt động</th>
           <th class="th-actions">Action</th>
         </tr>
       </thead>
@@ -26,7 +25,7 @@
         <template v-for="group in rowGroups" :key="group.key">
           <!-- Group header (chỉ hiện khi groupByDept=true) -->
           <tr v-if="groupByDept && group.label" class="group-row">
-            <td colspan="10">
+            <td colspan="12">
               <div class="group-head">
                 <span class="group-name">{{ group.label }}</span>
                 <span class="group-count">{{ group.accounts.length }} nick</span>
@@ -107,15 +106,6 @@
               <svg v-if="acct.canManage" class="owner-edit-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </div>
             <span v-else class="muted-italic">Chưa có owner</span>
-          </td>
-          <td>
-            <!-- Phòng ban của owner — Phase 4 2026-05-22 -->
-            <div v-if="acct.ownerDepartment" class="dept-cell">
-              <span class="dept-name">{{ acct.ownerDepartment.name }}</span>
-              <span v-if="acct.ownerDeptRole === 'leader'" class="dept-role leader">Trưởng phòng</span>
-              <span v-else-if="acct.ownerDeptRole === 'deputy'" class="dept-role deputy">Phó phòng</span>
-            </div>
-            <span v-else class="muted-italic">—</span>
           </td>
           <td>
             <!-- Đội ngũ chia sẻ (crew không gồm owner) -->
@@ -211,7 +201,15 @@
               />
             </span>
           </td>
-          <td>{{ relativeTime(acct.lastActivityAt) }}</td>
+          <td>
+            <!-- 2026-06-09: ngày giờ KẾT NỐI (lastConnectedAt) + hoạt động cuối (lastActivityAt) -->
+            <div class="conn-cell">
+              <div class="conn-at" :title="acct.lastConnectedAt ? 'Kết nối lúc: ' + fmtDateTime(acct.lastConnectedAt) : 'Chưa từng kết nối'">
+                <span class="conn-ic">🔗</span>{{ acct.lastConnectedAt ? fmtDateTime(acct.lastConnectedAt) : '—' }}
+              </div>
+              <div class="conn-act" title="Hoạt động cuối (có tin nhắn)">{{ relativeTime(acct.lastActivityAt) }}</div>
+            </div>
+          </td>
           <td class="td-actions" @click.stop>
             <!-- Actions gate theo canManage (owner-of-nick hoặc org admin) — anh chốt 2026-05-22 -->
             <template v-if="acct.canManage">
@@ -235,7 +233,7 @@
         </tr>
         </template>
         <tr v-if="!accounts.length">
-          <td colspan="10" class="empty-row">
+          <td colspan="12" class="empty-row">
             <div class="empty-msg">
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>
               <div>Không có nick nào khớp bộ lọc</div>
@@ -268,6 +266,17 @@ const props = defineProps<{
   //   limitFor(nickId, category) → daily limit để vẽ thanh quota X/cap.
   limitFor?: (nickId: string, category: string) => number;
 }>();
+
+// Ngày giờ kết nối — format ngắn giờ VN (Asia/Ho_Chi_Minh). VD: "09/06 15:42".
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    }).replace(',', '');
+  } catch { return '—'; }
+}
 
 // Thanh quota SDK: trả { pct, cls, used, cap } cho 1 nick + category.
 function sdkBar(acct: EnrichedAccount, category: string): { used: number; cap: number; pct: number; cls: string } {
@@ -652,6 +661,11 @@ tbody tr.alert:hover { background: #FFF5F5 }
 /* Department cell — Phase 4 2026-05-22 */
 .dept-cell { display: inline-flex; flex-direction: column; gap: 3px; }
 .dept-name { font-size: 12px; font-weight: 600; color: #1F2937; }
+/* 2026-06-09 — cột Kết nối / Hoạt động */
+.conn-cell { display: flex; flex-direction: column; gap: 2px; }
+.conn-at { font-size: 11.5px; color: #374151; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.conn-ic { font-size: 10px; }
+.conn-act { font-size: 10.5px; color: #9CA3AF; }
 .dept-role {
   font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 9999px;
   text-transform: uppercase; letter-spacing: 0.3px; width: max-content;
