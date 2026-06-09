@@ -22,8 +22,12 @@
         </RouterLink>
 
         <!-- Báo cáo dropdown — gộp Phân tích + Báo cáo (anh chốt 2026-05-28).
-             RBAC: chỉ hiện cho ai có engagement_score (Sale Senior trở lên). -->
-        <v-menu v-if="authStore.canAccess('engagement_score')" open-on-hover>
+             RBAC: chỉ hiện cho ai có engagement_score (Sale Senior trở lên).
+             2026-06-09 (anh báo menu bar kẹt không click được, phải F5): đổi
+             open-on-hover → CLICK + v-model điều khiển. Hover race + click item bị
+             chặn quyền làm overlay (z-index 2000) kẹt mở, phủ lên nav nuốt click.
+             router.afterEach đóng hết menu. -->
+        <v-menu v-if="authStore.canAccess('engagement_score')" v-model="reportsMenu" :close-on-content-click="true">
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isReportsActive }" v-bind="act">
               <v-icon icon="mdi-chart-box-outline" size="16" class="ic-svg" />Báo cáo<span class="caret">▾</span>
@@ -36,7 +40,7 @@
         </v-menu>
 
         <!-- Cài đặt dropdown -->
-        <v-menu open-on-hover>
+        <v-menu v-model="settingsMenu" :close-on-content-click="true">
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isSettingsActive }" v-bind="act">
               <v-icon icon="mdi-cog-outline" size="16" class="ic-svg" />Cài đặt<span class="caret">▾</span>
@@ -89,7 +93,7 @@
 
       <NotificationBell class="icon-btn-wrap" />
 
-      <v-menu>
+      <v-menu v-model="userMenu" :close-on-content-click="true">
         <template #activator="{ props: act }">
           <button class="user-avatar" v-bind="act" :title="authStore.user?.fullName || 'Tài khoản'">
             {{ initials }}
@@ -149,6 +153,20 @@ const theme = useTheme();
 const route = useRoute();
 const authStore = useAuthStore();
 const router = useRouter();
+
+// 2026-06-09 (anh báo menu bar kẹt, phải F5) — điều khiển dropdown nav bằng v-model
+// + ép đóng HẾT sau mỗi điều hướng (kể cả khi điều hướng bị huỷ/chặn quyền). Dropdown
+// Vuetify (z-index 2000) nếu kẹt mở sẽ phủ lên nav (z-index 100) nuốt click → đây là gốc lỗi.
+const reportsMenu = ref(false);
+const settingsMenu = ref(false);
+const userMenu = ref(false);
+function closeAllNavMenus() {
+  reportsMenu.value = false;
+  settingsMenu.value = false;
+  userMenu.value = false;
+}
+router.afterEach(() => closeAllNavMenus());
+router.onError(() => closeAllNavMenus());
 
 // Phase Internal Contact 2-method 2026-05-23 — banner cho sale chưa setup
 // Phase Onboarding v1 redesign 2026-05-24: ẨN banner khi đang ở Dashboard route

@@ -36,6 +36,18 @@
               @blur="saveEmail"
               @keyup.enter="saveEmail"
             />
+            <!-- 2026-06-09: cho phép sửa SĐT (anh báo không giải phóng được số trùng).
+                 Để trống = xoá số → giải phóng cho nhân viên khác dùng. -->
+            <label class="field-label">Số điện thoại</label>
+            <input
+              v-model="localPhone"
+              type="tel"
+              class="field-input"
+              placeholder="Để trống = xoá số (giải phóng cho người khác)"
+              :disabled="!canEditInfo || busy"
+              @blur="savePhone"
+              @keyup.enter="savePhone"
+            />
             <div class="info-status-row">
               <span class="role-tag" :class="user?.isActive ? 'role-deputy' : 'role-empty-tag'">
                 {{ user?.isActive ? '🟢 Đang hoạt động' : '⚪ Đã vô hiệu hóa' }}
@@ -229,6 +241,7 @@ const error = ref('');
 
 const localFullName = ref('');
 const localEmail = ref('');
+const localPhone = ref('');
 const deptIdLocal = ref<string>('');
 const deptRoleLocal = ref<'leader' | 'deputy' | 'member'>('member');
 const pgIdLocal = ref<string>('');
@@ -299,6 +312,7 @@ watch(
     if (!props.open || !props.user) return;
     localFullName.value = props.user.fullName ?? '';
     localEmail.value = props.user.email ?? '';
+    localPhone.value = (props.user as any).phone ?? '';
     deptIdLocal.value = props.user.departmentMember?.departmentId ?? '';
     deptRoleLocal.value = props.user.departmentMember?.deptRole ?? 'member';
     pgIdLocal.value = props.user.permissionGroupId ?? '';
@@ -352,6 +366,24 @@ async function saveEmail() {
   } catch (e: any) {
     error.value = e?.response?.data?.error || 'Lỗi đổi email';
     localEmail.value = props.user.email ?? '';
+  } finally {
+    busy.value = false;
+  }
+}
+
+// 2026-06-09 — sửa SĐT (để trống = xoá số, giải phóng cho user khác). BE check trùng.
+async function savePhone() {
+  if (!props.user || !canEditInfo.value) return;
+  const trimmed = localPhone.value.trim();
+  const current = (props.user as any).phone ?? '';
+  if (trimmed === current) return;
+  busy.value = true;
+  try {
+    await api.put(`/users/${props.user.id}`, { phone: trimmed || null });
+    emit('changed');
+  } catch (e: any) {
+    error.value = e?.response?.data?.error || e?.response?.data?.message || 'Lỗi đổi số điện thoại';
+    localPhone.value = current; // revert khi lỗi (vd trùng số)
   } finally {
     busy.value = false;
   }

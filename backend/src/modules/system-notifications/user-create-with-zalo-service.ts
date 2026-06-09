@@ -418,7 +418,9 @@ interface SendLoginParams {
 
 async function sendWelcomeAndFallback(p: SendLoginParams): Promise<CreateUserResult['zalo']> {
   const senderId = p.org.systemNotifyZaloAccountId;
-  const loginUrl = process.env.CRM_LOGIN_URL || 'https://crm.example.com';
+  // 2026-06-09 (anh chốt): domain thật là zalo.hsholding.vn (qua Cloudflare Tunnel),
+  // KHÔNG phải crm.example.com. Ưu tiên env CRM_LOGIN_URL, fallback đúng domain.
+  const loginUrl = process.env.CRM_LOGIN_URL || 'https://zalo.hsholding.vn';
 
   const variant: WelcomeVariant = p.finalRelation === 'friend' ? 'friend' : 'stranger';
   // Build text trước (không cần attachment ở builder nữa — em xử attachment riêng dưới)

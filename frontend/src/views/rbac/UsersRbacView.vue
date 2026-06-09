@@ -51,13 +51,24 @@
           {{ '— '.repeat(g._depth) }}{{ g.name }}
         </option>
       </select>
-      <select class="filter-select" v-model="filterStatus" @change="applyFilter">
-        <option value="all">Mọi trạng thái</option>
-        <option value="pending">🟡 Chưa kích hoạt</option>
-        <option value="active">🟢 Hoạt động</option>
-        <option value="silent">💤 Im lặng</option>
-        <option value="disabled">⚪ Vô hiệu</option>
-      </select>
+      <!-- 2026-06-09 (anh chốt): chip MULTI-SELECT — tích nhiều trạng thái xem cùng lúc.
+           Tách đúng 4 trạng thái. Mặc định 'Hoạt động'. "Tất cả" = bỏ chọn hết. -->
+      <div class="status-chips" role="group" aria-label="Lọc theo trạng thái">
+        <button
+          type="button"
+          class="status-chip"
+          :class="{ active: selectedStatuses.size === 0 }"
+          @click="clearStatusFilter()"
+        >Tất cả</button>
+        <button
+          v-for="opt in STATUS_CHIPS"
+          :key="opt.value"
+          type="button"
+          class="status-chip"
+          :class="{ active: selectedStatuses.has(opt.value) }"
+          @click="toggleStatus(opt.value)"
+        >{{ opt.label }}</button>
+      </div>
       <div class="at-toolbar-spacer"></div>
       <button class="filter-select toggle-email-btn" @click="showEmailColumn = !showEmailColumn" :title="showEmailColumn ? 'Ẩn cột email' : 'Hiện cột email'">
         {{ showEmailColumn ? '✉️ Ẩn email' : '✉️ Hiện email' }}
@@ -297,8 +308,25 @@ const showEmailColumn = ref<boolean>(localStorage.getItem('rbac.showEmailColumn'
 watch(showEmailColumn, (v) => localStorage.setItem('rbac.showEmailColumn', v ? '1' : '0'));
 const filterDept = ref('');
 const filterGroup = ref('');
-// Phase status 4-state 2026-05-27 — filter theo 4 status mới (pending/active/silent/disabled)
-const filterStatus = ref<'all' | 'pending' | 'active' | 'silent' | 'disabled'>('all');
+// 2026-06-09 (anh chốt) — bộ lọc trạng thái dạng chip MULTI-SELECT (tích nhiều cùng lúc):
+//   - Tách ĐÚNG 4 trạng thái (KHÔNG gom im lặng vào hoạt động).
+//   - Chọn ≥1 chip → xem nhiều trạng thái cùng lúc (vd Im lặng + Vô hiệu).
+//   - Mặc định = chỉ 'Hoạt động'. Bỏ chọn hết (chip "Tất cả") = hiện tất cả.
+const STATUS_CHIPS: Array<{ value: 'active' | 'silent' | 'pending' | 'disabled'; label: string }> = [
+  { value: 'active', label: '🟢 Hoạt động' },
+  { value: 'silent', label: '💤 Im lặng' },
+  { value: 'pending', label: '🟡 Chưa kích hoạt' },
+  { value: 'disabled', label: '⚪ Vô hiệu' },
+];
+const selectedStatuses = ref<Set<'active' | 'silent' | 'pending' | 'disabled'>>(new Set(['active'] as Array<'active'>));
+function toggleStatus(s: 'active' | 'silent' | 'pending' | 'disabled') {
+  const next = new Set(selectedStatuses.value);
+  if (next.has(s)) next.delete(s); else next.add(s);
+  selectedStatuses.value = next;
+}
+function clearStatusFilter() {
+  selectedStatuses.value = new Set();
+}
 
 const panelOpen = ref(false);
 const selectedUser = ref<RbacUser | null>(null);
@@ -348,7 +376,8 @@ const flatGroups = computed(() => {
 
 const filteredUsers = computed(() => {
   return store.users.filter((u) => {
-    if (filterStatus.value !== 'all' && computeStatusKey(u) !== filterStatus.value) return false;
+    // Multi-select: bỏ chọn hết = hiện tất cả; chọn ≥1 = chỉ hiện status thuộc tập đã chọn.
+    if (selectedStatuses.value.size > 0 && !selectedStatuses.value.has(computeStatusKey(u))) return false;
     return true;
   });
 });
@@ -523,6 +552,35 @@ function onboardingTooltip(s: OnboardingSummary): string {
   font-weight: 500;
   white-space: nowrap;
 }
+
+/* 2026-06-09 — bộ lọc trạng thái dạng chip bấm (multi-select, thay select dropdown) */
+.status-chips {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.status-chip {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #41454d;
+  background: #f0f1f3;
+  border: 1px solid transparent;
+  padding: 6px 13px;
+  border-radius: 9999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s;
+  font-family: inherit;
+}
+.status-chip:hover { background: #e4e6e9; }
+.status-chip.active {
+  background: var(--smax-primary-soft, #e4f1f8);
+  border-color: var(--smax-primary, #1786be);
+  color: var(--smax-primary, #1786be);
+  font-weight: 600;
+}
+.status-chip:focus-visible { outline: 2px solid var(--smax-primary, #1786be); outline-offset: 1px; }
 
 /* Airtable table */
 .at-table-wrap {

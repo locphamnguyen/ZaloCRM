@@ -13,6 +13,26 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  // FIX 2026-06-09 (anh báo Nhận khách/Chấp nhận kết bạn/AI lịch hẹn lỗi
+  // "Unsupported Media Type" 415): nhiều nút gọi api.post(url) KHÔNG truyền body.
+  // axios khi data=undefined sẽ không gắn Content-Type → Fastify (có
+  // @fastify/formbody) từ chối POST rỗng với 415. Đảm bảo mọi POST/PUT/PATCH
+  // luôn có body tối thiểu {} + Content-Type JSON. Sửa 1 chỗ, fix mọi nút.
+  const method = (config.method || 'get').toLowerCase();
+  if (method === 'post' || method === 'put' || method === 'patch') {
+    if (config.data === undefined || config.data === null) {
+      config.data = {};
+    }
+    // FormData / Blob giữ nguyên Content-Type do axios tự set (multipart).
+    const isFormLike =
+      (typeof FormData !== 'undefined' && config.data instanceof FormData) ||
+      (typeof Blob !== 'undefined' && config.data instanceof Blob);
+    if (!isFormLike && !config.headers['Content-Type']) {
+      config.headers['Content-Type'] = 'application/json';
+    }
+  }
+
   return config;
 });
 

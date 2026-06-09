@@ -447,23 +447,28 @@ export async function friendRoutes(app: FastifyInstance) {
           where: { zaloAccountId_zaloUidInNick: { zaloAccountId: accountId, zaloUidInNick: userId } },
           select: { contactId: true, friendshipStatus: true },
         });
-        if (convFriend?.contactId && convFriend.friendshipStatus !== 'pending_received') {
-          // Conv UID không phải pending → tìm pending sibling cùng contact + nick
+        // 2026-06-09 (anh báo "Tham số không hợp lệ"): nới resolve. UID từ URL có thể
+        // là UID friendship CŨ, không phải UID lời mời PENDING. Nếu UID gốc KHÔNG phải
+        // pending_received (gồm cả convFriend=null) → tìm pending sibling cùng nick để
+        // accept đúng. Trước fix chỉ resolve khi convFriend tồn tại → bỏ sót case null.
+        if (convFriend?.friendshipStatus !== 'pending_received') {
+          const contactId = convFriend?.contactId;
           const pendingSibling = await prisma.friend.findFirst({
             where: {
               zaloAccountId: accountId,
-              contactId: convFriend.contactId,
               friendshipStatus: 'pending_received',
               zaloUidInNick: { not: userId },
+              ...(contactId ? { contactId } : {}),
             },
-            select: { zaloUidInNick: true, id: true },
+            orderBy: { createdAt: 'desc' },
+            select: { zaloUidInNick: true, id: true, contactId: true },
           });
           if (pendingSibling?.zaloUidInNick) {
             acceptUid = pendingSibling.zaloUidInNick;
             resolvedFrom = userId;
             logger.info(`[friend-op] Resolved pending UID for accept`, {
               accountId, originalUid: userId, actualUid: acceptUid,
-              contactId: convFriend.contactId, siblingFriendId: pendingSibling.id,
+              contactId: pendingSibling.contactId, siblingFriendId: pendingSibling.id,
             });
           }
         }
@@ -508,10 +513,23 @@ export async function friendRoutes(app: FastifyInstance) {
             logger.error(`[friend-op] sendFriendRequest fallback also failed`, {
               accountId, acceptUid, err: sendErr?.message,
             });
-            throw sendErr;
+            // 2026-06-09: báo lỗi NGƯỜI DÙNG HIỂU thay vì "Tham số không hợp lệ".
+            return reply.status(409).send({
+              error: 'Không chấp nhận được lời mời này — có thể khách đã rút lời mời, đã là bạn, hoặc lời mời đã hết hạn. Anh/chị thử tải lại trang rồi kiểm tra lại.',
+              code: 'FRIEND_REQUEST_NOT_ACCEPTABLE',
+            });
           }
         }
-        throw acceptErr;
+        if (statusBefore?.is_friend) {
+          return reply.status(409).send({
+            error: 'Khách này đã là bạn bè rồi — không cần chấp nhận lại.',
+            code: 'ALREADY_FRIEND',
+          });
+        }
+        return reply.status(409).send({
+          error: 'Không chấp nhận được lời mời này — có thể khách đã rút lời mời hoặc lời mời đã hết hạn. Anh/chị thử tải lại trang.',
+          code: 'FRIEND_REQUEST_NOT_ACCEPTABLE',
+        });
       }
     } catch (err) {
       return handleError(reply, err, 'friend-op');

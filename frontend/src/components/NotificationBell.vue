@@ -1,5 +1,8 @@
 <template>
-  <v-menu offset-y :close-on-content-click="false" max-width="380">
+  <!-- 2026-06-09 (anh báo menu bar kẹt): v-model để đóng chủ động khi click thông báo
+       → điều hướng. Trước đây close-on-content-click=false + không đóng trong handleClick
+       làm menu (z-index 2000) kẹt mở phủ nav, nuốt click. -->
+  <v-menu v-model="bellMenu" offset-y :close-on-content-click="false" max-width="380">
     <template #activator="{ props: menuProps }">
       <v-btn icon variant="text" v-bind="menuProps" class="mr-1">
         <v-badge
@@ -54,6 +57,7 @@ interface Notification {
 
 const notifications = ref<Notification[]>([]);
 const router = useRouter();
+const bellMenu = ref(false); // 2026-06-09 — điều khiển đóng menu chủ động
 let interval: ReturnType<typeof setInterval>;
 
 async function fetchNotifications() {
@@ -66,6 +70,7 @@ async function fetchNotifications() {
 }
 
 function handleClick(n: Notification) {
+  bellMenu.value = false; // đóng menu TRƯỚC khi điều hướng → tránh overlay kẹt phủ nav
   if (n.id === 'unreplied') router.push('/chat');
   else if (n.id.startsWith('apt-')) router.push('/appointments');
   else if (n.id.startsWith('zalo-')) router.push('/zalo-accounts');

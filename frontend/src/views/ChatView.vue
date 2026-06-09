@@ -157,6 +157,41 @@ const authStore = useAuthStore();
 // ════════ Zalo accounts (for FilterRail nick picker) ════════
 const { accounts: zaloAccounts, fetchAccounts: fetchZaloAccounts } = useZaloAccounts();
 const selectedAccountIds = ref<string[]>([]);
+
+// 2026-06-09 (anh chốt) — NHỚ "Phạm vi xem" qua reload/tắt-mở tab. Lưu {folderId, accountId}
+// vào localStorage. Khôi phục lúc mount SAU khi fetchZaloAccounts (để validate quyền):
+// accountId đã lưu phải còn nằm trong danh sách nick accessible (zaloAccounts đã qua
+// getZaloScope ở BE) — nếu không còn quyền/nick bị gỡ thì BỎ, về ALL (tuân thủ scope nghiêm ngặt).
+const SCOPE_KEY = 'chat.scope.v1';
+function saveScope(folderId: string | null, accountId: string | null) {
+  try {
+    localStorage.setItem(SCOPE_KEY, JSON.stringify({ folderId, accountId }));
+  } catch { /* localStorage đầy/chặn → bỏ qua */ }
+}
+function loadScopeRaw(): { folderId: string | null; accountId: string | null } {
+  try {
+    const r = JSON.parse(localStorage.getItem(SCOPE_KEY) || '{}');
+    return { folderId: r.folderId ?? null, accountId: r.accountId ?? null };
+  } catch { return { folderId: null, accountId: null }; }
+}
+// Áp scope đã lưu vào state, CÓ validate quyền nick. Folder validate ở sidebar
+// (fetchFolders chỉ trả folder của user); accountId validate theo zaloAccounts accessible.
+function restoreScope() {
+  const saved = loadScopeRaw();
+  let invalid = false;
+  // Nick: chỉ khôi phục nếu còn trong quyền truy cập hiện tại.
+  if (saved.accountId) {
+    const stillAccessible = (zaloAccounts.value || []).some(a => a.id === saved.accountId);
+    accountFilter.value = stillAccessible ? saved.accountId : null;
+    if (!stillAccessible) { saved.folderId = null; invalid = true; } // nick mất quyền → bỏ luôn folder kèm
+  } else {
+    accountFilter.value = null;
+  }
+  // Folder: set vào inbox filter (sidebar tự bỏ nếu folder không tồn tại khi render).
+  inboxFilters.setFolder(saved.folderId);
+  // Nick đã lưu mất quyền → ghi đè localStorage về scope hợp lệ (giữ folder nếu còn).
+  if (invalid) saveScope(saved.folderId, accountFilter.value);
+}
 const currentAccount = computed(() => {
   if (!accountFilter.value) return null;
   return zaloAccounts.value.find(a => a.id === accountFilter.value) || null;
@@ -339,11 +374,13 @@ function onTyping() {
 }
 function onFilterAccount(id: string | null) {
   accountFilter.value = id;
+  saveScope(inboxFilters.state.folderId, id); // nhớ Phạm vi xem qua reload
   fetchConversations();
 }
 function onFolderViewApplied(payload: { folderId: string | null; accountId: string | null }) {
   inboxFilters.setFolder(payload.folderId);
   accountFilter.value = payload.accountId;
+  saveScope(payload.folderId, payload.accountId); // nhớ Phạm vi xem qua reload
   fetchConversations();
 }
 function onFiltersUpdate(params: Record<string, string>) {
@@ -429,6 +466,10 @@ function onLabelsSynced() {
 onMounted(async () => {
   if (!isMobile.value) {
     await fetchZaloAccounts();
+    // 2026-06-09 — khôi phục Phạm vi xem đã lưu (validate quyền nick) TRƯỚC khi fetch
+    // conversations, để lần đầu load đúng scope đã chọn thay vì ALL rồi mới đổi.
+    restoreScope();
+    extraFilters.value = inboxFilters.buildQueryParams();
     fetchConversations();
     fetchAiConfig();
     initSocket();

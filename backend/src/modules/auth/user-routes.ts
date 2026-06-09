@@ -124,7 +124,7 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.status(403).send({ error: 'Không có quyền' });
     }
 
-    const { fullName, email, role, teamId, isActive } = request.body as any;
+    const { fullName, email, phone: rawPhone, role, teamId, isActive } = request.body as any;
 
     if (id === currentUser.id && role && role !== currentUser.role) {
       return reply.status(400).send({ error: 'Không thể thay đổi role của chính mình' });
@@ -137,12 +137,35 @@ export async function userRoutes(app: FastifyInstance) {
     if (teamId !== undefined) updateData.teamId = teamId || null;
     if (isActive !== undefined && currentUser.role === 'owner') updateData.isActive = isActive;
 
+    // 2026-06-09 (anh báo "không sửa được SĐT nick cũ để giải phóng số"): cho phép
+    // owner/admin sửa SĐT user. Normalize 84xxx + check trùng với user KHÁC (loại
+    // trừ chính user đang sửa) để tránh Prisma P2002 thô. phone='' / null = xoá số.
+    if (rawPhone !== undefined && ['owner', 'admin'].includes(currentUser.role)) {
+      if (rawPhone === null || String(rawPhone).trim() === '') {
+        updateData.phone = null; // xoá SĐT → giải phóng số cho user khác
+      } else {
+        const normalizedPhone = normalizePhone(String(rawPhone));
+        if (!normalizedPhone) {
+          return reply.status(400).send({ error: 'Số điện thoại không hợp lệ' });
+        }
+        const dupPhone = await prisma.user.findUnique({ where: { phone: normalizedPhone } });
+        if (dupPhone && dupPhone.id !== id) {
+          return reply.status(409).send({
+            error: `Số điện thoại đã được dùng bởi nhân viên "${dupPhone.fullName}"${dupPhone.isActive ? '' : ' (đang vô hiệu)'}. Hãy xoá/đổi số của nhân viên đó trước, hoặc dùng số khác.`,
+            code: 'PHONE_TAKEN',
+          });
+        }
+        updateData.phone = normalizedPhone;
+      }
+    }
+
     const user = await prisma.user.update({
       where: { id, orgId: currentUser.orgId },
       data: updateData,
       select: {
         id: true,
         email: true,
+        phone: true,
         fullName: true,
         role: true,
         isActive: true,

@@ -443,7 +443,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h, type Component } from 'vue';
+import { ref, computed, onMounted, onUnmounted, h, type Component } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
 import { useDashboardActionHub, type PrivacySplit } from '@/composables/use-dashboard-action-hub';
@@ -607,15 +607,20 @@ onMounted(async () => {
   await hub.fetchAll();
   tempSelectedDepts.value = [...hub.selectedDeptIds.value];
 
-  // Close picker on outside click
-  document.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest('.dh-scope')) {
-      userPickerOpen.value = false;
-      deptPickerOpen.value = false;
-    }
-  });
+  // Close picker on outside click. 2026-06-09: tách handler + cleanup onUnmounted
+  // (trước đây arrow inline KHÔNG remove → leak listener cộng dồn mỗi lần vào /).
+  document.addEventListener('click', onOutsideClick);
 });
+onUnmounted(() => {
+  document.removeEventListener('click', onOutsideClick);
+});
+function onOutsideClick(e: MouseEvent) {
+  const target = e.target as HTMLElement;
+  if (!target.closest('.dh-scope')) {
+    userPickerOpen.value = false;
+    deptPickerOpen.value = false;
+  }
+}
 </script>
 
 <style scoped>
