@@ -5,6 +5,7 @@
  */
 import type { Appointment } from './use-appointments';
 import { APPOINTMENT_TYPE_OPTIONS, APPOINTMENT_STATUS_OPTIONS } from './use-appointments';
+import { orgDayKey, orgWallClockToUtc } from './use-org-timezone';
 
 // Re-export so component imports stay short
 export { APPOINTMENT_TYPE_OPTIONS, APPOINTMENT_STATUS_OPTIONS };
@@ -12,8 +13,15 @@ export { APPOINTMENT_TYPE_OPTIONS, APPOINTMENT_STATUS_OPTIONS };
 /**
  * Extended appointment fields that the backend may or may not populate yet.
  * UI degrades gracefully when absent.
+ *
+ * Lưu ý tên cột: BE (schema Appointment) dùng assignedUserId / assignedUser — KHÔNG
+ * phải assignedToId. Giữ alias assignedToId/assignedTo (legacy) phòng nơi khác đọc,
+ * nhưng appointmentOwnerId/Name ưu tiên tên cột THẬT (assignedUserId/assignedUser).
  */
 export interface AppointmentExtras {
+  assignedUserId?: string | null;
+  assignedUser?: { id: string; fullName: string | null } | null;
+  // Legacy aliases (giữ tương thích, không phải tên cột DB)
   assignedToId?: string | null;
   assignedTo?: { id: string; fullName: string | null; email: string } | null;
   durationMin?: number | null;
@@ -40,11 +48,18 @@ export function saleColor(userId: string | null | undefined): { bg: string; soft
 }
 
 export function appointmentOwnerId(a: AppointmentEx): string | null {
-  return a.assignedToId || a.statusChangedBy?.id || null;
+  // Ưu tiên tên cột THẬT (assignedUserId), fallback alias legacy + statusChangedBy.
+  return a.assignedUserId || a.assignedUser?.id || a.assignedToId || a.statusChangedBy?.id || null;
 }
 
 export function appointmentOwnerName(a: AppointmentEx): string {
-  return a.assignedTo?.fullName || a.statusChangedBy?.fullName || a.statusChangedBy?.email || 'Chưa gán';
+  return (
+    a.assignedUser?.fullName ||
+    a.assignedTo?.fullName ||
+    a.statusChangedBy?.fullName ||
+    a.statusChangedBy?.email ||
+    'Chưa gán'
+  );
 }
 
 export function typeIcon(type: string): string {
@@ -146,8 +161,20 @@ export function initials(name: string | null | undefined): string {
   return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** Trust `appointmentDate` (ISO with timezone) — never parse the legacy `appointmentTime` string. */
+/**
+ * FIX 2026-06-09 (Anh báo "auto 7h"): appointmentDate lưu NGÀY (timestamp 00:00 UTC),
+ * giờ THẬT nằm ở appointmentTime ("HH:mm" wall-clock org). Bản cũ chỉ `new Date(appointmentDate)`
+ * → bỏ giờ → mọi event dán cứng 07:00 (midnight UTC +7 ở giờ VN). Giờ GHÉP ngày (org-local
+ * day của appointmentDate) + appointmentTime → UTC instant đúng. Fallback: appointmentTime
+ * rỗng → giữ giờ nhúng trong appointmentDate (data cũ vài dòng có giờ trong cột date).
+ */
 export function appointmentStart(a: AppointmentEx): Date {
+  const dayKey = orgDayKey(a.appointmentDate);
+  const t = (a.appointmentTime || '').trim();
+  if (dayKey && t) {
+    const combined = orgWallClockToUtc(dayKey, t);
+    if (combined) return combined;
+  }
   return new Date(a.appointmentDate);
 }
 

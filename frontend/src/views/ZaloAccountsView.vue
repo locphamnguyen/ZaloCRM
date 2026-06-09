@@ -45,7 +45,7 @@
         </span>
       </button>
       <button
-        v-if="isAdmin"
+        v-if="canManageZalo"
         class="za-tab"
         :class="{ active: activeTab === 'internal-contact' }"
         @click="setTab('internal-contact')"
@@ -161,10 +161,10 @@
     <!-- Tab content: internal-contact (Phase Internal Contact 2-method 2026-05-23)
          Phase user-create-with-zalo 2026-05-27: ADMIN ONLY (sale không sửa nick nhận thông báo,
          admin sẽ sửa cho sale khi cần). Gate ở tab button + safeguard fallback nếu URL hack. -->
-    <template v-else-if="activeTab === 'internal-contact' && isAdmin">
+    <template v-else-if="activeTab === 'internal-contact' && canManageZalo">
       <InternalContactSetupPage />
     </template>
-    <template v-else-if="activeTab === 'internal-contact' && !isAdmin">
+    <template v-else-if="activeTab === 'internal-contact' && !canManageZalo">
       <div class="za-locked-tab">
         <div class="za-locked-icon">🔒</div>
         <h3>Chỉ admin có quyền sửa nick nhận thông báo</h3>
@@ -359,7 +359,9 @@ const lastRefreshLabel = computed(() => relativeTime(lastRefresh.value.toISOStri
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
-const isAdmin = computed(() => ['owner', 'admin'].includes(authStore.user?.role ?? 'member'));
+// RBAC 2026-06-08 — quản lý nick + sửa liên lạc nội bộ của sale theo grants 'zalo_account.edit'
+// (owner/admin tự bypass). Thay cho check legacy role.
+const canManageZalo = computed(() => authStore.canAccess('zalo_account', 'edit'));
 type TabKey = 'manage' | 'privacy' | 'internal-contact';
 const VALID_TABS: TabKey[] = ['manage', 'privacy', 'internal-contact'];
 const activeTab = ref<TabKey>(VALID_TABS.includes(route.query.tab as TabKey) ? (route.query.tab as TabKey) : 'manage');

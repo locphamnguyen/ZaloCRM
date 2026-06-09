@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireAnyGrant } from '../rbac/rbac-middleware.js';
+import { requireAnyGrant, requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
 import { runContactIntelligence } from './contact-intelligence.js';
@@ -30,7 +30,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // ── GET /api/v1/contacts — list with filters and pagination ───────────────
-  app.get('/api/v1/contacts', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/contacts', { preHandler: requireGrant('contact', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const {
@@ -1178,13 +1178,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       for (const tagName of added) {
         try {
-          await addCrmTag({
+          const res = await addCrmTag({
             contactId: id,
             tagName,
             source: 'manual_crm',
             addedBy: user.id,
             autoCreate: true,
           });
+          // CareSession 2026-06-07: gắn CRM tag → đóng phiên nếu ∈ closeConditions.
+          if (res?.tag?.id) {
+            const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+            await onTagAdded({ orgId: user.orgId, contactId: id, tagKind: 'crmTag', tagId: res.tag.id });
+          }
         } catch (err) {
           logger.warn('[PUT /contacts/:id/tags] addCrmTag fail %s: %s', tagName, (err as Error).message);
         }

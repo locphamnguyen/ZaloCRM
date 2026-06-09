@@ -64,12 +64,23 @@ export type TimeAxis =
   | 'crm-added'
   | 'last-inbound';
 
-export type AutoTagKey = 'hot' | 'active' | 'stuck' | 'cold';
+// 2026-06-08 — Khớp source of truth backend (scoring/types.ts AutoTagKey +
+// frontend constants/auto-tags.ts). Trước đây dùng 'hot' KHÔNG tồn tại trong DB
+// → nút Auto-tag "Hot" luôn ra rỗng. Bộ key thật: active/cooling/cold/frozen/
+// rewarmed/stuck/ready/atrisk/has-appointment.
+export type AutoTagKey =
+  | 'active' | 'cooling' | 'cold' | 'frozen' | 'rewarmed'
+  | 'stuck' | 'ready' | 'atrisk' | 'has-appointment';
 export type EngagementPatternKey = 'hot' | 'champion' | 'stable' | 'cooling' | 'cold';
 export type ScoreTier = 'cold' | 'warm' | 'hot' | 'champion' | null;
 export type StuckDuration = '>3d' | '>7d' | '>14d' | '>30d' | null;
 export type LastMessageWithin = '24h' | '7d' | '30d' | '>30d' | 'custom' | null;
 export type SaleAssigneeFilter = string | null | 'all' | 'unassigned';
+// 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3 (null = không lọc).
+//   unanswered  = tin cuối là khách, chưa ai trả lời
+//   bot_no_sale = sau lượt khách cuối chỉ có bot, chưa sale nào
+//   sale_replied= có tin sale thật sau lượt khách cuối
+export type MessageReplyState = 'unanswered' | 'bot_no_sale' | 'sale_replied' | null;
 
 export interface FilterState {
   folderId: string | null;
@@ -100,6 +111,8 @@ export interface FilterState {
   appointmentOverdue: boolean;
   // Phase 8 — Engagement heatmap patterns
   engagementPatterns: EngagementPatternKey[];
+  // 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3
+  messageReplyState: MessageReplyState;
 }
 
 // ─── Default state ──────────────────────────────────────────────────────
@@ -132,6 +145,7 @@ export function defaultFilterState(): FilterState {
     appointmentWithin24h: false,
     appointmentOverdue: false,
     engagementPatterns: [],
+    messageReplyState: null,
   };
 }
 
@@ -141,6 +155,9 @@ export function useInboxFilters() {
   const state = reactive<FilterState>(defaultFilterState());
   const folders = ref<AccountFolder[]>([]);
   const presets = ref<SavedFilterPreset[]>([]);
+  // 2026-06-08 — map statusId → tên Trạng thái KH, để chip footer hiện tên thật
+  // (state.stages chứa statusId). Sidebar set sau khi loadStatuses().
+  const stageNameMap = ref<Record<string, string>>({});
   const activePresetId = ref<string | null>(null);
   const loading = ref(false);
 
@@ -295,7 +312,9 @@ export function useInboxFilters() {
     if (state.timeTo) params.dateTo = state.timeTo;
 
     // ─── NEW Tier 1 deep CRM filter params ──────────────
-    if (state.autoTags.length > 0) params.autoTags = state.autoTags.join(',');
+    // 2026-06-08 — BE đọc key `autoTagsAny` (CSV), KHÔNG phải `autoTags`. Trước đây
+    // FE gửi sai tên → nút Auto-tag (Hot/Active/Stuck/Cold) sáng nhưng không lọc.
+    if (state.autoTags.length > 0) params.autoTagsAny = state.autoTags.join(',');
     if (state.scoreMin !== null) params.scoreMin = String(state.scoreMin);
     if (state.scoreMax !== null) params.scoreMax = String(state.scoreMax);
     if (state.scoreTier) params.scoreTier = state.scoreTier;
@@ -312,6 +331,8 @@ export function useInboxFilters() {
     if (state.engagementPatterns.length > 0) {
       params.engagementPattern = state.engagementPatterns.join(',');
     }
+    // 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot)
+    if (state.messageReplyState) params.messageReplyState = state.messageReplyState;
 
     return params;
   }
@@ -340,7 +361,8 @@ export function useInboxFilters() {
       state.birthdayWithin7d ||
       state.appointmentWithin24h ||
       state.appointmentOverdue ||
-      state.engagementPatterns.length > 0
+      state.engagementPatterns.length > 0 ||
+      state.messageReplyState !== null
     );
   });
 
@@ -367,11 +389,15 @@ export function useInboxFilters() {
         },
       });
     }
+    const AUTO_TAG_CHIP: Record<string, string> = {
+      active: '🔥 Hoạt động', ready: '💯 Sẵn sàng chốt', stuck: '⏰ Đình trệ',
+      cold: '🧊 Nguội', cooling: '❄️ Đang nguội', frozen: '🥶 Đóng băng',
+      rewarmed: '🔄 Ấm trở lại', atrisk: '🚧 Có nguy cơ', 'has-appointment': '📅 Có lịch hẹn',
+    };
     for (const at of state.autoTags) {
-      const icon = at === 'hot' ? '🔥' : at === 'active' ? '✅' : at === 'stuck' ? '⏸' : '❄️';
       chips.push({
         key: `auto:${at}`,
-        label: `${icon} ${at}`,
+        label: AUTO_TAG_CHIP[at] ?? at,
         remove: () => {
           state.autoTags = state.autoTags.filter(x => x !== at);
           activePresetId.value = null;
@@ -393,7 +419,7 @@ export function useInboxFilters() {
     for (const s of state.stages) {
       chips.push({
         key: `stage:${s}`,
-        label: s,
+        label: stageNameMap.value[s] ?? s,
         remove: () => {
           state.stages = state.stages.filter(x => x !== s);
           activePresetId.value = null;
@@ -472,6 +498,19 @@ export function useInboxFilters() {
         },
       });
     }
+    // 2026-06-09 — Nhóm "Tin nhắn" (user vs bot)
+    if (state.messageReplyState) {
+      const MSG_REPLY_LABELS: Record<NonNullable<MessageReplyState>, string> = {
+        unanswered: '✉️ Chưa trả lời',
+        bot_no_sale: '🤖 Bot trả lời (No Sale)',
+        sale_replied: '✅ Sale đã trả lời',
+      };
+      chips.push({
+        key: 'msg-reply',
+        label: MSG_REPLY_LABELS[state.messageReplyState],
+        remove: () => { state.messageReplyState = null; activePresetId.value = null; },
+      });
+    }
     return chips;
   });
 
@@ -480,6 +519,7 @@ export function useInboxFilters() {
     folders,
     presets,
     activePresetId,
+    stageNameMap,
     loading,
     hasActiveFilter,
     activeFilterChips,

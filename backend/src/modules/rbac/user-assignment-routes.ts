@@ -4,21 +4,11 @@
  * Endpoints cho admin gán user vào dept + permission group + list users (filter).
  * Dùng cho frontend Settings → Users page (mirror Getfly Quản lý người dùng).
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { seedDefaultPermissionGroups, migrateLegacyUsersToPermissionGroups } from './seed-default-groups.js';
-import { userHasGrant } from './permission-group-service.js';
-import type { Resource, Action } from './permission-types.js';
-
-function requireGrant(resource: Resource, action: Action) {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = (request as any).user;
-    if (!user) return reply.status(401).send({ error: 'unauthorized' });
-    const allowed = await userHasGrant(user.userId ?? user.id, resource, action);
-    if (!allowed) return reply.status(403).send({ error: `Forbidden: ${resource}.${action}` });
-  };
-}
+import { requireGrant } from './rbac-middleware.js';
 
 export async function registerUserAssignmentRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/rbac/users — list users với filter dept/group

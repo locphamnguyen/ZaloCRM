@@ -16,9 +16,9 @@
     <v-card class="bp-card" rounded="lg">
       <!-- Header -->
       <div class="bp-header">
-        <span class="bp-icon">📂</span>
+        <span class="bp-icon"><FolderOpenIcon :size="18" :stroke-width="2" /></span>
         <span class="bp-title">Chọn Khối để gửi</span>
-        <button class="bp-close" @click="emit('close')">✕</button>
+        <button class="bp-close" @click="emit('close')"><XIcon :size="18" :stroke-width="2" /></button>
       </div>
 
       <!-- Tabs -->
@@ -27,17 +27,17 @@
           class="bp-tab"
           :class="{ active: activeTab === 'recent' }"
           @click="activeTab = 'recent'"
-        >⚡ Gần đây <span class="bp-tab-badge">{{ recentBlocks.length }}</span></button>
+        ><ZapIcon :size="14" :stroke-width="2" /> Gần đây <span class="bp-tab-badge">{{ recentBlocks.length }}</span></button>
         <button
           class="bp-tab"
           :class="{ active: activeTab === 'all' }"
           @click="activeTab = 'all'"
-        >📋 Tất cả <span class="bp-tab-badge">{{ allBlocks.length }}</span></button>
+        ><LayoutListIcon :size="14" :stroke-width="2" /> Tất cả <span class="bp-tab-badge">{{ allBlocks.length }}</span></button>
       </div>
 
       <!-- Search -->
       <div class="bp-search">
-        <span class="bp-search-icon">🔍</span>
+        <span class="bp-search-icon"><SearchIcon :size="15" :stroke-width="2" /></span>
         <input
           ref="searchRef"
           v-model="searchQuery"
@@ -50,7 +50,7 @@
 
       <!-- Tag filter row -->
       <div v-if="availableTags.length > 0" class="bp-tag-row">
-        <span class="bp-tag-label">🏷</span>
+        <span class="bp-tag-label"><TagIcon :size="14" :stroke-width="2" /></span>
         <button
           v-for="tag in availableTags.slice(0, 8)"
           :key="tag"
@@ -59,7 +59,7 @@
           @click="toggleTag(tag)"
         >{{ tag }}</button>
         <span v-if="selectedTags.length > 0" class="bp-tag-status">
-          ✓ Đang lọc {{ selectedTags.length }} tag · {{ filtered.length }} Khối
+          <CheckIcon :size="13" :stroke-width="2.2" /> Đang lọc {{ selectedTags.length }} tag · {{ filtered.length }} Khối
         </span>
       </div>
 
@@ -70,10 +70,10 @@
           <div class="bp-empty-text">Đang tải Khối...</div>
         </div>
         <div v-else-if="loadError" class="bp-empty">
-          ⚠️ {{ loadError }}
+          <AlertTriangleIcon :size="28" :stroke-width="1.8" /> {{ loadError }}
         </div>
         <div v-else-if="filtered.length === 0" class="bp-empty">
-          📭
+          <InboxIcon :size="32" :stroke-width="1.6" />
           <div class="bp-empty-text">
             {{ allBlocks.length === 0 ? 'Chưa có Khối nào. Tạo tại /marketing/blocks.' : 'Không tìm thấy Khối phù hợp.' }}
           </div>
@@ -90,25 +90,26 @@
             <div class="bp-item-info">
               <div class="bp-item-name">{{ block.name }}</div>
               <div class="bp-item-meta">
-                <span v-if="block.folder?.visibility === 'private'" class="bp-vis private">🔒</span>
-                <span v-else class="bp-vis public">🔓</span>
+                <span v-if="block.folder?.visibility === 'private'" class="bp-vis private"><LockIcon :size="12" :stroke-width="2" /></span>
+                <span v-else class="bp-vis public"><UnlockIcon :size="12" :stroke-width="2" /></span>
                 {{ block.folder?.visibility === 'private' ? 'Riêng tư' : 'Công khai' }}
-                <span v-if="block.folder"> · 📁 {{ block.folder.name }}</span>
+                <span v-if="block.folder" class="bp-meta-seg"> · <FolderIcon :size="12" :stroke-width="2" /> {{ block.folder.name }}</span>
                 <span
                   v-for="tag in (block.tagIds || []).slice(0, 2)"
                   :key="tag"
                   class="bp-tag-mini"
                 >{{ tag }}</span>
-                <span v-if="variantCount(block) > 0"> · 🎲 {{ variantCount(block) }} biến thể</span>
+                <span v-if="variantCount(block) > 0" class="bp-meta-seg"> · <ShuffleIcon :size="12" :stroke-width="2" /> {{ variantCount(block) }} mẫu</span>
                 <span v-if="block.lastUsedAt"> · {{ timeAgo(block.lastUsedAt) }}</span>
               </div>
             </div>
             <div class="bp-item-actions">
               <button class="bp-btn-small" @click="onPreview(block)" title="Xem trước trước khi gửi">
-                👁 Xem trước
+                <EyeIcon :size="14" :stroke-width="2" /> Xem trước
               </button>
               <button class="bp-btn-small bp-btn-primary" :disabled="sendingId === block.id" @click="onSendDirect(block)" title="Gửi thẳng, bỏ qua xem trước">
-                {{ sendingId === block.id ? '⏳' : '📤' }} Gửi luôn
+                <Loader2Icon v-if="sendingId === block.id" class="bp-spin" :size="14" :stroke-width="2" />
+                <SendIcon v-else :size="14" :stroke-width="2" /> Gửi luôn
               </button>
             </div>
           </article>
@@ -117,7 +118,7 @@
 
       <!-- Footer -->
       <div class="bp-footer">
-        <span class="bp-hint">⌨️ ↑↓ chọn · Enter Xem trước · Esc đóng</span>
+        <span class="bp-hint"><kbd>↑↓</kbd> chọn · <kbd>Enter</kbd> Xem trước · <kbd>Esc</kbd> đóng</span>
       </div>
     </v-card>
   </v-dialog>
@@ -127,6 +128,25 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import { listBlocks, listRecentBlocks } from '@/api/automation/blocks';
 import type { Block } from '@/api/automation/types';
+// Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ emoji nút).
+import {
+  FolderOpen as FolderOpenIcon,
+  X as XIcon,
+  Zap as ZapIcon,
+  LayoutList as LayoutListIcon,
+  Search as SearchIcon,
+  Tag as TagIcon,
+  Check as CheckIcon,
+  Eye as EyeIcon,
+  Send as SendIcon,
+  Loader2 as Loader2Icon,
+  Inbox as InboxIcon,
+  AlertTriangle as AlertTriangleIcon,
+  Lock as LockIcon,
+  Unlock as UnlockIcon,
+  Folder as FolderIcon,
+  Shuffle as ShuffleIcon,
+} from 'lucide-vue-next';
 
 const props = defineProps<{
   visible: boolean;
@@ -518,4 +538,20 @@ function onKey(e: KeyboardEvent) {
   color: #9ca3af;
   text-align: center;
 }
+.bp-footer kbd {
+  font-family: ui-monospace, monospace; font-size: 10px;
+  background: #f1f2f4; border: 1px solid #d4d7dc; border-radius: 4px;
+  padding: 0 4px; color: #41454d;
+}
+
+/* Icon Lucide chrome — căn giữa với text, spin cho loading (2026-06-08). */
+.bp-btn-small { display: inline-flex; align-items: center; gap: 4px; }
+.bp-icon, .bp-close, .bp-tab, .bp-search-icon, .bp-tag-label, .bp-tag-status,
+.bp-vis, .bp-meta-seg { display: inline-flex; align-items: center; gap: 3px; }
+.bp-tab { gap: 5px; }
+.bp-header svg, .bp-close svg, .bp-tab svg, .bp-search-icon svg, .bp-tag-label svg,
+.bp-tag-status svg, .bp-vis svg, .bp-meta-seg svg, .bp-btn-small svg,
+.bp-empty svg { display: block; }
+.bp-spin { animation: bp-spin 0.8s linear infinite; }
+@keyframes bp-spin { to { transform: rotate(360deg); } }
 </style>

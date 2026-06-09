@@ -5,9 +5,10 @@ import { logger } from '../../shared/utils/logger.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { resolveSystemNotifyRecipient, sendSystemNotificationToUser } from './system-notify-service.js';
-import { DEFAULT_WELCOME_TEMPLATE, buildWelcomeMessage, validateTemplate } from './welcome-message-builder.js';
+import { DEFAULT_WELCOME_TEMPLATE, buildWelcomeMessage, validateTemplate, toZaloStyles } from './welcome-message-builder.js';
+import { formatMessage } from '../../shared/text-formatter.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
 
@@ -92,7 +93,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(
     '/api/v1/system-notifications/settings',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const [org, nicks] = await Promise.all([
@@ -120,7 +121,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/api/v1/system-notifications/settings/sender',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as { zaloAccountId?: string | null };
@@ -148,7 +149,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(
     '/api/v1/system-notifications/recipients',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const recipients = await listRecipientRows(currentUser.orgId);
@@ -162,7 +163,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(
     '/api/v1/system-notifications/recipients/health',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const recipients = await listRecipientRows(currentUser.orgId);
@@ -176,7 +177,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/v1/system-notifications/recipients/:userId/lookup-uid',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const { userId } = request.params as { userId: string };
@@ -308,7 +309,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/v1/system-notifications/test',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as { targetUserId?: string; title?: string; content?: string; priority?: 'low' | 'normal' | 'high' };
@@ -339,7 +340,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(
     '/api/v1/system-notifications/org-config',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const org = await prisma.organization.findUnique({
@@ -359,9 +360,28 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  // ── Compile RAW template → {text, styles} cho WYSIWYG editor (Atlas v3 2026-06-08) ──
+  // Khác preview-welcome: KHÔNG substitute placeholder ({{fullName}}...) — giữ nguyên literal
+  // để editor hiển thị đúng chữ "{{fullName}}" cho admin chèn/sửa. formatMessage compile
+  // markup (**đậm**, {red}, # tiêu đề, - bullet) → styles; toZaloStyles → mã Zalo (b/i/c_HEX/f_NN)
+  // mà RichTextEditor.applyRichPayload hiểu được. Trả cả compile của template default để Reset.
+  app.post(
+    '/api/v1/system-notifications/compile-template',
+    { preHandler: requireGrant('settings', 'access') },
+    async (request: FastifyRequest) => {
+      const body = (request.body ?? {}) as { template?: string };
+      const raw = typeof body.template === 'string' ? body.template : DEFAULT_WELCOME_TEMPLATE;
+      const formatted = formatMessage(raw);
+      return {
+        text: formatted.text,
+        styles: toZaloStyles(formatted.styles),
+      };
+    },
+  );
+
   app.patch(
     '/api/v1/system-notifications/org-config',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as {
@@ -418,7 +438,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/v1/system-notifications/welcome-image',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       try {
@@ -448,7 +468,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/v1/system-notifications/preview-welcome',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as {
@@ -490,7 +510,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
   // ════════════════════════════════════════════════════════════════════════
   app.get(
     '/api/v1/system-notifications/logs',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest) => {
       const currentUser = request.user!;
       const q = (request.query ?? {}) as {
@@ -609,7 +629,7 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/api/v1/system-notifications/logs/:id/retry',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const { id } = request.params as { id: string };

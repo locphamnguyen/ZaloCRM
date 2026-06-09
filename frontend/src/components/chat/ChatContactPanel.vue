@@ -40,14 +40,14 @@
         :class="{ active: activeTab === 'profile' }"
         @click="activeTab = 'profile'"
       >
-        <span class="ic">👤</span> Hồ sơ
+        <span class="ic"><UserIcon :size="15" :stroke-width="2" /></span> Hồ sơ
       </button>
       <button
         class="ip-tab"
         :class="{ active: activeTab === 'crm' }"
         @click="activeTab = 'crm'"
       >
-        <span class="ic">🎯</span> CRM
+        <span class="ic"><TargetIcon :size="15" :stroke-width="2" /></span> CRM
         <span v-if="crmBadgeCount" class="tab-badge">{{ crmBadgeCount }}</span>
       </button>
       <button
@@ -56,7 +56,7 @@
         data-fly-target="activity-tab"
         @click="activeTab = 'activity'"
       >
-        <span class="ic">📅</span> Lịch hẹn
+        <span class="ic"><CalendarClockIcon :size="15" :stroke-width="2" /></span> Lịch hẹn
         <span v-if="activityBadgeCount || pendingAptBump" class="tab-badge">{{ (activityBadgeCount ?? 0) + pendingAptBump }}</span>
       </button>
       <button
@@ -66,7 +66,7 @@
         :title="`Điểm KH: ${props.contact?.leadScore ?? 0}`"
         @click="activeTab = 'score'"
       >
-        <span class="ic">⭐</span> Điểm
+        <span class="ic"><StarIcon :size="15" :stroke-width="2" /></span> Điểm
         <span v-if="(props.contact?.leadScore ?? 0) > 0" class="tab-badge tab-badge-score">
           {{ props.contact?.leadScore }}
         </span>
@@ -472,14 +472,19 @@
     </template>
     <!-- /v-if mainTab=profile -->
 
-    <!-- ════════ TAB AUTOMATION (placeholder) ════════ -->
-    <div v-if="mainTab === 'automation'" class="main-tab-body">
-      <div class="main-tab-placeholder">
+    <!-- ════════ TAB AUTOMATION — danh sách Khối Marketing để gửi (2026-06-07) ════════ -->
+    <div v-if="mainTab === 'automation'" class="main-tab-body main-tab-body--no-padding">
+      <AutomationBlocksPanel
+        v-if="props.conversationId"
+        :conversation-id="props.conversationId"
+        :contact="props.contact"
+        :owner-nick-id="props.activeZaloAccountId"
+        :nick-name="props.activeZaloAccountName"
+      />
+      <div v-else class="main-tab-placeholder">
         <div class="mtp-icon">⚡</div>
         <h3>Automation</h3>
-        <p>Chọn block Marketing để gửi tin cho KH này.</p>
-        <div class="mtp-coming">🚧 Đang phát triển — kết nối Marketing blocks</div>
-        <a class="mtp-link" href="/marketing/blocks" target="_blank">→ Mở Marketing để xem blocks</a>
+        <p>Chưa chọn hội thoại để gửi Khối cho khách.</p>
       </div>
     </div>
 
@@ -499,6 +504,8 @@
         v-if="contact?.id"
         ref="automationCardListRef"
         :contact-id="contact.id"
+        :nick-id="props.activeZaloAccountId || null"
+        :nick-name="props.activeZaloAccountName || null"
         @add-flow="openAddFlowModal"
       />
       <div v-else class="main-tab-placeholder">
@@ -581,11 +588,19 @@ import AiSummaryCard from '@/components/ai/ai-summary-card.vue';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import AutomationCardList from './AutomationCardList.vue';
 import AddFlowModal from './AddFlowModal.vue';
+import AutomationBlocksPanel from './AutomationBlocksPanel.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import ContactDealStageSelector from '@/components/chat/ContactDealStageSelector.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
 import { api } from '@/api';
+// Icon top-tab — Lucide line (anh chốt 2026-06-08, đồng bộ bottom-tab SVG).
+import {
+  User as UserIcon,
+  Target as TargetIcon,
+  CalendarClock as CalendarClockIcon,
+  Star as StarIcon,
+} from 'lucide-vue-next';
 import CustomerTimelineSection from './CustomerTimelineSection.vue';
 import EngagementHeatmap from './EngagementHeatmap.vue';
 import ScoreBanner from './ScoreBanner.vue';
@@ -1389,7 +1404,8 @@ async function onRegenerateHandoff() {
   position: relative;
   transition: color 0.15s;
 }
-.ip-tab .ic { font-size: 13px; line-height: 1; }
+.ip-tab .ic { font-size: 13px; line-height: 1; display: inline-flex; align-items: center; }
+.ip-tab .ic > svg { display: block; }
 .ip-tab:hover { color: var(--smax-primary); background: var(--smax-grey-100); }
 .ip-tab.active {
   color: var(--smax-primary);

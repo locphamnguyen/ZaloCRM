@@ -133,11 +133,14 @@ export async function resolveOrCreateContact(input: ResolveContactInput): Promis
         enrichedAvatarUrl = enrichedAvatarUrl || ((profile.avatar as string | undefined)?.trim() || null);
         enrichedFullName = enrichedFullName || ((profile.zaloName || profile.displayName || '') as string).trim() || null;
         enrichedPhone = enrichedPhone || (String(profile.phoneNumber || '').trim() || null);
-        // Gender from getUserInfo (Zalo trả 0=female, 1=male per per-account UID memo)
+        // FIX 2026-06-08 (Anh báo + verify SDK live): Zalo SDK trả 0=NAM(male), 1=NỮ(female).
+        // Code cũ map NGƯỢC (0=female,1=male) → Phú Hoàng (SDK gender=0, verify NAM) bị ghi
+        // 'female'. Verify: GET /zalo-user-info/325149116391297339 → gender=0, là Phú=Nam.
+        // 4 file khác (lead-pool/zinstant/profile-operations/chat-routes) đã đúng 0=male.
         if (enrichedGender == null) {
           const g = profile.gender;
-          if (g === 0 || g === '0' || g === 'female') enrichedGender = 'female';
-          else if (g === 1 || g === '1' || g === 'male') enrichedGender = 'male';
+          if (g === 0 || g === '0' || g === 'male') enrichedGender = 'male';
+          else if (g === 1 || g === '1' || g === 'female') enrichedGender = 'female';
         }
         // Refresh phoneNormalized if we now have phone từ Zalo
         if (!phoneNormalized && enrichedPhone) {
@@ -214,7 +217,14 @@ export async function resolveOrCreateContact(input: ResolveContactInput): Promis
         NOW(),
         NOW()
       )
-      ON CONFLICT (org_id, phone_normalized) WHERE merged_into IS NULL
+      -- FIX 2026-06-08: WHERE phải KHỚP CHÍNH XÁC partial unique index
+      -- contacts_org_phone_normalized_alive_unique = (org_id, phone_normalized)
+      -- WHERE (merged_into IS NULL AND phone_normalized IS NOT NULL). Trước đây thiếu
+      -- "AND phone_normalized IS NOT NULL" → Postgres báo 42P10 "no unique constraint
+      -- matching ON CONFLICT" → INSERT throw MỌI LẦN cho KH chưa có contact → entry kẹt
+      -- processing → sweeper cứu 10 lần → failed_stuck. Đây là gốc throughput thấp +
+      -- "khách độc làm worker xoay vòng".
+      ON CONFLICT (org_id, phone_normalized) WHERE merged_into IS NULL AND phone_normalized IS NOT NULL
       DO NOTHING
       RETURNING id
     `;

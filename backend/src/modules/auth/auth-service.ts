@@ -181,6 +181,8 @@ export async function getProfile(userId: string) {
       onboardingDismissedAt: true,
       onboardingStepsCompleted: true,
       org: { select: { id: true, name: true, timezone: true } },
+      // RBAC enforce 2026-06-08 — trả grants để frontend biết user hiện tại được vào màn nào.
+      permissionGroup: { select: { id: true, name: true, grants: true, archivedAt: true } },
     },
   });
 
@@ -190,5 +192,17 @@ export async function getProfile(userId: string) {
     throw err;
   }
 
-  return user;
+  // Flatten grants cho frontend đọc trực tiếp qua canAccess(resource, action).
+  // Nhóm đã archive → coi như không có quyền (khớp logic userHasGrant).
+  const pg = user.permissionGroup && !user.permissionGroup.archivedAt ? user.permissionGroup : null;
+  const grants = (pg?.grants ?? {}) as Record<string, Record<string, boolean>>;
+  // owner + admin = toàn quyền (anh chốt 2026-06-08) — khớp fallback trong userHasGrant.
+  const isFullAccess = user.role === 'owner' || user.role === 'admin';
+
+  return {
+    ...user,
+    permissionGroup: pg ? { id: pg.id, name: pg.name, grants } : null,
+    grants,
+    isFullAccess,
+  };
 }

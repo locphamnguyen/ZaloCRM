@@ -2,7 +2,7 @@
  * permission-group-routes.ts — RBAC Phase Phân Quyền 2026-05-21
  * REST endpoints cho PermissionGroup CRUD + matrix update.
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import {
   getOrgPermissionGroups,
@@ -10,23 +10,14 @@ import {
   createPermissionGroup,
   updatePermissionGroup,
   archivePermissionGroup,
-  userHasGrant,
 } from './permission-group-service.js';
-import { RESOURCES, ACTIONS, RESOURCE_ACTIONS, type Resource, type Action } from './permission-types.js';
-
-// TEMP RBAC guard (D8 sẽ extract thành middleware chính thức)
-function requireGrant(resource: Resource, action: Action) {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = (request as any).user;
-    if (!user) return reply.status(401).send({ error: 'unauthorized' });
-    const allowed = await userHasGrant(user.userId ?? user.id, resource, action);
-    if (!allowed) return reply.status(403).send({ error: `Forbidden: ${resource}.${action}` });
-  };
-}
+import { RESOURCES, ACTIONS, RESOURCE_ACTIONS } from './permission-types.js';
+import { requireGrant } from './rbac-middleware.js';
 
 export async function registerPermissionGroupRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/permission-groups — full tree
-  app.get('/api/v1/permission-groups', { preHandler: authMiddleware }, async (request, reply) => {
+  // RBAC fix 2026-06-08: trước đây chỉ authMiddleware → sale xem được toàn bộ cấu hình phân quyền.
+  app.get('/api/v1/permission-groups', { preHandler: [authMiddleware, requireGrant('permission_group', 'access')] }, async (request, reply) => {
     const user = (request as any).user;
     if (!user) return reply.status(401).send({ error: 'unauthorized' });
     const tree = await getOrgPermissionGroups(user.orgId);
@@ -35,7 +26,7 @@ export async function registerPermissionGroupRoutes(app: FastifyInstance): Promi
 
   // GET /api/v1/permission-groups/meta — return matrix shape (resources + actions)
   // Dùng cho frontend render UI matrix
-  app.get('/api/v1/permission-groups/meta', { preHandler: authMiddleware }, async (request, reply) => {
+  app.get('/api/v1/permission-groups/meta', { preHandler: [authMiddleware, requireGrant('permission_group', 'access')] }, async (request, reply) => {
     const user = (request as any).user;
     if (!user) return reply.status(401).send({ error: 'unauthorized' });
     return reply.send({
@@ -46,7 +37,7 @@ export async function registerPermissionGroupRoutes(app: FastifyInstance): Promi
   });
 
   // GET /api/v1/permission-groups/:id
-  app.get('/api/v1/permission-groups/:id', { preHandler: authMiddleware }, async (request, reply) => {
+  app.get('/api/v1/permission-groups/:id', { preHandler: [authMiddleware, requireGrant('permission_group', 'access')] }, async (request, reply) => {
     const user = (request as any).user;
     if (!user) return reply.status(401).send({ error: 'unauthorized' });
     const { id } = request.params as { id: string };

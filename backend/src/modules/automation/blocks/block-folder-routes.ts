@@ -10,7 +10,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma, tenantTransaction } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 
 const BASE = '/api/v1/automation/block-folders';
@@ -42,8 +42,8 @@ export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
     return { folders };
   });
 
-  // Create folder
-  app.post(BASE, async (request: FastifyRequest, reply: FastifyReply) => {
+  // Create folder — RBAC 2026-06-09: cần grant block.create
+  app.post(BASE, { preHandler: requireGrant('block', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const body = request.body as Record<string, any>;
@@ -81,7 +81,7 @@ export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Update folder (rename / re-parent / change owner binding)
-  app.put(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put(`${BASE}/:id`, { preHandler: requireGrant('block', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -124,7 +124,7 @@ export async function blockFolderRoutes(app: FastifyInstance): Promise<void> {
 
   // Delete folder — only if empty (no blocks, no children).
   // Admin override via ?force=true cascades blocks to parentId.
-  app.delete(`${BASE}/:id`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:id`, { preHandler: requireGrant('block', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };

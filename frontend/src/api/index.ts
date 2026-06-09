@@ -82,6 +82,14 @@ api.interceptors.response.use(
 
     if (status === 401) {
       clearAuthAndRedirect();
+    } else if (status === 403) {
+      // RBAC enforce 2026-06-08 — backend từ chối quyền. Toast, KHÔNG redirect
+      // (403 có thể đến từ 1 widget phụ, không nên giật cả trang).
+      try {
+        useToast().error(error.response?.data?.error ?? 'Bạn không có quyền thực hiện thao tác này');
+      } catch (e) {
+        console.error('[api] 403 toast unavailable', e);
+      }
     } else if (status === 404) {
       // 404 thường là logic (entity không tồn tại) — chỉ log, không toast
       console.warn(`[api] 404 Not Found: ${url}`);

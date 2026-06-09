@@ -415,6 +415,19 @@ class ZaloAccountPool {
           reason: logReason,
         });
       }
+
+      // FIX 2026-06-08 (Anh chốt): nick vừa chuyển 'connected' → respawn nick-worker NGAY
+      // (không chờ sweeper 30s). Cốt cho trường hợp nick re-login sau restart server: bootstrap
+      // đã chạy lúc nick còn disconnected → bỏ sót; hook này bắt ngay khi nick online lại.
+      // Import động tránh import vòng zalo-pool ↔ nick-worker. Fire-and-forget, idempotent
+      // (startNickWorker skip nếu đã có worker / chỉ spawn nếu nick gắn trigger active).
+      if (status === 'connected') {
+        void import('../automation/friend-invite/nick-worker.js')
+          .then((m) => m.respawnNickWorkerIfActive(accountId, updated.orgId))
+          .catch((err) =>
+            logger.warn(`[zalo:${accountId}] respawn nick-worker on connect failed: ${String(err)}`),
+          );
+      }
     } catch (err) {
       logger.error(`[zalo:${accountId}] updateAccountDB error:`, err);
     }

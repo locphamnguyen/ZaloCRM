@@ -71,6 +71,7 @@ import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
 import { automationRoutes } from './modules/automation/automation-routes.js';
 import { templateRoutes } from './modules/automation/template-routes.js';
+import { templateFolderRoutes } from './modules/automation/template-folder-routes.js';
 // Phase 7 — Automation framework (Block / Sequence / Trigger / Broadcast)
 import { blockRoutes } from './modules/automation/blocks/block-routes.js';
 import { blockFolderRoutes } from './modules/automation/blocks/block-folder-routes.js';
@@ -80,6 +81,7 @@ import { registerBullBoardRoutes } from './modules/automation/queues/bull-board-
 import { registerManualControlRoutes } from './modules/automation/queues/manual-control-routes.js';
 import { triggerRoutes } from './modules/automation/triggers/trigger-routes.js';
 import { friendInviteRoutes } from './modules/automation/friend-invite/friend-invite-routes.js';
+import { careSessionRoutes } from './modules/automation/care-session/care-session-routes.js';
 import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
 import { startWelcomeProbeWorker, stopWelcomeProbeWorker } from './modules/automation/friend-invite/welcome-probe-worker.js';
 import { bootstrapFriendInviteWorkers, stopAllNickWorkers, setNickWorkerIO } from './modules/automation/friend-invite/nick-worker.js';
@@ -248,6 +250,7 @@ async function bootstrap() {
   await app.register(integrationRoutes);
   await app.register(automationRoutes);
   await app.register(templateRoutes);
+  await app.register(templateFolderRoutes);
   // Phase 7 — Block authoring layer (must register BEFORE sequence/trigger/broadcast in later phases)
   await app.register(blockRoutes);
   await app.register(blockFolderRoutes);
@@ -260,6 +263,8 @@ async function bootstrap() {
   await registerManualControlRoutes(app);
   await app.register(triggerRoutes);
   await app.register(friendInviteRoutes);
+  // CareSession (Phiên chăm sóc) 2026-06-07 — list/detail/close phiên
+  await app.register(careSessionRoutes);
   await app.register(broadcastRoutes);
   await app.register(automationWebhookRoutes);
   // Tệp khách hàng — CustomerList CRUD + entries + enrichment + event handlers
@@ -328,6 +333,12 @@ async function bootstrap() {
     // native app mà friend_event listener không bắt được (xem friend-sync-cron.ts)
     const { startFriendSyncCron } = await import('./modules/zalo/friend-sync-cron.js');
     startFriendSyncCron(io);
+    // Contact profile enrichment (3am daily) — kéo gender + ngày sinh KH từ Zalo getUserInfo
+    // cho KH đang trống. 24h/lần để tránh rate-limit (Anh chốt 2026-06-06).
+    if (config.nodeEnv !== 'test') {
+      const { startContactProfileSyncCron } = await import('./modules/contacts/contact-profile-sync-cron.js');
+      startContactProfileSyncCron();
+    }
     // Phase ZaloAccounts redesign 2026-05-22 — status log: backfill open records 1
     // lần lúc startup (idempotent), rồi start checkpoint cron (*/5 min) reconcile
     // orphan records sau crash. Uptime accuracy = 5p resolution.

@@ -138,14 +138,14 @@
         }"
         @click="onClick"
       >
-        <span class="lfb-icon">🎁</span>
+        <span class="lfb-icon"><GiftIcon :size="18" :stroke-width="2" /></span>
 
         <template v-if="btnMode === 'pending'">
           <span class="lfb-pending-info">
             <span class="lfb-pending-name">{{ pendingContactName }}</span>
             <span v-if="pendingPhone" class="lfb-pending-phone">{{ pendingPhone }}</span>
           </span>
-          <span class="lfb-pending-countdown">⏱ {{ expiresLabel }}</span>
+          <span class="lfb-pending-countdown"><TimerIcon :size="13" :stroke-width="2" /> {{ expiresLabel }}</span>
         </template>
 
         <template v-else-if="btnMode === 'cooldown'">
@@ -166,9 +166,12 @@
     </div>
 
     <div v-if="errorMessage" class="lfb-toast" @click="errorMessage = ''">
-      <span class="lfb-toast-icon">{{ errorIsInfo ? 'ℹ' : '⚠' }}</span>
+      <span class="lfb-toast-icon">
+        <InfoIcon v-if="errorIsInfo" :size="15" :stroke-width="2" />
+        <AlertTriangleIcon v-else :size="15" :stroke-width="2" />
+      </span>
       <div class="lfb-toast-body">{{ errorMessage }}</div>
-      <span class="lfb-toast-close">✕</span>
+      <span class="lfb-toast-close"><XIcon :size="14" :stroke-width="2" /></span>
     </div>
 
     <LeadRequestModal
@@ -201,6 +204,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, onUnmounted, Teleport, nextTick } from 'vue';
+// Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ emoji nút "Nhận khách").
+import {
+  Gift as GiftIcon,
+  Timer as TimerIcon,
+  Info as InfoIcon,
+  AlertTriangle as AlertTriangleIcon,
+  X as XIcon,
+} from 'lucide-vue-next';
 
 // 2026-06-01: prop `inline` chuyển anchor từ floating bottom-right → inline trong parent (sidebar).
 const props = defineProps<{ inline?: boolean }>();
@@ -706,7 +717,8 @@ watch(() => route.path, (path) => {
   50% { box-shadow: 0 8px 24px rgba(220, 38, 38, 0.55), 0 0 0 4px rgba(217, 119, 6, 0.3); }
 }
 
-.lfb-icon { font-size: 18px; flex-shrink: 0; }
+.lfb-icon { font-size: 18px; flex-shrink: 0; display: inline-flex; align-items: center; }
+.lfb-icon svg { display: block; }
 .lfb-text { letter-spacing: 0.02em; }
 .lfb-badge {
   background: rgba(255, 255, 255, 0.25);
@@ -755,7 +767,10 @@ watch(() => route.path, (path) => {
   cursor: pointer;
   animation: lfb-tip-in 0.18s ease-out;
 }
-.lfb-toast-icon { font-size: 16px; }
+.lfb-toast-icon { font-size: 16px; display: inline-flex; align-items: center; }
 .lfb-toast-body { flex: 1; font-size: 12.5px; color: #0F172A; line-height: 1.4; }
-.lfb-toast-close { font-size: 14px; color: #94A3B8; }
+.lfb-toast-close { font-size: 14px; color: #94A3B8; display: inline-flex; align-items: center; }
+/* Icon Lucide — căn giữa (2026-06-08). */
+.lfb-pending-countdown { display: inline-flex; align-items: center; gap: 3px; }
+.lfb-pending-countdown svg, .lfb-toast-icon svg, .lfb-toast-close svg { display: block; }
 </style>

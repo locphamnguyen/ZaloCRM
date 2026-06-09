@@ -148,6 +148,40 @@ export function nowInOrgTz(): Date {
 }
 
 /**
+ * Dựng Date (UTC instant THẬT) từ wall-clock org TZ: ngày "YYYY-MM-DD" + giờ "HH:mm".
+ * Ngược của getOrgParts — đọc lại bằng getOrgParts(result) sẽ ra đúng day/hour/minute đã truyền.
+ *
+ * Dùng cho lịch hẹn: appointmentDate lưu ngày (timestamp 00:00), appointmentTime lưu
+ * giờ thật dạng text "HH:mm" theo wall-clock org. Trước đây appointmentStart() chỉ
+ * `new Date(appointmentDate)` → bỏ giờ → mọi event dán cứng 07:00 (midnight UTC +7).
+ *
+ * @param dayKey  "YYYY-MM-DD" (org-local calendar day)
+ * @param hhmm    "HH:mm" (org-local wall-clock); rỗng/sai → coi như 00:00
+ */
+export function orgWallClockToUtc(
+  dayKey: string,
+  hhmm: string | null | undefined,
+  tz: string = orgTimezoneRef.value,
+): Date | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dayKey);
+  if (!dm) return null;
+  const y = parseInt(dm[1], 10);
+  const mo = parseInt(dm[2], 10); // 1-12
+  const d = parseInt(dm[3], 10);
+  let h = 0;
+  let mi = 0;
+  const tmatch = /^(\d{1,2}):(\d{2})/.exec((hhmm || '').trim());
+  if (tmatch) {
+    h = Math.min(23, parseInt(tmatch[1], 10) || 0);
+    mi = Math.min(59, parseInt(tmatch[2], 10) || 0);
+  }
+  const offsetMin = parseOffsetMinutes(tz);
+  // Wall-clock org → coi như UTC, rồi trừ offset để ra UTC instant thật.
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi, 0, 0);
+  return new Date(asUtc - offsetMin * 60_000);
+}
+
+/**
  * Composable cho component — exposes reactive orgTimezone + format helpers
  * (giữ closure binding với ref hiện tại để dùng trong template).
  */

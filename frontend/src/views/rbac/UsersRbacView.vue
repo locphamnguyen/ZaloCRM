@@ -6,11 +6,9 @@
         <p class="hero-sub">Quản lý người dùng tổ chức · Phân phòng ban · Gán nhóm quyền · Vô hiệu hóa khi nghỉ việc</p>
       </div>
       <div class="hero-right" v-if="canCreateUser">
+        <!-- 2026-06-07 anh chốt: DUY NHẤT 1 kênh tạo user qua Zalo (bỏ "Tạo nhanh"). -->
         <button class="btn-primary" @click="openCreateWithZaloDialog" title="Tạo nhân viên gộp Zalo handshake — tự gửi tin login qua Zalo">
-          <span class="btn-icon">＋</span> Thêm nhân viên (qua Zalo)
-        </button>
-        <button class="btn-secondary" @click="openCreateDialog" title="Tạo nhân viên thủ công — không tự gửi Zalo">
-          Tạo nhanh
+          <span class="btn-icon">＋</span> Thêm nhân viên
         </button>
       </div>
     </header>
@@ -75,7 +73,7 @@
       <div class="empty-icon">👥</div>
       <h3>Chưa có nhân viên nào</h3>
       <p>Bấm "Thêm nhân viên" ở góc phải trên để tạo tài khoản đầu tiên.</p>
-      <button v-if="canCreateUser" class="btn-primary mt-3" @click="openCreateDialog">
+      <button v-if="canCreateUser" class="btn-primary mt-3" @click="openCreateWithZaloDialog">
         <span class="btn-icon">＋</span> Thêm nhân viên đầu tiên
       </button>
     </div>
@@ -272,79 +270,6 @@
       @created="onCreatedWithZalo"
     />
 
-    <!-- Phase Onboarding v1 2026-05-24 — Create user dialog -->
-    <div v-if="createOpen" class="create-overlay" @click.self="closeCreateDialog">
-      <div class="create-dialog">
-        <header class="create-head">
-          <h2>＋ Thêm nhân viên mới</h2>
-          <button class="create-close" @click="closeCreateDialog">✕</button>
-        </header>
-
-        <form class="create-form" @submit.prevent="onCreateUser">
-          <label class="create-label">
-            Họ tên <span class="req">*</span>
-            <input v-model="newUser.fullName" type="text" required placeholder="Vd: Nguyễn Văn A" />
-          </label>
-
-          <label class="create-label">
-            Số điện thoại <span class="req">*</span>
-            <input v-model="newUser.phone" type="tel" required placeholder="vd: 0987 654 321 (sale sẽ dùng SĐT này để login)" />
-            <small class="hint">📱 Sale VN thường dùng SĐT đăng nhập. Đây là identifier chính.</small>
-          </label>
-
-          <label class="create-label">
-            Email (tuỳ chọn)
-            <input v-model="newUser.email" type="email" placeholder="Bỏ trống nếu sale không có email" />
-            <small class="hint">💡 Optional — chỉ điền nếu sale có email công ty.</small>
-          </label>
-
-          <label class="create-label">
-            Mật khẩu tạm <span class="req">*</span>
-            <div class="pw-row">
-              <input v-model="newUser.password" :type="showPw ? 'text' : 'password'" required placeholder="≥ 6 ký tự — sale sẽ bắt buộc đổi lần đầu" />
-              <button type="button" class="pw-toggle" @click="showPw = !showPw">{{ showPw ? '🙈' : '👁' }}</button>
-              <button type="button" class="pw-gen" @click="generatePassword" title="Sinh password ngẫu nhiên">🎲</button>
-            </div>
-            <small class="hint">💡 Sau khi nhận password, sale sẽ bị bắt đổi sang password riêng ngay lần login đầu tiên.</small>
-          </label>
-
-          <label class="create-label">
-            Vai trò
-            <select v-model="newUser.role">
-              <option value="member">Nhân viên (member)</option>
-              <option value="admin" v-if="currentUserRole === 'owner'">Admin</option>
-            </select>
-          </label>
-
-          <div v-if="createError" class="create-error">⚠ {{ createError }}</div>
-
-          <div class="create-actions">
-            <button type="button" class="btn-cancel" @click="closeCreateDialog" :disabled="creating">Hủy</button>
-            <button type="submit" class="btn-primary" :disabled="creating || !canSubmit">
-              <span v-if="creating">⏳ Đang tạo...</span>
-              <span v-else>Tạo nhân viên</span>
-            </button>
-          </div>
-        </form>
-
-        <div v-if="createdUserInfo" class="create-success">
-          <div class="cs-icon">✅</div>
-          <h3>Đã tạo nhân viên!</h3>
-          <p>Gửi thông tin này cho <strong>{{ createdUserInfo.fullName }}</strong>:</p>
-          <div class="cs-credentials">
-            <div class="cs-row"><span>Link đăng nhập:</span> <code>{{ loginUrl }}</code></div>
-            <div v-if="createdUserInfo.phone" class="cs-row"><span>Số điện thoại:</span> <code>{{ createdUserInfo.phone }}</code></div>
-            <div v-if="createdUserInfo.email" class="cs-row"><span>Email:</span> <code>{{ createdUserInfo.email }}</code></div>
-            <div class="cs-row"><span>Mật khẩu tạm:</span> <code>{{ createdUserInfo.password }}</code></div>
-          </div>
-          <p class="cs-note">💡 Sau khi login lần đầu, sale sẽ bị bắt đổi password riêng.</p>
-          <div class="cs-actions">
-            <button class="btn-cancel" @click="copyCredentials">📋 Copy thông tin</button>
-            <button class="btn-primary" @click="closeCreateDialog">Đóng</button>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -359,7 +284,6 @@ import {
   type OnboardingSummary,
 } from '@/stores/rbac';
 import { useAuthStore } from '@/stores/auth';
-import { api } from '@/api/index';
 import UserEditPanel from '@/components/rbac/UserEditPanel.vue';
 import CreateUserWithZaloModal from '@/components/users/CreateUserWithZaloModal.vue';
 
@@ -382,111 +306,13 @@ const selectedUser = ref<RbacUser | null>(null);
 const currentUserId = computed(() => authStore.user?.id ?? '');
 const currentUserRole = computed(() => authStore.user?.role ?? 'member');
 
-// Phase Onboarding v1 2026-05-24 — Create user dialog state
+// Phase user-create-with-zalo 2026-05-27 — DUY NHẤT 1 kênh tạo user (qua Zalo).
+// 2026-06-07 anh chốt: bỏ "Tạo nhanh" (POST /users) — credentials tổng hợp 1 text copy ở bước 3 modal.
 const canCreateUser = computed(() => ['owner', 'admin'].includes(currentUserRole.value));
-const createOpen = ref(false);
-// Phase user-create-with-zalo 2026-05-27 — modal mới gộp Zalo handshake
 const createWithZaloOpen = ref(false);
 function openCreateWithZaloDialog() { createWithZaloOpen.value = true; }
 async function onCreatedWithZalo() {
   await store.loadUsers();
-}
-const creating = ref(false);
-const createError = ref('');
-const showPw = ref(false);
-const createdUserInfo = ref<{ email: string | null; phone: string | null; fullName: string; password: string } | null>(null);
-const newUser = ref({
-  email: '',
-  phone: '',
-  fullName: '',
-  password: '',
-  role: 'member' as 'member' | 'admin',
-});
-const loginUrl = computed(() => window.location.origin + '/login');
-const canSubmit = computed(() =>
-  newUser.value.phone.trim() &&
-  newUser.value.fullName.trim() &&
-  newUser.value.password.length >= 6,
-);
-
-function openCreateDialog() {
-  newUser.value = { email: '', phone: '', fullName: '', password: '', role: 'member' };
-  createError.value = '';
-  createdUserInfo.value = null;
-  showPw.value = false;
-  createOpen.value = true;
-}
-
-function closeCreateDialog() {
-  if (creating.value) return;
-  createOpen.value = false;
-  // Refresh list nếu vừa tạo xong
-  if (createdUserInfo.value) {
-    void store.loadUsers();
-  }
-  createdUserInfo.value = null;
-}
-
-function generatePassword() {
-  // 8 ký tự: 1 hoa + 1 thường + 1 số + 5 random — sale sẽ bị đổi anyway
-  const upper = 'ABCDEFGHJKMNPQRSTUVWXYZ';
-  const lower = 'abcdefghijkmnpqrstuvwxyz';
-  const digit = '23456789';
-  const all = upper + lower + digit;
-  const rand = (s: string) => s[Math.floor(Math.random() * s.length)];
-  let pw = rand(upper) + rand(lower) + rand(digit);
-  for (let i = 0; i < 5; i++) pw += rand(all);
-  // Shuffle
-  newUser.value.password = pw.split('').sort(() => Math.random() - 0.5).join('');
-  showPw.value = true;
-}
-
-async function onCreateUser() {
-  if (!canSubmit.value) return;
-  creating.value = true;
-  createError.value = '';
-  try {
-    const emailTrim = newUser.value.email.trim().toLowerCase();
-    const phoneTrim = newUser.value.phone.trim();
-    await api.post('/users', {
-      email: emailTrim || undefined,
-      phone: phoneTrim || undefined,
-      fullName: newUser.value.fullName.trim(),
-      password: newUser.value.password,
-      role: newUser.value.role,
-    });
-    createdUserInfo.value = {
-      email: emailTrim || null,
-      phone: phoneTrim || null,
-      fullName: newUser.value.fullName.trim(),
-      password: newUser.value.password,
-    };
-  } catch (err: any) {
-    createError.value = err?.response?.data?.error || 'Tạo nhân viên thất bại';
-  } finally {
-    creating.value = false;
-  }
-}
-
-async function copyCredentials() {
-  if (!createdUserInfo.value) return;
-  const lines = [`Link đăng nhập: ${loginUrl.value}`];
-  if (createdUserInfo.value.phone) lines.push(`Số điện thoại: ${createdUserInfo.value.phone}`);
-  if (createdUserInfo.value.email) lines.push(`Email: ${createdUserInfo.value.email}`);
-  lines.push(`Mật khẩu tạm: ${createdUserInfo.value.password}`);
-  lines.push('');
-  lines.push('Sau khi login lần đầu, bạn sẽ được yêu cầu đổi mật khẩu sang mật khẩu riêng.');
-  const text = lines.join('\n');
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  }
 }
 
 onMounted(async () => {
@@ -663,7 +489,6 @@ function onboardingIcon(s: OnboardingSummary): string {
 const STEP_LABEL_VI: Record<string, string> = {
   change_password: 'Đổi mật khẩu',
   connect_nick: 'Kết nối nick Zalo',
-  internal_contact: 'Thiết lập nhận thông báo',
   pin: 'Đặt PIN bảo mật (tuỳ chọn)',
 };
 function onboardingTooltip(s: OnboardingSummary): string {

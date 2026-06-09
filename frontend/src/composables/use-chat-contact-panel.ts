@@ -104,11 +104,16 @@ export function useChatContactPanel(
 
   // Watch theo contact.id để repopulate form khi đổi sang KH khác.
   // KHÔNG re-populate khi cùng contact (giữ field user đang edit).
-  watch(() => getContact()?.id, () => {
+  watch(() => getContact()?.id, async () => {
     const c = getContact();
     if (!c) return;
-    populateForm(c);
+    populateForm(c);          // populate nhanh từ payload conversation (tránh nháy trống)
     fetchContactExtras(c.id);
+    // payload conversation (props.contact) CHỈ có field tối thiểu — THIẾU phonesExtra,
+    // phone2/3, gender, birthDate. Fetch bản đầy đủ rồi re-populate để cột 4 hiện đủ
+    // SĐT phụ + giới tính + ngày sinh (Anh báo trống 2026-06-06).
+    const full = await fetchContact(c.id);
+    if (full && full.id === getContact()?.id) populateForm(full);
   }, { immediate: true });
 
   // Sync narrow fields từ ngoài vào (cột 3 đổi status / tags → cột 4 update theo).

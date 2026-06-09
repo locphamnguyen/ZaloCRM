@@ -12,7 +12,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { zaloPool } from './zalo-pool.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -441,7 +441,7 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
   // ───────────────────────────────────────────────────────────────────
   app.post<{ Body: { ids: string[]; action: string } }>(
     '/api/v1/zalo-accounts/bulk-action',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('zalo_account', 'edit') },
     async (request, reply) => {
       const user = request.user!;
       const { ids, action } = request.body ?? { ids: [], action: '' };
@@ -538,7 +538,7 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
   // Body: { limits: { [category]: { daily, burst, burstWindowMs? } } }
   app.put(
     '/api/v1/zalo-accounts/sdk-limits/org',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('zalo_account', 'edit') },
     async (request, reply) => {
       const user = request.user!;
       const body = (request.body ?? {}) as { limits?: Record<string, { daily?: number; burst?: number; burstWindowMs?: number }> };
@@ -581,7 +581,7 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
   // Body: { limits: { [category]: { daily, burst, burstWindowMs? } | null } } (null = xoá override category đó)
   app.put(
     '/api/v1/zalo-accounts/:id/sdk-limits',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('zalo_account', 'edit') },
     async (request, reply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -622,7 +622,7 @@ export async function zaloDashboardRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /api/v1/zalo-accounts/:id/sdk-limits — xoá HẾT override của nick (về org default).
   app.delete(
     '/api/v1/zalo-accounts/:id/sdk-limits',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('zalo_account', 'delete') },
     async (request, reply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };

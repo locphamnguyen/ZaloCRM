@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { runSync } from './sync-engine.js';
 
 const VALID_TYPES = ['google_sheets', 'telegram', 'facebook', 'zapier'] as const;
@@ -35,7 +35,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /api/v1/integrations — create integration (admin+)
-  app.post('/api/v1/integrations', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/integrations', { preHandler: requireGrant('settings', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
       const { type, name, config: cfg, enabled } = request.body as {
@@ -57,7 +57,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // PUT /api/v1/integrations/:id — update integration (admin+)
-  app.put('/api/v1/integrations/:id', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put('/api/v1/integrations/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
       const { id } = request.params as { id: string };
@@ -84,7 +84,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // DELETE /api/v1/integrations/:id — remove integration (admin+)
-  app.delete('/api/v1/integrations/:id', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/api/v1/integrations/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
       const { id } = request.params as { id: string };
@@ -101,7 +101,7 @@ export async function integrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /api/v1/integrations/:id/sync — trigger manual sync (admin+)
-  app.post('/api/v1/integrations/:id/sync', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/integrations/:id/sync', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
       const { id } = request.params as { id: string };

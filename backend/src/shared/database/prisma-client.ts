@@ -28,6 +28,31 @@ function deriveContactPhoneNormalized<T extends Record<string, unknown>>(data: T
   return { ...data, phoneNormalized: normalizePhone(phoneVal) };
 }
 
+/**
+ * Lọc NULL byte (\u0000) khỏi mọi chuỗi trong write payload.
+ * 2026-06-09: khách Zalo gửi tin chứa 0x00 → Postgres ném "invalid byte sequence
+ * for encoding UTF8: 0x00" → tin MẤT khỏi CRM. Postgres TEXT không lưu được 0x00.
+ * Áp ở tầng client (mọi model, mọi write) để không sót call site nào.
+ * Đệ quy qua object/array; giữ nguyên Date/Buffer (chỉ chạm string thuần).
+ */
+function stripNullBytes<T>(value: T, depth = 0): T {
+  if (depth > 8) return value; // chặn đệ quy sâu bất thường
+  if (typeof value === 'string') {
+    return (value.includes('\u0000') ? value.replace(/\u0000/g, '') : value) as T;
+  }
+  if (!value || typeof value !== 'object') return value;
+  if (value instanceof Date) return value;
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value;
+  if (Array.isArray(value)) {
+    return value.map((v) => stripNullBytes(v, depth + 1)) as unknown as T;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = stripNullBytes(v, depth + 1);
+  }
+  return out as T;
+}
+
 function createPrismaClient() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -45,6 +70,22 @@ function createPrismaClient() {
   });
 
   return base.$extends({
+    // Lưới chặn NULL byte cho MỌI model + MỌI thao tác ghi. Chạy trước extension khác.
+    name: 'strip-null-bytes',
+    query: {
+      $allModels: {
+        async $allOperations({ args, query }) {
+          const a = args as Record<string, unknown>;
+          if (a && typeof a === 'object') {
+            if ('data' in a) a.data = stripNullBytes(a.data);
+            if ('create' in a) a.create = stripNullBytes(a.create);
+            if ('update' in a) a.update = stripNullBytes(a.update);
+          }
+          return query(args);
+        },
+      },
+    },
+  }).$extends({
     name: 'contact-phone-normalize',
     query: {
       contact: {

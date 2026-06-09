@@ -12,7 +12,7 @@
       <!-- Primary nav tabs -->
       <nav class="nav-tabs">
         <RouterLink
-          v-for="tab in primaryTabs"
+          v-for="tab in visiblePrimaryTabs"
           :key="tab.path"
           :to="tab.path"
           class="nav-tab"
@@ -21,8 +21,9 @@
           <v-icon :icon="tab.icon" size="16" class="ic-svg" />{{ tab.label }}
         </RouterLink>
 
-        <!-- Báo cáo dropdown — gộp Phân tích + Báo cáo (anh chốt 2026-05-28) -->
-        <v-menu open-on-hover>
+        <!-- Báo cáo dropdown — gộp Phân tích + Báo cáo (anh chốt 2026-05-28).
+             RBAC: chỉ hiện cho ai có engagement_score (Sale Senior trở lên). -->
+        <v-menu v-if="authStore.canAccess('engagement_score')" open-on-hover>
           <template #activator="{ props: act }">
             <button class="nav-tab" :class="{ active: isReportsActive }" v-bind="act">
               <v-icon icon="mdi-chart-box-outline" size="16" class="ic-svg" />Báo cáo<span class="caret">▾</span>
@@ -43,19 +44,26 @@
           </template>
           <v-list density="compact" min-width="240">
             <v-list-item to="/settings/personal/profile" title="Hồ sơ của tôi" prepend-icon="mdi-account-circle-outline" />
-            <v-divider />
-            <v-list-subheader>Tổ chức &amp; Nhân sự</v-list-subheader>
-            <v-list-item to="/settings/team/users" title="Nhân viên" prepend-icon="mdi-account-cog-outline" />
-            <v-list-item to="/settings/team/teams" title="Đội nhóm" prepend-icon="mdi-account-group-outline" />
-            <v-list-item to="/settings/team/roles" title="Vai trò &amp; Phân quyền" prepend-icon="mdi-shield-account-outline" />
-            <v-divider />
-            <v-list-subheader>CRM &amp; Kênh</v-list-subheader>
-            <v-list-item to="/settings/crm/tags" title="Tag CRM" prepend-icon="mdi-tag-multiple-outline" />
-            <v-list-item to="/settings/crm/scoring" title="Lead scoring" prepend-icon="mdi-chart-line" />
-            <v-list-item to="/settings/channels/zalo" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-link" />
-            <v-list-item to="/settings/channels/integrations" title="Tích hợp" prepend-icon="mdi-connection" />
-            <v-divider />
-            <v-list-item to="/settings/dev/api" title="API &amp; Webhook" prepend-icon="mdi-api" />
+            <!-- RBAC 2026-06-08 — lọc per-item theo grants; subheader/divider chỉ hiện khi nhóm còn item con. -->
+            <template v-if="showOrgGroup">
+              <v-divider />
+              <v-list-subheader>Tổ chức &amp; Nhân sự</v-list-subheader>
+              <v-list-item v-if="authStore.canAccess('user')" to="/settings/team/users" title="Nhân viên" prepend-icon="mdi-account-cog-outline" />
+              <v-list-item v-if="authStore.canAccess('department')" to="/settings/team/teams" title="Đội nhóm" prepend-icon="mdi-account-group-outline" />
+              <v-list-item v-if="authStore.canAccess('permission_group')" to="/settings/team/roles" title="Vai trò &amp; Phân quyền" prepend-icon="mdi-shield-account-outline" />
+            </template>
+            <template v-if="showCrmGroup">
+              <v-divider />
+              <v-list-subheader>CRM &amp; Kênh</v-list-subheader>
+              <v-list-item v-if="authStore.canAccess('settings')" to="/settings/crm/tags" title="Tag CRM" prepend-icon="mdi-tag-multiple-outline" />
+              <v-list-item v-if="authStore.canAccess('settings')" to="/settings/crm/scoring" title="Lead scoring" prepend-icon="mdi-chart-line" />
+              <v-list-item v-if="authStore.canAccess('zalo_account')" to="/settings/channels/zalo" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-link" />
+              <v-list-item v-if="authStore.canAccess('settings')" to="/settings/channels/integrations" title="Tích hợp" prepend-icon="mdi-connection" />
+            </template>
+            <template v-if="authStore.canAccess('webhook')">
+              <v-divider />
+              <v-list-item to="/settings/dev/api" title="API &amp; Webhook" prepend-icon="mdi-api" />
+            </template>
             <v-divider />
             <v-list-item to="/settings" title="Xem tất cả cài đặt" prepend-icon="mdi-cog-outline" />
           </v-list>
@@ -136,7 +144,7 @@ import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 // 2026-06-04: gỡ MiniOnboardingIndicator (Anh chốt code lại setup 4 bước sau)
 // LeadFloatingButton moved to ConversationFilterSidebar 2026-06-01
-import { api } from '@/api/index';
+// 2026-06-08: gỡ import api — banner "BỎ LỠ thông báo" đã tắt (checkInternalContactSetup no-op).
 const theme = useTheme();
 const route = useRoute();
 const authStore = useAuthStore();
@@ -153,15 +161,21 @@ const showInternalContactBanner = computed(() => {
   return _showICBannerRaw.value;
 });
 async function checkInternalContactSetup() {
-  if (!authStore.user) return;
-  const dismissedUntil = Number(localStorage.getItem(IC_BANNER_DISMISS_KEY) || '0');
-  if (dismissedUntil > Date.now()) return;
-  try {
-    const { data } = await api.get('/me/internal-contact');
-    if (!data.method || data.recipient?.status !== 'ready') {
-      _showICBannerRaw.value = true;
-    }
-  } catch { /* silent */ }
+  // 2026-06-08 (Anh chốt): TẮT banner "Bạn đang BỎ LỠ thông báo quan trọng từ CRM".
+  // Lý do: giờ user được tạo bằng SĐT đã verify có Zalo 100% (wizard create-with-zalo),
+  // recipient.threadIdInSenderView được điền sẵn lúc tạo → không cần nhắc sale tự vào
+  // Cài đặt thiết lập nick liên lạc nội bộ nữa. Giữ lại logic bên dưới (comment) để dễ
+  // bật lại nếu sau này cần.
+  return;
+  // if (!authStore.user) return;
+  // const dismissedUntil = Number(localStorage.getItem(IC_BANNER_DISMISS_KEY) || '0');
+  // if (dismissedUntil > Date.now()) return;
+  // try {
+  //   const { data } = await api.get('/me/internal-contact');
+  //   if (!data.method || data.recipient?.status !== 'ready') {
+  //     _showICBannerRaw.value = true;
+  //   }
+  // } catch { /* silent */ }
 }
 function goSetupInternalContact() {
   _showICBannerRaw.value = false;
@@ -189,6 +203,8 @@ interface NavTab {
   label: string;
   icon: string;
   matchPrefix?: string;
+  // RBAC 2026-06-08 — resource cần để thấy tab. Không có resource = luôn hiện.
+  resource?: string;
 }
 
 // HD-first redesign 2026-05-28 (anh chốt Variant A): 7 primary tabs + 2 dropdown.
@@ -197,12 +213,48 @@ interface NavTab {
 // Icons MDI line stroke-2 (mdi-*-outline) thay emoji để nhất quán + đổi màu theo theme.
 const primaryTabs: NavTab[] = [
   { path: '/',                       label: 'Dashboard',   icon: 'mdi-view-dashboard-outline', matchPrefix: '/$' },
-  { path: '/chat',                   label: 'Tin nhắn',    icon: 'mdi-message-text-outline' },
-  { path: '/friends',                label: 'Bạn bè',      icon: 'mdi-account-multiple-outline' },
-  { path: '/contacts',               label: 'Khách hàng',  icon: 'mdi-account-outline' },
+  { path: '/chat',                   label: 'Tin nhắn',    icon: 'mdi-message-text-outline', resource: 'conversation' },
+  { path: '/friends',                label: 'Bạn bè',      icon: 'mdi-account-multiple-outline', resource: 'friend' },
+  { path: '/contacts',               label: 'Khách hàng',  icon: 'mdi-account-outline', resource: 'contact' },
   { path: '/appointments',           label: 'Lịch hẹn',    icon: 'mdi-calendar-outline' },
-  { path: '/marketing/triggers',     label: 'Marketing',   icon: 'mdi-bullhorn-outline', matchPrefix: '/marketing' },
 ];
+
+// RBAC 2026-06-09 — tab Marketing là module gồm nhiều chức năng. Hiện nếu user có
+// quyền BẤT KỲ chức năng nào, và trỏ tới chức năng ĐẦU TIÊN user có quyền (vd Sale
+// chỉ có Khối → tab Marketing trỏ thẳng /marketing/blocks). Thứ tự = thứ tự sidebar.
+const MARKETING_FUNCTIONS: Array<{ path: string; resource: string }> = [
+  { path: '/marketing/triggers',     resource: 'trigger' },
+  { path: '/marketing/care-sessions',resource: 'care_session' },
+  { path: '/marketing/sequences',    resource: 'sequence' },
+  { path: '/marketing/blocks',       resource: 'block' },
+  { path: '/marketing/broadcasts',   resource: 'broadcast' },
+  { path: '/marketing/lists',        resource: 'customer_list' },
+];
+const marketingEntry = computed(() =>
+  MARKETING_FUNCTIONS.find((f) => authStore.canAccess(f.resource))?.path ?? null,
+);
+
+// RBAC 2026-06-08 — chỉ hiện tab user có quyền (Dashboard + Lịch hẹn luôn hiện).
+const visiblePrimaryTabs = computed(() => {
+  const tabs = primaryTabs.filter((t) => !t.resource || authStore.canAccess(t.resource));
+  // Chèn tab Marketing nếu user có quyền ít nhất 1 chức năng Marketing.
+  if (marketingEntry.value) {
+    tabs.push({
+      path: marketingEntry.value,
+      label: 'Marketing',
+      icon: 'mdi-bullhorn-outline',
+      matchPrefix: '/marketing',
+    });
+  }
+  return tabs;
+});
+// Subheader nhóm trong dropdown Cài đặt chỉ hiện khi còn item con — tránh subheader mồ côi.
+const showOrgGroup = computed(
+  () => authStore.canAccess('user') || authStore.canAccess('department') || authStore.canAccess('permission_group'),
+);
+const showCrmGroup = computed(
+  () => authStore.canAccess('settings') || authStore.canAccess('zalo_account'),
+);
 
 function isActive(tab: NavTab): boolean {
   if (tab.matchPrefix === '/$') return route.path === '/';

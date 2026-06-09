@@ -8,7 +8,7 @@
     location="top"
   >
     <template #activator="{ props: act }">
-      <button class="icon-tool emoji-trigger" v-bind="act" title="Emoji">😊</button>
+      <button class="icon-tool emoji-trigger" v-bind="act" title="Emoji"><SmileIcon :size="18" :stroke-width="1.5" /></button>
     </template>
     <v-card class="emoji-card pa-2">
       <!-- Category tabs -->
@@ -38,6 +38,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import { Smile as SmileIcon } from 'lucide-vue-next';
 
 const emit = defineEmits<{ pick: [emoji: string] }>();
 

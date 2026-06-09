@@ -5,7 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { zaloPool } from './zalo-pool.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
@@ -16,7 +16,7 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
   // Sync all friends from a Zalo account to contacts
-  app.post('/api/v1/zalo-accounts/:id/sync-contacts', { preHandler: requireRole('owner', 'admin') },
+  app.post('/api/v1/zalo-accounts/:id/sync-contacts', { preHandler: requireGrant('zalo_account', 'edit') },
     async (request, reply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -70,7 +70,7 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
   );
 
   // Sync group history from Zalo (manual trigger for fresh accounts / re-sync)
-  app.post('/api/v1/zalo-accounts/:id/sync-history', { preHandler: requireRole('owner', 'admin') },
+  app.post('/api/v1/zalo-accounts/:id/sync-history', { preHandler: requireGrant('zalo_account', 'edit') },
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const instance = zaloPool.getInstance(id);

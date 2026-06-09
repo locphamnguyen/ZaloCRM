@@ -28,6 +28,10 @@ import {
   isFriendInviteSegmentSpec,
 } from '../friend-invite/skip-precompute.js';
 import { startNickWorker } from '../friend-invite/nick-worker.js';
+import {
+  sweepSilentCareSessions,
+  reconcileMissingSequenceStart,
+} from '../care-session/care-session-service.js';
 
 const TZ = 'Asia/Ho_Chi_Minh';
 
@@ -41,6 +45,9 @@ let eventLogCleanupJob: ReturnType<typeof cron.schedule> | null = null;
 let scheduledTriggerJob: ReturnType<typeof cron.schedule> | null = null;
 // P2 Wave 4 2026-06-03 — Tạm dừng có TTL → cron auto-resume mỗi 1 phút.
 let pausedUntilSweepJob: ReturnType<typeof cron.schedule> | null = null;
+// CareSession 2026-06-07 (T6) — janitor đóng phiên im-lặng (5 phút) + reconcile (2 phút).
+let careSessionJanitorJob: ReturnType<typeof cron.schedule> | null = null;
+let careSessionReconcileJob: ReturnType<typeof cron.schedule> | null = null;
 let isStarted = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -91,7 +98,26 @@ export async function startCronEventScheduler(): Promise<void> {
   );
   logger.info('[cron-scheduler] paused-until sweeper registered (every 1 min ' + TZ + ')');
 
-  logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + paused-until-sweeper + ' + cronJobs.size + ' scheduled_cron triggers');
+  // CareSession 2026-06-07 (T6) — Janitor đóng phiên im-lặng quá hạn (mỗi 5 phút,
+  // đủ — im lặng 7 ngày không cần độ chính xác phút). Set-based UPDATE + isRunning
+  // guard nội bộ chống overlap. D5: tải thật ~1-2k phiên, không cần batch.
+  careSessionJanitorJob = cron.schedule(
+    '*/5 * * * *',
+    () => { void sweepSilentCareSessions(); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] care-session janitor registered (every 5 min ' + TZ + ')');
+
+  // CareSession reconcile (D2): phiên active chưa enqueue BullMQ start → enqueue lại
+  // (jobId dedup an toàn). Mỗi 2 phút — bù khi enqueue fail lúc tạo phiên.
+  careSessionReconcileJob = cron.schedule(
+    '*/2 * * * *',
+    () => { void reconcileMissingSequenceStart(); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] care-session reconcile registered (every 2 min ' + TZ + ')');
+
+  logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + paused-until-sweeper + care-session-janitor + care-session-reconcile + ' + cronJobs.size + ' scheduled_cron triggers');
 }
 
 export function stopCronEventScheduler(): void {
@@ -99,6 +125,8 @@ export function stopCronEventScheduler(): void {
   if (eventLogCleanupJob) { eventLogCleanupJob.stop(); eventLogCleanupJob = null; }
   if (scheduledTriggerJob) { scheduledTriggerJob.stop(); scheduledTriggerJob = null; }
   if (pausedUntilSweepJob) { pausedUntilSweepJob.stop(); pausedUntilSweepJob = null; }
+  if (careSessionJanitorJob) { careSessionJanitorJob.stop(); careSessionJanitorJob = null; }
+  if (careSessionReconcileJob) { careSessionReconcileJob.stop(); careSessionReconcileJob = null; }
   for (const job of cronJobs.values()) job.stop();
   cronJobs.clear();
   isStarted = false;

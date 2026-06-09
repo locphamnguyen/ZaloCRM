@@ -37,6 +37,16 @@ export function requireZaloAccess(minPermission: Permission) {
     if (!zaloAccountId) return reply.status(404).send({ error: 'Not found' });
 
     try {
+      // Fix 2026-06-07: CHÍNH CHỦ nick (ownerUserId) luôn có full access — kể cả role 'member'.
+      // Trước đây chỉ bypass theo ROLE owner/admin + check ZaloAccountAccess grant → sale member
+      // owner nick (vd Đức owner Evo Sport) KHÔNG có grant record → bị 403 ở cột 3 messages +
+      // không gửi được tin, dù route conversation LIST (getZaloScope) đã cho thấy owner.
+      const account = await prisma.zaloAccount.findFirst({
+        where: { id: zaloAccountId, orgId: user.orgId },
+        select: { ownerUserId: true },
+      });
+      if (account?.ownerUserId === user.id) return; // owner nick → full quyền
+
       const access = await prisma.zaloAccountAccess.findFirst({
         where: { zaloAccountId, userId: user.id },
       });

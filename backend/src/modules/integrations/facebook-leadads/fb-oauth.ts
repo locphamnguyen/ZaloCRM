@@ -13,7 +13,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { encryptToken, decryptToken, generateWebhookVerifyToken } from '../_shared/token-encryption.util.js';
 
@@ -21,7 +21,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // ── POST /connect — paste pageId + accessToken ───────────────────────────
-  app.post('/api/v1/integrations/facebook/connect', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/integrations/facebook/connect', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = request.body as { pageId?: string; pageName?: string; pageAccessToken?: string };
     if (!body.pageId?.trim()) return reply.status(400).send({ error: 'pageId required' });
@@ -131,7 +131,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── DELETE /:id — disconnect page ────────────────────────────────────────
-  app.delete('/api/v1/integrations/facebook/:id', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/api/v1/integrations/facebook/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const page = await prisma.facebookPageAccount.findFirst({ where: { id, orgId: user.orgId } });
@@ -142,7 +142,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── GET /:id/verify-token — reveal verify_token (anh paste vào Meta) ─────
-  app.get('/api/v1/integrations/facebook/:id/verify-token', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/integrations/facebook/:id/verify-token', { preHandler: requireGrant('settings', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const page = await prisma.facebookPageAccount.findFirst({
@@ -154,7 +154,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /:id/rotate-verify-token ────────────────────────────────────────
-  app.post('/api/v1/integrations/facebook/:id/rotate-verify-token', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/integrations/facebook/:id/rotate-verify-token', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const page = await prisma.facebookPageAccount.findFirst({ where: { id, orgId: user.orgId } });
@@ -170,7 +170,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   // ── Phase FB Pull 2026-05-30 — System User token + bật kéo lead tự động ──────
   // POST /system-user-token — paste System User token (vĩnh viễn, quyền leads_retrieval).
   // Verify token đọc được lead trước khi lưu (gọi debug_token / me).
-  app.post('/api/v1/integrations/facebook/system-user-token', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/integrations/facebook/system-user-token', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = request.body as { token?: string; enabled?: boolean };
     if (!body.token?.trim()) return reply.status(400).send({ error: 'token bắt buộc' });
@@ -205,7 +205,7 @@ export async function fbIntegrationRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // PATCH /pull-config — bật/tắt kéo tự động
-  app.patch('/api/v1/integrations/facebook/pull-config', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.patch('/api/v1/integrations/facebook/pull-config', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = request.body as { enabled?: boolean };
     if (typeof body.enabled !== 'boolean') return reply.status(400).send({ error: 'enabled (boolean) bắt buộc' });

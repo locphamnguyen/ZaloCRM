@@ -148,8 +148,11 @@ function isoDay(d: Date): string {
 function rowUrgency(a: Appointment): 'overdue' | 'upcoming' | 'done' {
   if (a.status === 'completed' || a.status === 'cancelled' || a.status === 'no_show') return 'done';
   if (a.status === 'overdue') return 'overdue';
-  // scheduled: check effective overdue
-  if (a.status === 'scheduled' && new Date(a.appointmentDate).getTime() < Date.now()) return 'overdue';
+  // scheduled: check effective overdue.
+  // FIX 2026-06-09: dùng appointmentStart(a) (đã ghép giờ thật) thay vì new Date(appointmentDate)
+  // (midnight, bỏ giờ) → trước đây lịch chiều/tối HÔM NAY bị tô đỏ "quá hạn" oan vì 00:00 hôm nay
+  // đã < now. Giờ chỉ quá hạn khi qua đúng giờ hẹn.
+  if (a.status === 'scheduled' && appointmentStart(a).getTime() < Date.now()) return 'overdue';
   return 'upcoming';
 }
 

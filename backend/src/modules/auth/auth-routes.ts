@@ -88,7 +88,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       userId: payload.id,
       details: { ip: request.ip },
     });
-    return { token, refreshToken: refresh.token, user: payload };
+    // Fix 2026-06-07: login response kèm passwordChangedAt + onboarding fields để router guard
+    // force /setup-password lần đầu. + Phase 2: kèm refreshToken (rotation).
+    const profile = await getProfile(payload.id);
+    return { token, refreshToken: refresh.token, user: { ...payload, ...profile } };
   });
 
   // POST /api/v1/auth/refresh — xoay refresh token -> access + refresh mới

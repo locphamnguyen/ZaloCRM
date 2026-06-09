@@ -432,8 +432,14 @@ async function runProbeTick(): Promise<void> {
     // → chạy ở chế độ system; xử lý từng row trong withTenant(row.org_id) bên dưới.
     // Wave 2 refactor 2026-05-29 — delay floor now comes from the trigger
     // (welcome_delay_seconds), not from the organization.
-    // #3 2026-06-06 (Anh chốt): sàn an toàn trước đây hardcode 60s nay đọc từ cột
-    // welcome_min_floor_seconds (Anh chỉnh được). Độ trễ thực = GREATEST(sàn, welcome_delay).
+    // FIX 2026-06-08 (Anh chốt): BỎ HẲN sàn welcome_min_floor_seconds. Trước đây
+    // độ trễ = GREATEST(sàn 60s, welcome_delay) → dù Anh set delay=0/1 vẫn bị ép chờ
+    // 60s, làm throughput chậm. Giờ độ trễ welcome = ĐÚNG welcome_delay_seconds Anh
+    // nhập (default 1s). Anh toàn quyền, KHÔNG còn sàn cứng chặn. Cột
+    // welcome_min_floor_seconds giữ trong schema (không drop để tránh migration) nhưng
+    // KHÔNG dùng nữa. Default welcome_delay_seconds đổi 60→1 ở chỗ tạo trigger.
+    // Phase 1a: probe claim quét cross-org → bọc runSystemQuery (bypass RLS); xử lý từng
+    // row trong withTenant(org) bên dưới.
     const rows = await runSystemQuery(() => prisma.$queryRaw<ProbeRow[]>`
       UPDATE friend_request_outbox
       SET welcome_last_error = ${claimToken}
@@ -444,10 +450,7 @@ async function runProbeTick(): Promise<void> {
         WHERE o.kind = 'WELCOME_PROBE'
           AND o.welcome_outcome IS NULL
           AND (o.welcome_last_error IS NULL OR o.welcome_last_error NOT LIKE 'claim:%')
-          AND o.created_at <= NOW() - make_interval(secs => GREATEST(
-                COALESCE(t.welcome_min_floor_seconds, 60),
-                COALESCE(t.welcome_delay_seconds, 60)
-              ))
+          AND o.created_at <= NOW() - make_interval(secs => COALESCE(t.welcome_delay_seconds, 1))
         ORDER BY o.created_at ASC
         LIMIT 5
       )

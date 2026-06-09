@@ -63,21 +63,40 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 import '@/components/automation/phase7/airtable.css';
 
 const route = useRoute();
+const authStore = useAuthStore();
 const drawerOpen = ref(false);
 
-const navItems = [
+// RBAC 2026-06-09 — mỗi mục Marketing gắn resource. Sidebar chỉ hiện mục user có quyền.
+// VD Sale chỉ có block.access → vào Marketing chỉ thấy "Khối nội dung".
+// `action` mặc định 'access'; "Tạo Mục tiêu mới" cần 'create' (ẩn với người chỉ xem).
+interface MktNavItem {
+  to: string;
+  label: string;
+  icon: string;
+  resource: string;
+  action?: string;
+  isPrimary?: boolean;
+}
+const allNavItems: MktNavItem[] = [
   // Wave 4.1 (2026-06-02) — Anh chốt: tách Luồng và Khối thành 2 menu riêng.
   // Khối = nội dung dùng hàng ngày (sale gửi 1-1 + ghép vào Luồng), KHÔNG phải admin-only.
-  { to: '/marketing/triggers/tao-moi',  label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         isPrimary: true },
-  { to: '/marketing/triggers',          label: 'Mục tiêu',           icon: 'mdi-target' },
-  { to: '/marketing/sequences',         label: 'Luồng kịch bản',     icon: 'mdi-format-list-numbered' },
-  { to: '/marketing/blocks',            label: 'Khối nội dung',      icon: 'mdi-puzzle' },
-  { to: '/marketing/broadcasts',        label: 'Gửi tin hàng loạt',  icon: 'mdi-bullhorn' },
-  { to: '/marketing/lists',             label: 'Tệp khách hàng',     icon: 'mdi-folder-account' },
+  { to: '/marketing/triggers/tao-moi',  label: 'Tạo Mục tiêu mới',   icon: 'mdi-plus-circle',         resource: 'trigger', action: 'create', isPrimary: true },
+  { to: '/marketing/triggers',          label: 'Mục tiêu',           icon: 'mdi-target',              resource: 'trigger' },
+  { to: '/marketing/care-sessions',     label: 'Phiên chăm sóc',     icon: 'mdi-account-heart',       resource: 'care_session' },
+  { to: '/marketing/sequences',         label: 'Luồng kịch bản',     icon: 'mdi-format-list-numbered',resource: 'sequence' },
+  { to: '/marketing/blocks',            label: 'Khối nội dung',      icon: 'mdi-puzzle',              resource: 'block' },
+  { to: '/marketing/templates',         label: 'Mẫu tin nhắn',       icon: 'mdi-message-text-outline',resource: 'block' },
+  { to: '/marketing/broadcasts',        label: 'Gửi tin hàng loạt',  icon: 'mdi-bullhorn',            resource: 'broadcast' },
+  { to: '/marketing/lists',             label: 'Tệp khách hàng',     icon: 'mdi-folder-account',      resource: 'customer_list' },
 ];
+// Chỉ hiện mục user có quyền (Tạo Mục tiêu mới cần create, còn lại cần access).
+const navItems = computed(() =>
+  allNavItems.filter((item) => authStore.canAccess(item.resource, item.action ?? 'access')),
+);
 
 // 2026-06-05 — Longest-prefix match. /marketing/triggers/tao-moi (wizard) là prefix-
 // con của /marketing/triggers (Mục tiêu) → nếu dùng startsWith thường, cả 2 item cùng
@@ -91,7 +110,7 @@ function matchLen(to: string): number {
 const activeTo = computed(() => {
   let best = '';
   let bestLen = -1;
-  for (const n of navItems) {
+  for (const n of allNavItems) {
     const len = matchLen(n.to);
     if (len > bestLen) { bestLen = len; best = n.to; }
   }
@@ -102,7 +121,7 @@ function isLinkActive(to: string): boolean {
 }
 
 const activeNavLabel = computed(() => {
-  const match = navItems.find((n) => n.to === activeTo.value);
+  const match = allNavItems.find((n) => n.to === activeTo.value);
   return match?.label ?? 'Marketing';
 });
 

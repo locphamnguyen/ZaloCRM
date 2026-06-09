@@ -5,7 +5,7 @@
        [Zalo Real (R/O)] | [Auto Detect: trạng thái] | [Auto Engagement: độ chăm] | [Manual]
        Auto Detect + Auto Engagement đều SỐNG (tự cập nhật). Nút "+ Thêm tag" CHỈ gắn manual. -->
   <div class="tag-crm-bar" v-if="friendId">
-    <span class="bar-label">🏷</span>
+    <span class="bar-label"><TagIcon :size="14" :stroke-width="2" /></span>
 
     <!-- 1. Zalo Real (ưu tiên 1, đầu tiên, READ-ONLY) -->
     <template v-if="zaloRealTags.length">
@@ -64,7 +64,7 @@
     >
       <span v-if="tag.emoji" class="t2-pill-emoji">{{ tag.emoji }}</span>
       <span class="t2-pill-text">{{ tag.name }}</span>
-      <button class="tag-x" title="Gỡ tag" @click="removeManualTag(tag)">×</button>
+      <button class="tag-x" title="Gỡ tag" @click="removeManualTag(tag)"><XIcon :size="12" :stroke-width="2.2" /></button>
     </span>
 
     <!-- "+ Thêm tag" dropdown CHỈ load + gắn Manual per Nick -->
@@ -101,7 +101,7 @@
           >
             <span class="dd-color-dot" :style="{ background: def.color }"></span>
             <span class="dd-name">{{ def.name }}</span>
-            <span v-if="manualTags.some(t => t.id === def.id)" class="dd-check">✓</span>
+            <span v-if="manualTags.some(t => t.id === def.id)" class="dd-check"><CheckIcon :size="14" :stroke-width="2.2" /></span>
           </button>
           <button
             v-if="search.trim() && !filteredDefs.some(d => d.name.toLowerCase() === search.trim().toLowerCase())"
@@ -114,7 +114,7 @@
 
         <div class="dd-footer">
           <button class="dd-settings-link" @click="goToSettings">
-            <span class="settings-icon">⚙</span>
+            <span class="settings-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
             Cài đặt Tag v2
           </button>
         </div>
@@ -127,6 +127,8 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
+// Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ ký tự/emoji nút).
+import { Tag as TagIcon, X as XIcon, Check as CheckIcon, Settings as SettingsIcon } from 'lucide-vue-next';
 import { useToast } from '@/composables/use-toast';
 import { useFriendSocket } from '@/composables/use-friend-socket';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
@@ -500,5 +502,8 @@ function goToSettings() {
   color: #41454d;
 }
 .dd-settings-link:hover { background: #f5f7fa; }
-.settings-icon { font-size: 12px; }
+.settings-icon { font-size: 12px; display: inline-flex; align-items: center; }
+/* Icon Lucide chrome — căn giữa (2026-06-08). */
+.bar-label, .tag-x, .dd-check { display: inline-flex; align-items: center; justify-content: center; }
+.bar-label svg, .tag-x svg, .dd-check svg, .settings-icon svg { display: block; }
 </style>

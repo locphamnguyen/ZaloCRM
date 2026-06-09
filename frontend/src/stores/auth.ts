@@ -16,6 +16,10 @@ interface User {
   // passwordChangedAt = null → force change pw (router guard redirect /setup-password)
   passwordChangedAt?: string | null;
   onboardingDismissedAt?: string | null;
+  // RBAC enforce 2026-06-08 — grants nhóm quyền của user hiện tại, dùng cho canAccess().
+  grants?: Record<string, Record<string, boolean>>;
+  permissionGroupName?: string | null;
+  isFullAccess?: boolean;
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -26,6 +30,18 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value && !!user.value);
   const isOwner = computed(() => user.value?.role === 'owner');
   const isAdmin = computed(() => ['owner', 'admin'].includes(user.value?.role || ''));
+
+  /**
+   * RBAC enforce 2026-06-08 — kiểm user hiện tại có quyền (resource, action) không.
+   * owner + admin = toàn quyền (anh chốt). Còn lại đọc grants nhóm quyền, default-deny.
+   * Dùng cho router guard, lọc menu, ẩn nút thao tác.
+   */
+  function canAccess(resource: string, action = 'access'): boolean {
+    const u = user.value;
+    if (!u) return false;
+    if (u.role === 'owner' || u.role === 'admin') return true;
+    return u.grants?.[resource]?.[action] === true;
+  }
 
   async function checkSetup() {
     const res = await api.get('/setup/status');
@@ -51,7 +67,14 @@ export const useAuthStore = defineStore('auth', () => {
     // BE expect field 'email' nhưng accept cả phone — gửi raw identifier qua field email
     // để backward-compat (BE auto-detect '@' hoặc digit-only).
     const res = await api.post('/auth/login', { email: identifier, password });
-    user.value = res.data.user;
+    // Login response = { ...jwtPayload, ...getProfile } → đã chứa grants/isFullAccess.
+    user.value = {
+      ...res.data.user,
+      grants: res.data.user.grants ?? {},
+      permissionGroupName: res.data.user.permissionGroup?.name ?? null,
+      isFullAccess: res.data.user.isFullAccess ?? false,
+    };
+    // Phase 2: persistTokens set token.value + lưu access + refreshToken.
     persistTokens(res.data.token, res.data.refreshToken);
   }
 
@@ -71,6 +94,9 @@ export const useAuthStore = defineStore('auth', () => {
         orgTimezone: tz,
         passwordChangedAt: data.passwordChangedAt ?? null,
         onboardingDismissedAt: data.onboardingDismissedAt ?? null,
+        grants: data.grants ?? {},
+        permissionGroupName: data.permissionGroup?.name ?? null,
+        isFullAccess: data.isFullAccess ?? false,
       };
       refreshOrgTimezone(tz);
     } catch {
@@ -94,5 +120,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, token, needsSetup, isAuthenticated, isOwner, isAdmin, checkSetup, setup, login, fetchProfile, logout, init };
+  return { user, token, needsSetup, isAuthenticated, isOwner, isAdmin, canAccess, checkSetup, setup, login, fetchProfile, logout, init };
 });

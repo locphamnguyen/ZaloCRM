@@ -11,8 +11,9 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma, tenantTransaction } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { closeCareSessionsForTrigger } from '../care-session/care-session-service.js';
 import { precomputeAndSeedPool, isFriendInviteSegmentSpec } from './skip-precompute.js';
 import { startNickWorker, stopNickWorker, getNickWorkerState } from './nick-worker.js';
 import {
@@ -359,6 +360,8 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       followUpStrangerEnabled?: boolean;
       followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
+      // CareSession 2026-06-07 — điều kiện đóng phiên per-Mục-tiêu.
+      closeConditions?: { onStatusIds?: string[]; onFriendTagIds?: string[]; onCrmTagIds?: string[]; silenceDays?: number };
       // BE T4 2026-05-30 — Lên lịch hẹn giờ activate.
       // startMode='now'      → kích hoạt ngay khi gọi /activate (default).
       // startMode='scheduled'→ giữ state='draft' + lưu scheduledAt, cron sẽ flip.
@@ -390,7 +393,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         warmWindowDays?: number;
       };
     };
-  }>(`${BASE}/friend-invite`, async (request, reply) => {
+  }>(`${BASE}/friend-invite`, { preHandler: requireGrant('trigger', 'create') }, async (request, reply) => {
     const user = request.user!;
     const body = request.body;
 
@@ -429,7 +432,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    let welcomeDelaySeconds = 60;
+    // FIX 2026-06-08 (Anh chốt): default 60→1. Sàn welcome_min_floor đã bỏ → độ trễ
+    // welcome = đúng giá trị này. Anh để trống = 1s (gửi tin chào gần như ngay).
+    let welcomeDelaySeconds = 1;
     if (body.welcomeDelaySeconds !== undefined) {
       const v = Number(body.welcomeDelaySeconds);
       if (!Number.isFinite(v) || v < 0 || v > 3600)
@@ -642,6 +647,10 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         notifyChannels: (body.notifyChannels && typeof body.notifyChannels === 'object'
           ? body.notifyChannels
           : undefined) as object | undefined,
+        // CareSession 2026-06-07 — điều kiện đóng phiên.
+        closeConditions: (body.closeConditions && typeof body.closeConditions === 'object'
+          ? body.closeConditions
+          : undefined) as object | undefined,
         // BE T4 2026-05-30 — lưu scheduledAt ngay từ lúc create (UI cho phép lập
         // Mục tiêu trước rồi bấm "Lên lịch" sau, BE đã có sẵn để cron sweep nhìn thấy).
         scheduledAt: scheduledAtUtc,
@@ -690,7 +699,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   app.post<{
     Params: { id: string };
     Body?: { startMode?: 'now' | 'scheduled'; scheduledAt?: string | null };
-  }>(`${BASE}/:id/activate`, async (request, reply) => {
+  }>(`${BASE}/:id/activate`, { preHandler: requireGrant('trigger', 'edit') }, async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
     const body = request.body ?? {};
@@ -803,6 +812,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   // ttlHours range: 1..720 (30 ngày) — match pause_on_activity_hours bound.
   app.post<{ Params: { id: string }; Body: { ttlHours?: number | null } }>(
     `${BASE}/:id/pause`,
+    { preHandler: requireGrant('trigger', 'edit') },
     async (request, reply) => {
       const user = request.user!;
       const { id } = request.params;
@@ -864,7 +874,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ── POST /:id/resume ──────────────────────────────────────────────────────
-  app.post<{ Params: { id: string } }>(`${BASE}/:id/resume`, async (request, reply) => {
+  app.post<{ Params: { id: string } }>(`${BASE}/:id/resume`, { preHandler: requireGrant('trigger', 'edit') }, async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
 
@@ -893,7 +903,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── POST /:id/cancel ──────────────────────────────────────────────────────
-  app.post<{ Params: { id: string } }>(`${BASE}/:id/cancel`, async (request, reply) => {
+  app.post<{ Params: { id: string } }>(`${BASE}/:id/cancel`, { preHandler: requireGrant('trigger', 'edit') }, async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
 
@@ -927,6 +937,13 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // CareSession 2026-06-07 (T7): cascade close phiên của trigger bị hủy.
+    // Fire-and-forget SAU response (audit: KHÔNG đóng đồng bộ trong request — set-based
+    // 1 câu nên rẻ, nhưng vẫn để ngoài critical path). lazy-close ở listener là backstop.
+    void closeCareSessionsForTrigger(trigger.id, 'source_done').catch((err) => {
+      logger.warn(`[friend-invite] cascade close care sessions failed trigger=${trigger.id}: ${err?.message ?? err}`);
+    });
+
     return reply.send({ ok: true, state: 'cancelled' });
   });
 
@@ -934,7 +951,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
   // 2026-06-05 (Anh chốt): Mục tiêu đã Xóa (state='cancelled') nằm trong thùng rác,
   // bấm "Khôi phục" đưa về 'paused' (an toàn — KHÔNG tự chạy lại). Sale phải bấm
   // "Bắt đầu" (/activate) để re-precompute pool. KHÔNG spawn worker ở đây.
-  app.post<{ Params: { id: string } }>(`${BASE}/:id/restore`, async (request, reply) => {
+  app.post<{ Params: { id: string } }>(`${BASE}/:id/restore`, { preHandler: requireGrant('trigger', 'edit') }, async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
 
@@ -1113,6 +1130,12 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     });
     const customerReply = replyGroups.length;
     const customerBlock = blockGroups.length;
+    // FIX A 2026-06-08 — Set contactId đã reply/block, dùng để loại khỏi "đang bám đuổi"
+    // (KH reply = tạm dừng chuỗi, KH block = dừng hẳn → KHÔNG còn đang xử lý).
+    const replyContactIds = new Set<string>();
+    for (const g of replyGroups) if (g.contactId) replyContactIds.add(g.contactId);
+    const blockContactIds = new Set<string>();
+    for (const g of blockGroups) if (g.contactId) blockContactIds.add(g.contactId);
 
     // converted_lead: Contact.status='converted' AND thuộc trigger này.
     // Semantic = KH đã chốt deal (xem status-migration.ts: 'converted' → 'Chốt').
@@ -1126,20 +1149,6 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         })
       : 0;
 
-    // Wave 4 2026-06-03 — P2 thêm 2 counter campaign-level (sequence-aware).
-    // - enrollingSequence: KH đang trong sequence bám đuổi (AutomationCampaign.state='active')
-    // - completedSequence: KH đã chạy xong toàn bộ chuỗi (state='completed')
-    // Index @@index([triggerId, state]) đã cover → composite seek, không seq scan.
-    // Defense-in-depth: filter orgId thêm dù route đã verify trigger.orgId.
-    const campaignStateGroups = await prisma.automationCampaign.groupBy({
-      by: ['state'],
-      where: { orgId: user.orgId, triggerId: trigger.id },
-      _count: { id: true },
-    });
-    const campaignByState = new Map(
-      campaignStateGroups.map((g) => [g.state, g._count.id]),
-    );
-    const enrollingSequence = campaignByState.get('active') ?? 0;
     // FIX 2026-06-04: "Hoàn tất" = số KH (distinct contactId) đã gửi BƯỚC CUỐI của chuỗi,
     // KHÔNG phải campaign state='completed'. Campaign là per-trigger (1 row chung mọi KH)
     // + thường kẹt 'active' chưa flip → ra 0 dù KH đã gửi đủ 3/3. Đổi sang đếm distinct
@@ -1163,6 +1172,35 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       });
       for (const g of doneGroups) if (g.contactId) completedContactIds.add(g.contactId);
       completedSequence = doneGroups.length;
+    }
+
+    // FIX A 2026-06-08 — "đang bám đuổi" (enrollingSequence) phải đếm SỐ KH THẬT đang
+    // dở chuỗi, KHÔNG phải số ROW campaign state='active'.
+    //
+    // Bug cũ: `campaignByState.get('active')`. AutomationCampaign là 1 row/trigger×sequence
+    // (xem campaign-materializer.ts:245 "1 campaign per trigger × sequence") → đếm row ra 0
+    // hoặc 1, hiểu nhầm thành "0/1 KH". Khi mọi KH đã gửi bước cuối nhưng campaign chưa flip
+    // 'completed' (race tryCompleteCampaign — xem FIX B) → ra "1 KH bám đuổi" ẢO dù thực tế 0.
+    //
+    // Cách đúng: KH đang bám đuổi = đã vào chuỗi (sequence_enrolled) NHƯNG chưa gửi bước cuối,
+    // chưa reply (tạm dừng), chưa block (dừng hẳn). Tính bằng phép trừ tập hợp → luôn ≥ 0.
+    const enrollGroups = await prisma.automationEventLog.groupBy({
+      by: ['contactId'],
+      where: {
+        orgId: user.orgId,
+        triggerId: trigger.id,
+        eventType: 'sequence_enrolled',
+        contactId: { not: null },
+      },
+    });
+    let enrollingSequence = 0;
+    for (const g of enrollGroups) {
+      const cid = g.contactId;
+      if (!cid) continue;
+      if (completedContactIds.has(cid)) continue; // đã xong chuỗi
+      if (replyContactIds.has(cid)) continue; // tạm dừng (KH trả lời)
+      if (blockContactIds.has(cid)) continue; // dừng hẳn (KH chặn)
+      enrollingSequence += 1;
     }
 
     // Wave 4 2026-06-03 — P1 fix counter "Còn X KH" semantic-aware.
@@ -1734,6 +1772,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       followUpStrangerEnabled?: boolean;
       followUpFriendEnabled?: boolean;
       notifyChannels?: Record<string, { owner?: boolean; manager?: boolean; zaloGroup?: boolean }>;
+      closeConditions?: { onStatusIds?: string[]; onFriendTagIds?: string[]; onCrmTagIds?: string[]; silenceDays?: number };
       safetyRules?: {
         quietHoursStart?: string;
         quietHoursEnd?: string;
@@ -1752,7 +1791,7 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         skipRules?: Record<string, unknown>;
       };
     };
-  }>(`${BASE}/:id`, async (request, reply) => {
+  }>(`${BASE}/:id`, { preHandler: requireGrant('trigger', 'edit') }, async (request, reply) => {
     const user = request.user!;
     const { id } = request.params;
     const body = request.body ?? {};
@@ -1850,6 +1889,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     if (body.followUpFriendEnabled !== undefined) data.followUpFriendEnabled = !!body.followUpFriendEnabled;
     if (body.notifyChannels !== undefined && body.notifyChannels && typeof body.notifyChannels === 'object')
       data.notifyChannels = body.notifyChannels;
+    // CareSession 2026-06-07 — điều kiện đóng phiên (edit).
+    if (body.closeConditions !== undefined && body.closeConditions && typeof body.closeConditions === 'object')
+      data.closeConditions = body.closeConditions;
 
     // ── welcomeDelaySeconds ─────────────────────────────────────────────────
     if (body.welcomeDelaySeconds !== undefined) {
@@ -2028,9 +2070,10 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(500).send({ error: 'list_failed' });
     }
   };
-  app.get<{ Querystring: MucTieuListQuery }>(`${BASE}/list-muc-tieu`, listMucTieuHandler);
+  app.get<{ Querystring: MucTieuListQuery }>(`${BASE}/list-muc-tieu`, { preHandler: requireGrant('trigger', 'access') }, listMucTieuHandler);
   app.get<{ Querystring: MucTieuListQuery }>(
     '/api/v1/automation/muc-tieu/list',
+    { preHandler: requireGrant('trigger', 'access') },
     listMucTieuHandler,
   );
 

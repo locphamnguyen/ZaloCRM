@@ -12,8 +12,8 @@
         <PrivacyLockBadge v-if="canUsePrivacy" @click="onLockBadgeClick" />
       </div>
       <button class="collapse-btn" :title="collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'" :aria-label="collapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'" @click="toggleCollapsed">
-        <span v-if="collapsed">»</span>
-        <span v-else>‹‹</span>
+        <ChevronsRightIcon v-if="collapsed" :size="16" :stroke-width="2" />
+        <ChevronsLeftIcon v-else :size="16" :stroke-width="2" />
       </button>
     </header>
 
@@ -39,7 +39,7 @@
           aria-label="Quản lý thư mục Nick Zalo"
           @click="$emit('manage-folders')"
         >
-          <span class="ic">📁</span>
+          <FolderTreeIcon class="ic" :size="18" :stroke-width="1.9" />
           <span v-if="filters.state.folderId !== null" class="dot-only"></span>
         </button>
 
@@ -52,7 +52,7 @@
           aria-label="Bộ lọc đã lưu"
           @click.stop="togglePopover('preset')"
         >
-          <span class="ic">⭐</span>
+          <StarIcon class="ic" :size="18" :stroke-width="1.9" />
           <span class="badge">{{ filters.presets.value.length }}</span>
         </button>
 
@@ -62,7 +62,7 @@
           type="button"
           class="c-icon-btn"
           :class="{ active: tagActiveCount > 0, open: openPopover === 'tag' }"
-          :title="`Tag${tagActiveCount > 0 ? ` · ${tagActiveCount} đang áp` : ''}`"
+          :title="`${TIPS.tag}${tagActiveCount > 0 ? ` · ${tagActiveCount} đang áp` : ''}`"
           aria-label="Lọc theo tag"
           @click.stop="togglePopover('tag')"
         >
@@ -73,9 +73,22 @@
         <button
           type="button"
           class="c-icon-btn"
+          :class="{ active: messageActiveCount > 0, open: openPopover === 'message' }"
+          :title="`${TIPS.message}${messageActiveCount > 0 ? ` · 1 đang áp` : ''}`"
+          aria-label="Lọc theo tin nhắn (user vs bot)"
+          @click.stop="togglePopover('message')"
+        >
+          <InboxIcon class="ic" :size="18" :stroke-width="1.9" />
+          <span v-if="eventCounts.msgBotNoSale > 0" class="badge red">{{ eventCounts.msgBotNoSale }}</span>
+          <span v-else-if="messageActiveCount > 0" class="badge">{{ messageActiveCount }}</span>
+        </button>
+
+        <button
+          type="button"
+          class="c-icon-btn"
           :class="{ active: scoreActiveCount > 0, open: openPopover === 'score' }"
-          :title="`Score & Stage${scoreActiveCount > 0 ? ` · ${scoreActiveCount} đang áp` : ''}`"
-          aria-label="Lọc theo score và stage"
+          :title="`${TIPS.score}${scoreActiveCount > 0 ? ` · ${scoreActiveCount} đang áp` : ''}`"
+          aria-label="Lọc theo điểm và trạng thái"
           @click.stop="togglePopover('score')"
         >
           <Gauge class="ic" :size="18" :stroke-width="1.9" />
@@ -86,7 +99,7 @@
           type="button"
           class="c-icon-btn"
           :class="{ active: timeActiveCount > 0, open: openPopover === 'time' }"
-          :title="`Thời gian${timeActiveCount > 0 ? ` · ${timeActiveCount} đang áp` : ''}`"
+          :title="`${TIPS.time}${timeActiveCount > 0 ? ` · ${timeActiveCount} đang áp` : ''}`"
           aria-label="Lọc theo thời gian"
           @click.stop="togglePopover('time')"
         >
@@ -98,7 +111,7 @@
           type="button"
           class="c-icon-btn"
           :class="{ active: eventActiveCount > 0, open: openPopover === 'event' }"
-          :title="`Sự kiện sắp tới${eventActiveCount > 0 ? ` · ${eventActiveCount} đang áp` : ''}`"
+          :title="`${TIPS.event}${eventActiveCount > 0 ? ` · ${eventActiveCount} đang áp` : ''}`"
           aria-label="Lọc theo sự kiện"
           @click.stop="togglePopover('event')"
         >
@@ -110,7 +123,7 @@
           type="button"
           class="c-icon-btn"
           :class="{ active: saleActiveCount > 0, open: openPopover === 'sale' }"
-          :title="`Sale phụ trách${saleActiveCount > 0 ? ` · 1 đang áp` : ''}`"
+          :title="`${TIPS.sale}${saleActiveCount > 0 ? ` · 1 đang áp` : ''}`"
           aria-label="Lọc theo sale phụ trách"
           @click.stop="togglePopover('sale')"
         >
@@ -121,7 +134,7 @@
 
       <div v-if="filters.hasActiveFilter.value" class="c-footer">
         <div class="c-total-badge" :title="`${filters.activeFilterChips.value.length} filter đang áp`">{{ filters.activeFilterChips.value.length }}</div>
-        <button class="c-clear-btn" type="button" :title="'Xoá tất cả filter'" aria-label="Xoá tất cả filter" @click="filters.clearAll">⨉</button>
+        <button class="c-clear-btn" type="button" :title="'Xoá tất cả filter'" aria-label="Xoá tất cả filter" @click="filters.clearAll"><XIcon :size="16" :stroke-width="2" /></button>
       </div>
 
       <!-- Popover overlay (anchored beside icon strip) -->
@@ -135,19 +148,19 @@
       >
         <div class="po-header">
           <div class="po-title">
-            <span>{{ popoverEmoji }} {{ popoverTitle }}</span>
+            <span class="po-title-text"><component :is="popoverIcon" v-if="popoverIcon" :size="15" :stroke-width="2" /> {{ popoverTitle }}</span>
             <span v-if="popoverActiveCount > 0" class="po-badge">{{ popoverActiveCount }}</span>
           </div>
-          <button class="po-close" type="button" @click="openPopover = null" aria-label="Đóng">✕</button>
+          <button class="po-close" type="button" @click="openPopover = null" aria-label="Đóng"><XIcon :size="16" :stroke-width="2" /></button>
         </div>
 
         <div class="po-body">
           <!-- TAG -->
           <template v-if="openPopover === 'tag'">
             <div v-if="totalTagDefsCount > 8" class="tag-search">
-              <span class="ic">🔍</span>
+              <span class="ic"><SearchIcon :size="14" :stroke-width="2" /></span>
               <input v-model="tagSearch" type="text" placeholder="Tìm tag..." aria-label="Tìm tag" />
-              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''">✕</button>
+              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''"><XIcon :size="13" :stroke-width="2" /></button>
             </div>
             <div v-if="filteredCrmTags.length > 0" class="po-sub-label">
               Tag CRM ({{ crmTagsList.length }})
@@ -191,8 +204,24 @@
                 type="button"
                 class="tag-pill"
                 :class="{ selected: filters.state.autoTags.includes(at.key) }"
+                :title="at.tip"
                 @click="toggleAutoTag(at.key)"
               >{{ at.icon }} {{ at.label }}</button>
+            </div>
+          </template>
+
+          <!-- TIN NHẮN (user vs bot) — 2026-06-09 -->
+          <template v-if="openPopover === 'message'">
+            <div
+              v-for="m in MESSAGE_REPLY_STATES"
+              :key="m.key"
+              class="event-row"
+              :class="{ checked: filters.state.messageReplyState === m.key }"
+              :title="m.tip"
+              @click="selectMessageReplyState(m.key)"
+            >
+              <div class="left"><span class="icon"><component :is="m.icon" :size="14" :stroke-width="2" /></span><span class="lbl">{{ m.label }}</span></div>
+              <span v-if="eventCounts[m.countKey] > 0" class="right-count" :class="{ red: m.key === 'bot_no_sale' }">{{ eventCounts[m.countKey] }}</span>
             </div>
           </template>
 
@@ -214,7 +243,7 @@
 
           <!-- SCORE & STAGE -->
           <template v-if="openPopover === 'score'">
-            <div class="po-sub-label">Lead score: {{ filters.state.scoreMin ?? 0 }} — {{ filters.state.scoreMax ?? 100 }}</div>
+            <div class="po-sub-label" :title="TIPS.leadScore">Điểm tiềm năng: {{ filters.state.scoreMin ?? 0 }} — {{ filters.state.scoreMax ?? 100 }}</div>
             <div class="score-wrap">
               <div class="score-row">
                 <input
@@ -244,27 +273,31 @@
                   type="button"
                   class="score-tier-btn"
                   :class="{ active: filters.state.scoreTier === tier.key }"
+                  :title="tier.tip"
                   @click="onSelectScoreTier(tier.key)"
                 >{{ tier.label }}</button>
               </div>
             </div>
-            <div class="po-sub-label">Stage pipeline</div>
-            <div class="stage-chips">
+            <div v-if="orgStatuses.length > 0" class="po-sub-label" :title="TIPS.stage">Trạng thái KH</div>
+            <div v-if="orgStatuses.length > 0" class="stage-chips">
               <button
-                v-for="stage in STAGES"
-                :key="stage.key"
+                v-for="st in orgStatuses"
+                :key="st.id"
                 type="button"
                 class="stage-chip"
-                :class="[stage.key, { selected: filters.state.stages.includes(stage.label) }]"
-                @click="toggleStage(stage.label)"
-              >{{ stage.icon }} {{ stage.label }}</button>
+                :class="{ selected: filters.state.stages.includes(st.id) }"
+                :style="filters.state.stages.includes(st.id) && st.color ? { borderColor: st.color, color: st.color } : {}"
+                :title="`Lọc KH ở trạng thái: ${st.name}`"
+                @click="toggleStage(st.id)"
+              ><span v-if="st.color" class="st-dot" :style="{ background: st.color }"></span>{{ st.name }}</button>
             </div>
-            <div class="po-sub-label">Stuck duration</div>
+            <div class="po-sub-label" :title="TIPS.stuckDuration">Thời gian đình trệ</div>
             <div class="radio-bar">
               <button
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.stuckDuration === null }"
+                title="Mọi KH đang đình trệ, không phân biệt lâu hay mới"
                 @click="filters.state.stuckDuration = null"
               >Tất cả</button>
               <button
@@ -273,6 +306,7 @@
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.stuckDuration === dur }"
+                :title="`Đình trệ hơn ${dur.replace('>','').replace('d',' ngày')}`"
                 @click="filters.state.stuckDuration = dur"
               >{{ dur }}</button>
             </div>
@@ -280,7 +314,7 @@
 
           <!-- TIME -->
           <template v-if="openPopover === 'time'">
-            <div class="po-sub-label">Tin nhắn cuối</div>
+            <div class="po-sub-label" :title="TIPS.lastMessage">Tin nhắn cuối</div>
             <div class="radio-bar">
               <button
                 v-for="win in LAST_MESSAGE_OPTIONS"
@@ -288,45 +322,46 @@
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.lastMessageWithin === win.key }"
+                :title="`KH có tin nhắn cuối trong khoảng: ${win.label}`"
                 @click="toggleLastMessage(win.key)"
               >{{ win.label }}</button>
             </div>
             <div class="po-sub-label">Cờ tương tác</div>
-            <div class="check-row" :class="{ checked: filters.state.customerWaitingReply }" @click="filters.state.customerWaitingReply = !filters.state.customerWaitingReply">
+            <div class="check-row" :class="{ checked: filters.state.customerWaitingReply }" :title="TIPS.customerWaiting" @click="filters.state.customerWaitingReply = !filters.state.customerWaitingReply">
               <div class="left"><span class="checkbox"></span><span class="label">KH chờ sale reply</span></div>
             </div>
-            <div class="check-row" :class="{ checked: filters.state.saleWaitingReply }" @click="filters.state.saleWaitingReply = !filters.state.saleWaitingReply">
+            <div class="check-row" :class="{ checked: filters.state.saleWaitingReply }" :title="TIPS.saleWaiting" @click="filters.state.saleWaitingReply = !filters.state.saleWaitingReply">
               <div class="left"><span class="checkbox"></span><span class="label">Sale chờ KH reply</span></div>
             </div>
           </template>
 
           <!-- EVENT -->
           <template v-if="openPopover === 'event'">
-            <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
-              <div class="left"><span class="icon">🎂</span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
+            <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" :title="TIPS.birthday" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
+              <div class="left"><span class="icon"><CakeIcon :size="14" :stroke-width="2" /></span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
               <span v-if="eventCounts.birthday > 0" class="right-count">{{ eventCounts.birthday }}</span>
             </div>
-            <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
-              <div class="left"><span class="icon">📞</span><span class="lbl">Lịch hẹn 24h tới</span></div>
+            <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" :title="TIPS.apptSoon" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
+              <div class="left"><span class="icon"><PhoneIcon :size="14" :stroke-width="2" /></span><span class="lbl">Lịch hẹn 24h tới</span></div>
               <span v-if="eventCounts.appointmentSoon > 0" class="right-count amber">{{ eventCounts.appointmentSoon }}</span>
             </div>
-            <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
-              <div class="left"><span class="icon">⚠️</span><span class="lbl">Hẹn quá hạn</span></div>
+            <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" :title="TIPS.apptOverdue" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
+              <div class="left"><span class="icon"><AlertTriangleIcon :size="14" :stroke-width="2" /></span><span class="lbl">Hẹn quá hạn</span></div>
               <span v-if="eventCounts.appointmentOverdue > 0" class="right-count">{{ eventCounts.appointmentOverdue }}</span>
             </div>
           </template>
 
           <!-- SALE -->
           <template v-if="openPopover === 'sale'">
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === null }" @click="filters.state.saleAssigneeId = null">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === null }" :title="TIPS.saleMe" @click="filters.state.saleAssigneeId = null">
               <span class="circle"></span>
               <span class="label">Tôi ({{ currentUserName || 'Tôi' }})</span>
             </div>
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'all' }" @click="filters.state.saleAssigneeId = 'all'">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'all' }" :title="TIPS.saleAll" @click="filters.state.saleAssigneeId = 'all'">
               <span class="circle"></span>
               <span class="label">Tất cả sale</span>
             </div>
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'unassigned' }" @click="filters.state.saleAssigneeId = 'unassigned'">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'unassigned' }" :title="TIPS.saleNone" @click="filters.state.saleAssigneeId = 'unassigned'">
               <span class="circle"></span>
               <span class="label">Chưa giao sale</span>
             </div>
@@ -340,7 +375,7 @@
 
       <!-- ══════ FOLDER PICKER (compact, 3 modes) ══════ -->
       <div class="folder-picker">
-        <div class="fp-label">📁 Phạm vi xem</div>
+        <div class="fp-label"><FolderTreeIcon :size="14" :stroke-width="2" /> Phạm vi xem</div>
         <button class="fp-current" type="button" @click="$emit('manage-folders')" :title="folderPickerTitle">
           <div class="fp-thumb">
             <!-- Mode 3: Single nick -->
@@ -361,7 +396,7 @@
             </template>
             <!-- Mode 1: ALL -->
             <template v-else>
-              <div class="single all-thumb">🌐</div>
+              <div class="single all-thumb"><GlobeIcon :size="16" :stroke-width="2" /></div>
             </template>
           </div>
           <div class="fp-body">
@@ -379,7 +414,7 @@
 
       <!-- ══════ SAVED PRESET BAR (horizontal) ══════ -->
       <div class="saved-bar">
-        <span class="saved-label">⭐</span>
+        <span class="saved-label"><StarIcon :size="14" :stroke-width="2" /></span>
         <button
           v-for="preset in filters.presets.value"
           :key="preset.id"
@@ -397,25 +432,25 @@
 
         <!-- 🏷 TAG -->
         <section class="section" :class="{ collapsed: !sectionsOpen.tag }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.tag" @click="toggleSection('tag')" @keydown.enter.prevent="toggleSection('tag')" @keydown.space.prevent="toggleSection('tag')">
-            <div class="left"><span class="emoji">🏷</span>Tag</div>
+          <header class="section-header" :title="TIPS.tag" tabindex="0" role="button" :aria-expanded="sectionsOpen.tag" @click="toggleSection('tag')" @keydown.enter.prevent="toggleSection('tag')" @keydown.space.prevent="toggleSection('tag')">
+            <div class="left"><span class="emoji"><Tag :size="14" :stroke-width="2" /></span>Tag</div>
             <div class="right">
               <span v-if="tagActiveCount > 0" class="count-badge">{{ tagActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
             <!-- Tag search input (shared for both CRM + Zalo) -->
             <div v-if="totalTagDefsCount > 8" class="tag-search">
-              <span class="ic">🔍</span>
+              <span class="ic"><SearchIcon :size="14" :stroke-width="2" /></span>
               <input
                 v-model="tagSearch"
                 type="text"
                 placeholder="Tìm tag..."
                 aria-label="Tìm tag"
               />
-              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''" aria-label="Xoá tìm kiếm">✕</button>
+              <button v-if="tagSearch" type="button" class="tag-search-clear" @click="tagSearch = ''" aria-label="Xoá tìm kiếm"><XIcon :size="13" :stroke-width="2" /></button>
             </div>
 
             <div v-if="filteredCrmTags.length > 0" class="subsection-label">
@@ -466,24 +501,50 @@
                 type="button"
                 class="tag-pill"
                 :class="{ selected: filters.state.autoTags.includes(at.key) }"
+                :title="at.tip"
                 @click="toggleAutoTag(at.key)"
               >{{ at.icon }} {{ at.label }}</button>
             </div>
           </div>
         </section>
 
-        <!-- 📊 SCORE & STAGE -->
-        <section class="section" :class="{ collapsed: !sectionsOpen.score }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.score" @click="toggleSection('score')" @keydown.enter.prevent="toggleSection('score')" @keydown.space.prevent="toggleSection('score')">
-            <div class="left"><span class="emoji">📊</span>Score &amp; Stage</div>
+        <!-- ✉️ TIN NHẮN (user vs bot) — 2026-06-09 anh chốt, ngay dưới Tag -->
+        <section class="section" :class="{ collapsed: !sectionsOpen.message }">
+          <header class="section-header" :title="TIPS.message" tabindex="0" role="button" :aria-expanded="sectionsOpen.message" @click="toggleSection('message')" @keydown.enter.prevent="toggleSection('message')" @keydown.space.prevent="toggleSection('message')">
+            <div class="left"><span class="emoji"><InboxIcon :size="14" :stroke-width="2" /></span>Tin nhắn</div>
             <div class="right">
-              <span v-if="scoreActiveCount > 0" class="count-badge">{{ scoreActiveCount }}</span>
+              <span v-if="messageActiveCount > 0" class="count-badge">{{ messageActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
-            <div class="subsection-label">Lead score: {{ filters.state.scoreMin ?? 0 }} — {{ filters.state.scoreMax ?? 100 }}</div>
+            <div
+              v-for="m in MESSAGE_REPLY_STATES"
+              :key="m.key"
+              class="event-row"
+              :class="{ checked: filters.state.messageReplyState === m.key }"
+              :title="m.tip"
+              @click="selectMessageReplyState(m.key)"
+            >
+              <div class="left"><span class="icon"><component :is="m.icon" :size="14" :stroke-width="2" /></span><span class="lbl">{{ m.label }}</span></div>
+              <span v-if="eventCounts[m.countKey] > 0" class="right-count" :class="{ red: m.key === 'bot_no_sale' }">{{ eventCounts[m.countKey] }}</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 📊 SCORE & STAGE -->
+        <section class="section" :class="{ collapsed: !sectionsOpen.score }">
+          <header class="section-header" :title="TIPS.score" tabindex="0" role="button" :aria-expanded="sectionsOpen.score" @click="toggleSection('score')" @keydown.enter.prevent="toggleSection('score')" @keydown.space.prevent="toggleSection('score')">
+            <div class="left"><span class="emoji"><Gauge :size="14" :stroke-width="2" /></span>Điểm &amp; Trạng thái</div>
+            <div class="right">
+              <span v-if="scoreActiveCount > 0" class="count-badge">{{ scoreActiveCount }}</span>
+              <span v-else class="count-badge zero">0</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
+            </div>
+          </header>
+          <div class="section-body">
+            <div class="subsection-label" :title="TIPS.leadScore">Điểm tiềm năng: {{ filters.state.scoreMin ?? 0 }} — {{ filters.state.scoreMax ?? 100 }}</div>
             <div class="score-wrap">
               <div class="score-row">
                 <input
@@ -513,29 +574,33 @@
                   type="button"
                   class="score-tier-btn"
                   :class="{ active: filters.state.scoreTier === tier.key }"
+                  :title="tier.tip"
                   @click="onSelectScoreTier(tier.key)"
                 >{{ tier.label }}</button>
               </div>
             </div>
 
-            <div class="subsection-label">Stage pipeline</div>
-            <div class="stage-chips">
+            <div v-if="orgStatuses.length > 0" class="subsection-label" :title="TIPS.stage">Trạng thái KH</div>
+            <div v-if="orgStatuses.length > 0" class="stage-chips">
               <button
-                v-for="stage in STAGES"
-                :key="stage.key"
+                v-for="st in orgStatuses"
+                :key="st.id"
                 type="button"
                 class="stage-chip"
-                :class="[stage.key, { selected: filters.state.stages.includes(stage.label) }]"
-                @click="toggleStage(stage.label)"
-              >{{ stage.icon }} {{ stage.label }}</button>
+                :class="{ selected: filters.state.stages.includes(st.id) }"
+                :style="filters.state.stages.includes(st.id) && st.color ? { borderColor: st.color, color: st.color } : {}"
+                :title="`Lọc KH ở trạng thái: ${st.name}`"
+                @click="toggleStage(st.id)"
+              ><span v-if="st.color" class="st-dot" :style="{ background: st.color }"></span>{{ st.name }}</button>
             </div>
 
-            <div class="subsection-label">Stuck duration</div>
+            <div class="subsection-label" :title="TIPS.stuckDuration">Thời gian đình trệ</div>
             <div class="radio-bar">
               <button
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.stuckDuration === null }"
+                title="Mọi KH đang đình trệ, không phân biệt lâu hay mới"
                 @click="filters.state.stuckDuration = null"
               >Tất cả</button>
               <button
@@ -544,6 +609,7 @@
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.stuckDuration === dur }"
+                :title="`Đình trệ hơn ${dur.replace('>','').replace('d',' ngày')}`"
                 @click="filters.state.stuckDuration = dur"
               >{{ dur }}</button>
             </div>
@@ -552,16 +618,16 @@
 
         <!-- 🕐 THỜI GIAN -->
         <section class="section" :class="{ collapsed: !sectionsOpen.time }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.time" @click="toggleSection('time')" @keydown.enter.prevent="toggleSection('time')" @keydown.space.prevent="toggleSection('time')">
-            <div class="left"><span class="emoji">🕐</span>Thời gian</div>
+          <header class="section-header" :title="TIPS.time" tabindex="0" role="button" :aria-expanded="sectionsOpen.time" @click="toggleSection('time')" @keydown.enter.prevent="toggleSection('time')" @keydown.space.prevent="toggleSection('time')">
+            <div class="left"><span class="emoji"><Clock :size="14" :stroke-width="2" /></span>Thời gian</div>
             <div class="right">
               <span v-if="timeActiveCount > 0" class="count-badge">{{ timeActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
-            <div class="subsection-label">Tin nhắn cuối</div>
+            <div class="subsection-label" :title="TIPS.lastMessage">Tin nhắn cuối</div>
             <div class="radio-bar">
               <button
                 v-for="win in LAST_MESSAGE_OPTIONS"
@@ -569,19 +635,20 @@
                 type="button"
                 class="radio-pill"
                 :class="{ active: filters.state.lastMessageWithin === win.key }"
+                :title="`KH có tin nhắn cuối trong khoảng: ${win.label}`"
                 @click="toggleLastMessage(win.key)"
               >{{ win.label }}</button>
             </div>
 
             <div class="subsection-label" style="margin-top:10px;">Cờ tương tác</div>
-            <div class="check-row" :class="{ checked: filters.state.customerWaitingReply }" @click="filters.state.customerWaitingReply = !filters.state.customerWaitingReply">
+            <div class="check-row" :class="{ checked: filters.state.customerWaitingReply }" :title="TIPS.customerWaiting" @click="filters.state.customerWaitingReply = !filters.state.customerWaitingReply">
               <div class="left">
                 <span class="checkbox"></span>
                 <span class="label">KH chờ sale reply</span>
               </div>
               <span class="count">—</span>
             </div>
-            <div class="check-row" :class="{ checked: filters.state.saleWaitingReply }" @click="filters.state.saleWaitingReply = !filters.state.saleWaitingReply">
+            <div class="check-row" :class="{ checked: filters.state.saleWaitingReply }" :title="TIPS.saleWaiting" @click="filters.state.saleWaitingReply = !filters.state.saleWaitingReply">
               <div class="left">
                 <span class="checkbox"></span>
                 <span class="label">Sale chờ KH reply</span>
@@ -593,25 +660,25 @@
 
         <!-- 📅 SỰ KIỆN -->
         <section class="section" :class="{ collapsed: !sectionsOpen.event }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.event" @click="toggleSection('event')" @keydown.enter.prevent="toggleSection('event')" @keydown.space.prevent="toggleSection('event')">
-            <div class="left"><span class="emoji">📅</span>Sự kiện sắp tới</div>
+          <header class="section-header" :title="TIPS.event" tabindex="0" role="button" :aria-expanded="sectionsOpen.event" @click="toggleSection('event')" @keydown.enter.prevent="toggleSection('event')" @keydown.space.prevent="toggleSection('event')">
+            <div class="left"><span class="emoji"><CalendarClock :size="14" :stroke-width="2" /></span>Sự kiện sắp tới</div>
             <div class="right">
               <span v-if="eventActiveCount > 0" class="count-badge">{{ eventActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
-            <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
-              <div class="left"><span class="icon">🎂</span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
+            <div class="event-row" :class="{ checked: filters.state.birthdayWithin7d }" :title="TIPS.birthday" @click="filters.state.birthdayWithin7d = !filters.state.birthdayWithin7d">
+              <div class="left"><span class="icon"><CakeIcon :size="14" :stroke-width="2" /></span><span class="lbl">Sinh nhật 7 ngày tới</span></div>
               <span v-if="eventCounts.birthday > 0" class="right-count">{{ eventCounts.birthday }}</span>
             </div>
-            <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
-              <div class="left"><span class="icon">📞</span><span class="lbl">Lịch hẹn 24h tới</span></div>
+            <div class="event-row" :class="{ checked: filters.state.appointmentWithin24h }" :title="TIPS.apptSoon" @click="filters.state.appointmentWithin24h = !filters.state.appointmentWithin24h">
+              <div class="left"><span class="icon"><PhoneIcon :size="14" :stroke-width="2" /></span><span class="lbl">Lịch hẹn 24h tới</span></div>
               <span v-if="eventCounts.appointmentSoon > 0" class="right-count amber">{{ eventCounts.appointmentSoon }}</span>
             </div>
-            <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
-              <div class="left"><span class="icon">⚠️</span><span class="lbl">Hẹn quá hạn</span></div>
+            <div class="event-row" :class="{ checked: filters.state.appointmentOverdue }" :title="TIPS.apptOverdue" @click="filters.state.appointmentOverdue = !filters.state.appointmentOverdue">
+              <div class="left"><span class="icon"><AlertTriangleIcon :size="14" :stroke-width="2" /></span><span class="lbl">Hẹn quá hạn</span></div>
               <span v-if="eventCounts.appointmentOverdue > 0" class="right-count">{{ eventCounts.appointmentOverdue }}</span>
             </div>
           </div>
@@ -619,24 +686,24 @@
 
         <!-- 👨‍💼 SALE -->
         <section class="section" :class="{ collapsed: !sectionsOpen.sale }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.sale" @click="toggleSection('sale')" @keydown.enter.prevent="toggleSection('sale')" @keydown.space.prevent="toggleSection('sale')">
-            <div class="left"><span class="emoji">👨‍💼</span>Sale phụ trách</div>
+          <header class="section-header" :title="TIPS.sale" tabindex="0" role="button" :aria-expanded="sectionsOpen.sale" @click="toggleSection('sale')" @keydown.enter.prevent="toggleSection('sale')" @keydown.space.prevent="toggleSection('sale')">
+            <div class="left"><span class="emoji"><UserRoundCog :size="14" :stroke-width="2" /></span>Sale phụ trách</div>
             <div class="right">
               <span v-if="saleActiveCount > 0" class="count-badge">{{ saleActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === null }" @click="filters.state.saleAssigneeId = null">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === null }" :title="TIPS.saleMe" @click="filters.state.saleAssigneeId = null">
               <span class="circle"></span>
               <span class="label">Tôi ({{ currentUserName || 'Tôi' }})</span>
             </div>
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'all' }" @click="filters.state.saleAssigneeId = 'all'">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'all' }" :title="TIPS.saleAll" @click="filters.state.saleAssigneeId = 'all'">
               <span class="circle"></span>
               <span class="label">Tất cả sale</span>
             </div>
-            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'unassigned' }" @click="filters.state.saleAssigneeId = 'unassigned'">
+            <div class="sale-row" :class="{ checked: filters.state.saleAssigneeId === 'unassigned' }" :title="TIPS.saleNone" @click="filters.state.saleAssigneeId = 'unassigned'">
               <span class="circle"></span>
               <span class="label">Chưa giao sale</span>
             </div>
@@ -645,17 +712,17 @@
 
         <!-- TIER 2: TƯƠNG TÁC (Phase 8 — Engagement pattern filter) -->
         <section class="section" :class="{ collapsed: !sectionsOpen.engagement }">
-          <header class="section-header" tabindex="0" role="button" :aria-expanded="sectionsOpen.engagement" @click="toggleEngagementSection" @keydown.enter.prevent="toggleEngagementSection" @keydown.space.prevent="toggleEngagementSection">
-            <div class="left"><span class="emoji">💬</span>Tương tác</div>
+          <header class="section-header" :title="TIPS.engagement" tabindex="0" role="button" :aria-expanded="sectionsOpen.engagement" @click="toggleEngagementSection" @keydown.enter.prevent="toggleEngagementSection" @keydown.space.prevent="toggleEngagementSection">
+            <div class="left"><span class="emoji"><MessageCircleIcon :size="14" :stroke-width="2" /></span>Tương tác</div>
             <div class="right">
               <span v-if="engagementActiveCount > 0" class="count-badge">{{ engagementActiveCount }}</span>
               <span v-else class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
           <div class="section-body">
-            <div class="subsection-label">Pattern engagement</div>
-            <div class="event-row" v-for="p in ENGAGEMENT_PATTERNS" :key="p.key" :class="{ checked: filters.state.engagementPatterns.includes(p.key) }" @click="toggleEngagementPattern(p.key)">
+            <div class="subsection-label">Kiểu tương tác</div>
+            <div class="event-row" v-for="p in ENGAGEMENT_PATTERNS" :key="p.key" :class="{ checked: filters.state.engagementPatterns.includes(p.key) }" :title="p.tip" @click="toggleEngagementPattern(p.key)">
               <div class="left">
                 <span class="icon">{{ p.icon }}</span>
                 <span class="lbl">{{ p.label }}</span>
@@ -666,44 +733,44 @@
 
         <!-- TIER 2: HỒ SƠ KH -->
         <section class="section collapsed">
-          <header class="section-header" tabindex="0" role="button" aria-expanded="false">
-            <div class="left"><span class="emoji">👤</span>Hồ sơ KH</div>
+          <header class="section-header" title="Lọc theo thông tin hồ sơ KH (sắp ra mắt)" tabindex="0" role="button" aria-expanded="false">
+            <div class="left"><span class="emoji"><UserCircleIcon :size="14" :stroke-width="2" /></span>Hồ sơ KH</div>
             <div class="right">
               <span class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
 
         <!-- TIER 2: NGUỒN -->
         <section class="section collapsed">
-          <header class="section-header" tabindex="0" role="button" aria-expanded="false">
-            <div class="left"><span class="emoji">📡</span>Nguồn &amp; Attribution</div>
+          <header class="section-header" title="Lọc theo nguồn KH đến từ đâu (sắp ra mắt)" tabindex="0" role="button" aria-expanded="false">
+            <div class="left"><span class="emoji"><MegaphoneIcon :size="14" :stroke-width="2" /></span>Nguồn khách hàng</div>
             <div class="right">
               <span class="count-badge zero">0</span>
-              <span class="chevron">▾</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
 
         <!-- TIER 3: BUSINESS (defer) -->
         <section class="section collapsed disabled">
-          <header class="section-header" :title="'Defer — chờ tích hợp invoice'">
-            <div class="left"><span class="emoji">💼</span>Business value</div>
+          <header class="section-header" title="Lọc theo giá trị đơn hàng — chờ tích hợp hoá đơn">
+            <div class="left"><span class="emoji"><BriefcaseIcon :size="14" :stroke-width="2" /></span>Giá trị kinh doanh</div>
             <div class="right">
-              <span class="defer-tag">defer</span>
-              <span class="chevron">▾</span>
+              <span class="defer-tag">sắp ra</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
 
         <!-- TIER 3: AI SIGNAL (defer) -->
         <section class="section collapsed disabled">
-          <header class="section-header" :title="'Defer — chờ AI pipeline'">
-            <div class="left"><span class="emoji">🤖</span>AI signal</div>
+          <header class="section-header" title="Lọc theo tín hiệu do AI phân tích — sắp ra mắt">
+            <div class="left"><span class="emoji"><BotIcon :size="14" :stroke-width="2" /></span>Tín hiệu AI</div>
             <div class="right">
-              <span class="defer-tag">defer</span>
-              <span class="chevron">▾</span>
+              <span class="defer-tag">sắp ra</span>
+              <span class="chevron"><ChevronDownIcon :size="14" :stroke-width="2" /></span>
             </div>
           </header>
         </section>
@@ -724,9 +791,9 @@
               type="button"
               class="f-chip"
               @click="chip.remove()"
-            >{{ chip.label }}<span class="x">✕</span></button>
+            >{{ chip.label }}<span class="x"><XIcon :size="12" :stroke-width="2" /></span></button>
           </div>
-          <button class="clear-all" type="button" @click="filters.clearAll">⨉ Xoá tất cả filter</button>
+          <button class="clear-all" type="button" @click="filters.clearAll"><XIcon :size="13" :stroke-width="2" /> Xoá tất cả filter</button>
         </div>
       </div>
 
@@ -736,14 +803,39 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue';
-import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, EngagementPatternKey } from '@/composables/use-inbox-filters';
-import { useCrmTagDefs, cleanTagName, type CrmTagDef } from '@/composables/use-crm-tag-defs';
+import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, EngagementPatternKey, MessageReplyState } from '@/composables/use-inbox-filters';
+import { cleanTagName } from '@/composables/use-crm-tag-defs';
 import PrivacyLockBadge from '@/components/privacy/PrivacyLockBadge.vue';
 import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
 import PrivacyUnlockOtpModal from '@/components/privacy/PrivacyUnlockOtpModal.vue';
 import { usePrivacyStore } from '@/stores/privacy';
+import { api } from '@/api/index';
 // Icon Lucide thay emoji thô cho strip lọc (/plan-design-review 2026-06-06).
-import { Tag, Gauge, Clock, CalendarClock, UserRoundCog } from 'lucide-vue-next';
+// 2026-06-08 (anh chốt): mở rộng cho chrome panel — chevron section, close, search, collapse.
+import {
+  Tag, Gauge, Clock, CalendarClock, UserRoundCog,
+  ChevronDown as ChevronDownIcon,
+  ChevronsRight as ChevronsRightIcon,
+  ChevronsLeft as ChevronsLeftIcon,
+  X as XIcon,
+  Search as SearchIcon,
+  Globe as GlobeIcon,
+  // 2026-06-08 (anh chốt): nhãn section panel + strip — bỏ emoji nhãn, đồng bộ Lucide.
+  Star as StarIcon,
+  FolderTree as FolderTreeIcon,
+  MessageCircle as MessageCircleIcon,
+  UserCircle as UserCircleIcon,
+  Megaphone as MegaphoneIcon,
+  Briefcase as BriefcaseIcon,
+  Bot as BotIcon,
+  Cake as CakeIcon,
+  Phone as PhoneIcon,
+  AlertTriangle as AlertTriangleIcon,
+  // 2026-06-09 — Nhóm lọc "Tin nhắn" (user vs bot)
+  Inbox as InboxIcon,
+  MailQuestion as MailQuestionIcon,
+  MailCheck as MailCheckIcon,
+} from 'lucide-vue-next';
 import { useAuthStore } from '@/stores/auth';
 
 const props = defineProps<{
@@ -790,26 +882,31 @@ function toggleCollapsed() {
 }
 
 // ─── Collapsed mode popover state ────────────────────────
-type PopoverKey = 'tag' | 'score' | 'time' | 'event' | 'sale' | 'preset';
+type PopoverKey = 'tag' | 'message' | 'score' | 'time' | 'event' | 'sale' | 'preset';
 const openPopover = ref<PopoverKey | null>(null);
 function togglePopover(k: PopoverKey) {
   openPopover.value = openPopover.value === k ? null : k;
 }
 
-const POPOVER_META: Record<PopoverKey, { title: string; emoji: string; iconIndex: number }> = {
-  preset: { title: 'Bộ lọc đã lưu', emoji: '⭐', iconIndex: 1 },
-  tag: { title: 'Tag', emoji: '🏷', iconIndex: 2 },
-  score: { title: 'Score & Stage', emoji: '📊', iconIndex: 3 },
-  time: { title: 'Thời gian', emoji: '🕐', iconIndex: 4 },
-  event: { title: 'Sự kiện sắp tới', emoji: '📅', iconIndex: 5 },
-  sale: { title: 'Sale phụ trách', emoji: '👨‍💼', iconIndex: 6 },
+// icon = component Lucide (anh chốt 2026-06-08, thay emoji nhãn) — khớp icon strip thu gọn.
+// iconIndex giữ nguyên (dùng tính vị trí Y popover theo layout strip).
+const POPOVER_META: Record<PopoverKey, { title: string; icon: unknown; iconIndex: number }> = {
+  preset: { title: 'Bộ lọc đã lưu', icon: StarIcon, iconIndex: 1 },
+  tag: { title: 'Tag', icon: Tag, iconIndex: 2 },
+  // 2026-06-09 — Nhóm "Tin nhắn" ngay dưới Tag (anh chốt vị trí).
+  message: { title: 'Tin nhắn', icon: InboxIcon, iconIndex: 3 },
+  score: { title: 'Điểm & Trạng thái', icon: Gauge, iconIndex: 4 },
+  time: { title: 'Thời gian', icon: Clock, iconIndex: 5 },
+  event: { title: 'Sự kiện sắp tới', icon: CalendarClock, iconIndex: 6 },
+  sale: { title: 'Sale phụ trách', icon: UserRoundCog, iconIndex: 7 },
 };
 
 const popoverTitle = computed(() => openPopover.value ? POPOVER_META[openPopover.value].title : '');
-const popoverEmoji = computed(() => openPopover.value ? POPOVER_META[openPopover.value].emoji : '');
+const popoverIcon = computed(() => openPopover.value ? POPOVER_META[openPopover.value].icon : null);
 const popoverActiveCount = computed(() => {
   switch (openPopover.value) {
     case 'tag': return tagActiveCount.value;
+    case 'message': return messageActiveCount.value;
     case 'score': return scoreActiveCount.value;
     case 'time': return timeActiveCount.value;
     case 'event': return eventActiveCount.value;
@@ -869,14 +966,16 @@ async function onCreatePresetFromPopover() {
 }
 
 // ─── Section expand state (persist) ──────────────────────
-type SectionKey = 'tag' | 'score' | 'time' | 'event' | 'sale' | 'engagement';
-const SECTION_KEYS: SectionKey[] = ['tag', 'score', 'time', 'event', 'sale', 'engagement'];
+type SectionKey = 'tag' | 'message' | 'score' | 'time' | 'event' | 'sale' | 'engagement';
+const SECTION_KEYS: SectionKey[] = ['tag', 'message', 'score', 'time', 'event', 'sale', 'engagement'];
 
 // Anh chốt 2026-05-22: default chỉ 'event' (Sự kiện sắp tới) + 'sale' (Sale phụ trách)
 // expand. Các section khác (tag/score/time/engagement) collapse → user click chevron để mở.
+// 2026-06-09: 'message' (Tin nhắn) default mở — tính năng phát hiện ca bị bot đè quan trọng.
 // Spacing compact + tránh dồn UI.
 const DEFAULT_OPEN: Record<SectionKey, boolean> = {
   tag: false,
+  message: true,
   score: false,
   time: false,
   event: true,
@@ -960,31 +1059,49 @@ const folderPickerTitle = computed(() => {
   return 'Đang xem toàn bộ. Click để chọn folder hoặc nick cụ thể.';
 });
 
-// ─── Tag def fetch + split ───────────────────────────────
-const { tagDefs, loadTagDefs } = useCrmTagDefs();
+// ─── Tag fetch theo Phạm vi xem (anh chốt 2026-06-09) ────────────────────
+// Trước đây load từ /crm-tags (CrmTag toàn org — "tag cũ"). Giờ load từ
+// /conversations/sidebar-tags theo scope folder/nick đang chọn:
+//   crmTags  = tag CRM đang DÙNG THẬT ở Friend.crmTagsPerNick (per-nick), distinct
+//   zaloTags = ZaloLabel của các nick trong scope (đổi theo Phạm vi xem)
+// Shape tương thích template cũ ({id, name, emoji, color, order}).
+type SidebarTag = { id: string; name: string; emoji: string | null; color: string | null; order: number };
+const crmTagsList = ref<SidebarTag[]>([]);
+const zaloTagsList = ref<SidebarTag[]>([]);
 
-const crmTagsList = computed<CrmTagDef[]>(() =>
-  tagDefs.value.filter((t) => t.managedBy !== 'zalo_sync')
-);
-const zaloTagsList = computed<CrmTagDef[]>(() =>
-  tagDefs.value.filter((t) => t.managedBy === 'zalo_sync')
-);
+async function loadSidebarTags() {
+  try {
+    const params: Record<string, string> = {};
+    if (props.filters.state.folderId) params.folderId = props.filters.state.folderId;
+    if (props.currentAccountId) params.accountId = props.currentAccountId;
+    const { data } = await api.get('/conversations/sidebar-tags', { params });
+    crmTagsList.value = (data.crmTags || []).map((name: string, i: number) => ({
+      id: `crm-${name}`, name, emoji: null, color: null, order: i,
+    }));
+    zaloTagsList.value = (data.zaloTags || []).map(
+      (t: { name: string; color: string; emoji: string | null }, i: number) => ({
+        id: `zalo-${i}-${t.name}`, name: t.name, emoji: t.emoji, color: t.color, order: i,
+      }),
+    );
+  } catch { /* im lặng — bộ lọc tag trống nếu lỗi */ }
+}
+
 const totalTagDefsCount = computed(() => crmTagsList.value.length + zaloTagsList.value.length);
 
 // Strip "🔵 " prefix from Zalo tag display (DB legacy data)
-function displayTagName(name: string): string {
-  return cleanTagName(name);
+function displayTagName(n: string): string {
+  return cleanTagName(n);
 }
 
 // ─── Tag search + selected-first ordering ────────────────
 const tagSearch = ref('');
 
-function rankTag(tag: CrmTagDef, selectedSet: Set<string>): number {
+function rankTag(tag: SidebarTag, selectedSet: Set<string>): number {
   const isSelected = selectedSet.has(tag.name) || selectedSet.has(cleanTagName(tag.name));
   return isSelected ? 0 : 1;
 }
 
-const filteredCrmTags = computed<CrmTagDef[]>(() => {
+const filteredCrmTags = computed<SidebarTag[]>(() => {
   const q = tagSearch.value.trim().toLowerCase();
   const selected = new Set(props.filters.state.tagsCrm as string[]);
   const list = q
@@ -998,7 +1115,7 @@ const filteredCrmTags = computed<CrmTagDef[]>(() => {
   });
 });
 
-const filteredZaloTags = computed<CrmTagDef[]>(() => {
+const filteredZaloTags = computed<SidebarTag[]>(() => {
   const q = tagSearch.value.trim().toLowerCase();
   const selected = new Set(props.filters.state.tagsZalo as string[]);
   const list = q
@@ -1013,26 +1130,37 @@ const filteredZaloTags = computed<CrmTagDef[]>(() => {
 });
 
 // ─── Constants ───────────────────────────────────────────
-const AUTO_TAGS: Array<{ key: AutoTagKey; icon: string; label: string }> = [
-  { key: 'hot', icon: '🔥', label: 'Hot' },
-  { key: 'active', icon: '✅', label: 'Active' },
-  { key: 'stuck', icon: '⏸', label: 'Stuck' },
-  { key: 'cold', icon: '❄️', label: 'Cold' },
+// 2026-06-08 — Key khớp DB (Friend.autoTags từ scoring engine). 'hot' cũ KHÔNG tồn
+// tại nên bỏ. Icon/label đồng bộ constants/auto-tags.ts (source of truth).
+const AUTO_TAGS: Array<{ key: AutoTagKey; icon: string; label: string; tip: string }> = [
+  { key: 'active', icon: '🔥', label: 'Hoạt động', tip: 'KH vừa nhắn tin trong 24h qua — đang tương tác tích cực.' },
+  { key: 'ready', icon: '💯', label: 'Sẵn sàng chốt', tip: 'Điểm tiềm năng ≥ 80 — nên đẩy báo giá/booking ngay.' },
+  { key: 'stuck', icon: '⏰', label: 'Đình trệ', tip: 'KH kẹt một trạng thái quá lâu — cần rà soát lý do.' },
+  { key: 'cold', icon: '🧊', label: 'Nguội', tip: 'KH im lặng 15–60 ngày — cần hâm nóng lại.' },
 ];
 
-const SCORE_TIERS: Array<{ key: NonNullable<ScoreTier>; label: string; min: number; max: number }> = [
-  { key: 'cold', label: 'Cold', min: 0, max: 30 },
-  { key: 'warm', label: 'Warm', min: 31, max: 60 },
-  { key: 'hot', label: 'Hot', min: 61, max: 85 },
-  { key: 'champion', label: 'Champion', min: 86, max: 100 },
+const SCORE_TIERS: Array<{ key: NonNullable<ScoreTier>; label: string; min: number; max: number; tip: string }> = [
+  { key: 'cold', label: 'Lạnh', min: 0, max: 30, tip: 'Điểm 0–30: KH ít tương tác, mới hoặc nguội.' },
+  { key: 'warm', label: 'Ấm', min: 31, max: 60, tip: 'Điểm 31–60: KH có quan tâm, đang nuôi dưỡng.' },
+  { key: 'hot', label: 'Nóng', min: 61, max: 85, tip: 'Điểm 61–85: KH quan tâm cao, nên ưu tiên chăm.' },
+  { key: 'champion', label: 'Xuất sắc', min: 86, max: 100, tip: 'Điểm 86–100: KH tiềm năng nhất, sẵn sàng chốt.' },
 ];
 
-const STAGES: Array<{ key: string; icon: string; label: string }> = [
-  { key: 'hot', icon: '🔥', label: 'Nóng' },
-  { key: 'warm', icon: '🌡', label: 'Ấm' },
-  { key: 'cold', icon: '❄️', label: 'Lạnh' },
-  { key: 'closed', icon: '✅', label: 'Đã chốt' },
-];
+// 2026-06-08 (anh chốt) — Stage pipeline lọc theo Trạng thái KH THẬT của tổ chức
+// (bảng Status), KHÔNG dùng 4 nhãn cứng Nóng/Ấm/Lạnh/Chốt nữa. Load động từ API.
+// state.stages giờ chứa statusId (CSV gửi BE lọc Contact.statusId).
+interface StatusDef { id: string; name: string; color: string | null; isTerminal: boolean }
+const orgStatuses = ref<StatusDef[]>([]);
+async function loadStatuses() {
+  try {
+    const { data } = await api.get('/settings/statuses');
+    orgStatuses.value = data.statuses || [];
+    // Nạp map id→tên cho chip footer (composable không tự biết tên status).
+    const map: Record<string, string> = {};
+    for (const s of orgStatuses.value) map[s.id] = s.name;
+    props.filters.stageNameMap.value = map;
+  } catch { /* im lặng — section Stage tự ẩn nếu rỗng */ }
+}
 
 const STUCK_DURATIONS: NonNullable<StuckDuration>[] = ['>3d', '>7d', '>14d', '>30d'];
 
@@ -1045,13 +1173,58 @@ const LAST_MESSAGE_OPTIONS: Array<{ key: NonNullable<LastMessageWithin>; label: 
 ];
 
 // Phase 8 — Engagement pattern filter buttons
-const ENGAGEMENT_PATTERNS: Array<{ key: EngagementPatternKey; icon: string; label: string }> = [
-  { key: 'hot', icon: '🔥', label: 'Đang nóng lên' },
-  { key: 'champion', icon: '💎', label: 'Champion (đều cao)' },
-  { key: 'stable', icon: '📈', label: 'Ổn định' },
-  { key: 'cooling', icon: '⚠', label: 'Đang nguội' },
-  { key: 'cold', icon: '😴', label: 'Lạnh' },
+const ENGAGEMENT_PATTERNS: Array<{ key: EngagementPatternKey; icon: string; label: string; tip: string }> = [
+  { key: 'hot', icon: '🔥', label: 'Đang nóng lên', tip: 'KH nhắn tin nhiều dần lên gần đây — cơ hội tốt để chốt.' },
+  { key: 'champion', icon: '💎', label: 'Xuất sắc (đều cao)', tip: 'KH tương tác đều và cao suốt nhiều tuần — khách trung thành.' },
+  { key: 'stable', icon: '📈', label: 'Ổn định', tip: 'KH giữ mức tương tác đều, không tăng không giảm.' },
+  { key: 'cooling', icon: '⚠', label: 'Đang nguội', tip: 'KH nhắn ít dần đi — cần follow-up trước khi mất hẳn.' },
+  { key: 'cold', icon: '😴', label: 'Lạnh', tip: 'KH gần như im lặng — cần chiến dịch hâm nóng lại.' },
 ];
+
+// 2026-06-09 (anh chốt) — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3.
+// Xét từ lượt khách nhắn cuối: ai là người trả lời (chưa ai / chỉ bot / có sale thật).
+const MESSAGE_REPLY_STATES: Array<{
+  key: NonNullable<MessageReplyState>;
+  icon: unknown;
+  label: string;
+  tip: string;
+  countKey: 'msgUnanswered' | 'msgBotNoSale' | 'msgSaleReplied';
+}> = [
+  { key: 'unanswered', icon: MailQuestionIcon, label: 'Chưa trả lời', countKey: 'msgUnanswered',
+    tip: 'Khách nhắn cuối, chưa có sale lẫn bot trả lời — cần xử lý ngay.' },
+  { key: 'bot_no_sale', icon: BotIcon, label: 'Bot trả lời (No Sale)', countKey: 'msgBotNoSale',
+    tip: 'Khách nhắn xong chỉ có bot trả lời, chưa sale nào vào — dễ bị bỏ sót.' },
+  { key: 'sale_replied', icon: MailCheckIcon, label: 'Sale đã trả lời', countKey: 'msgSaleReplied',
+    tip: 'Đã có sale thật trả lời sau lượt khách nhắn cuối.' },
+];
+
+// ─── 2026-06-08 (anh chốt) — Tooltip giải thích cho sale (1 câu/nút) ──────
+// Hiện khi rê chuột (thuộc tính title). Gom 1 chỗ để dễ chỉnh lời + đồng bộ
+// giữa chế độ mở rộng và thu gọn.
+const TIPS = {
+  // Tiêu đề nhóm section
+  tag: 'Lọc KH theo nhãn (tag) đã gắn: nhãn CRM, nhãn Zalo, hoặc nhãn tự động.',
+  score: 'Lọc theo điểm tiềm năng, trạng thái KH và thời gian KH bị kẹt một bước.',
+  time: 'Lọc theo thời điểm nhắn tin gần nhất và việc ai đang chờ ai trả lời.',
+  event: 'Lọc KH có sự kiện sắp tới: sinh nhật, lịch hẹn, hẹn quá hạn.',
+  sale: 'Lọc theo nhân viên sale đang phụ trách KH.',
+  engagement: 'Lọc theo xu hướng tương tác của KH qua nhiều tuần.',
+  message: 'Lọc theo ai trả lời tin nhắn cuối: chưa ai / chỉ bot / sale đã vào.',
+  preset: 'Bộ lọc đã lưu — bấm để áp nhanh tổ hợp lọc dùng thường xuyên.',
+  // Nhãn con / nút lẻ
+  leadScore: 'Điểm hệ thống chấm mức độ tiềm năng của KH (0–100).',
+  stage: 'Trạng thái KH trong quy trình bán hàng của tổ chức.',
+  stuckDuration: 'KH kẹt lì một trạng thái bao lâu rồi — số càng lớn càng cần xử lý gấp.',
+  lastMessage: 'Lọc theo lần KH/sale nhắn tin gần nhất.',
+  customerWaiting: 'KH đã nhắn nhưng sale chưa trả lời — cần rep ngay.',
+  saleWaiting: 'Sale đã nhắn và đang chờ KH trả lời.',
+  birthday: 'KH có sinh nhật trong 7 ngày tới — cơ hội nhắn chúc mừng.',
+  apptSoon: 'KH có lịch hẹn trong vòng 24h tới — chuẩn bị trước.',
+  apptOverdue: 'KH có lịch hẹn đã quá giờ mà chưa xử lý.',
+  saleMe: 'Chỉ xem KH do chính mình phụ trách.',
+  saleAll: 'Xem KH của tất cả sale (quyền quản lý).',
+  saleNone: 'KH chưa được giao cho sale nào — cần phân công.',
+} as const;
 
 // ─── Active count per section ────────────────────────────
 const tagActiveCount = computed(() =>
@@ -1087,6 +1260,16 @@ const saleActiveCount = computed(() =>
 const engagementActiveCount = computed(() =>
   props.filters.state.engagementPatterns.length
 );
+// 2026-06-09 — Nhóm "Tin nhắn" (radio 1-of-3)
+const messageActiveCount = computed(() =>
+  props.filters.state.messageReplyState !== null ? 1 : 0
+);
+function selectMessageReplyState(key: NonNullable<MessageReplyState>) {
+  // Radio: bấm lại nút đang chọn → bỏ chọn (về null).
+  props.filters.state.messageReplyState =
+    props.filters.state.messageReplyState === key ? null : key;
+  props.filters.activePresetId.value = null;
+}
 
 function toggleEngagementPattern(key: EngagementPatternKey) {
   const arr = props.filters.state.engagementPatterns as EngagementPatternKey[];
@@ -1163,10 +1346,11 @@ function toggleAutoTag(key: AutoTagKey) {
   if (idx >= 0) arr.splice(idx, 1); else arr.push(key);
   props.filters.activePresetId.value = null;
 }
-function toggleStage(label: string) {
+// 2026-06-08 — stages chứa statusId (Trạng thái KH thật) thay cho nhãn cứng.
+function toggleStage(statusId: string) {
   const arr = props.filters.state.stages as string[];
-  const idx = arr.indexOf(label);
-  if (idx >= 0) arr.splice(idx, 1); else arr.push(label);
+  const idx = arr.indexOf(statusId);
+  if (idx >= 0) arr.splice(idx, 1); else arr.push(statusId);
   props.filters.activePresetId.value = null;
 }
 function toggleLastMessage(key: NonNullable<LastMessageWithin>) {
@@ -1204,8 +1388,25 @@ async function onCreatePreset() {
   await props.filters.createPreset({ name: name.trim(), emoji });
 }
 
-// ─── Event counts (placeholder, backend stats endpoint chưa có) ──
-const eventCounts = ref({ birthday: 0, appointmentSoon: 0, appointmentOverdue: 0 });
+// ─── Event counts (2026-06-08 — badge đếm thật từ /conversations/event-counts) ──
+// 2026-06-09: thêm 3 count nhóm "Tin nhắn" (msgUnanswered/msgBotNoSale/msgSaleReplied).
+const eventCounts = ref({
+  birthday: 0, appointmentSoon: 0, appointmentOverdue: 0,
+  msgUnanswered: 0, msgBotNoSale: 0, msgSaleReplied: 0,
+});
+async function loadEventCounts() {
+  try {
+    const { data } = await api.get('/conversations/event-counts');
+    eventCounts.value = {
+      birthday: data.birthday ?? 0,
+      appointmentSoon: data.appointmentSoon ?? 0,
+      appointmentOverdue: data.appointmentOverdue ?? 0,
+      msgUnanswered: data.msgUnanswered ?? 0,
+      msgBotNoSale: data.msgBotNoSale ?? 0,
+      msgSaleReplied: data.msgSaleReplied ?? 0,
+    };
+  } catch { /* im lặng — badge ẩn khi = 0 */ }
+}
 
 // ─── Result count (parent có thể truyền qua prop) ────────
 const resultCount = computed(() => props.resultCount ?? '—');
@@ -1214,9 +1415,18 @@ onMounted(async () => {
   await Promise.all([
     props.filters.fetchFolders(),
     props.filters.fetchPresets(),
-    loadTagDefs(),
+    loadSidebarTags(),
+    loadStatuses(),
+    loadEventCounts(),
   ]);
 });
+
+// 2026-06-09 — Reload tag (Zalo native + CRM Friend) khi đổi Phạm vi xem
+// (folder hoặc nick). Tag Zalo đổi theo nick active trong scope.
+watch(
+  () => [props.filters.state.folderId, props.currentAccountId],
+  () => { loadSidebarTags(); },
+);
 </script>
 
 <style scoped>
@@ -1915,6 +2125,9 @@ onMounted(async () => {
 /* ── Stage chips ── */
 .stage-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 2px; }
 .stage-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 4px 9px;
   font-size: 11px;
   font-weight: 500;
@@ -1926,10 +2139,9 @@ onMounted(async () => {
   font-family: inherit;
 }
 .stage-chip:hover { border-color: #D4D6DB; }
-.stage-chip.hot.selected { background: #FEF2F2; border-color: #EF4444; color: #EF4444; }
-.stage-chip.warm.selected { background: #FFFBEB; border-color: #F59E0B; color: #F59E0B; }
-.stage-chip.cold.selected { background: #EFF6FF; border-color: #3B82F6; color: #3B82F6; }
-.stage-chip.closed.selected { background: #F0FDF4; border-color: #10B981; color: #10B981; }
+/* 2026-06-08 — màu border/text lấy từ Status.color qua inline style; selected mặc định khi không có color. */
+.stage-chip.selected { background: var(--smax-primary-soft, #e4f1f8); border-color: var(--smax-primary, #1786be); color: var(--smax-primary, #1786be); }
+.stage-chip .st-dot { width: 7px; height: 7px; border-radius: 999px; flex-shrink: 0; }
 .stage-chip:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 1px; }
 
 /* ── Radio pills ── */
@@ -2163,6 +2375,11 @@ onMounted(async () => {
   font-size: 20px;
   margin: 0;
 }
+/* Icon "Nhận khách" giờ là SVG Lucide — phóng to khi sidebar thu gọn (2026-06-08). */
+.c-nhan-khach-wrap :deep(.lfb-btn .lfb-icon svg) {
+  width: 21px;
+  height: 21px;
+}
 .c-nhan-khach-wrap :deep(.lfb-btn .lfb-badge) {
   position: absolute;
   top: -4px;
@@ -2176,4 +2393,22 @@ onMounted(async () => {
   border-radius: 10px;
   line-height: 1;
 }
+
+/* Icon Lucide chrome — căn giữa với nội dung (anh chốt 2026-06-08). */
+.chevron, .po-close, .c-clear-btn, .collapse-btn, .all-thumb,
+.clear-all, .tag-search-clear, .f-chip .x, .tag-search .ic {
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.clear-all { gap: 4px; }
+.chevron svg, .po-close svg, .c-clear-btn svg, .collapse-btn svg, .all-thumb svg,
+.clear-all svg, .tag-search-clear svg, .f-chip .x svg, .tag-search .ic svg { display: block; }
+
+/* Nhãn section + popover header + list-event icon — Lucide thay emoji (2026-06-08). */
+.section .left .emoji, .fp-label, .saved-label, .po-title-text,
+.event-row .left .icon, .ev-row .left .icon {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.section .left .emoji { margin-right: 2px; }
+.section .left .emoji svg, .fp-label svg, .saved-label svg, .po-title-text svg,
+.left .icon svg { display: block; flex-shrink: 0; }
 </style>

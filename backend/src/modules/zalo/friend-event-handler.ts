@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
 import { logEvent } from '../automation/friend-invite/event-log-service.js';
+import { isListeningState } from '../automation/care-session/care-session-service.js';
 
 // zca-js FriendEventType numeric values (mirrored from models/FriendEvent.d.ts)
 export const FriendEventType = {
@@ -426,17 +427,27 @@ export async function handleFriendEvent(
             'KH';
           const nickDisplay = nickRow?.displayName?.trim() || accountId.slice(0, 8);
 
+          // T5 (eng-review D12, regression R2): guard log Monitor theo trigger.state.
+          // Trigger completed/cancelled → KHÔNG ghi event accept/reject vào Monitor cũ.
+          const fTrigger = await prisma.automationTrigger.findUnique({
+            where: { id: outbox.triggerId },
+            select: { state: true, followUpFriendEnabled: true },
+          });
+          const fListening = isListeningState(fTrigger?.state);
+
           if (newStatus === 'accepted') {
-            void logEvent({
-              orgId,
-              triggerId: outbox.triggerId,
-              contactId: contact.id,
-              nickId: accountId,
-              eventType: 'friend_accepted',
-              eventPriority: 'info',
-              summary: `${contactDisplay} đã đồng ý kết bạn với nick ${nickDisplay}`,
-              metadata: { friendUid },
-            });
+            if (fListening) {
+              void logEvent({
+                orgId,
+                triggerId: outbox.triggerId,
+                contactId: contact.id,
+                nickId: accountId,
+                eventType: 'friend_accepted',
+                eventPriority: 'info',
+                summary: `${contactDisplay} đã đồng ý kết bạn với nick ${nickDisplay}`,
+                metadata: { friendUid },
+              });
+            }
 
             // ── #1 2026-06-06 (Anh chốt): Công tắc 2 "Bám đuổi khi ĐÃ là bạn" ──
             // Trước đây onFriendAccepted là CODE CHẾT (0 caller) → KH duyệt KB không
@@ -444,12 +455,9 @@ export async function handleFriendEvent(
             // accept thật VÀ followUpFriendEnabled → gọi onFriendAccepted (tự enqueue
             // bám đuổi + Tin 2 Cảm ơn). enqueueSequenceStart dedup theo jobId
             // (triggerId-contactId-0) nên nếu luồng stranger đã enroll thì KHÔNG double.
+            // followUpFriendEnabled đã load chung ở fTrigger (T5) — không query lại.
             try {
-              const trg = await prisma.automationTrigger.findUnique({
-                where: { id: outbox.triggerId },
-                select: { followUpFriendEnabled: true },
-              });
-              if (trg?.followUpFriendEnabled) {
+              if (fTrigger?.followUpFriendEnabled) {
                 const { onFriendAccepted } = await import('../automation/queues/event-hooks.js');
                 await onFriendAccepted({
                   orgId,
@@ -463,16 +471,18 @@ export async function handleFriendEvent(
               logger.warn(`[friend-event:${accountId}] onFriendAccepted hook failed contact=${contact.id}:`, err);
             }
           } else {
-            void logEvent({
-              orgId,
-              triggerId: outbox.triggerId,
-              contactId: contact.id,
-              nickId: accountId,
-              eventType: 'friend_rejected',
-              eventPriority: 'warning',
-              summary: `${contactDisplay} từ chối kết bạn — vẫn tiếp tục chuỗi bám đuổi`,
-              metadata: { friendUid },
-            });
+            if (fListening) {
+              void logEvent({
+                orgId,
+                triggerId: outbox.triggerId,
+                contactId: contact.id,
+                nickId: accountId,
+                eventType: 'friend_rejected',
+                eventPriority: 'warning',
+                summary: `${contactDisplay} từ chối kết bạn — vẫn tiếp tục chuỗi bám đuổi`,
+                metadata: { friendUid },
+              });
+            }
 
             // I12 2026-06-04 — Tin 4: gửi tin khi KH từ chối KB (nếu bật).
             // Gửi qua hộp người lạ (KH chưa là bạn). Đọc cờ enableRejectedFollowUp + template.
@@ -542,16 +552,27 @@ export async function handleFriendEvent(
             'KH';
           const nickDisplay = nickRow?.displayName?.trim() || accountId.slice(0, 8);
 
-          void logEvent({
-            orgId,
-            triggerId: outbox.triggerId,
-            contactId: contact.id,
-            nickId: accountId,
-            eventType: 'customer_block',
-            eventPriority: 'urgent',
-            summary: `🚫 ${contactDisplay} đã chặn nick ${nickDisplay} — Mục tiêu dừng cho nick này`,
-            metadata: { friendUid },
+          // T5 (eng-review D12, regression R2): CHỈ ghi log Monitor khi trigger nguồn
+          // ĐANG nghe (active/paused). Trigger completed/cancelled vẫn ghi rác vào
+          // Monitor trigger cũ = bug nghe-mãi. Guard state trước logEvent.
+          const blockTrigger = await prisma.automationTrigger.findUnique({
+            where: { id: outbox.triggerId },
+            select: { state: true },
           });
+          const triggerListening = isListeningState(blockTrigger?.state);
+
+          if (triggerListening) {
+            void logEvent({
+              orgId,
+              triggerId: outbox.triggerId,
+              contactId: contact.id,
+              nickId: accountId,
+              eventType: 'customer_block',
+              eventPriority: 'urgent',
+              summary: `🚫 ${contactDisplay} đã chặn nick ${nickDisplay} — Mục tiêu dừng cho nick này`,
+              metadata: { friendUid },
+            });
+          }
 
           try {
             // #2 2026-06-06 — queueStatus ở bảng nối per-trigger.

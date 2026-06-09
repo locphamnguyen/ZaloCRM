@@ -331,17 +331,13 @@
             </div>
           </div>
 
-          <!-- THÔNG BÁO KHI KH TƯƠNG TÁC (5 event) -->
-          <div class="msg-bundle" style="margin-top:14px">
-            <div class="msg-bundle-header"><v-icon size="16">mdi-bell-outline</v-icon> Báo nội bộ khi khách tương tác
-              <span class="bundle-hint">Chọn ai được báo khi khách phản hồi trong lúc chăm sóc.</span>
-            </div>
-            <div class="msg-bundle-body">
-              <div class="ev-notify-item" v-for="ev in interactionEvents" :key="ev.key">
-                <div class="ev-notify-head"><v-icon size="15">{{ ev.ico }}</v-icon> <b>{{ ev.label }}</b></div>
-                <NotifyOwnerBox v-model="form.notifyOwner[ev.key]" />
-              </div>
-            </div>
+          <!-- CareSession 2026-06-07: phần "Báo nội bộ khi khách tương tác" + "Điều kiện
+               dừng chăm sóc" ĐÃ TÁCH sang trang chung cấp tổ chức "Lắng nghe & Nhắc"
+               (/marketing/care-listen) vì lắng nghe dùng chung cho MỌI Mục tiêu. -->
+          <div class="moved-hint">
+            <v-icon size="15" color="#0a7a47">mdi-bell-ring-outline</v-icon>
+            <span>Cấu hình <b>báo nội bộ + điều kiện dừng chăm sóc</b> giờ là quy tắc chung cho cả tổ chức.
+            Chỉnh ở mục <router-link to="/marketing/care-listen">Lắng nghe &amp; Nhắc</router-link> (không phải mỗi Mục tiêu một bộ).</span>
           </div>
 
           <div class="var-chips">
@@ -972,14 +968,8 @@ import { api } from '@/api';
 import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
 import NotifyOwnerBox from '@/components/automation/NotifyOwnerBox.vue';
 
-// I10 2026-06-04 — 5 event tương tác (báo nội bộ khi KH phản hồi trong lúc chăm sóc).
-const interactionEvents = [
-  { key: 'reply',            ico: 'mdi-message-reply-text-outline', label: 'Khách trả lời tin' },
-  { key: 'reactionPositive', ico: 'mdi-heart-outline',              label: 'Khách thả cảm xúc tích cực (tim, like)' },
-  { key: 'reactionNegative', ico: 'mdi-emoticon-angry-outline',     label: 'Khách thả cảm xúc tiêu cực (giận, dislike)' },
-  { key: 'lead',             ico: 'mdi-diamond-stone',              label: 'Khách chuyển thành Lead (chốt quan tâm)' },
-  { key: 'block',            ico: 'mdi-cancel',                     label: 'Khách chặn nick' },
-];
+// CareSession 2026-06-07: cấu hình lắng nghe (7 event × 3 đích) đã TÁCH sang trang
+// chung cấp tổ chức /marketing/care-listen. Wizard KHÔNG còn cấu hình lắng nghe.
 
 const router = useRouter();
 const route = useRoute();
@@ -1072,7 +1062,10 @@ const form = ref({
   successorSequenceId: '',
   startMode: 'now' as 'now' | 'scheduled',
   scheduledAt: null as string | null, // datetime-local string "YYYY-MM-DDTHH:mm" (giờ VN)
-  welcomeDelayMinutes: 1, // Tin 1 Chào mừng: chờ bao lâu sau khi gửi lời mời. 0 = gửi ngay.
+  // FIX 2026-06-08 (Anh chốt): default 1 phút → 1 GIÂY. Sàn welcome_min_floor (BE) đã bỏ
+  // → độ trễ welcome = đúng giá trị này. Anh chỉnh khi tạo trigger (ô nhập có đơn vị giây/phút/giờ).
+  // base-unit của TimeAmountInput là minute → 1 giây = 1/60 phút.
+  welcomeDelayMinutes: 1 / 60, // Tin 1 Chào mừng: chờ bao lâu sau khi gửi lời mời. 0 = gửi ngay.
   thankYouDelayMinutes: 1, // Tin 2 Cảm ơn: chờ bao lâu sau khi KH đồng ý KB.
   remindDelayDays: 3,      // Tin 3 Nhắc: sau bao nhiêu ngày KH chưa đồng ý.
   // ── I10 2026-06-04 — cấu trúc 5 tin (Anh chốt /design-html v2) ──
@@ -1084,10 +1077,11 @@ const form = ref({
   // #1 2026-06-06 — 2 công tắc bám đuổi theo trạng thái kết bạn (Anh chốt).
   followUpStrangerEnabled: true,  // Bám đuổi cả khi KH CHƯA đồng ý KB (qua hộp người lạ)
   followUpFriendEnabled: true,    // Bám đuổi khi KH ĐÃ là bạn (chờ accept thật)
-  // Thông báo nội bộ per-event: { eventKey: { owner: bool } }. manager/zaloGroup defer.
+  // Thông báo nội bộ TIN (welcome/thankYou/remind/rejected) = boolean owner per-trigger.
+  // CareSession 2026-06-07: cấu hình LẮNG NGHE (event khách + điều kiện đóng) đã TÁCH
+  // sang trang chung cấp tổ chức (/marketing/care-listen), KHÔNG còn trong wizard.
   notifyOwner: {
     welcome: true, thankYou: true, remind: true, rejected: true,
-    reply: true, reactionPositive: true, reactionNegative: true, lead: true, block: true,
   } as Record<string, boolean>,
   messages: {
     friendRequest: 'Em chào {gender} {name}, em là {sale} bên dự án The Emerald Garden View. Em xin kết bạn để gửi tài liệu chi tiết ạ.',
@@ -1484,7 +1478,8 @@ function buildSubmitPayload() {
     // #1 2026-06-06 — 2 công tắc bám đuổi theo trạng thái kết bạn.
     followUpStrangerEnabled: form.value.followUpStrangerEnabled,
     followUpFriendEnabled: form.value.followUpFriendEnabled,
-    // notifyChannels: per-event { owner, manager(defer), zaloGroup(defer) }
+    // notifyChannels: chỉ TIN (welcome/thankYou/remind/rejected) per-trigger.
+    // Care event (reply/reaction/...) đã chuyển sang cấu hình LẮNG NGHE chung cấp org.
     notifyChannels: Object.fromEntries(
       Object.entries(form.value.notifyOwner).map(([k, owner]) => [k, { owner, manager: false, zaloGroup: false }]),
     ),
@@ -1615,7 +1610,9 @@ async function loadForEdit(triggerId: string): Promise<void> {
       // giữ default đã có sẵn trong form, không clear.
     }
     if (typeof t.welcomeDelaySeconds === 'number') {
-      form.value.welcomeDelayMinutes = Math.max(0, Math.round(t.welcomeDelaySeconds / 60));
+      // FIX 2026-06-08: KHÔNG round (mất độ chính xác giây — vd 1s → round(0.0167)=0).
+      // base-unit minute → giữ giá trị thực giây/60 để ô nhập hiện đúng "1 giây".
+      form.value.welcomeDelayMinutes = Math.max(0, t.welcomeDelaySeconds / 60);
     }
     // I13 2026-06-04 — load cấu hình 5 tin khi sửa Mục tiêu.
     if (typeof t.thankYouTemplate === 'string') form.value.messages.thankYou = t.thankYouTemplate;
@@ -1632,6 +1629,7 @@ async function loadForEdit(triggerId: string): Promise<void> {
     if (typeof t.followUpFriendEnabled === 'boolean') form.value.followUpFriendEnabled = t.followUpFriendEnabled;
     if (t.notifyChannels && typeof t.notifyChannels === 'object') {
       const nc = t.notifyChannels as Record<string, { owner?: boolean }>;
+      // Chỉ tin (welcome/thankYou/remind/rejected) — care event đã chuyển sang org-level.
       for (const k of Object.keys(form.value.notifyOwner)) {
         if (nc[k] && typeof nc[k].owner === 'boolean') form.value.notifyOwner[k] = nc[k].owner!;
       }
@@ -2117,6 +2115,10 @@ textarea.ta:focus { border-color: var(--primary); outline: none; box-shadow: 0 0
 }
 .bundle-hint { margin-left: auto; font-size: 11px; font-weight: 500; color: var(--text-3); }
 .msg-bundle-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+/* CareSession 2026-06-07: hint chỉ tới trang lắng nghe chung (đã tách khỏi wizard) */
+.moved-hint { margin-top: 14px; background: #e6f7ef; border: 1px solid #bfe9d4; border-radius: 8px; padding: 11px 14px; font-size: 12px; color: #0a7a47; line-height: 1.5; display: flex; align-items: flex-start; gap: 8px; }
+.moved-hint a { color: var(--brand, #1786be); font-weight: 600; text-decoration: none; }
+.moved-hint a:hover { text-decoration: underline; }
 .msg-item {
   background: white;
   border: 1px solid var(--border);

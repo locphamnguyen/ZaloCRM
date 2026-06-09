@@ -36,8 +36,12 @@
             left: ev.left,
             width: ev.width,
           }"
+          :title="`${ev.contactName} · ${ev.saleName}`"
           @click.stop="$emit('select-appointment', ev.appt)"
         >
+          <!-- Dải màu sale bên trái (mọi tier) — element riêng để KHÔNG bị border-rule
+               của overdue/cancelled đè. Giữ nền màu-theo-loại. -->
+          <span v-if="ev.saleId" class="ev-salebar" :style="{ background: ev.saleBar }" />
           <!-- TIER: COMPACT (< 34px, ≤30p) — 1 dòng: icon + KH + giờ -->
           <template v-if="ev.tier === 'compact'">
             <span class="ev-ico">{{ typeIcon(ev.appt.type) }}</span>
@@ -66,6 +70,11 @@
               <span v-if="ev.appt.location" class="ev-loc">📍 {{ ev.appt.location }}</span>
               <span class="ev-time-bottom">{{ ev.timeLabel }}</span>
             </div>
+            <!-- Chip sale phụ trách (tier full) — chấm màu sale + tên tắt. -->
+            <div v-if="ev.saleId" class="ev-sale" :title="'Phụ trách: ' + ev.saleName">
+              <span class="ev-sale-dot" :style="{ background: ev.saleBar }" />
+              <span class="ev-sale-name">{{ initials(ev.saleName) }}</span>
+            </div>
           </template>
         </div>
 
@@ -84,6 +93,9 @@ import {
   resolveContactAvatar,
   appointmentStart,
   appointmentEnd,
+  saleColor,
+  appointmentOwnerId,
+  appointmentOwnerName,
   type AppointmentEx as Appointment,
 } from '@/composables/appointment-helpers';
 import { orgDayKey, getOrgParts, startOfOrgDay } from '@/composables/use-org-timezone';
@@ -147,6 +159,11 @@ type LaidOut = {
   contactName: string;
   title: string | null;
   avatarUrl: string | null;
+  // Sale phụ trách (dải màu trái mọi tier + chip tier full). Anh chốt 2026-06-08:
+  // kết hợp màu-theo-loại (nền) + dấu hiệu sale (dải trái + chip) để nhìn ra cả loại lẫn người.
+  saleId: string | null;
+  saleName: string;
+  saleBar: string;       // màu dải trái = saleColor(saleId).bg
 };
 function layoutEvents(items: Appointment[]): LaidOut[] {
   const sorted = [...items].sort((a, b) => appointmentStart(a).getTime() - appointmentStart(b).getTime());
@@ -221,6 +238,9 @@ function buildLaidOut(a: Appointment, colIdx: number, nCols: number): LaidOut {
     contactName: a.contact?.fullName || 'KH chưa rõ',
     title: (a as any).title || null,
     avatarUrl: resolveContactAvatar(a.contact),
+    saleId: appointmentOwnerId(a),
+    saleName: appointmentOwnerName(a),
+    saleBar: saleColor(appointmentOwnerId(a)).bg,
   };
 }
 
@@ -376,6 +396,30 @@ function onSlotClick(date: Date, hour: number, minute: number) {
 }
 .event:hover { box-shadow: 0 2px 6px rgba(24,29,38,0.28); z-index: 5; }
 .event:active { transform: translateY(1px); }
+
+/* Dải màu sale bên trái — đè lên border-left trắng mờ, hiển thị mọi tier + mọi state
+   (overdue/cancelled override border-left-color nhưng KHÔNG đụng element này). */
+.event .ev-salebar {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: 6px 0 0 6px;
+  pointer-events: none;
+  z-index: 1;
+}
+/* Chip sale (tier full): chấm màu + tên tắt, góc dưới-phải, nền mờ tối nhẹ. */
+.event.tier-full .ev-sale {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-top: 3px;
+  font-size: 9.5px; opacity: 0.92;
+}
+.event.tier-full .ev-sale-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  flex-shrink: 0; box-shadow: 0 0 0 1px rgba(255,255,255,0.6);
+}
+.event.tier-full .ev-sale-name {
+  font-weight: 600; letter-spacing: 0.02em;
+}
 
 /* ─── COMPACT (1 dòng: icon + tên + giờ, font 10.5px) ─── */
 .event.tier-compact {

@@ -35,6 +35,7 @@ export const RESOURCES = [
   'engagement_score',   // Engagement + Score (metadata)
   'audit_log',          // Activity / Audit log
   'settings',           // App settings
+  'care_session',       // Phiên chăm sóc (CareSession) — 2026-06-07
 ] as const;
 export type Resource = (typeof RESOURCES)[number];
 
@@ -57,6 +58,8 @@ export const RESOURCE_ACTIONS: Record<Resource, readonly Action[]> = {
   engagement_score: ['access', 'view_all'],
   audit_log: ['access', 'view_all'],
   settings: ['access', 'create', 'edit'],
+  // Phiên chăm sóc — access=xem phiên mình, view_all=xem cả org (scope theo dept tree).
+  care_session: ['access', 'view_all'],
 };
 
 // JSON shape lưu trong permission_groups.grants:

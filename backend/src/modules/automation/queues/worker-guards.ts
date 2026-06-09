@@ -52,7 +52,12 @@ export function checkHourWindow(
   cfg: Pick<TriggerGuardConfig, 'sendHourStart' | 'sendHourEnd'>,
 ): GuardResult {
   const vnHour = getVNHour();
-  if (vnHour >= cfg.sendHourStart && vnHour < cfg.sendHourEnd) {
+  // FIX 2026-06-08 (Anh chốt): `<` → `<=` (inclusive end). Trước đây 22:0x (vnHour=22)
+  // với sendHourEnd=22 bị `22 < 22`=false → coi NGOÀI GIỜ → hoãn cả chuỗi tới 6h sáng mai
+  // → KH vào chuỗi lúc 22:0x đứng yên 8 tiếng. Các gate khác (gate-evaluator:31,
+  // nick-worker:177, welcome-probe:74) ĐÃ dùng <= từ 2026-05-30; chỉ chỗ này còn lệch.
+  // Giờ gửi hết cả giờ 22 (tới 22:59) khớp ý "send_hour_end=22 = gửi tới hết 22h".
+  if (vnHour >= cfg.sendHourStart && vnHour <= cfg.sendHourEnd) {
     return { passed: true };
   }
 

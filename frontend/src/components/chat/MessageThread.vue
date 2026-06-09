@@ -84,7 +84,7 @@
                     {{ currentLabel.emoji ? currentLabel.emoji + ' ' : '' }}{{ currentLabel.text }}
                   </span>
                   <span v-else class="zlbl-empty">Phân loại</span>
-                  <span class="zlbl-caret">▾</span>
+                  <span class="zlbl-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
                 </button>
               </template>
               <div class="zlbl-dropdown zalo-native">
@@ -92,7 +92,7 @@
 
                 <div v-else-if="!allLabels.length" class="zlbl-empty-state">
                   Tài khoản chưa có thẻ phân loại nào.<br />
-                  <button class="zlbl-inline-sync" @click="onSyncLabels">⟳ Đồng bộ từ Zalo</button>
+                  <button class="zlbl-inline-sync" @click="onSyncLabels"><RefreshCwIcon :size="13" :stroke-width="2" /> Đồng bộ từ Zalo</button>
                 </div>
 
                 <div v-else class="zlbl-options">
@@ -103,17 +103,17 @@
                     :class="{ active: currentLabel?.id === lbl.id }"
                     @click="onPickLabel(lbl)"
                   >
-                    <span class="zlbl-flag" :style="`color: ${lbl.color}`">⚑</span>
+                    <span class="zlbl-flag" :style="`color: ${lbl.color}`"><FlagIcon :size="13" :stroke-width="2" /></span>
                     <span class="zlbl-name">
                       <span v-if="lbl.emoji">{{ lbl.emoji }} </span>{{ lbl.text }}
                     </span>
-                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check">✓</span>
+                    <span v-if="currentLabel?.id === lbl.id" class="zlbl-check"><CheckIcon :size="13" :stroke-width="2.2" /></span>
                   </button>
                 </div>
 
                 <div class="zlbl-divider"></div>
                 <button class="zlbl-manage" @click="goToLabelsSettings">
-                  <span class="manage-icon">⚙</span>
+                  <span class="manage-icon"><SettingsIcon :size="14" :stroke-width="2" /></span>
                   Quản lý thẻ phân loại
                 </button>
               </div>
@@ -151,7 +151,7 @@
                   <span class="nick-name">
                     {{ conversation.zaloAccount?.displayName || '—' }}
                   </span>
-                  <span class="nick-caret">▾</span>
+                  <span class="nick-caret"><ChevronDownIcon :size="13" :stroke-width="2" /></span>
                 </span>
               </template>
               <div class="nick-dd-panel">
@@ -199,8 +199,8 @@
               class="msg-counts"
               :title="`Tin nhắn 1-1 RIÊNG cặp nick × KH này: ${msgInCount} đến / ${msgOutCount} gửi. (Tổng toàn KH ${contactTotalIn}/${contactTotalOut} qua mọi nick chăm)`"
             >
-              <span class="cnt-in">{{ msgInCount }}</span>↘
-              <span class="cnt-out">{{ msgOutCount }}</span>↗
+              <span class="cnt-in">{{ msgInCount }}</span><ArrowDownLeftIcon class="cnt-arrow" :size="12" :stroke-width="2" />
+              <span class="cnt-out">{{ msgOutCount }}</span><ArrowUpRightIcon class="cnt-arrow" :size="12" :stroke-width="2" />
             </span>
             <!-- M53 2026-05-30: Virtual KH → chấm đỏ nháy + "KH chưa bật tìm kiếm Zalo công khai" -->
             <template v-if="isVirtualConv">
@@ -225,7 +225,7 @@
           <!-- Đã kết bạn: hover hiện thêm nút Huỷ kết bạn (destructive secondary) -->
           <div v-if="friendshipState === 'friend'" class="friend-hover-group">
             <button class="btn-action btn-friend-already" disabled>
-              <span class="ic">✓</span> Đã KB
+              <span class="ic"><UserCheckIcon :size="14" :stroke-width="2" /></span> Đã KB
               <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
             </button>
             <button
@@ -233,7 +233,7 @@
               :disabled="actionLoading"
               @click="onRemoveFriend"
             >
-              <span class="ic">✗</span> Huỷ KB
+              <span class="ic"><UserXIcon :size="14" :stroke-width="2" /></span> Huỷ KB
             </button>
           </div>
           <!-- Sale đã gửi mời, đợi KH accept: primary "Đã mời" + secondary "Thu hồi" -->
@@ -243,7 +243,7 @@
               :title="pendingSentTooltip"
               disabled
             >
-              <span class="ic">📤</span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
+              <span class="ic"><SendIcon :size="14" :stroke-width="2" /></span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
             </button>
             <button
               class="btn-action btn-cancel-invite"
@@ -251,7 +251,7 @@
               :disabled="actionLoading"
               @click="onCancelInvite"
             >
-              <span class="ic">↩️</span> Thu hồi
+              <span class="ic"><Undo2Icon :size="14" :stroke-width="2" /></span> Thu hồi
             </button>
           </template>
           <!-- KH đã gửi mời, sale chưa accept: primary "Chấp nhận" + secondary "Từ chối" -->
@@ -262,7 +262,7 @@
               :disabled="actionLoading"
               @click="onAcceptInvite"
             >
-              <span class="ic">✋</span> Chấp nhận <span class="sub-meta">{{ pendingDaysLabel }}</span>
+              <span class="ic"><HandIcon :size="14" :stroke-width="2" /></span> Chấp nhận <span class="sub-meta">{{ pendingDaysLabel }}</span>
             </button>
             <button
               class="btn-action btn-reject-invite"
@@ -270,7 +270,7 @@
               :disabled="actionLoading"
               @click="onRejectInvite"
             >
-              <span class="ic">✗</span> Từ chối
+              <span class="ic"><UserXIcon :size="14" :stroke-width="2" /></span> Từ chối
             </button>
           </template>
           <!-- 'ghost' = trước từng là friend, đã unfriend -->
@@ -281,7 +281,7 @@
             :disabled="actionLoading"
             @click="onOpenInviteDialog"
           >
-            <span class="ic">↻</span> Mời lại
+            <span class="ic"><RotateCcwIcon :size="14" :stroke-width="2" /></span> Mời lại
           </button>
           <button
             v-else-if="conversation.threadType === 'user'"
@@ -290,7 +290,7 @@
             :disabled="actionLoading"
             @click="onOpenInviteDialog"
           >
-            <span class="ic">+</span> Kết bạn
+            <span class="ic"><UserPlusIcon :size="14" :stroke-width="2" /></span> Kết bạn
           </button>
 
           <!-- 2026-06-03 Anh chốt: ẩn Webhook button khỏi header (chưa cần).
@@ -300,7 +300,7 @@
           <!-- More dropdown: gộp Lịch sử / Tìm / Note -->
           <v-menu>
             <template #activator="{ props: act }">
-              <button class="icon-btn" v-bind="act" title="Thêm">⋮</button>
+              <button class="icon-btn" v-bind="act" title="Thêm"><MoreVerticalIcon :size="16" :stroke-width="2" /></button>
             </template>
             <v-list density="compact" min-width="220">
               <!-- 2026-06-06 (Anh chốt): toggle cột 4 (thông tin KH) đưa vào menu ... -->
@@ -318,7 +318,7 @@
               <v-list-item
                 v-if="conversation.contact"
                 prepend-icon="mdi-merge"
-                title="🔗 Gắn vào KH Cha (merge)"
+                title="Gắn vào KH Cha (merge)"
                 @click="showLinkParentDialog = true"
               />
               <v-divider />
@@ -331,7 +331,7 @@
 
       <!-- M53 2026-05-30: Banner cam cho virtual conv — sticky top dưới header -->
       <div v-if="isVirtualConv" class="virtual-banner">
-        <div class="virtual-banner-icon">i</div>
+        <div class="virtual-banner-icon"><InfoIcon :size="14" :stroke-width="2" /></div>
         <div class="virtual-banner-body">
           <div class="virtual-banner-title">Chat nội bộ — tin nhắn KHÔNG gửi đi Zalo</div>
           <div class="virtual-banner-sub">
@@ -556,12 +556,15 @@
           </div>
           </NickAvatarLock>
 
-          <div class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) }">
+          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) }">
             <QuickTemplatePopup
+              ref="templatePopupRef"
               :visible="showTemplatePopup"
               :query="templateQuery"
               :templates="templates"
               :contact="conversation.contact"
+              :sale-full-name="_authStore.user?.fullName ?? null"
+              :anchor-el="editorWrapRef"
               @select="onTemplateSelect"
               @close="showTemplatePopup = false"
             />
@@ -570,6 +573,7 @@
               v-model="inputText"
               :placeholder="inputPlaceholder"
               :show-toolbar="formatBarVisible"
+              :intercept-keys="onComposerNavKey"
               class="input-editor"
               @submit="handleSend"
               @typing="onTypingEvent"
@@ -702,7 +706,7 @@
           :disabled="lightboxIndex <= 0"
           title="Ảnh trước (←)"
           @click.stop="lightboxPrev"
-        >‹</button>
+        ><ChevronLeftIcon :size="28" :stroke-width="2" /></button>
         <img :src="previewImageUrl" alt="Preview" class="lightbox-img" />
         <button
           v-if="lightboxList.length > 1"
@@ -710,7 +714,7 @@
           :disabled="lightboxIndex >= lightboxList.length - 1"
           title="Ảnh sau (→)"
           @click.stop="lightboxNext"
-        >›</button>
+        ><ChevronRightIcon :size="28" :stroke-width="2" /></button>
         <div class="lightbox-meta">
           <span v-if="lightboxList.length > 1">{{ lightboxIndex + 1 }} / {{ lightboxList.length }} ·</span>
           Nhấn vùng tối để đóng
@@ -844,6 +848,25 @@ import {
   Zap as ZapIcon,
   Sparkles as SparklesIcon,
   Package as PackageIcon,
+  // Header action + chrome icons (anh chốt 2026-06-08 — bỏ emoji thô, đồng bộ Lucide)
+  UserPlus as UserPlusIcon,
+  UserCheck as UserCheckIcon,
+  UserX as UserXIcon,
+  Undo2 as Undo2Icon,
+  Hand as HandIcon,
+  RotateCcw as RotateCcwIcon,
+  MoreVertical as MoreVerticalIcon,
+  ChevronDown as ChevronDownIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  RefreshCw as RefreshCwIcon,
+  Settings as SettingsIcon,
+  ArrowDownLeft as ArrowDownLeftIcon,
+  ArrowUpRight as ArrowUpRightIcon,
+  Info as InfoIcon,
+  Check as CheckIcon,
+  Flag as FlagIcon,
+  Send as SendIcon,
 } from 'lucide-vue-next';
 
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
@@ -893,7 +916,11 @@ import { useFriendSocket } from '@/composables/use-friend-socket';
 import { groupAvatarStore } from '@/composables/use-group-avatar-cache';
 import { registerPendingTags, clearPendingTags } from '@/composables/use-pending-mutations';
 
-interface TemplateItem { id: string; name: string; content: string; category: string | null; isPersonal: boolean; }
+interface TemplateItem {
+  id: string; name: string; shortcut?: string | null; content: string; category: string | null; isPersonal: boolean;
+  contentRich?: { text: string; styles?: Array<{ st: string; start: number; len: number }> } | null;
+  tagIds?: string[];
+}
 
 const props = defineProps<{
   conversation: Conversation | null;
@@ -991,6 +1018,8 @@ async function onLinkedParent() {
   emit('refresh-thread');
 }
 const editorRef = ref<InstanceType<typeof RichTextEditor> | null>(null);
+const editorWrapRef = ref<HTMLElement | null>(null); // anchor cho QuickTemplatePopup (Teleport ra body)
+const templatePopupRef = ref<InstanceType<typeof QuickTemplatePopup> | null>(null);
 const currentTypers = computed(() => props.typingUsers || []);
 
 // 2026-05-22 anh chốt Zalo native UX: chỉ tin OUTGOING CUỐI CÙNG mới hiện
@@ -2272,29 +2301,62 @@ async function consumeDraftFromQuery() {
 onMounted(() => { void consumeDraftFromQuery(); });
 watch(() => _draftRoute.query.draft, () => { void consumeDraftFromQuery(); });
 
+// Vị trí "/" mở popup — lưu để khi chọn mẫu chỉ cắt từ ĐÚNG dấu "/" này (không lastIndexOf
+// toàn chuỗi, tránh cắt nhầm URL/giá kiểu "50tr/m2"). Reset khi đóng popup.
+const slashTriggerPos = ref(-1);
+
 function onTypingEvent() {
   emit('typing');
   const value = inputText.value;
-  if (value === '/' || /\s\/$/.test(value)) {
+  // Trigger "/" chỉ ở ĐẦU dòng hoặc sau khoảng trắng (KHÔNG anywhere) — tránh phá "50tr/m2", URL.
+  if (value === '/' || /(^|\s)\/$/.test(value)) {
     showTemplatePopup.value = true;
+    slashTriggerPos.value = value.length - 1; // vị trí "/" vừa gõ
     templateQuery.value = '';
   } else if (showTemplatePopup.value) {
-    const lastSlash = value.lastIndexOf('/');
-    if (lastSlash === -1) showTemplatePopup.value = false;
-    else templateQuery.value = value.slice(lastSlash + 1);
+    const pos = slashTriggerPos.value;
+    // Popup đóng nếu "/" trigger bị xóa hoặc con trỏ lùi trước nó.
+    if (pos < 0 || pos >= value.length || value[pos] !== '/') {
+      showTemplatePopup.value = false;
+      slashTriggerPos.value = -1;
+    } else {
+      templateQuery.value = value.slice(pos + 1);
+    }
   }
 }
 
 function openTemplatePopup() {
   showTemplatePopup.value = true;
+  slashTriggerPos.value = -1; // mở bằng nút → không có "/" cần cắt
   templateQuery.value = '';
 }
 
-function onTemplateSelect(rendered: string) {
-  const lastSlash = inputText.value.lastIndexOf('/');
-  inputText.value = lastSlash >= 0 ? inputText.value.slice(0, lastSlash) + rendered : rendered;
+// Popup mẫu Teleport ra body nên KHÔNG hứng được phím từ ô nhập. RichTextEditor gọi hàm này
+// (qua prop intercept-keys) khi nhấn ↑↓/Enter/Esc — nếu popup đang mở thì chuyển cho popup
+// điều hướng (chọn/chèn/đóng) và trả true để editor KHÔNG dời con trỏ / gửi tin.
+function onComposerNavKey(event: KeyboardEvent): boolean {
+  if (!showTemplatePopup.value) return false;
+  templatePopupRef.value?.onKey(event);
+  return true;
+}
+
+// Chèn mẫu: giữ định dạng đậm/màu qua applyRichPayload (biến đã render + re-anchor offset ở popup).
+// Thay nội dung ô bằng (text trước "/") + mẫu. KHÔNG auto-send — sale tự Enter.
+function onTemplateSelect(payload: { text: string; styles?: Array<{ st: string; start: number; len: number }> }, templateId: string) {
+  const pos = slashTriggerPos.value;
+  const before = pos >= 0 ? inputText.value.slice(0, pos) : '';
+  const merged = before + payload.text;
+  // Dịch styles theo độ dài phần "before" (mẫu được nối sau before).
+  const shift = before.length;
+  const mergedStyles = (payload.styles ?? []).map((s) => ({ ...s, start: s.start + shift }));
+  // Nạp vào editor giữ định dạng. applyRichPayload setContent toàn bộ ô.
+  (editorRef.value as any)?.applyRichPayload?.({ text: merged, styles: mergedStyles }, { focus: true });
+  inputText.value = merged;
   showTemplatePopup.value = false;
+  slashTriggerPos.value = -1;
   templateQuery.value = '';
+  // Track use (non-blocking)
+  api.post(`/automation/templates/${templateId}/track-use`).catch(() => {});
 }
 
 // ── M14 (2026-06-02): Chèn Khối tin nhắn (Automation Blocks) vào composer ──
@@ -2302,6 +2364,8 @@ function onTemplateSelect(rendered: string) {
 // → fill vào inputText (append nếu đã có text, KHÔNG auto-send).
 // Tránh ghi đè khi đang edit message (nút đã disable ở toolbar, double-check ở handler).
 const showBlockPicker = ref(false);
+// FIX 2026-06-09: guard chống double-send khi gửi cả Khối (preview/send-direct).
+const blockSending = ref(false);
 function openBlockPicker() {
   if (props.editingMessage) return;
   if (!privacyVisibility.canSendInConv(props.conversation)) return;
@@ -2327,43 +2391,35 @@ async function onConfirmSendBlock(blockId: string) {
   await dispatchBlockComponents(blockId);
 }
 
+// FIX 2026-06-09 (Anh báo): trước đây hàm này chỉ CHÈN text các thành phần vào ô gõ
+// (inputText) → khối nhiều thành phần / có format bị dồn thành text thường, gửi sai.
+// Giờ gửi CẢ KHỐI qua backend GIỐNG nút "Gửi cả Khối" ở cột 4 Automation
+// (sendBlockToConversation): BE dispatch đủ thành phần đúng thứ tự, giữ rich-text,
+// render {gender}/{name}/{sale}, delay an toàn; tin hiện live ở cột 3 qua socket.
 async function dispatchBlockComponents(blockId: string) {
+  const conversationId = props.conversation?.id;
+  if (!conversationId) {
+    toast.error('Chưa chọn hội thoại để gửi Khối');
+    return;
+  }
+  if (blockSending.value) return; // chống double-send
+  blockSending.value = true;
   try {
-    const { resolveBlockForSend } = await import('@/api/automation/blocks');
-    const resolved = await resolveBlockForSend(blockId);
-    if (!resolved.resolved || resolved.resolved.length === 0) {
-      toast.error('Khối không có nội dung để gửi');
-      return;
-    }
-    // Loop từng component, emit 'send' cho mỗi cái. MessageThread emit lên ChatView.
-    // Phase 1: chỉ support text → chèn text vào composer + user bấm Gửi.
-    // Multi-component (image/file/album) defer Phase 2 (cần wire backend zaloOps batch).
-    const textParts: string[] = [];
-    let hasNonText = false;
-    for (const c of resolved.resolved) {
-      if (c.messageType === 'text') {
-        const text = (c.payload as any)?.text;
-        if (typeof text === 'string' && text.trim()) textParts.push(text);
-      } else {
-        hasNonText = true;
-      }
-    }
-    if (textParts.length > 0) {
-      const combined = textParts.join('\n\n');
-      inputText.value = inputText.value.trim()
-        ? `${inputText.value.replace(/\s+$/, '')}\n\n${combined}`
-        : combined;
-    }
-    if (hasNonText) {
-      toast.push(`Đã chèn ${textParts.length} tin text. ${resolved.resolved.length - textParts.length} thành phần (ảnh/file/album) cần gửi tay riêng — Phase 1 chưa wire multi-dispatch.`);
+    const { sendBlockToConversation } = await import('@/api/automation/blocks');
+    const res = await sendBlockToConversation(conversationId, blockId);
+    if (res.partial) {
+      toast.warning(`Đã gửi ${res.sentCount}/${res.totalMessages} tin — ${res.errors.length} thành phần lỗi`);
     } else {
-      toast.success(`Đã chèn ${textParts.length} tin từ Khối "${resolved.blockName}" vào ô gõ`);
+      toast.success(`Đã gửi Khối (${res.sentCount} tin) cho KH`);
     }
-    await nextTick();
-    setTimeout(() => editorRef.value?.focus('end'), 30);
   } catch (err: any) {
-    const msg = err?.response?.data?.error || err?.message || 'Không gửi được Khối';
+    const msg = err?.response?.data?.error
+      || err?.response?.data?.detail
+      || err?.message
+      || 'Không gửi được Khối';
     toast.error(msg);
+  } finally {
+    blockSending.value = false;
   }
 }
 
@@ -3135,7 +3191,19 @@ watch(() => props.editingMessage?.id, async (id) => {
 .btn-action .ic {
   font-size: 13px;
   line-height: 1;
+  display: inline-flex; align-items: center;
 }
+/* Icon Lucide (svg) trong header chat — căn giữa, không lệch baseline (2026-06-08). */
+.btn-action .ic > svg,
+.nick-caret > svg,
+.zlbl-caret > svg,
+.zlbl-flag > svg,
+.zlbl-check > svg,
+.zlbl-inline-sync > svg,
+.zlbl-manage .manage-icon > svg,
+.virtual-banner-icon > svg { display: block; }
+.msg-counts .cnt-arrow { vertical-align: middle; opacity: 0.55; margin: 0 1px 0 -1px; }
+.nick-caret, .zlbl-caret { display: inline-flex; align-items: center; }
 .btn-action .sub-meta {
   font-size: 10px;
   opacity: 0.7;

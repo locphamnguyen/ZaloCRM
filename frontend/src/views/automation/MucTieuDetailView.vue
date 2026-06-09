@@ -363,7 +363,10 @@
             <div class="stat-label">Có Zalo</div>
             <div class="stat-value num">{{ formatNum(stats.hasZalo) }}</div>
             <div class="stat-hint">
-              <span class="num">{{ pct(stats.hasZalo, stats.processed) }}%</span> trong số đã xử lý — vào Phase 1
+              <!-- FIX 2026-06-08 (Anh chốt): mẫu số CŨ là stats.processed (đã xử lý) → 30/7
+                   = 428% vô lý. "Có Zalo" là tập con của TỔNG tệp, không phải của "đã xử lý"
+                   → chia cho stats.total (30/30 = 100%). -->
+              <span class="num">{{ pct(stats.hasZalo, stats.total) }}%</span> trong tổng tệp
             </div>
           </div>
           <div class="stat-card accent-red">
@@ -529,8 +532,19 @@
           <div class="section-head">
             <h3>
               <v-icon size="16">mdi-account-group-outline</v-icon> Khách hàng
-              <span class="head-hint">
-                (<span class="num">{{ formatNum(stats.hasZalo) }}</span> đang chạy + <span class="num">{{ formatNum(stats.noZalo) }}</span> không Zalo)
+              <span class="entry-breakdown">
+                <span class="eb-pill eb-done" title="Đã gửi lời mời & có kết quả (xong chuỗi / reply / block / lead)">
+                  <span class="num">{{ formatNum(entryBreakdown.daChay) }}</span> đã chạy
+                </span>
+                <span class="eb-pill eb-running" title="Nick đang gửi lời mời HOẶC KH đang trong chuỗi bám đuổi">
+                  <span class="num">{{ formatNum(entryBreakdown.dangChay) }}</span> đang chạy
+                </span>
+                <span class="eb-pill eb-pending" title="KH đang chờ tới lượt nick gửi lời mời">
+                  <span class="num">{{ formatNum(entryBreakdown.sapChay) }}</span> sắp chạy
+                </span>
+                <span v-if="entryBreakdown.noZalo > 0" class="eb-pill eb-nozalo" title="KH không có tài khoản Zalo">
+                  <span class="num">{{ formatNum(entryBreakdown.noZalo) }}</span> không Zalo
+                </span>
               </span>
             </h3>
             <div class="head-actions">
@@ -1259,6 +1273,25 @@ const stats = computed(() => {
   };
 });
 
+// FIX 2026-06-08 (Anh chốt): header "Khách hàng" CŨ hiện "(hasZalo đang chạy + noZalo
+// không Zalo)" — SAI: hasZalo = total - noZalo = 30 cố định, KHÔNG đổi dù poll 5s →
+// trông như "30 đang chạy" đứng im, không realtime, không khớp Log sự kiện.
+// Đúng phải tách 3 nhóm theo trạng thái queue THẬT (poll 5s tự cập nhật):
+//   - Sắp chạy  = queued_for_pickup (KH chờ tới lượt nick gửi lời mời)
+//   - Đang chạy = processing (nick đang gửi) + enrollingSequence (đang bám đuổi chuỗi)
+//   - Đã chạy   = đã qua bước gửi & có kết quả (xong chuỗi / reply / block / lead / accepted)
+//   - Không Zalo = noZalo (tách riêng, không tính vào 3 nhóm trên)
+const entryBreakdown = computed(() => {
+  const c = data.value?.counters ?? {};
+  const sapChay = c.queued_for_pickup ?? 0;
+  const dangChay = (c.processing ?? 0) + (c.enrollingSequence ?? 0);
+  const noZalo = stats.value.noZalo;
+  // Đã chạy = tổng - sắp - đang - noZalo (suy ngược để luôn khớp tổng, tránh đếm trùng
+  // giữa các nguồn event chồng lấn). Clamp ≥ 0.
+  const daChay = Math.max(0, stats.value.total - sapChay - dangChay - noZalo);
+  return { daChay, dangChay, sapChay, noZalo };
+});
+
 const phase1 = computed(() => {
   const c = data.value?.counters ?? {};
   const sent = c.sent ?? 0;
@@ -1913,7 +1946,10 @@ function pct(num: number | undefined | null, denom: number | undefined | null): 
   const a = num ?? 0;
   const b = denom ?? 0;
   if (!b) return '0';
-  return ((a / b) * 100).toFixed(1);
+  // FIX 2026-06-08 — clamp [0,100]: trước đây num/denom với mẫu sai (vd 30/7) ra 428%
+  // vô lý. Tỷ lệ phần trăm KHÔNG bao giờ vượt 100; clamp để phòng mọi caller mẫu lệch.
+  const p = (a / b) * 100;
+  return Math.min(100, Math.max(0, p)).toFixed(1);
 }
 function capPct(sent: number, cap: number): number {
   if (!cap) return 0;
@@ -3250,6 +3286,21 @@ onUnmounted(() => {
   color: var(--text-1); display: flex; align-items: center; gap: 6px;
 }
 .section-head .head-hint { font-size: 12px; color: var(--text-3); font-weight: 400; margin-left: 4px; }
+
+/* FIX 2026-06-08 — header "Khách hàng" breakdown 3 nhóm realtime (Đã/Đang/Sắp chạy)
+   thay "(30 đang chạy)" tĩnh cũ. Pill nhỏ, màu phân biệt trạng thái, poll 5s tự đổi. */
+.entry-breakdown { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; flex-wrap: wrap; }
+.eb-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11.5px; font-weight: 500; line-height: 1.2;
+  padding: 2px 9px; border-radius: 999px;
+  border: 1px solid transparent;
+}
+.eb-pill .num { font-weight: 700; font-variant-numeric: tabular-nums; }
+.eb-done    { background: #e7f7ef; color: #1b6b46; border-color: #86efac; }  /* xanh lá — đã chạy */
+.eb-running { background: #e4f1f8; color: #0b5880; border-color: #93c5fd; }  /* xanh dương — đang chạy */
+.eb-pending { background: #f1f4f9; color: #475066; border-color: #cdd4e0; }  /* xám — sắp chạy */
+.eb-nozalo  { background: #fdeceb; color: #b42318; border-color: #fca5a5; }  /* đỏ — không Zalo */
 .section-head .head-actions { display: flex; gap: 8px; align-items: center; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }

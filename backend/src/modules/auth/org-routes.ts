@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from './auth-middleware.js';
-import { requireRole } from './role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 
 // Offset string "+HH:MM" hoặc "-HH:MM" (vd "+07:00"). HH 00-14, MM 00/15/30/45.
@@ -48,7 +48,7 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   // Admin pick bất kỳ nick org có. Validation: nick exists, in same org. KHÔNG yêu cầu admin own.
   app.patch(
     '/api/v1/organization/system-notify-nick',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const body = (request.body ?? {}) as { zaloAccountId?: string | null };
@@ -79,7 +79,7 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   // nhưng phải có ít nhất 1 field hợp lệ.
   app.put(
     '/api/v1/organization',
-    { preHandler: requireRole('owner') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const body = (request.body ?? {}) as { name?: string; timezone?: string };
@@ -165,7 +165,7 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   // PUT /api/v1/organization/automation-settings — owner/admin only
   app.put(
     '/api/v1/organization/automation-settings',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const body = (request.body ?? {}) as Record<string, unknown>;

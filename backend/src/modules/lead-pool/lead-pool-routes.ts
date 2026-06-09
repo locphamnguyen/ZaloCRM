@@ -12,7 +12,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import {
   LeadPoolError,
   checkEligibility,
@@ -81,7 +81,7 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
 
   app.get(
     '/api/v1/lead-pool/config',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       try {
@@ -94,7 +94,7 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/api/v1/lead-pool/config',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const patch = (request.body ?? {}) as Record<string, unknown>;
@@ -121,7 +121,7 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
   // Query: ?limit=200 ?filter=available|assigned|cooldown|returned_today
   app.get(
     '/api/v1/lead-pool/preview',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const query = request.query as { limit?: string; filter?: string };
@@ -142,7 +142,7 @@ export async function leadPoolRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/lead-pool/queue-today-stats — 4 KPI cho Queue Lead admin page
   app.get(
     '/api/v1/lead-pool/queue-today-stats',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('settings', 'access') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       try {

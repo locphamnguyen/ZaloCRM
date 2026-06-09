@@ -33,7 +33,7 @@ export interface FormattedMessage {
 // ---------------------------------------------------------------------------
 
 const COLOR_MAP: Record<string, string> = {
-  red: '#e84343', orange: '#f5a623', yellow: '#f8e71c', green: '#2ecc71',
+  red: '#e84343', orange: '#f5a623', yellow: '#f8e71c', green: '#2ecc71', blue: '#2962ff',
 };
 
 type StyleSpec = Omit<TextStyle, 'offset' | 'length'>;
@@ -46,7 +46,7 @@ type InlineRule = {
 
 const INLINE_RULES: InlineRule[] = [
   {
-    pattern: /\{(red|orange|yellow|green|underline|big|small)\}([\s\S]+?)\{\/\1\}/g,
+    pattern: /\{(red|orange|yellow|green|blue|underline|big|small)\}([\s\S]+?)\{\/\1\}/g,
     resolve: (m) => {
       const tag = m[1];
       if (tag === 'underline') return { inner: m[2], styles: [{ style: 'underline' }] };

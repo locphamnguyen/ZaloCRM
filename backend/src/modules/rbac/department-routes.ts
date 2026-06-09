@@ -4,7 +4,7 @@
  * REST endpoints cho Department tree management.
  * Auth: tất cả routes require JWT + (sẽ thêm rbac middleware 'department.*' ở D8).
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import {
   getOrgDepartmentTree,
@@ -15,26 +15,11 @@ import {
   removeUserFromDepartment,
   getUsersUnderDepartment,
 } from './department-service.js';
-import { userHasGrant } from './permission-group-service.js';
-import type { Resource, Action } from './permission-types.js';
-
-/**
- * TEMP RBAC guard cho D5-6 (proper middleware ship ở D8).
- * Codex review P1 finding: mọi authenticated user có thể CRUD dept/group.
- * Tạm dùng userHasGrant + legacy role='owner' fallback.
- */
-function requireGrant(resource: Resource, action: Action) {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = (request as any).user;
-    if (!user) return reply.status(401).send({ error: 'unauthorized' });
-    const allowed = await userHasGrant(user.userId ?? user.id, resource, action);
-    if (!allowed) return reply.status(403).send({ error: `Forbidden: ${resource}.${action}` });
-  };
-}
+import { requireGrant } from './rbac-middleware.js';
 
 export async function registerDepartmentRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/departments — full tree
-  app.get('/api/v1/departments', { preHandler: authMiddleware }, async (request, reply) => {
+  app.get('/api/v1/departments', { preHandler: [authMiddleware, requireGrant('department', 'access')] }, async (request, reply) => {
     const user = (request as any).user;
     if (!user) return reply.status(401).send({ error: 'unauthorized' });
     const tree = await getOrgDepartmentTree(user.orgId);
@@ -145,7 +130,7 @@ export async function registerDepartmentRoutes(app: FastifyInstance): Promise<vo
 
   // GET /api/v1/departments/:id/members-tree — list users trong dept + sub-depts
   // Endpoint này dùng cho leader xem danh sách "ai dưới quyền tôi"
-  app.get('/api/v1/departments/:id/members-tree', { preHandler: authMiddleware }, async (request, reply) => {
+  app.get('/api/v1/departments/:id/members-tree', { preHandler: [authMiddleware, requireGrant('department', 'access')] }, async (request, reply) => {
     const user = (request as any).user;
     if (!user) return reply.status(401).send({ error: 'unauthorized' });
     const { id } = request.params as { id: string };

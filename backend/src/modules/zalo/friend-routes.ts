@@ -5,6 +5,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { resolveAccount, checkAccess, handleError, getAccessibleZaloAccountIds } from './zalo-route-helpers.js';
 import { getZaloScope } from './zalo-scope.js';
@@ -30,7 +31,7 @@ export async function friendRoutes(app: FastifyInstance) {
   // ── DB-backed friend list (preferred over live for /friends UI) ───────────
 
   // GET .../friends-db?kind=...&page=1&limit=25&search=...&sortBy=recent|score-desc|score-asc|stuck
-  app.get(`${BASE}-db`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get(`${BASE}-db`, { preHandler: requireGrant('friend', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const { accountId } = request.params as { accountId: string };
     const {
       kind = 'all',
@@ -105,7 +106,7 @@ export async function friendRoutes(app: FastifyInstance) {
 
   // GET /api/v1/friends-db/all-nicks — cross-nick Friend list (mọi nick user có access)
   // Phục vụ FriendsView "Tất cả nick" mode. Flat per-pair: 1 KH × N nick chăm → N rows.
-  app.get('/api/v1/friends-db/all-nicks', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/friends-db/all-nicks', { preHandler: requireGrant('friend', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const {
       kind = 'all',

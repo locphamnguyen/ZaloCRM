@@ -88,6 +88,32 @@
       </div>
     </div>
 
+    <!-- ===== System row: Bám đuổi khách hàng thủ công (Anh chốt 2026-06-07) =====
+         Mục tiêu hệ thống gom mọi KH sale gắn luồng tay từ chat. Tách riêng khỏi
+         bảng friend-invite vì khác mô hình dữ liệu. Click → side panel danh sách KH. -->
+    <button
+      v-if="manualSummary && manualSummary.counts.total > 0"
+      class="sys-row"
+      @click="goManualFollowup"
+    >
+      <span class="sys-ic">
+        <v-icon size="18">mdi-account-arrow-right-outline</v-icon>
+      </span>
+      <span class="sys-main">
+        <span class="sys-name">
+          {{ manualSummary.name }}
+          <span class="sys-tag">Hệ thống</span>
+        </span>
+        <span class="sys-sub">KH được sale gắn luồng bám đuổi thủ công từ chat</span>
+      </span>
+      <span class="sys-stats">
+        <span class="sys-stat"><b class="num">{{ formatNum(manualSummary.counts.active) }}</b><i>Đang chạy</i></span>
+        <span class="sys-stat"><b class="num" style="color:var(--success)">{{ formatNum(manualSummary.counts.completed) }}</b><i>Đã xong</i></span>
+        <span class="sys-stat"><b class="num" style="color:var(--ink-3)">{{ formatNum(manualSummary.counts.stopped) }}</b><i>Đã dừng</i></span>
+      </span>
+      <v-icon size="20" class="sys-arrow">mdi-chevron-right</v-icon>
+    </button>
+
     <!-- ================== TABLE 10 cột (anh chốt 2026-06-05) ================== -->
     <!-- STT · Ngày tạo · Tên · Tệp KH · Nick · Phase 1 · Phase 2 · Phản hồi · Trạng thái · Ngày kết thúc -->
     <div class="table-card">
@@ -613,6 +639,25 @@ const visibleItems = computed(() =>
 
 const loading = ref(false);
 const error = ref<string | null>(null);
+
+// ── Mục tiêu hệ thống "Bám đuổi thủ công" (Anh chốt 2026-06-07) ──
+interface ManualSummary {
+  exists: boolean;
+  triggerId: string | null;
+  name: string;
+  counts: { active: number; completed: number; stopped: number; total: number };
+}
+const manualSummary = ref<ManualSummary | null>(null);
+function goManualFollowup() { void router.push({ name: 'Marketing.ManualFollowup' }); }
+async function loadManualSummary() {
+  try {
+    const res = await api.get<ManualSummary>('/automation/manual-followup/summary');
+    manualSummary.value = res.data;
+  } catch (err) {
+    console.error('[manual-followup] summary failed', err);
+    manualSummary.value = null;
+  }
+}
 
 const searchInput = ref('');
 const searchDebounced = ref('');
@@ -1193,6 +1238,7 @@ function onDocClick() {
 
 onMounted(() => {
   void loadList();
+  void loadManualSummary();
   document.addEventListener('keydown', onKeydown);
   document.addEventListener('click', onDocClick);
 });
@@ -1363,6 +1409,52 @@ onUnmounted(() => {
 .view-toggle button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ============================ TABLE ============================ */
+/* ── System row "Bám đuổi thủ công" (Anh chốt 2026-06-07) ──────────────── */
+.sys-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line, #e7eaf0);
+  border-left: 3px solid var(--brand, #1786be);
+  border-radius: var(--r-md, 10px);
+  box-shadow: var(--sh-xs);
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color .14s, box-shadow .14s;
+}
+.sys-row:hover { border-color: var(--brand, #1786be); box-shadow: var(--sh-sm); }
+.sys-ic {
+  width: 38px; height: 38px; border-radius: var(--r-sm, 8px); flex-shrink: 0;
+  background: var(--brand-soft, #e4f1f8); color: var(--brand, #1786be);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sys-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sys-name {
+  font-size: 14px; font-weight: 600; color: var(--ink, #141a24);
+  display: flex; align-items: center; gap: 8px;
+}
+.sys-tag {
+  font-size: 10.5px; font-weight: 600; color: var(--ink-3, #6b7488);
+  background: var(--surface-3, #f1f4f9); border-radius: var(--r-pill, 999px); padding: 1px 8px;
+}
+.sys-sub { font-size: 12px; color: var(--ink-3, #6b7488); }
+.sys-stats { display: flex; gap: 22px; flex-shrink: 0; }
+.sys-stat { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.sys-stat b { font-size: 17px; font-weight: 600; line-height: 1; color: var(--ink, #141a24); }
+.sys-stat i { font-size: 10.5px; font-style: normal; color: var(--ink-3, #6b7488); }
+.sys-arrow { color: var(--ink-4, #97a0b3); flex-shrink: 0; }
+
+@media (max-width: 1100px) {
+  .sys-row { gap: 10px; }
+  .sys-stats { gap: 14px; }
+  .sys-sub { display: none; }
+}
+
 .table-card {
   background: var(--surface);
   border: 1px solid var(--mtl-border);

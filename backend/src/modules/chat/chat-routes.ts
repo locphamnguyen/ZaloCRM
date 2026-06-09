@@ -5,6 +5,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
@@ -21,6 +22,13 @@ import { attachContactCollaboratorByUser } from '../contacts/contact-scope.js';
 import { automationTaskStub as _automationTaskStub } from '../automation/engine/_automation-task-stub.js';
 // Fix 2026-06-03 — M11 optimistic badge cache (Anh báo "Sale CRM · Staff")
 import { getUserFullName } from './chat-helpers.js';
+// 2026-06-07 — Gửi Khối Marketing thẳng vào hội thoại (cột 4 tab Automation).
+import { zaloOps } from '../../shared/zalo-operations.js';
+import { sendNativeVideo } from '../../shared/video-processor.js';
+import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
+import { resolveBlockContent } from '../automation/blocks/resolve-block-content.js';
+import { renderTemplate } from '../automation/blocks/render-template.js';
+import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 
 type QueryParams = Record<string, string>;
 
@@ -116,8 +124,161 @@ export async function chatRoutes(app: FastifyInstance) {
     return { unread, unreplied, total };
   });
 
+  // ── Event counts cho badge cột 1 (sinh nhật 7d / hẹn 24h / quá hạn) ──────
+  // 2026-06-08 (anh chốt) — badge đếm THẬT thay hardcode 0. Đếm số KH (Contact)
+  // distinct, scope org + zalo access. Phải đăng ký TRƯỚC /conversations/:id.
+  app.get('/api/v1/conversations/event-counts', async (request: FastifyRequest, _reply: FastifyReply) => {
+    const user = request.user!;
+
+    const now = new Date();
+    const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const [birthdayRows, appointmentSoon, appointmentOverdue, replyStateRows] = await Promise.all([
+      // Sinh nhật 7 ngày tới — so ngày/tháng (bỏ năm, wrap qua năm mới).
+      prisma.$queryRaw<Array<{ n: bigint }>>`
+        SELECT COUNT(*)::bigint AS n FROM contacts
+        WHERE org_id = ${user.orgId}
+          AND birth_date IS NOT NULL
+          AND to_char(birth_date, 'MM-DD') = ANY (
+            SELECT to_char(generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '7 day', INTERVAL '1 day'), 'MM-DD')
+          )
+      `,
+      // Lịch hẹn scheduled trong 24h tới (distinct Contact).
+      prisma.contact.count({
+        where: {
+          orgId: user.orgId,
+          appointments: { some: { status: 'scheduled', appointmentDate: { gte: now, lte: in24h } } },
+        },
+      }),
+      // Hẹn scheduled đã quá giờ (distinct Contact).
+      prisma.contact.count({
+        where: {
+          orgId: user.orgId,
+          appointments: { some: { status: 'scheduled', appointmentDate: { lt: now } } },
+        },
+      }),
+      // 2026-06-09 — Badge đếm nhóm "Tin nhắn" (user vs bot). Chỉ 1-1 (threadType='user').
+      // Mốc khách nhắn cuối tính PER-CONVERSATION từ messages (KHÔNG dùng Contact.lastInboundAt
+      // — aggregate cross-nick gây sai khi 1 KH nhiều nick). Khớp 100% logic filter ở GET list.
+      //   unanswered  = không có tin self nào sau mốc khách cuối
+      //   sale_replied= có tin sale thật sau mốc khách cuối
+      //   bot_no_sale = có tin self sau mốc nhưng không có sale thật → chỉ bot
+      prisma.$queryRaw<Array<{ unanswered: bigint; sale_replied: bigint; bot_no_sale: bigint }>>`
+        SELECT
+          COUNT(*) FILTER (WHERE agg.last_self IS NULL OR agg.last_self < agg.last_inbound)::bigint AS unanswered,
+          COUNT(*) FILTER (WHERE agg.last_sale IS NOT NULL AND agg.last_sale >= agg.last_inbound)::bigint AS sale_replied,
+          COUNT(*) FILTER (
+            WHERE agg.last_self IS NOT NULL AND agg.last_self >= agg.last_inbound
+              AND (agg.last_sale IS NULL OR agg.last_sale < agg.last_inbound)
+          )::bigint AS bot_no_sale
+        FROM conversations cv
+        JOIN LATERAL (
+          SELECT MAX(m.sent_at) FILTER (WHERE m.sender_type = 'contact') AS last_inbound,
+                 MAX(m.sent_at) FILTER (
+                   WHERE m.sender_type = 'self' AND m.sent_via IN ('user','user_native')
+                 ) AS last_sale,
+                 MAX(m.sent_at) FILTER (WHERE m.sender_type = 'self') AS last_self
+          FROM messages m WHERE m.conversation_id = cv.id
+        ) agg ON TRUE
+        WHERE cv.org_id = ${user.orgId}
+          AND cv."threadType" = 'user'
+          AND agg.last_inbound IS NOT NULL
+      `,
+    ]);
+
+    return {
+      birthday: Number(birthdayRows[0]?.n ?? 0),
+      appointmentSoon,
+      appointmentOverdue,
+      // Nhóm "Tin nhắn"
+      msgUnanswered: Number(replyStateRows[0]?.unanswered ?? 0),
+      msgBotNoSale: Number(replyStateRows[0]?.bot_no_sale ?? 0),
+      msgSaleReplied: Number(replyStateRows[0]?.sale_replied ?? 0),
+    };
+  });
+
+  // ── Sidebar tags theo Phạm vi xem (anh chốt 2026-06-09) ─────────────────
+  // crmTags = tag CRM đang DÙNG THẬT ở Friend.crmTagsPerNick (per-nick), distinct.
+  // zaloTags = ZaloLabel của các nick trong scope (ALL / folder / 1 nick).
+  // Scope nick: folderId → members; accountId → 1 nick; else → mọi nick accessible.
+  // Phải đăng ký TRƯỚC /conversations/:id.
+  app.get('/api/v1/conversations/sidebar-tags', async (request: FastifyRequest, _reply: FastifyReply) => {
+    const user = request.user!;
+    const { folderId = '', accountId = '' } = request.query as QueryParams;
+
+    // 1) Resolve danh sách zaloAccountId theo scope.
+    let scopedAccountIds: string[] | null = null; // null = mọi nick accessible
+    if (folderId) {
+      const folder = await prisma.accountFolder.findUnique({
+        where: { id: folderId },
+        include: { members: { select: { zaloAccountId: true } } },
+      });
+      if (folder && folder.userId === user.id) {
+        scopedAccountIds = folder.members.map((m) => m.zaloAccountId);
+      } else {
+        scopedAccountIds = []; // folder không thuộc user → rỗng
+      }
+    } else if (accountId) {
+      scopedAccountIds = [accountId];
+    }
+
+    // 2) Áp zalo access scope (sale chỉ thấy nick mình được cấp).
+    const { getZaloScope } = await import('../zalo/zalo-scope.js');
+    const zScope = await getZaloScope(user.id, user.orgId, user.role);
+    let effectiveAccountIds: string[];
+    if (scopedAccountIds !== null) {
+      effectiveAccountIds = zScope.isOrgAdmin
+        ? scopedAccountIds
+        : scopedAccountIds.filter((id) => zScope.accessibleIds.includes(id));
+    } else {
+      effectiveAccountIds = zScope.isOrgAdmin ? [] : zScope.accessibleIds; // [] = không giới hạn (admin)
+    }
+    // Admin + ALL → effectiveAccountIds rỗng nghĩa là "mọi nick" (không filter theo account).
+    const restrictByAccount = !(scopedAccountIds === null && zScope.isOrgAdmin);
+
+    // 3) crmTags — distinct Friend.crmTagsPerNick của các nick trong scope.
+    const friendWhere: any = { orgId: user.orgId };
+    if (restrictByAccount) {
+      friendWhere.zaloAccountId = effectiveAccountIds.length > 0 ? { in: effectiveAccountIds } : 'NO_MATCH';
+    }
+    const friends = await prisma.friend.findMany({
+      where: friendWhere,
+      select: { crmTagsPerNick: true },
+    });
+    const crmTagSet = new Map<string, string>(); // cleanName → cleanName (dedup)
+    for (const f of friends) {
+      const arr = Array.isArray(f.crmTagsPerNick) ? (f.crmTagsPerNick as string[]) : [];
+      for (const raw of arr) {
+        if (typeof raw !== 'string' || !raw.trim()) continue;
+        const clean = raw.startsWith('🔵 ') ? raw.slice(3) : raw; // strip mirror prefix
+        crmTagSet.set(clean, clean);
+      }
+    }
+    const crmTags = [...crmTagSet.keys()].sort((a, b) => a.localeCompare(b, 'vi'));
+
+    // 4) zaloTags — ZaloLabel của các nick trong scope, distinct theo text (giữ màu đầu tiên).
+    const labelWhere: any = { orgId: user.orgId };
+    if (restrictByAccount) {
+      labelWhere.zaloAccountId = effectiveAccountIds.length > 0 ? { in: effectiveAccountIds } : 'NO_MATCH';
+    }
+    const labels = await prisma.zaloLabel.findMany({
+      where: labelWhere,
+      select: { text: true, color: true, emoji: true },
+      orderBy: { offset: 'asc' },
+    });
+    const zaloTagMap = new Map<string, { name: string; color: string; emoji: string | null }>();
+    for (const l of labels) {
+      const name = (l.text || '').trim();
+      if (!name) continue;
+      if (!zaloTagMap.has(name)) zaloTagMap.set(name, { name, color: l.color, emoji: l.emoji });
+    }
+    const zaloTags = [...zaloTagMap.values()];
+
+    return { crmTags, zaloTags };
+  });
+
   // ── List conversations (paginated, filterable) ──────────────────────────
-  app.get('/api/v1/conversations', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/conversations', { preHandler: requireGrant('conversation', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const {
       page = '1',
@@ -151,6 +312,21 @@ export async function chatRoutes(app: FastifyInstance) {
       ready = '',               // 'true' → score >= 80
       zaloLabels = '',          // CSV: filter by Zalo Real labels
       engagementPattern = '',   // Phase 8 — CSV: hot,champion,stable,cooling,cold
+      // 2026-06-08 — Cột 1 sidebar deep filter (trước đây BE bỏ qua → "nút chết").
+      stages = '',              // CSV statusId: lọc theo Trạng thái KH (Status table)
+      stuckDuration = '',       // '>3d'|'>7d'|'>14d'|'>30d' → Friend.stuckSince cũ hơn ngưỡng
+      lastMessageWithin = '',   // '24h'|'7d'|'30d'|'>30d' → Conversation.lastMessageAt
+      customerWaitingReply = '',// 'true' → KH nhắn sau cùng (lastInboundAt > lastOutboundAt)
+      saleWaitingReply = '',    // 'true' → Sale nhắn sau cùng (lastOutboundAt >= lastInboundAt)
+      birthdayWithin7d = '',    // 'true' → Contact.birthDate rơi vào 7 ngày tới (theo ngày/tháng)
+      appointmentWithin24h = '',// 'true' → có Appointment scheduled trong 24h tới
+      appointmentOverdue = '',  // 'true' → có Appointment scheduled đã quá giờ
+      // 2026-06-09 (anh chốt) — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3.
+      // Xét TỪ LƯỢT KHÁCH NHẮN CUỐI (Contact.lastInboundAt) trở đi:
+      //   'unanswered'  → tin cuối là khách, chưa ai (cả bot) trả lời (= isReplied=false)
+      //   'bot_no_sale' → sau lastInboundAt CHỈ có bot, KHÔNG có tin sale thật
+      //   'sale_replied'→ có tin sale thật (self + user/user_native) sau lastInboundAt
+      messageReplyState = '',
     } = request.query as QueryParams;
 
     const where: any = { orgId: user.orgId };
@@ -308,8 +484,133 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
+    // ════════════ 2026-06-08 — Cột 1 sidebar deep filter (nút trước đây "chết") ════════════
+
+    // ── Stage pipeline → Trạng thái KH thật (Status table, anh chốt 2026-06-08) ──
+    // FE gửi CSV statusId (không phải nhãn cứng Nóng/Ấm/Lạnh). Lọc Contact.statusId.
+    if (stages) {
+      const statusIds = stages.split(',').map((s) => s.trim()).filter(Boolean);
+      if (statusIds.length === 1) contactWhere.statusId = statusIds[0];
+      else if (statusIds.length > 1) contactWhere.statusId = { in: statusIds };
+    }
+
+    // ── Stuck duration → Friend.stuckSince cũ hơn ngưỡng N ngày ──
+    if (stuckDuration) {
+      const days = stuckDuration === '>3d' ? 3 : stuckDuration === '>7d' ? 7
+        : stuckDuration === '>14d' ? 14 : stuckDuration === '>30d' ? 30 : 0;
+      if (days > 0) {
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const existingFriends = (contactWhere.friends as any) || {};
+        const someClause = existingFriends.some || {};
+        contactWhere.friends = {
+          some: { ...someClause, stuckSince: { not: null, lte: cutoff } },
+        };
+      }
+    }
+
+    // ── Cờ chờ-reply: dùng Conversation.isReplied làm proxy chuẩn ──
+    // isReplied=false = tin cuối là của KH, sale chưa rep → "KH chờ sale reply".
+    // isReplied=true  = tin cuối là của sale, đang đợi KH    → "Sale chờ KH reply".
+    // (Prisma không so trực tiếp 2 cột lastInboundAt/lastOutboundAt; isReplied đã
+    //  được maintain đúng ngữ nghĩa này ở message ingest pipeline.)
+    if (customerWaitingReply === 'true' && saleWaitingReply !== 'true') {
+      where.isReplied = false;
+    } else if (saleWaitingReply === 'true' && customerWaitingReply !== 'true') {
+      where.isReplied = true;
+    }
+    // Cả hai cùng bật = không lọc (mọi hội thoại đều thuộc 1 trong 2) → bỏ qua.
+
+    // ── Sinh nhật 7 ngày tới (so ngày/tháng, bỏ năm, wrap qua năm mới) ──
+    // Prisma where thuần không so ngày-tháng bỏ năm → raw query lấy contactId.
+    if (birthdayWithin7d === 'true') {
+      const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id FROM contacts
+        WHERE org_id = ${user.orgId}
+          AND birth_date IS NOT NULL
+          AND (
+            to_char(birth_date, 'MM-DD') = ANY (
+              SELECT to_char(generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '7 day', INTERVAL '1 day'), 'MM-DD')
+            )
+          )
+      `;
+      const ids = rows.map((r) => r.id);
+      contactWhere.id = ids.length > 0 ? { in: ids } : { in: ['__NO_BIRTHDAY_MATCH__'] };
+    }
+
+    // ── Lịch hẹn 24h tới / quá hạn → Appointment scheduled (relation some) ──
+    if (appointmentWithin24h === 'true') {
+      const now = new Date();
+      const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const existingAppt = (contactWhere.appointments as any) || {};
+      const someClause = existingAppt.some || {};
+      contactWhere.appointments = {
+        some: { ...someClause, status: 'scheduled', appointmentDate: { gte: now, lte: in24h } },
+      };
+    }
+    if (appointmentOverdue === 'true') {
+      const now = new Date();
+      const existingAppt = (contactWhere.appointments as any) || {};
+      const someClause = existingAppt.some || {};
+      contactWhere.appointments = {
+        some: { ...someClause, status: 'scheduled', appointmentDate: { lt: now } },
+      };
+    }
+
     // Re-apply contactWhere nếu đã modify trên (stuck/ready/tags)
     if (Object.keys(contactWhere).length > 0) where.contact = contactWhere;
+
+    // ── 2026-06-09 (anh chốt) — Nhóm lọc "Tin nhắn" (user vs bot), radio 1-of-3 ──
+    // Xét mốc KHÁCH NHẮN CUỐI CỦA CHÍNH CONVERSATION này (KHÔNG dùng Contact.lastInboundAt
+    // vì đó là aggregate cross-nick — 1 KH nhiều nick thì mốc đó thuộc nick khác → sai).
+    // Mốc = MAX(sent_at WHERE sender_type='contact') trong conv. Sale thật = self +
+    // sentVia user/user_native; Bot = self + automation/ai_assistant/system.
+    //   unanswered  = KHÔNG có tin self nào sau mốc khách cuối (chưa ai trả lời)
+    //   bot_no_sale = có tin self sau mốc, NHƯNG không có tin sale thật nào → chỉ bot
+    //   sale_replied= có tin sale thật sau mốc khách cuối
+    // D8: conv phải có ít nhất 1 tin khách (lastInbound IS NOT NULL).
+    if (messageReplyState === 'unanswered' || messageReplyState === 'bot_no_sale' || messageReplyState === 'sale_replied') {
+      try {
+        const stateRows = await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT cv.id
+          FROM conversations cv
+          JOIN LATERAL (
+            SELECT MAX(m.sent_at) FILTER (WHERE m.sender_type = 'contact') AS last_inbound,
+                   MAX(m.sent_at) FILTER (
+                     WHERE m.sender_type = 'self' AND m.sent_via IN ('user','user_native')
+                   ) AS last_sale,
+                   MAX(m.sent_at) FILTER (WHERE m.sender_type = 'self') AS last_self
+            FROM messages m WHERE m.conversation_id = cv.id
+          ) agg ON TRUE
+          WHERE cv.org_id = ${user.orgId}
+            AND cv."threadType" = 'user'
+            AND agg.last_inbound IS NOT NULL
+            AND (
+              ${messageReplyState}::text = 'unanswered'  AND (agg.last_self IS NULL OR agg.last_self < agg.last_inbound)
+              OR ${messageReplyState}::text = 'sale_replied' AND agg.last_sale IS NOT NULL AND agg.last_sale >= agg.last_inbound
+              OR ${messageReplyState}::text = 'bot_no_sale' AND agg.last_self IS NOT NULL AND agg.last_self >= agg.last_inbound
+                   AND (agg.last_sale IS NULL OR agg.last_sale < agg.last_inbound)
+            )
+        `;
+        const ids = stateRows.map((r) => r.id);
+        where.id = ids.length > 0 ? { in: ids } : { in: ['__NO_MSG_REPLY_STATE_MATCH__'] };
+      } catch (err) {
+        logger.warn('[conversations] messageReplyState raw query failed, bỏ qua filter:', err);
+      }
+    }
+
+    // ── Tin nhắn cuối (lastMessageWithin) → Conversation.lastMessageAt gte mốc ──
+    // Ghép cùng where.lastMessageAt với date range bên dưới (cùng field).
+    if (lastMessageWithin) {
+      const ms = lastMessageWithin === '24h' ? 24 * 3600e3
+        : lastMessageWithin === '7d' ? 7 * 24 * 3600e3
+        : lastMessageWithin === '30d' ? 30 * 24 * 3600e3 : 0;
+      if (ms > 0) {
+        where.lastMessageAt = { ...(where.lastMessageAt || {}), gte: new Date(Date.now() - ms) };
+      } else if (lastMessageWithin === '>30d') {
+        // Im lặng > 30 ngày: lastMessageAt cũ hơn 30 ngày.
+        where.lastMessageAt = { ...(where.lastMessageAt || {}), lte: new Date(Date.now() - 30 * 24 * 3600e3) };
+      }
+    }
 
     // Date range — accept cả from/to legacy lẫn dateFrom/dateTo mới
     const dFrom = dateFrom || from;
@@ -1173,6 +1474,290 @@ export async function chatRoutes(app: FastifyInstance) {
       logger.error('[chat] Send message error:', err);
       return reply.status(500).send({ error: 'Failed to send message' });
     }
+  });
+
+  // ── Gửi cả 1 Khối Marketing vào hội thoại (cột 4 tab Automation) 2026-06-07 ──
+  // Sale chọn Khối → gửi ĐỦ MỌI THÀNH PHẦN (text/image/album/file/video) theo ĐÚNG
+  // THỨ TỰ, giữ rich-text styles, render {gender}/{name}/{sale}, có delay 0.8–2.5s
+  // giữa các tin (chống Zalo coi spam). Tái dùng đường media đã chứng minh ở forward:
+  // tải URL về tmp → đưa LOCAL PATH cho zca-js (attachments cần path, không nhận URL).
+  //
+  // KHÔNG idempotent: sale có thể gửi lại Khối. Chống double-send: FE disable nút khi
+  // đang gửi; BE break khi gửi dở (đã gửi ≥1 tin mà tin sau lỗi → KHÔNG retry). KHÔNG
+  // được bọc route này bằng retry kiểu BullMQ.
+  app.post('/api/v1/conversations/:id/send-block', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const { blockId } = (request.body ?? {}) as { blockId?: string };
+    if (!blockId || typeof blockId !== 'string') {
+      return reply.status(400).send({ error: 'blockId required' });
+    }
+
+    // ── Gate 1: load conversation ──────────────────────────────────────────
+    const conversation = await prisma.conversation.findFirst({
+      where: { id, orgId: user.orgId },
+      include: { zaloAccount: true },
+    });
+    if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    // ── Gate 2: virtual conv = KH no-Zalo → không dispatch SDK được ────────
+    if (conversation.isVirtual) {
+      return reply.status(400).send({ error: 'Không thể gửi Khối vào hội thoại ảo (KH chưa có Zalo)' });
+    }
+
+    // ── Gate 3: nick đã kết nối ────────────────────────────────────────────
+    const instance = zaloPool.getInstance(conversation.zaloAccountId);
+    if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
+
+    // ── Gate 4: privacy (nick 'main' chỉ chính chủ gửi) ────────────────────
+    if (conversation.zaloAccount.privacyMode === 'main') {
+      const senderUserId = (user as any).userId ?? user.id;
+      if (conversation.zaloAccount.ownerUserId !== senderUserId) {
+        return reply.status(403).send({
+          error: 'Nick này đang bật Riêng tư — chỉ chính chủ mới gửi tin nhắn được. Vui lòng nhờ chủ nick gửi.',
+          code: 'PRIVACY_LOCKED',
+        });
+      }
+    }
+
+    // ── Gate 5: rate-limit up-front (per-tin vẫn check trong zaloOps.exec) ──
+    const limits = await zaloRateLimiter.checkLimits(conversation.zaloAccountId);
+    if (!limits.allowed) {
+      return reply.status(429).send({ error: limits.reason });
+    }
+
+    // ── Gate 6: load + authorize block (owner-scope như block-list) ────────
+    const ownerScope = await getOwnerScope({
+      userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+    });
+    const block = await prisma.block.findFirst({
+      where: { id: blockId, orgId: user.orgId, archivedAt: null, ...applyOwnerScope(ownerScope) },
+    });
+    if (!block) return reply.status(404).send({ error: 'block not found' });
+    if (block.actionType !== 'send_message') {
+      return reply.status(422).send({
+        error: 'UNSUPPORTED_BLOCK',
+        detail: 'Chỉ Khối gửi tin (send_message) mới gửi được từ chat',
+      });
+    }
+
+    // ── Resolve Khối → danh sách tin theo ĐÚNG THỨ TỰ (module dùng chung) ──
+    const resolveResult = resolveBlockContent('send_message', block.content as Record<string, unknown>);
+    if (!resolveResult.ok || resolveResult.resolved.length === 0) {
+      return reply.status(422).send({ error: resolveResult.error ?? 'BLOCK_EMPTY', detail: resolveResult.detail });
+    }
+    const resolved = resolveResult.resolved;
+    if (resolved.length > 20) {
+      return reply.status(422).send({ error: 'TOO_MANY_COMPONENTS', detail: 'Khối tối đa 20 thành phần khi gửi từ chat' });
+    }
+
+    const threadId = conversation.externalThreadId || '';
+    const threadType = conversation.threadType === 'group' ? 1 : 0;
+    const contactId = conversation.contactId;
+    const zaloAccountId = conversation.zaloAccountId;
+    const userFullName = await getUserFullName(user.id);
+    const io = (app as any).io as Server;
+    // Bubble hiện như tin sale bình thường; attribution Khối trong metadata.detail/blockId.
+    const senderMeta = {
+      sender: { kind: 'user_crm' as const, name: userFullName, detail: `Khối: ${block.name}`, blockId: block.id },
+    };
+
+    // ── STUB QA: không chạm Zalo, log chuỗi resolved đã render ─────────────
+    if (process.env.AUTOMATION_STUB_MODE === 'true') {
+      const seq = resolved.map((m) => m.messageType).join(' → ');
+      logger.info(`[send-block STUB] would send ${resolved.length} tin (${seq}) từ nick=${zaloAccountId} → conv=${id} block="${block.name}"`);
+      return { ok: true, sentCount: resolved.length, totalMessages: resolved.length, partial: false, errors: [], stub: true };
+    }
+
+    // Render caption media (có thể chứa {name}) — helper nhỏ.
+    const renderCaption = (cap?: string) =>
+      cap && contactId ? renderTemplate(cap, contactId, zaloAccountId) : Promise.resolve(cap ?? '');
+
+    let sentCount = 0;
+    const errors: Array<{ index: number; type: string; message: string }> = [];
+    let lastMessageRow: { id: string; content: string | null; contentType: string; sentAt: Date } | null = null;
+
+    for (let i = 0; i < resolved.length; i++) {
+      const m = resolved[i];
+      if (i > 0) await new Promise((r) => setTimeout(r, 800 + Math.floor(Math.random() * 1700))); // 0.8–2.5s
+
+      const cleanups: Array<() => Promise<void>> = [];
+      // 1 component → 1+ tin cần persist. Album = N ảnh gửi riêng từng cái (mỗi cái
+      // 1 zaloMsgId riêng → tránh đụng @@unique([conversationId, zaloMsgId])).
+      // content lưu THEO shape chat UI native render: image {href,thumb,size},
+      // file {href,name,size,mime}, video {href,thumb,...} (khớp chat-attachment-routes).
+      const toPersist: Array<{ sdkResult: unknown; content: string; contentType: string }> = [];
+      try {
+        if (m.messageType === 'text') {
+          const rendered = contactId ? await renderTemplate(m.payload.text, contactId, zaloAccountId) : m.payload.text;
+          const styles = Array.isArray(m.payload.styles) ? m.payload.styles : [];
+          // Render template làm lệch offset → bỏ styles khi text có biến {…}.
+          const useStyles = !m.payload.text.includes('{') && styles.length > 0;
+          const sendPayload: Record<string, unknown> = { msg: rendered };
+          if (useStyles) sendPayload.styles = styles;
+          const sdkResult = await zaloOps.sendMessage(zaloAccountId, threadId, threadType, sendPayload, io);
+          toPersist.push({
+            sdkResult,
+            content: useStyles
+              ? JSON.stringify({ title: rendered, action: 'rtf', params: JSON.stringify({ styles }) })
+              : rendered,
+            contentType: useStyles ? 'rich' : 'text',
+          });
+        } else if (m.messageType === 'image') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url }, 'image');
+          cleanups.push(dl.cleanup);
+          const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, thumb: m.payload.url, size: 0 }),
+            contentType: 'image',
+          });
+        } else if (m.messageType === 'album') {
+          // Gửi từng ảnh riêng → mỗi ảnh 1 bubble + 1 zaloMsgId. Delay nhỏ giữa ảnh.
+          for (let k = 0; k < m.payload.items.length; k++) {
+            if (k > 0) await new Promise((r) => setTimeout(r, 500 + Math.floor(Math.random() * 700)));
+            const it = m.payload.items[k];
+            const caption = await renderCaption(it.caption);
+            const dl = await downloadMediaToTemp({ url: it.url }, 'image');
+            cleanups.push(dl.cleanup);
+            const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+            toPersist.push({
+              sdkResult,
+              content: JSON.stringify({ href: it.url, thumb: it.url, size: 0 }),
+              contentType: 'image',
+            });
+          }
+        } else if (m.messageType === 'video') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url }, 'video');
+          cleanups.push(dl.cleanup);
+          let sdkResult: unknown;
+          try {
+            sdkResult = await sendNativeVideo({ api: instance.api as any, threadId, threadType, videoPath: dl.path });
+          } catch (vErr) {
+            logger.warn('[send-block] native video lỗi, fallback sendFile:', vErr);
+            sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          }
+          const thumb = m.payload.thumbnailUrl ?? m.payload.url;
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, thumb, thumbUrl: thumb, thumbnail: thumb, size: 0 }),
+            contentType: 'video',
+          });
+        } else if (m.messageType === 'file') {
+          const caption = await renderCaption(m.payload.caption);
+          const dl = await downloadMediaToTemp({ url: m.payload.url, filename: m.payload.filename }, 'file');
+          cleanups.push(dl.cleanup);
+          const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
+          toPersist.push({
+            sdkResult,
+            content: JSON.stringify({ href: m.payload.url, name: m.payload.filename ?? 'file', size: m.payload.sizeBytes ?? 0, mime: m.payload.mimeType ?? '' }),
+            contentType: 'file',
+          });
+        } else {
+          continue; // friend_request / update_status không áp dụng cho send_message block
+        }
+
+        for (const p of toPersist) {
+          const zaloMsgId = extractZaloMsgId(p.sdkResult);
+          const created = await prisma.message.create({
+            data: {
+              id: randomUUID(),
+              conversationId: id,
+              zaloMsgId: zaloMsgId || null,
+              zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+              senderType: 'self',
+              senderUid: conversation.zaloAccount.zaloUid || '',
+              senderName: 'Staff',
+              content: p.content,
+              contentType: p.contentType,
+              sentAt: new Date(),
+              repliedByUserId: user.id,
+              sentVia: 'user',
+              metadata: senderMeta,
+            },
+            select: { id: true, content: true, contentType: true, sentAt: true, zaloMsgId: true, zaloMsgIdNum: true, senderType: true, senderUid: true, senderName: true, conversationId: true, repliedByUserId: true, sentVia: true, metadata: true },
+          });
+          lastMessageRow = { id: created.id, content: created.content, contentType: created.contentType, sentAt: created.sentAt };
+          sentCount++;
+
+          const safeMessage = { ...created, zaloMsgIdNum: created.zaloMsgIdNum?.toString() ?? null };
+          io?.emit('chat:message', {
+            accountId: zaloAccountId,
+            message: safeMessage,
+            conversationId: id,
+            _privacyMeta: {
+              privacyMode: conversation.zaloAccount.privacyMode,
+              ownerUserId: conversation.zaloAccount.ownerUserId,
+            },
+          });
+        }
+      } catch (err: any) {
+        const code = err?.code as string | undefined;
+        const msg = err?.message ?? String(err);
+        errors.push({ index: i, type: m.messageType, message: msg });
+        if (sentCount > 0) {
+          // Đã gửi ≥1 tin → KH nhận rồi, KHÔNG retry (tránh double-send cả Khối) → dừng.
+          logger.warn(`[send-block] tin ${i + 1}/${resolved.length} (${m.messageType}) lỗi sau khi đã gửi ${sentCount} tin: ${msg} — dừng`);
+          break;
+        }
+        // Lỗi ngay tin đầu → fail sạch, sale retry được.
+        if (code === 'RATE_LIMITED') return reply.status(429).send({ error: msg });
+        if (code === 'NOT_CONNECTED') return reply.status(400).send({ error: msg });
+        return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: msg });
+      } finally {
+        for (const c of cleanups) await c().catch(() => {});
+      }
+    }
+
+    if (sentCount === 0) {
+      return reply.status(500).send({ error: 'SEND_BLOCK_FAILED', detail: 'không gửi được tin nào', errors });
+    }
+
+    // Cập nhật aggregate (theo tin cuối) + bump usage Khối.
+    if (lastMessageRow) {
+      try {
+        await prisma.conversation.update({
+          where: { id },
+          data: { lastMessageAt: lastMessageRow.sentAt, isReplied: true, unreadCount: 0 },
+        });
+      } catch (err) {
+        logger.warn(`[send-block] conversation aggregate update failed (conv=${id}):`, err);
+      }
+      const aggInput = {
+        conversationId: id,
+        message: {
+          id: lastMessageRow.id,
+          content: lastMessageRow.content,
+          contentType: lastMessageRow.contentType,
+          sentAt: lastMessageRow.sentAt,
+          senderType: 'self' as const,
+        },
+        outboundUserId: user.id,
+      };
+      void applyContactAggregateFromMessage(aggInput);
+      void applyFriendAggregate(aggInput);
+    }
+    // Bump cả usageCount (tổng) + manualSendCount (RIÊNG gửi tay, không tính automation).
+    void prisma.block.update({
+      where: { id: block.id },
+      data: {
+        lastUsedAt: new Date(),
+        usageCount: { increment: 1 },
+        manualSendCount: { increment: 1 },
+        lastManualSentAt: new Date(),
+      },
+    }).catch((err) => logger.warn(`[send-block] bump usage failed: ${err}`));
+
+    logger.info(`[send-block] sent ${sentCount}/${resolved.length} tin từ nick=${zaloAccountId} → conv=${id} block="${block.name}"`);
+    return {
+      ok: true,
+      sentCount,
+      totalMessages: resolved.length,
+      partial: sentCount < resolved.length,
+      errors,
+    };
   });
 
   // ── Upload image(s) and send qua Zalo (paste image / nút Gửi ảnh) ────────

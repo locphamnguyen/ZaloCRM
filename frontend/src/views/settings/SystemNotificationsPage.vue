@@ -66,75 +66,132 @@
     </div>
       </v-window-item>
 
-      <!-- ════ TAB 2: TIN CHÀO MỪNG ════ -->
+      <!-- ════ TAB 2: TIN CHÀO MỪNG ════
+           Atlas v3 2026-06-08 (anh chốt): sao chép "edit block view Zalo" — soạn WYSIWYG
+           (bôi đậm/màu/cỡ) bên trái + bong bóng Zalo render LIVE bên phải. KHÔNG gõ **markup**. -->
       <v-window-item value="welcome">
-    <!-- Org config: welcome template + image + admin fallback phone (Phase user-create-with-zalo 2026-05-27) -->
-    <v-card variant="outlined" class="pa-4 mb-4 notify-card">
-      <div class="d-flex align-center justify-space-between mb-3 flex-wrap ga-2">
-        <div>
-          <div class="text-subtitle-1 font-weight-bold">📨 Tin chào mừng khi tạo user mới</div>
-          <div class="text-caption text-medium-emphasis">
-            Khi admin tạo sale mới + check SĐT Zalo OK, hệ thống tự gửi tin login này cho sale. Anh sửa text + ảnh + SĐT admin fallback tuỳ ý.
+    <div class="wm-editor">
+      <!-- ── Cột trái: soạn tin ── -->
+      <section class="wm-compose">
+        <div class="wm-compose-head">
+          <div>
+            <div class="wm-compose-title">📨 Tin chào mừng khi tạo user mới</div>
+            <div class="wm-compose-sub">
+              Khi admin tạo sale mới + check SĐT Zalo OK, hệ thống tự gửi tin đăng nhập này. Bôi đen chữ rồi bấm Đậm / Màu / Cỡ như soạn trên Zalo.
+            </div>
           </div>
-        </div>
-        <div class="d-flex ga-2">
-          <v-btn size="small" variant="tonal" @click="showPlaceholders = true">📋 Placeholders</v-btn>
-          <v-btn size="small" variant="tonal" color="primary" :loading="previewLoading" @click="openPreview">👁 Preview</v-btn>
-          <v-btn size="small" variant="text" @click="resetTemplate">↻ Reset mặc định</v-btn>
-        </div>
-      </div>
-
-      <v-textarea
-        v-model="welcomeTemplate"
-        label="Template tin chào mừng (markdown: **bold**, {red}text{/red}, # h1, - bullet, > quote)"
-        variant="outlined"
-        density="comfortable"
-        rows="14"
-        auto-grow
-        hide-details="auto"
-        placeholder="Ô trống = dùng template mặc định em thiết kế"
-        class="mb-3 template-textarea"
-      />
-
-      <div class="d-flex flex-wrap align-start ga-4 mb-2">
-        <div class="welcome-image-block">
-          <div class="text-caption text-medium-emphasis mb-1">Ảnh welcome (gửi kèm tin login)</div>
-          <div class="welcome-image-preview">
-            <img v-if="welcomeImageUrl" :src="welcomeImageUrl" alt="Welcome" />
-            <div v-else class="text-caption text-disabled pa-3">Chưa upload ảnh</div>
-          </div>
-          <input ref="imageFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none" @change="onImagePicked" />
-          <div class="d-flex ga-2 mt-2">
-            <v-btn size="small" variant="tonal" :loading="imageUploading" @click="imageFileInput?.click()">⬆ Chọn ảnh</v-btn>
-            <v-btn v-if="welcomeImageUrl" size="small" variant="text" color="error" @click="clearImage">🗑 Xoá</v-btn>
-          </div>
+          <button class="wm-reset-btn" title="Khôi phục mẫu mặc định" @click="resetTemplate">
+            <v-icon size="14">mdi-restore</v-icon> Khôi phục mẫu
+          </button>
         </div>
 
-        <v-text-field
-          v-model="adminFallbackPhone"
-          label="SĐT admin nhận tin lỗi (khi gửi sale fail → admin chuyển thủ công)"
-          variant="outlined"
-          density="comfortable"
-          hide-details="auto"
-          placeholder="VD: 0908278807"
-          class="admin-phone-field"
-        />
-      </div>
+        <div class="wm-card">
+          <RichTextEditor
+            ref="welcomeEditorRef"
+            :model-value="welcomeRichText"
+            :show-toolbar="true"
+            :submit-on-enter="false"
+            placeholder="Soạn nội dung tin chào mừng..."
+            class="wm-rich"
+            @update:model-value="onWelcomeRichInput"
+          />
 
-      <div class="d-flex justify-end ga-2">
-        <v-btn variant="text" @click="discardOrgConfigChanges">Huỷ</v-btn>
-        <v-btn
-          color="primary"
-          :loading="savingOrgConfig"
-          :disabled="!orgConfigDirty"
-          @click="saveOrgConfig"
-        >
-          Lưu cấu hình
-        </v-btn>
-      </div>
-      <v-alert v-if="orgConfigError" type="error" density="compact" class="mt-2">{{ orgConfigError }}</v-alert>
-      <v-alert v-if="orgConfigSuccess" type="success" density="compact" class="mt-2">{{ orgConfigSuccess }}</v-alert>
-    </v-card>
+          <!-- Chip chèn biến cá nhân hoá tại con trỏ (giống block editor) -->
+          <div class="wm-var-bar">
+            <span class="wm-var-bar-label"><v-icon size="13">mdi-cursor-text</v-icon> Chèn biến (bấm để chèn tại con trỏ):</span>
+            <button
+              v-for="p in PLACEHOLDER_HELP"
+              :key="p.key"
+              type="button"
+              class="wm-var-chip"
+              :title="p.desc + ' — chèn tại vị trí đang gõ'"
+              @click="insertPlaceholder(p.key)"
+            >
+              <code>{{ placeholderLabel(p.key) }}</code>
+              <span class="wm-var-chip-label">{{ p.short }}</span>
+            </button>
+          </div>
+          <div class="wm-editor-footer">
+            <span class="wm-hint">
+              <v-icon size="13">mdi-lightbulb-on-outline</v-icon>
+              Biến tự thay khi gửi cho từng sale. Dòng có biến rỗng (phòng ban…) sẽ tự ẩn.
+            </span>
+            <span class="wm-char-counter">{{ welcomeRichText.length }} ký tự</span>
+          </div>
+        </div>
+
+        <!-- Ảnh + SĐT admin fallback -->
+        <div class="wm-extras">
+          <div class="welcome-image-block">
+            <div class="wm-field-label">Ảnh đính kèm (gửi kèm tin)</div>
+            <div class="welcome-image-preview">
+              <img v-if="welcomeImageUrl" :src="welcomeImageUrl" alt="Welcome" />
+              <div v-else class="text-caption text-disabled pa-3">Chưa có ảnh</div>
+            </div>
+            <input ref="imageFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/gif" class="d-none" @change="onImagePicked" />
+            <div class="d-flex ga-2 mt-2">
+              <v-btn size="small" variant="tonal" :loading="imageUploading" @click="imageFileInput?.click()">⬆ Chọn ảnh</v-btn>
+              <v-btn v-if="welcomeImageUrl" size="small" variant="text" color="error" @click="clearImage">🗑 Xoá</v-btn>
+            </div>
+          </div>
+
+          <div class="wm-phone-block">
+            <div class="wm-field-label">SĐT admin nhận tin lỗi</div>
+            <v-text-field
+              v-model="adminFallbackPhone"
+              variant="outlined"
+              density="comfortable"
+              hide-details="auto"
+              placeholder="VD: 0908278807"
+              class="admin-phone-field"
+            />
+            <div class="wm-field-hint">Khi gửi sale thất bại, hệ thống nhắn vào SĐT này để admin chuyển thủ công.</div>
+          </div>
+        </div>
+
+        <div class="wm-actions">
+          <v-btn variant="text" :disabled="!orgConfigDirty" @click="discardOrgConfigChanges">Huỷ thay đổi</v-btn>
+          <v-btn
+            color="primary"
+            :loading="savingOrgConfig"
+            :disabled="!orgConfigDirty"
+            prepend-icon="mdi-content-save-outline"
+            @click="saveOrgConfig"
+          >
+            Lưu cấu hình
+          </v-btn>
+        </div>
+        <v-alert v-if="orgConfigError" type="error" density="compact" class="mt-2">{{ orgConfigError }}</v-alert>
+        <v-alert v-if="orgConfigSuccess" type="success" density="compact" class="mt-2">{{ orgConfigSuccess }}</v-alert>
+      </section>
+
+      <!-- ── Cột phải: xem trước trên Zalo LIVE ── -->
+      <aside class="wm-preview">
+        <div class="wm-preview-head">
+          <span><v-icon size="15">mdi-cellphone</v-icon> Xem trước trên Zalo</span>
+          <span class="wm-live"><span class="wm-live-dot"></span> LIVE</span>
+        </div>
+        <div class="wm-variant-toggle">
+          <button :class="{ active: previewVariant === 'stranger' }" @click="previewVariant = 'stranger'">Chưa kết bạn</button>
+          <button :class="{ active: previewVariant === 'friend' }" @click="previewVariant = 'friend'">Đã kết bạn</button>
+        </div>
+        <div class="wm-zalo-window">
+          <div class="wm-zalo-time-label">
+            <v-icon size="12">mdi-cellphone</v-icon> Sale sẽ thấy thế này · {{ currentHHmm }}
+          </div>
+          <div v-if="welcomeImageUrl" class="wm-zalo-img-bubble">
+            <img :src="welcomeImageUrl" alt="welcome" />
+          </div>
+          <div class="wm-zalo-bubble out" v-html="livePreviewHtml"></div>
+          <div class="wm-zalo-time">{{ currentHHmm }} · <span class="wm-zalo-tin">Tin đăng nhập</span></div>
+          <div v-if="previewError" class="wm-zalo-err">{{ previewError }}</div>
+        </div>
+        <div class="wm-preview-foot">
+          <v-icon size="13">mdi-information-outline</v-icon>
+          Dữ liệu giả: Nguyễn Văn A · 0931… · mật khẩu a3k7p9
+        </div>
+      </aside>
+    </div>
       </v-window-item>
 
       <!-- ════ TAB 3: NHÂN VIÊN NHẬN ════ -->
@@ -150,56 +207,9 @@
     <v-alert v-if="lookupError" type="error" density="compact" class="mb-3">{{ lookupError }}</v-alert>
     <v-alert v-if="lookupSuccess" type="success" density="compact" class="mb-3">{{ lookupSuccess }}</v-alert>
 
-    <!-- Placeholder helper modal -->
-    <v-dialog v-model="showPlaceholders" max-width="560">
-      <v-card>
-        <v-card-title>📋 Placeholders dùng trong template</v-card-title>
-        <v-card-text>
-          <v-list density="compact">
-            <v-list-item v-for="p in PLACEHOLDER_HELP" :key="p.key">
-              <template #title>
-                <code v-text="placeholderLabel(p.key)"></code>
-              </template>
-              <template #subtitle>{{ p.desc }}</template>
-            </v-list-item>
-          </v-list>
-          <v-divider class="my-2" />
-          <div class="text-caption">
-            Markup: <code>**bold**</code> · <code>*italic*</code> · <code>~~strike~~</code> ·
-            <code>{red|orange|yellow|green}text{/tag}</code> · <code>{big}lớn{/big}</code> ·
-            <code># Tiêu đề</code> · <code>- bullet</code> · <code>&gt; trích dẫn</code>
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showPlaceholders = false">Đóng</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Atlas v3 2026-06-08: bỏ modal Placeholders + Preview — chip chèn biến + bong bóng
+         Zalo render LIVE đã nằm ngay trong tab "Tin chào mừng". -->
 
-    <!-- Preview modal -->
-    <v-dialog v-model="showPreview" max-width="560">
-      <v-card>
-        <v-card-title class="d-flex align-center justify-space-between">
-          <span>👁 Preview tin chào mừng</span>
-          <v-btn-toggle v-model="previewVariant" mandatory density="comfortable" size="small">
-            <v-btn value="friend">Đã kết bạn</v-btn>
-            <v-btn value="stranger">Chưa kết bạn</v-btn>
-          </v-btn-toggle>
-        </v-card-title>
-        <v-card-text>
-          <div class="text-caption text-medium-emphasis mb-2">Render với data giả (Nguyễn Văn A, 0931...)</div>
-          <pre class="preview-pane">{{ previewText }}</pre>
-          <div v-if="previewStyles.length" class="text-caption mt-2">
-            <strong>{{ previewStyles.length }} style ranges</strong> · Zalo render thực sẽ có bold/màu/size đúng vị trí.
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="showPreview = false">Đóng</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
 
     <v-card variant="outlined" class="notify-card">
       <v-table density="comfortable" class="recipient-table">
@@ -474,8 +484,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch, nextTick } from 'vue';
 import { api } from '@/api/index';
+import RichTextEditor from '@/components/chat/rich-text-editor.vue';
+import { zaloRichToMarkup } from '@/utils/zalo-rich-to-markup';
 
 interface SenderNick {
   id: string;
@@ -522,7 +534,12 @@ const summary = ref<Record<string, number>>({});
 const lookupUserId = ref<string | null>(null);
 
 // ── Org config: welcome template + image + admin fallback phone ──
+// Atlas v3 2026-06-08: soạn WYSIWYG (RichTextEditor) thay textarea markup.
+// welcomeTemplate = markup string lưu DB (vẫn giữ để {{biến}} literal + dirty-tracking);
+// welcomeRichText = text thuần trong editor (char counter). Editor là nguồn sự thật khi gõ:
+// mỗi keystroke → đọc {text,styles} → zaloRichToMarkup → welcomeTemplate.
 const welcomeTemplate = ref<string>('');
+const welcomeRichText = ref<string>('');
 const welcomeImageUrl = ref<string | null>(null);
 const adminFallbackPhone = ref<string>('');
 const defaultTemplate = ref<string>('');
@@ -533,28 +550,40 @@ const orgConfigSuccess = ref('');
 const imageUploading = ref(false);
 const imageFileInput = ref<HTMLInputElement | null>(null);
 
-const showPlaceholders = ref(false);
-const showPreview = ref(false);
-const previewLoading = ref(false);
+type RichEditorExposed = {
+  getRichPayload: () => { text: string; styles: Array<{ st: string; start: number; len: number }> };
+  applyRichPayload: (p: { text: string; styles?: Array<{ st: string; start: number; len: number }> }, opts?: { focus?: boolean }) => void;
+  insertText: (text: string) => void;
+  focus: (position?: 'start' | 'end' | number) => void;
+};
+const welcomeEditorRef = ref<RichEditorExposed | null>(null);
+const applyingWelcomeRich = ref(false); // guard vòng lặp applyRichPayload ↔ update
+
 const previewVariant = ref<'friend' | 'stranger'>('stranger');
-const previewText = ref('');
-const previewStyles = ref<Array<{ offset: number; length: number; style: string; color?: string }>>([]);
+const livePreviewHtml = ref<string>('');
+const previewError = ref<string>('');
+
+// Giờ HH:mm VN cho nhãn "Sale sẽ thấy lúc..." trong bong bóng preview (giờ VN per memory).
+const currentHHmm = computed(() => {
+  const d = new Date();
+  return d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
+});
 
 function placeholderLabel(key: string): string {
   return '{{' + key + '}}';
 }
 
+// short = nhãn ngắn trên chip (giống bed-var-chip-label block editor).
 const PLACEHOLDER_HELP = [
-  { key: 'fullName', desc: 'Họ tên sale' },
-  { key: 'email', desc: 'Email (nếu có)' },
-  { key: 'phone', desc: 'SĐT đăng nhập' },
-  { key: 'password', desc: 'Mật khẩu tạm tự sinh' },
-  { key: 'loginUrl', desc: 'Link CRM (ENV CRM_LOGIN_URL)' },
-  { key: 'orgName', desc: 'Tên tổ chức' },
-  { key: 'departmentName', desc: 'Phòng ban (rỗng → dòng biến mất)' },
-  { key: 'roleName', desc: 'Chức vụ' },
-  { key: 'adminPhone', desc: 'SĐT admin fallback (ô bên cạnh)' },
-  { key: 'strangerNotice', desc: 'Auto-fill nhắc kết bạn nếu sale chưa friend' },
+  { key: 'fullName', short: 'Tên sale', desc: 'Họ tên sale' },
+  { key: 'phone', short: 'SĐT login', desc: 'SĐT đăng nhập' },
+  { key: 'password', short: 'Mật khẩu', desc: 'Mật khẩu tạm tự sinh' },
+  { key: 'loginUrl', short: 'Link CRM', desc: 'Link CRM (ENV CRM_LOGIN_URL)' },
+  { key: 'orgName', short: 'Tổ chức', desc: 'Tên tổ chức' },
+  { key: 'email', short: 'Email', desc: 'Email (nếu có)' },
+  { key: 'departmentName', short: 'Phòng ban', desc: 'Phòng ban (rỗng → dòng biến mất)' },
+  { key: 'roleName', short: 'Chức vụ', desc: 'Chức vụ' },
+  { key: 'adminPhone', short: 'SĐT admin', desc: 'SĐT admin fallback (ô bên cạnh)' },
 ];
 
 const orgConfigDirty = computed(() =>
@@ -562,6 +591,124 @@ const orgConfigDirty = computed(() =>
   welcomeImageUrl.value !== savedSnapshot.value.image ||
   adminFallbackPhone.value !== savedSnapshot.value.phone,
 );
+
+// ── Render bong bóng Zalo LIVE (COPY applyRichFormat từ BlockEditorDialog) ──
+// Render {text, styles[]} (mã Zalo b/i/u/s/c_HEX/f_NN) → HTML escaped cho bubble.
+interface ZaloStyleR { st: string; start: number; len: number }
+function escHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function rOpen(st: string): string {
+  if (st === 'b') return '<strong>';
+  if (st === 'i') return '<em>';
+  if (st === 'u') return '<u>';
+  if (st === 's') return '<s>';
+  if (st.startsWith('c_')) return `<span style="color:#${st.slice(2)}">`;
+  if (st.startsWith('f_')) return `<span style="font-size:${st.slice(2)}px">`;
+  return '';
+}
+function rClose(st: string): string {
+  if (st === 'b') return '</strong>';
+  if (st === 'i') return '</em>';
+  if (st === 'u') return '</u>';
+  if (st === 's') return '</s>';
+  if (st.startsWith('c_') || st.startsWith('f_')) return '</span>';
+  return '';
+}
+function applyRichFormat(text: string, sList: ZaloStyleR[]): string {
+  if (!text) return '';
+  const len = text.length;
+  const perChar: string[][] = Array.from({ length: len }, () => []);
+  for (const m of sList) {
+    const start = Math.max(0, m.start | 0);
+    const end = Math.min(len, start + (m.len | 0));
+    for (let i = start; i < end; i++) perChar[i].push(m.st);
+  }
+  let out = '';
+  let prevKey = '';
+  let prevList: string[] = [];
+  for (let i = 0; i < len; i++) {
+    const cur = perChar[i].slice().sort();
+    const curKey = cur.join(',');
+    if (curKey !== prevKey) {
+      out += [...prevList].reverse().map(rClose).join('');
+      out += cur.map(rOpen).join('');
+      prevList = cur;
+      prevKey = curKey;
+    }
+    const ch = text[i];
+    if (ch === '\n') out += '<br>';
+    else if (ch !== '\r') out += escHtml(ch);
+  }
+  out += [...prevList].reverse().map(rClose).join('');
+  return out;
+}
+
+// Gọi /preview-welcome (debounce) để render bong bóng với data giả + đúng style Zalo +
+// dòng nhắc kết bạn theo variant. Reuse backend builder → preview = tin gửi thật.
+let previewTimer: ReturnType<typeof setTimeout> | null = null;
+function schedulePreview() {
+  if (previewTimer) clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => { void refreshLivePreview(); }, 350);
+}
+async function refreshLivePreview() {
+  previewError.value = '';
+  try {
+    const { data } = await api.post('/system-notifications/preview-welcome', {
+      templateOverride: welcomeTemplate.value.trim() || undefined,
+      variant: previewVariant.value,
+    });
+    livePreviewHtml.value = applyRichFormat(data.text || '', data.styles || []);
+  } catch (err: any) {
+    previewError.value = err?.response?.data?.error || 'Lỗi tạo xem trước';
+  }
+}
+watch(previewVariant, () => { void refreshLivePreview(); });
+
+// ── Editor ↔ markup sync ────────────────────────────────────────────────
+// Mỗi keystroke: đọc payload editor → zaloRichToMarkup → welcomeTemplate (lưu DB) → preview.
+function onWelcomeRichInput() {
+  if (applyingWelcomeRich.value) return; // update do applyRichPayload phát ra → bỏ qua
+  const payload = welcomeEditorRef.value?.getRichPayload();
+  if (!payload) return;
+  welcomeRichText.value = payload.text;
+  welcomeTemplate.value = zaloRichToMarkup(payload.text, payload.styles || []);
+  schedulePreview();
+}
+
+// Nạp markup vào editor: compile (BE) markup → {text,styles} → applyRichPayload.
+async function loadMarkupIntoEditor(markup: string) {
+  const { data } = await api.post('/system-notifications/compile-template', { template: markup });
+  await nextTick();
+  if (!welcomeEditorRef.value) return;
+  applyingWelcomeRich.value = true;
+  welcomeEditorRef.value.applyRichPayload({ text: data.text || '', styles: data.styles || [] });
+  welcomeRichText.value = data.text || '';
+  await nextTick();
+  applyingWelcomeRich.value = false;
+}
+
+function insertPlaceholder(key: string) {
+  const ed = welcomeEditorRef.value;
+  if (!ed) return;
+  ed.insertText(placeholderLabel(key));
+  onWelcomeRichInput();
+}
+
+// Vuetify v-window-item lazy-mount: editor tab "welcome" chỉ render khi active → ref
+// welcomeEditorRef CHƯA tồn tại lúc onMounted/fetchOrgConfig chạy (tab mặc định = 'config').
+// → nạp markup vào editor KHI chuyển sang tab welcome (đợi editor mount xong).
+const welcomeEditorLoaded = ref(false);
+watch(activeTab, async (tab) => {
+  if (tab !== 'welcome' || welcomeEditorLoaded.value) return;
+  await nextTick(); // chờ v-window-item render + RichTextEditor mount
+  // retry vài nhịp cho chắc editor đã expose ref (TipTap useEditor async).
+  for (let i = 0; i < 10 && !welcomeEditorRef.value; i++) await nextTick();
+  if (!welcomeEditorRef.value) return;
+  await loadMarkupIntoEditor(welcomeTemplate.value || defaultTemplate.value);
+  welcomeEditorLoaded.value = true;
+  void refreshLivePreview();
+});
 
 const senderOptions = computed(() => nicks.value.map((nick) => ({
   value: nick.id,
@@ -668,15 +815,24 @@ function roleLabel(role: string) {
 async function fetchOrgConfig() {
   try {
     const { data } = await api.get('/system-notifications/org-config');
-    welcomeTemplate.value = data.welcomeMessageTemplate ?? '';
+    defaultTemplate.value = data.defaultTemplate ?? '';
+    // Ô trống = chưa cấu hình → fill mẫu mặc định sẵn vào editor cho admin sửa (anh dặn).
+    welcomeTemplate.value = data.welcomeMessageTemplate ?? defaultTemplate.value;
     welcomeImageUrl.value = data.welcomeImageUrl ?? null;
     adminFallbackPhone.value = data.adminFallbackPhone ?? '';
-    defaultTemplate.value = data.defaultTemplate ?? '';
+    // Snapshot = giá trị GỐC từ DB (template gốc có thể null → coi như rỗng, để nút Lưu sáng
+    // khi admin chỉ "xác nhận" mẫu mặc định). Dùng welcomeMessageTemplate thực, không phải default.
     savedSnapshot.value = {
-      template: welcomeTemplate.value,
+      template: data.welcomeMessageTemplate ?? '',
       image: welcomeImageUrl.value,
       phone: adminFallbackPhone.value,
     };
+    // Nếu editor đã mount (user đang ở tab welcome) → nạp ngay; nếu chưa, watcher activeTab lo.
+    if (welcomeEditorRef.value && !welcomeEditorLoaded.value) {
+      await loadMarkupIntoEditor(welcomeTemplate.value || defaultTemplate.value);
+      welcomeEditorLoaded.value = true;
+    }
+    void refreshLivePreview();
   } catch (err: any) {
     orgConfigError.value = err?.response?.data?.error || 'Lỗi tải cấu hình tin chào mừng';
   }
@@ -707,15 +863,22 @@ async function saveOrgConfig() {
 }
 
 function discardOrgConfigChanges() {
+  // Khôi phục về bản đã lưu (snapshot rỗng = chưa từng lưu → dùng mẫu mặc định cho editor).
   welcomeTemplate.value = savedSnapshot.value.template;
   welcomeImageUrl.value = savedSnapshot.value.image;
   adminFallbackPhone.value = savedSnapshot.value.phone;
   orgConfigError.value = '';
   orgConfigSuccess.value = '';
+  void loadMarkupIntoEditor(welcomeTemplate.value || defaultTemplate.value);
+  void refreshLivePreview();
 }
 
 function resetTemplate() {
   welcomeTemplate.value = defaultTemplate.value;
+  void loadMarkupIntoEditor(defaultTemplate.value).then(() => {
+    // loadMarkupIntoEditor không tự set welcomeTemplate; giữ default đã set ở trên để dirty bật.
+    schedulePreview();
+  });
 }
 
 async function onImagePicked(event: Event) {
@@ -751,29 +914,6 @@ async function clearImage() {
     orgConfigError.value = err?.response?.data?.error || 'Xoá ảnh thất bại';
   }
 }
-
-async function openPreview() {
-  previewLoading.value = true;
-  showPreview.value = true;
-  try {
-    const { data } = await api.post('/system-notifications/preview-welcome', {
-      templateOverride: welcomeTemplate.value.trim() || undefined,
-      variant: previewVariant.value,
-    });
-    previewText.value = data.text;
-    previewStyles.value = data.styles ?? [];
-  } catch (err: any) {
-    previewText.value = `Lỗi preview: ${err?.response?.data?.error || err?.message}`;
-    previewStyles.value = [];
-  } finally {
-    previewLoading.value = false;
-  }
-}
-
-// Re-fetch preview khi đổi variant trong dialog
-watch(previewVariant, () => {
-  if (showPreview.value) openPreview();
-});
 
 // ════════════════════════════════════════════════════════════════════════
 // 2026-06-04 (Anh chốt) — LỊCH SỬ GỬI THÔNG BÁO HỆ THỐNG
@@ -1042,57 +1182,171 @@ onMounted(async () => {
 .recipient-table :deep(.v-table__wrapper) {
   overflow-x: auto;
 }
-.system-notify-page { max-width: 1080px; }
+/* Atlas v3 2026-06-08 — nới rộng để tab "Tin chào mừng" đủ 2 cột (editor + preview Zalo).
+   HD-first: container min 1280 cho layout 2 cột thoáng. */
+.system-notify-page { max-width: 1280px; }
 
 .uid-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
 }
 
-.template-textarea :deep(textarea) {
+/* ══════ Atlas v3 — Tin chào mừng kiểu "edit block Zalo" (2026-06-08) ══════
+   2 cột: soạn WYSIWYG trái + bong bóng Zalo render LIVE phải. Copy hệ token bubble
+   từ BlockEditorDialog (nền xanh nhạt gradient, bubble trắng viền xám). */
+.wm-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .wm-editor { grid-template-columns: 1fr; }
+}
+
+.wm-compose { min-width: 0; }
+.wm-compose-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
+}
+.wm-compose-title { font-size: 15px; font-weight: 700; color: var(--at-ink); }
+.wm-compose-sub { font-size: 12px; color: var(--at-muted); margin-top: 3px; max-width: 560px; line-height: 1.45; }
+.wm-reset-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: transparent; border: 1px solid var(--at-hairline);
+  padding: 6px 11px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 600; color: var(--at-muted); font-family: inherit;
+  white-space: nowrap; flex-shrink: 0;
+}
+.wm-reset-btn:hover { border-color: var(--at-primary); color: var(--at-primary); background: var(--at-primary-soft); }
+
+.wm-card {
+  background: #fff; border: 1px solid var(--at-hairline);
+  border-radius: 12px; padding: 14px; margin-bottom: 16px;
+}
+/* RichTextEditor cao thoáng cho soạn tin nhiều dòng */
+.wm-rich :deep(.tiptap-input) { min-height: 280px; max-height: 460px; font-size: 13.5px; }
+
+/* Chip chèn biến — copy bed-var-bar/bed-var-chip của block editor */
+.wm-var-bar {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  padding-top: 12px; margin-top: 10px; border-top: 1px solid var(--at-hairline);
+}
+.wm-var-bar-label {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; color: var(--at-muted);
+}
+.wm-var-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 9px; border-radius: 9999px;
+  border: 1px solid #b9d4ff; background: var(--at-primary-soft);
+  color: var(--at-primary); font-size: 11px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: transform 0.12s, background 0.12s;
+}
+.wm-var-chip:hover { background: #d8e8ff; transform: translateY(-1px); }
+.wm-var-chip:active { transform: translateY(0); }
+.wm-var-chip code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 10.5px; background: transparent; color: inherit;
 }
+.wm-var-chip-label { color: var(--at-muted); font-weight: 500; font-size: 10px; }
 
-.welcome-image-block {
-  flex: 0 0 auto;
+.wm-editor-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; margin-top: 10px; font-size: 11px; color: var(--at-muted);
 }
+.wm-hint { display: inline-flex; align-items: center; gap: 4px; }
+.wm-char-counter { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
+/* Ảnh + SĐT admin */
+.wm-extras { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 16px; align-items: flex-start; }
+.wm-field-label {
+  font-size: 11px; font-weight: 700; color: var(--at-muted);
+  text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px;
+}
+.wm-field-hint { font-size: 11px; color: var(--at-muted); margin-top: 5px; line-height: 1.4; max-width: 280px; }
+.wm-phone-block { flex: 1 1 260px; min-width: 240px; }
+
+.wm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.welcome-image-block { flex: 0 0 auto; }
 .welcome-image-preview {
-  width: 180px;
-  height: 120px;
+  width: 180px; height: 120px;
   border: 1px dashed rgba(var(--v-theme-outline), 0.4);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background: rgba(var(--v-theme-surface-variant), 0.3);
+  border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; background: rgba(var(--v-theme-surface-variant), 0.3);
 }
+.welcome-image-preview img { width: 100%; height: 100%; object-fit: cover; }
+.admin-phone-field { max-width: 280px; }
 
-.welcome-image-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+/* ── Cột phải: xem trước Zalo LIVE (copy bed-col3) ── */
+.wm-preview {
+  position: sticky; top: 12px;
+  border: 1px solid var(--at-hairline); border-radius: 12px; overflow: hidden;
+  background: linear-gradient(180deg, #e3f2fd 0%, #bbdefb 100%);
+  display: flex; flex-direction: column;
 }
-
-.admin-phone-field {
-  flex: 1 1 280px;
-  min-width: 240px;
-  max-width: 360px;
+.wm-preview-head {
+  padding: 11px 14px; background: #fff; border-bottom: 1px solid var(--at-hairline);
+  font-size: 12px; font-weight: 600; color: var(--at-ink);
+  display: flex; justify-content: space-between; align-items: center;
 }
+.wm-preview-head > span:first-child { display: inline-flex; align-items: center; gap: 6px; }
+.wm-live { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--at-muted); }
+.wm-live-dot { width: 7px; height: 7px; background: var(--at-success); border-radius: 50%; animation: wmpulse 1.4s ease-in-out infinite; }
+@keyframes wmpulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.4 } }
 
-.preview-pane {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  white-space: pre-wrap;
-  line-height: 1.55;
-  background: rgba(var(--v-theme-surface-variant), 0.3);
-  padding: 12px;
-  border-radius: 8px;
-  max-height: 60vh;
-  overflow: auto;
+.wm-variant-toggle {
+  display: flex; gap: 0; padding: 8px 10px 0; background: linear-gradient(180deg, #e3f2fd 0%, #e3f2fd 100%);
+}
+.wm-variant-toggle button {
+  flex: 1; padding: 6px 8px; font-size: 11.5px; font-weight: 600;
+  border: 1px solid var(--at-hairline); background: rgba(255,255,255,0.6);
+  color: var(--at-muted); cursor: pointer; font-family: inherit;
+}
+.wm-variant-toggle button:first-child { border-radius: 8px 0 0 8px; border-right: 0; }
+.wm-variant-toggle button:last-child { border-radius: 0 8px 8px 0; }
+.wm-variant-toggle button.active { background: var(--at-primary); border-color: var(--at-primary); color: #fff; }
+
+.wm-zalo-window {
+  flex: 1; padding: 14px 12px; display: flex; flex-direction: column; gap: 6px;
+  overflow-y: auto; max-height: 64vh;
+  background: linear-gradient(180deg, #e3f2fd 0%, #cfe5fb 100%);
+}
+.wm-zalo-time-label {
+  align-self: center; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: #475569; padding: 4px 10px; font-weight: 500;
+}
+.wm-zalo-img-bubble {
+  align-self: flex-end; max-width: 75%; border-radius: 14px;
+  border-bottom-right-radius: 5px; overflow: hidden; border: 1px solid #e3e6ea;
+}
+.wm-zalo-img-bubble img { display: block; width: 100%; height: auto; max-height: 180px; object-fit: cover; }
+.wm-zalo-bubble {
+  max-width: 88%; padding: 10px 14px; border-radius: 14px;
+  font-size: 13px; line-height: 1.55; word-wrap: break-word; white-space: pre-wrap;
+}
+.wm-zalo-bubble.out {
+  background: #fff; color: #1f2328; border: 1px solid #e3e6ea;
+  align-self: flex-end; border-bottom-right-radius: 5px;
+}
+.wm-zalo-bubble :deep(strong) { font-weight: 700; }
+.wm-zalo-bubble :deep(em) { font-style: italic; }
+.wm-zalo-bubble :deep(u) { text-decoration: underline; }
+.wm-zalo-bubble :deep(s) { text-decoration: line-through; }
+.wm-zalo-time {
+  font-size: 10px; color: #475569; align-self: flex-end; padding: 0 6px; margin-top: -2px;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.wm-zalo-tin { background: rgba(255,255,255,0.6); padding: 1px 6px; border-radius: 8px; font-weight: 600; }
+.wm-zalo-err {
+  align-self: center; font-size: 11px; color: var(--at-danger);
+  background: rgba(255,255,255,0.8); padding: 8px 12px; border-radius: 8px; text-align: center;
+}
+.wm-preview-foot {
+  display: flex; justify-content: center; align-items: center; gap: 6px;
+  padding: 9px 12px; background: rgba(255,255,255,0.75); border-top: 1px solid var(--at-hairline);
+  font-size: 10.5px; color: var(--at-primary); font-weight: 500; text-align: center;
 }
 
 /* ── Log thông báo hệ thống (2026-06-04) ── */

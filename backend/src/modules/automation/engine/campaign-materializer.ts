@@ -559,6 +559,40 @@ export async function materializeSequenceForContact(
         `jobId=${stepZeroJobId} delay=${delayMs}ms startDelayMin=${trigger.sequenceStartDelayMinutes} ` +
         `totalSteps=${steps.length} originTask=${input.originTaskId}`,
     );
+
+    // ── CareSession 2026-06-07 (anh chốt): ENROLL PHIÊN ngay khi bám đuổi bắt đầu ──
+    // Đây là path NGƯỜI LẠ (drainer materialize) — khách CHƯA accept vẫn nhận chuỗi
+    // qua hộp lạ. Trước đây phiên chỉ sinh ở onFriendAccepted (khách bấm đồng ý), nên
+    // khách "đã là bạn sẵn" hoặc "bám đuổi người lạ" KHÔNG có phiên → reply không ai báo.
+    // Giờ enroll tại điểm bắt đầu bám đuổi → phiên phủ ĐÚNG BẰNG luồng. createCareSession
+    // dedup theo (contact, nick, trigger, active) nên KHÔNG trùng với path accept.
+    if (input.assignedNickId) {
+      try {
+        const nick = await prisma.zaloAccount.findUnique({
+          where: { id: input.assignedNickId },
+          select: { ownerUserId: true },
+        });
+        if (nick?.ownerUserId) {
+          const { enrollFromTrigger } = await import(
+            '../care-session/care-session-service.js'
+          );
+          await enrollFromTrigger({
+            orgId: input.orgId,
+            triggerId: input.triggerId,
+            contactId: input.contactId,
+            nickId: input.assignedNickId,
+            ownerUserId: nick.ownerUserId,
+            sequenceId: input.sequenceId,
+            sequenceStartDelayMinutes: trigger.sequenceStartDelayMinutes,
+            skipEnqueue: true, // materializer ĐÃ enqueue STEP 0 ở trên — chỉ tạo phiên.
+          });
+        }
+      } catch (err) {
+        logger.warn(
+          `[materializer] care-session enroll failed (non-fatal) trigger=${input.triggerId} contact=${input.contactId}: ${(err as Error).message}`,
+        );
+      }
+    }
   } catch (err) {
     // BullMQ jobId dedup — duplicate is benign (outbox-drainer retry race).
     const msg = (err as Error).message ?? '';

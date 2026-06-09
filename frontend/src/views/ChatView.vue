@@ -225,6 +225,22 @@ watch(
     inboxFilters.state.sortMode,
     inboxFilters.state.timeAxis,
     inboxFilters.state.timeRangePreset,
+    // 2026-06-08 — Tier-1 deep CRM filter (cột 1 sidebar). Trước đây các field này
+    // KHÔNG nằm trong watch → bấm nút sáng nhưng list không refetch ("nút chết").
+    inboxFilters.state.autoTags.join(','),
+    inboxFilters.state.scoreMin,
+    inboxFilters.state.scoreMax,
+    inboxFilters.state.scoreTier,
+    inboxFilters.state.stages.join(','),
+    inboxFilters.state.stuckDuration,
+    inboxFilters.state.lastMessageWithin,
+    inboxFilters.state.customerWaitingReply,
+    inboxFilters.state.saleWaitingReply,
+    inboxFilters.state.birthdayWithin7d,
+    inboxFilters.state.appointmentWithin24h,
+    inboxFilters.state.appointmentOverdue,
+    inboxFilters.state.engagementPatterns.join(','),
+    inboxFilters.state.messageReplyState,
   ],
   () => {
     if (filterApplyTimer) clearTimeout(filterApplyTimer);

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 
 const VALID_TRIGGERS = ['message_received', 'contact_created', 'status_changed'];
@@ -19,7 +19,7 @@ export async function automationRoutes(app: FastifyInstance): Promise<void> {
     return { rules };
   });
 
-  app.post('/api/v1/automation/rules', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/automation/rules', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const body = request.body as Record<string, any>;
@@ -45,7 +45,7 @@ export async function automationRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.put('/api/v1/automation/rules/:id', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put('/api/v1/automation/rules/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -73,7 +73,7 @@ export async function automationRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.delete('/api/v1/automation/rules/:id', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete('/api/v1/automation/rules/:id', { preHandler: requireGrant('settings', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };

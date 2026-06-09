@@ -17,7 +17,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import {
   isSupportedEventType,
@@ -252,7 +252,7 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
   // Manual run — emits an AutomationEvent of the trigger's eventType.
   // Engine materializer picks it up, creates Campaign + Tasks for resolved contacts.
   // Body: optional { contactId, segmentHint, payload } to override trigger.segmentSpec.
-  app.post(`${BASE}/:id/run`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/run`, { preHandler: requireGrant('trigger', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -292,7 +292,7 @@ export async function triggerRoutes(app: FastifyInstance): Promise<void> {
   //    entries + xóa campaigns/outbox/eventlog; chỉ khi state cancelled/draft/completed).
   //  - còn lại → logic chung: disallow nếu còn active campaigns (state machine integrity).
   // Trước đây 2 file cùng khai báo DELETE /triggers/:id → FST_ERR_DUPLICATED_ROUTE.
-  app.delete(`${BASE}/:id`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:id`, { preHandler: requireGrant('trigger', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };

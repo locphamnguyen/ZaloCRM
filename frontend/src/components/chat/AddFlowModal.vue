@@ -16,103 +16,94 @@
 
 <template>
   <Teleport to="body">
-    <div class="modal-overlay" @click.self="onClose">
-      <div class="modal" role="dialog" aria-modal="true">
+    <div class="afm-overlay" @click.self="onClose">
+      <div class="afm-modal" role="dialog" aria-modal="true">
         <!-- Header -->
-        <div class="modal-header">
-          <h2>+ Bám đuổi thủ công cho {{ contactName }}</h2>
-          <button class="modal-close" @click="onClose" aria-label="Đóng">×</button>
+        <div class="afm-head">
+          <div class="afm-head__row">
+            <h2>Bám đuổi thủ công cho {{ contactName }}</h2>
+            <button class="afm-x" @click="onClose" aria-label="Đóng">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+            </button>
+          </div>
+          <div class="afm-sub">Chọn 1 kịch bản có sẵn để bắt đầu chăm khách này</div>
         </div>
 
         <!-- Body -->
-        <div class="modal-body">
-          <!-- Loading sequences -->
-          <div v-if="loadingSequences" class="loading">
-            <div class="spinner" />
-            <p>Đang tải danh sách Sequence...</p>
+        <div class="afm-body">
+          <!-- Loading -->
+          <div v-if="loadingSequences" class="afm-loading">
+            <div class="afm-spinner" />
+            <p>Đang tải danh sách luồng...</p>
           </div>
 
           <template v-else>
             <!-- Sequence picker -->
-            <div class="form-group">
-              <label>
-                Chọn Sequence (chuỗi tin có sẵn)
-                <span class="req">*</span>
-              </label>
+            <div class="afm-field">
+              <label class="afm-label">Chọn luồng kịch bản <span class="afm-req">*</span></label>
 
-              <div v-if="sequences.length === 0" class="empty-seq">
-                Chưa có Sequence nào active trong tổ chức.
-                <a href="/marketing/sequences" target="_blank">→ Tạo Sequence mới</a>
+              <div v-if="sequences.length === 0" class="afm-empty-seq">
+                Chưa có luồng nào đang bật trong tổ chức.
+                <a href="/marketing/sequences" target="_blank">Tạo luồng mới →</a>
               </div>
 
-              <div
+              <button
                 v-for="seq in sequences"
                 :key="seq.id"
-                class="sequence-radio"
-                :class="{ selected: selectedSequenceId === seq.id }"
+                type="button"
+                class="afm-opt"
+                :class="{ sel: selectedSequenceId === seq.id }"
                 @click="selectedSequenceId = seq.id"
               >
-                <input
-                  type="radio"
-                  :checked="selectedSequenceId === seq.id"
-                  @change="selectedSequenceId = seq.id"
-                />
-                <div class="info">
-                  <div class="name">📨 {{ seq.name }}</div>
-                  <div v-if="seq.description" class="desc">{{ seq.description }}</div>
-                  <div class="stats">⏱ {{ seq.stepCount }} bước</div>
-                </div>
+                <span class="afm-radio" />
+                <span class="afm-opt-ic">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                </span>
+                <span class="afm-opt-info">
+                  <span class="afm-opt-nm">{{ seq.name }}</span>
+                  <span v-if="seq.description" class="afm-opt-ds">{{ seq.description }}</span>
+                  <span class="afm-opt-steps">{{ seq.stepCount }} bước</span>
+                </span>
+              </button>
+            </div>
+
+            <!-- Nick auto-pin -->
+            <div class="afm-field">
+              <label class="afm-label">Nick gửi (theo cuộc chat hiện tại)</label>
+              <div class="afm-nick">
+                <span class="afm-nick-ic">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                </span>
+                <span class="afm-nick-nm">{{ nickName || 'Chưa chọn nick' }}</span>
               </div>
             </div>
 
-            <!-- Nick auto-pin display -->
-            <div class="form-group">
-              <label>Nick gửi (auto-pin theo cuộc chat hiện tại)</label>
-              <div class="nick-display">
-                <span class="lock">🔒</span>
-                <span class="nick-name">{{ nickName || 'Chưa chọn nick' }}</span>
-              </div>
-              <div class="help">Tin nhắn sẽ được gửi qua nick này cho KH</div>
-            </div>
-
-            <!-- Reason textarea -->
-            <div class="form-group">
-              <label>
-                Lý do bám đuổi
-                <span class="req">*</span>
-              </label>
+            <!-- Reason -->
+            <div class="afm-field">
+              <label class="afm-label">Lý do bám đuổi <span class="afm-req">*</span></label>
               <textarea
                 v-model="reason"
-                placeholder="VD: KH có nhu cầu đầu tư đất nền Q2, sales đã gọi 2 lần hứa gửi bảng giá nhưng chưa kịp..."
+                class="afm-reason"
+                placeholder="VD: KH hỏi giá Emerald GV, cần chăm tiếp tới khi đặt lịch xem nhà…"
                 rows="3"
               />
-              <div class="help">Bắt buộc nhập để admin có thể audit lý do enroll thủ công</div>
-            </div>
-
-            <!-- Info box -->
-            <div class="alert info">
-              ℹ️ <strong>KH sẽ thêm vào Mục tiêu hệ thống "Bám đuổi khách hàng thủ công"</strong>
-              <ul>
-                <li>Giờ hoạt động: 06:00 - 22:00 (giờ Việt Nam)</li>
-                <li>Tự dừng khi KH reply / react tiêu cực</li>
-                <li>KHÔNG tính vào KPI Mục tiêu thường (filter mặc định)</li>
-              </ul>
+              <div class="afm-help">Bắt buộc nhập để quản lý audit được lý do bám đuổi thủ công.</div>
             </div>
 
             <!-- Error -->
-            <div v-if="error" class="alert error">⚠️ {{ error }}</div>
+            <div v-if="error" class="afm-error">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+              <span>{{ error }}</span>
+            </div>
           </template>
         </div>
 
         <!-- Footer -->
-        <div class="modal-footer">
-          <button class="btn" :disabled="submitting" @click="onClose">Huỷ</button>
-          <button
-            class="btn btn-primary"
-            :disabled="!canSubmit || submitting"
-            @click="onSubmit"
-          >
-            {{ submitting ? 'Đang gửi...' : submitButtonText }}
+        <div class="afm-foot">
+          <button class="afm-btn ghost" :disabled="submitting" @click="onClose">Hủy</button>
+          <button class="afm-btn primary" :disabled="!canSubmit || submitting" @click="onSubmit">
+            <svg v-if="!submitting" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" /></svg>
+            {{ submitting ? 'Đang bắt đầu...' : submitButtonText }}
           </button>
         </div>
       </div>
@@ -177,7 +168,7 @@ async function fetchSequences(): Promise<void> {
         steps: unknown[];
         enabled: boolean;
       }>;
-    }>('/api/v1/automation/sequences?enabled=true');
+    }>('/automation/sequences?enabled=true');
 
     sequences.value = (res.data.sequences ?? [])
       .filter((s) => s.enabled)
@@ -208,7 +199,7 @@ async function onSubmit(): Promise<void> {
   error.value = null;
 
   try {
-    await api.post(`/api/v1/chat/contacts/${props.contactId}/manual-enroll`, {
+    await api.post(`/chat/contacts/${props.contactId}/manual-enroll`, {
       sequenceId: selectedSequenceId.value,
       nickId: props.nickId,
       reason: reason.value.trim(),
@@ -241,268 +232,143 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.modal-overlay {
+.afm-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 30, 66, 0.55);
+  background: rgba(20, 26, 36, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fade-in 0.15s ease;
+  animation: afm-fade 0.15s ease;
 }
+@keyframes afm-fade { from { opacity: 0; } to { opacity: 1; } }
 
-@keyframes fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.modal {
-  background: white;
-  border-radius: 8px;
-  width: 540px;
+.afm-modal {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  width: 440px;
   max-width: calc(100vw - 32px);
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 24px rgba(9, 30, 66, 0.2);
-  animation: slide-up 0.2s ease;
+  box-shadow: var(--sh-lg);
+  animation: afm-slide 0.2s ease;
 }
-
-@keyframes slide-up {
-  from { transform: translateY(20px); opacity: 0; }
+@keyframes afm-slide {
+  from { transform: translateY(16px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
 
-.modal-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #dfe1e6;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* Head */
+.afm-head {
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
 }
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: #172b4d;
+.afm-head__row { display: flex; align-items: flex-start; gap: 8px; }
+.afm-head h2 {
+  margin: 0; flex: 1;
+  font-size: 14.5px; font-weight: 600; color: var(--ink); line-height: 1.3;
 }
-
-.modal-close {
-  width: 28px;
-  height: 28px;
-  border-radius: 4px;
-  border: none;
-  background: #f4f5f7;
-  color: #6b778c;
-  cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
-  font-family: inherit;
+.afm-x {
+  width: 26px; height: 26px; border-radius: var(--r-sm); border: 0;
+  background: transparent; color: var(--ink-4); cursor: pointer; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center; font-family: inherit;
 }
+.afm-x:hover { background: var(--surface-3); color: var(--ink); }
+.afm-sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
 
-.modal-close:hover {
-  background: #dfe1e6;
-}
-
-.modal-body {
-  padding: 16px 20px;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.modal-footer {
-  padding: 12px 20px;
-  border-top: 1px solid #dfe1e6;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex-shrink: 0;
-}
+/* Body */
+.afm-body { padding: 14px 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.afm-field { display: flex; flex-direction: column; }
+.afm-label { font-size: 11.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 7px; }
+.afm-req { color: var(--error); }
+.afm-help { font-size: 11px; color: var(--ink-3); margin-top: 5px; line-height: 1.4; }
 
 /* Loading */
-.loading {
-  text-align: center;
-  padding: 32px;
-  color: #6b778c;
+.afm-loading { text-align: center; padding: 32px; color: var(--ink-3); font-size: 12.5px; }
+.afm-spinner {
+  width: 24px; height: 24px; border: 2px solid var(--surface-3);
+  border-top-color: var(--brand); border-radius: 50%; margin: 0 auto 12px;
+  animation: afm-spin 0.8s linear infinite;
 }
-.spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid #e5e7eb;
-  border-top-color: #0068ff;
-  border-radius: 50%;
-  margin: 0 auto 12px;
-  animation: spin 0.8s linear infinite;
+@keyframes afm-spin { to { transform: rotate(360deg); } }
+
+.afm-empty-seq { text-align: center; padding: 22px 12px; color: var(--ink-3); font-size: 12px; }
+.afm-empty-seq a { color: var(--brand); text-decoration: none; font-weight: 600; margin-top: 6px; display: block; }
+
+/* Sequence option */
+.afm-opt {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 11px;
+  cursor: pointer; border: 1px solid var(--line); border-radius: var(--r-md);
+  transition: 0.12s; margin-bottom: 7px; width: 100%; text-align: left;
+  background: var(--surface); font-family: inherit;
 }
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.afm-opt:last-child { margin-bottom: 0; }
+.afm-opt:hover { border-color: var(--brand-bright, #5bb8e5); background: var(--brand-softer); }
+.afm-opt.sel { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 1px var(--brand) inset; }
+.afm-radio {
+  width: 17px; height: 17px; border-radius: 50%; border: 2px solid var(--ink-4);
+  flex-shrink: 0; margin-top: 2px; position: relative; transition: 0.12s;
+}
+.afm-opt.sel .afm-radio { border-color: var(--brand); }
+.afm-opt.sel .afm-radio::after { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: var(--brand); }
+.afm-opt-ic {
+  width: 30px; height: 30px; border-radius: var(--r-sm); flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--success-soft); color: #0a2e0e;
+}
+.afm-opt-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.afm-opt-nm { font-size: 12.5px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+.afm-opt-ds {
+  font-size: 11px; color: var(--ink-3); margin-top: 2px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.afm-opt-steps {
+  font-family: var(--mono); font-size: 10.5px; color: var(--ink-2);
+  background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px;
+  margin-top: 5px; align-self: flex-start;
 }
 
-.empty-seq {
-  text-align: center;
-  padding: 24px;
-  color: #6b778c;
-  font-size: 12px;
+/* Nick */
+.afm-nick {
+  background: var(--surface-3); padding: 9px 11px; border-radius: var(--r-sm);
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2);
 }
-.empty-seq a {
-  color: #0068ff;
-  text-decoration: none;
-  font-weight: 500;
-  margin-top: 6px;
-  display: block;
-}
+.afm-nick-ic { color: var(--brand-700); display: inline-flex; flex-shrink: 0; }
+.afm-nick-nm { font-weight: 600; color: var(--ink); }
 
-/* Form */
-.form-group {
-  margin-bottom: 14px;
+/* Reason */
+.afm-reason {
+  width: 100%; min-height: 64px; padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); font-family: inherit; font-size: 12.5px; color: var(--ink);
+  resize: vertical; line-height: 1.5; box-sizing: border-box;
 }
-.form-group label {
-  font-weight: 500;
-  font-size: 12px;
-  margin-bottom: 4px;
-  display: block;
-  color: #172b4d;
-}
-.form-group label .req {
-  color: #de350b;
-}
-.form-group .help {
-  font-size: 11px;
-  color: #6b778c;
-  margin-top: 2px;
-}
+.afm-reason:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.afm-reason::placeholder { color: var(--ink-4); }
 
-.sequence-radio {
-  border: 1px solid #dfe1e6;
-  border-radius: 4px;
-  padding: 10px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: start;
-  gap: 8px;
-  transition: 0.15s;
+/* Error */
+.afm-error {
+  display: flex; align-items: center; gap: 7px; padding: 9px 11px;
+  background: var(--error-soft); border: 1px solid #f6c5c1; border-radius: var(--r-sm);
+  font-size: 12px; color: var(--error);
 }
-.sequence-radio:hover {
-  background: #ebf3ff;
-}
-.sequence-radio.selected {
-  border-color: #0068ff;
-  background: #deebff;
-}
-.sequence-radio input {
-  margin-top: 3px;
-  cursor: pointer;
-}
-.sequence-radio .info {
-  flex: 1;
-}
-.sequence-radio .info .name {
-  font-weight: 600;
-  font-size: 13px;
-  color: #172b4d;
-}
-.sequence-radio .info .desc {
-  font-size: 11px;
-  color: #6b778c;
-  margin-top: 2px;
-}
-.sequence-radio .stats {
-  font-size: 11px;
-  color: #42526e;
-  margin-top: 4px;
-}
+.afm-error svg { flex-shrink: 0; }
 
-.nick-display {
-  background: #f4f5f7;
-  padding: 10px 12px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
+/* Footer */
+.afm-foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 9px; flex-shrink: 0; }
+.afm-btn {
+  height: 38px; border-radius: var(--r-sm); font-size: 12.5px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: 0.12s; border: 1px solid var(--line);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
 }
-.nick-display .lock {
-  color: #00875a;
-  font-size: 14px;
-}
-.nick-display .nick-name {
-  font-weight: 600;
-}
+.afm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.afm-btn.ghost { flex: 1; background: var(--surface); color: var(--ink-3); }
+.afm-btn.ghost:hover:not(:disabled) { background: var(--surface-3); color: var(--ink); }
+.afm-btn.primary { flex: 2; background: var(--brand); color: #fff; border-color: var(--brand); }
+.afm-btn.primary:hover:not(:disabled) { background: var(--brand-600); }
 
-textarea {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid #c1c7d0;
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: 13px;
-  min-height: 60px;
-  resize: vertical;
-  box-sizing: border-box;
-  color: #172b4d;
-}
-textarea:focus {
-  outline: none;
-  border-color: #0068ff;
-  box-shadow: 0 0 0 2px #deebff;
-}
-
-.alert {
-  padding: 10px 12px;
-  border-radius: 4px;
-  margin-bottom: 12px;
-  font-size: 12px;
-  border-left: 3px solid;
-}
-.alert.info {
-  background: #deebff;
-  border-left-color: #0068ff;
-  color: #42526e;
-}
-.alert.info strong {
-  color: #172b4d;
-}
-.alert.info ul {
-  margin: 4px 0 0 0;
-  padding-left: 18px;
-  font-size: 11px;
-}
-.alert.error {
-  background: #ffebe6;
-  border-left-color: #de350b;
-  color: #de350b;
-}
-
-/* Buttons */
-.btn {
-  padding: 8px 16px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid #c1c7d0;
-  background: white;
-  color: #172b4d;
-  cursor: pointer;
-  font-family: inherit;
-  transition: 0.15s;
-}
-.btn:hover:not(:disabled) {
-  background: #ebf3ff;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.btn-primary {
-  background: #0068ff;
-  color: white;
-  border-color: #0068ff;
-}
-.btn-primary:hover:not(:disabled) {
-  background: #0747a6;
-}
+svg { display: block; }
 </style>

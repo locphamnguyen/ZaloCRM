@@ -23,7 +23,7 @@
         >
           <v-icon size="18">mdi-message-plus</v-icon>
           <span>Tin nhắn mới</span>
-          <span v-if="newMsgPickerOpen" class="cl-new-msg-caret">▴</span>
+          <span v-if="newMsgPickerOpen" class="cl-new-msg-caret"><ChevronUpIcon :size="14" :stroke-width="2" /></span>
         </button>
 
         <!-- Wedge A 2026-05-28: NickPickerPopup xổ từ nút Tin nhắn mới
@@ -32,7 +32,7 @@
           v-model="newMsgPickerOpen"
           :accounts="composeAccounts as any"
           :trigger-el="newMsgBtnEl"
-          title="📤 Chọn nick gửi tin nhắn"
+          title="Chọn nick gửi tin nhắn"
           @pick="onPickNickForNewMsg"
         />
       </div>
@@ -54,7 +54,7 @@
           class="clear-tags"
           @click="filters.tags = []"
           title="Bỏ lọc tag · hiển thị lại tất cả"
-        >×</button>
+        ><XIcon :size="13" :stroke-width="2" /></button>
       </div>
 
       <!-- Phase 6+ Inbox Triage Filter Bar (Pills + 4 tabs + Mini counter) -->
@@ -263,6 +263,8 @@
 import { ref, reactive, watch, onMounted, computed, nextTick } from 'vue';
 import type { Conversation, AiSentiment } from '@/composables/use-chat';
 import { api } from '@/api/index';
+// Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ ký tự thô).
+import { ChevronUp as ChevronUpIcon, X as XIcon } from 'lucide-vue-next';
 import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import NewMessageDialog from '@/components/chat/NewMessageDialog.vue';
@@ -964,7 +966,10 @@ function onPatternLeave() {
   font-size: 11px;
   margin-left: 2px;
   line-height: 1;
+  display: inline-flex; align-items: center;
 }
+.cl-new-msg-caret svg, .clear-tags svg { display: block; }
+.clear-tags { display: inline-flex; align-items: center; justify-content: center; }
 .cl-new-msg {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 8px 10px;

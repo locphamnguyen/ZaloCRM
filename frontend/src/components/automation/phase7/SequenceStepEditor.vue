@@ -37,6 +37,22 @@
         <div class="step-card__body">
           <div class="step-card__label">Bước {{ idx + 1 }} · {{ blockActionLabel(step.blockId) }}</div>
           <div class="step-card__title">{{ blockName(step.blockId) }}</div>
+
+          <!-- Thành phần trong khối (Anh chốt 2026-06-07: show được bao nhiêu thành phần) -->
+          <div v-if="!blockArchived(step.blockId)" class="step-card__parts">
+            <span
+              v-for="(p, pi) in blockParts(step.blockId)"
+              :key="pi"
+              class="part-chip"
+              :title="p.title"
+            >
+              <v-icon size="12">{{ p.icon }}</v-icon>{{ p.label }}
+            </span>
+            <span v-if="blockVariantCount(step.blockId) > 1" class="part-chip part-chip--variant" title="Số mẫu nội dung — gửi random 1 mẫu">
+              <v-icon size="12">mdi-shuffle-variant</v-icon>{{ blockVariantCount(step.blockId) }} mẫu
+            </span>
+          </div>
+
           <div v-if="blockArchived(step.blockId)" class="step-card__warn">
             <v-icon size="12">mdi-alert-circle</v-icon>
             Khối đã archive — engine sẽ skip
@@ -47,9 +63,20 @@
             icon
             size="x-small"
             variant="text"
-            :disabled="idx !== steps.length - 1"
+            :disabled="blockArchived(step.blockId)"
+            @click="previewStep(idx)"
+            title="Xem trước khối — KH sẽ thấy thế này trên Zalo"
+          >
+            <v-icon size="16">mdi-eye-outline</v-icon>
+          </v-btn>
+          <!-- Anh chốt 2026-06-07: cho ĐỔI khối ở MỌI bước (không chỉ bước cuối).
+               Server vẫn chặn nếu luồng đang có KH chạy dở (sequence_edit_destructive). -->
+          <v-btn
+            icon
+            size="x-small"
+            variant="text"
             @click="editStep(idx)"
-            :title="idx !== steps.length - 1 ? 'Chỉ được đổi khối ở step CUỐI — đổi step giữa làm lệch tin cho KH đang chờ delay' : 'Đổi khối'"
+            title="Đổi khối ở bước này"
           >
             <v-icon size="16">mdi-swap-horizontal</v-icon>
           </v-btn>
@@ -60,7 +87,7 @@
             color="error"
             :disabled="idx !== steps.length - 1"
             @click="removeStep(idx)"
-            :title="idx !== steps.length - 1 ? 'Chỉ được xoá step CUỐI — sửa step giữa làm lệch tin cho KH đang chờ delay' : 'Xoá'"
+            :title="idx !== steps.length - 1 ? 'Chỉ được xoá step CUỐI — xoá step giữa làm lệch tin cho KH đang chờ delay' : 'Xoá bước'"
           >
             <v-icon size="16">mdi-close</v-icon>
           </v-btn>
@@ -133,6 +160,17 @@
         </v-card-text>
       </v-card>
     </v-dialog>
+
+    <!-- Block preview (chỉ-xem, không gửi) — Anh chốt 2026-06-07 -->
+    <BlockPreviewDialog
+      v-if="previewBlock"
+      :visible="previewOpen"
+      :block="previewBlock"
+      contact-name="KH mẫu"
+      nick-name="Nick của anh"
+      preview-only
+      @close="previewOpen = false"
+    />
   </div>
 </template>
 
@@ -141,6 +179,7 @@ import { ref, computed } from 'vue';
 import { ACTION_TYPE_LABELS, ACTION_TYPE_ICONS, type SequenceStep, type Block, type BlockActionType } from '@/api/automation/types';
 import { ACTION_TYPE_COLOR } from './design-tokens';
 import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
+import BlockPreviewDialog from '@/components/chat/BlockPreviewDialog.vue';
 
 const props = defineProps<{
   steps: SequenceStep[];
@@ -172,6 +211,93 @@ function blockActionLabel(id: string): string {
 function blockArchived(id: string): boolean {
   return Boolean(blockMap.value.get(id)?.archivedAt);
 }
+
+// ── Thành phần trong khối (Anh chốt 2026-06-07) ───────────────────────────
+// Đọc block.content → list chip {icon,label,title} cho UI step card.
+interface BlockPart { icon: string; label: string; title: string }
+function blockParts(id: string): BlockPart[] {
+  const b = blockMap.value.get(id);
+  if (!b) return [];
+  const c = (b.content ?? {}) as Record<string, any>;
+  const parts: BlockPart[] = [];
+
+  if (b.actionType === 'request_friend') {
+    parts.push({ icon: 'mdi-hand-wave-outline', label: 'Lời mời', title: 'Lời chào kết bạn' });
+    return parts;
+  }
+
+  if (b.actionType === 'update_status') {
+    parts.push({ icon: 'mdi-tag-arrow-right', label: 'Đổi trạng thái', title: 'Đổi trạng thái KH' });
+    return parts;
+  }
+
+  // send_message — đếm theo components[] (format mới) hoặc legacy textVariants/attachments.
+  if (Array.isArray(c.components) && c.components.length > 0) {
+    const counts: Record<string, number> = {};
+    for (const cmp of c.components) counts[cmp?.kind ?? 'text'] = (counts[cmp?.kind ?? 'text'] ?? 0) + 1;
+    pushKindChips(parts, counts);
+    return parts;
+  }
+  // Legacy
+  const textN = Array.isArray(c.textVariants) ? (c.textVariants.length > 0 ? 1 : 0) : 0;
+  const counts: Record<string, number> = {};
+  if (textN) counts.text = 1;
+  if (Array.isArray(c.attachments)) {
+    for (const a of c.attachments) counts[a?.kind ?? 'file'] = (counts[a?.kind ?? 'file'] ?? 0) + 1;
+  }
+  if (Object.keys(counts).length === 0) counts.text = 1; // mặc định 1 bóng text
+  pushKindChips(parts, counts);
+  return parts;
+}
+
+const KIND_META: Record<string, { icon: string; label: string }> = {
+  text:  { icon: 'mdi-message-text-outline', label: 'Văn bản' },
+  image: { icon: 'mdi-image-outline',        label: 'Ảnh' },
+  album: { icon: 'mdi-image-multiple-outline', label: 'Album' },
+  file:  { icon: 'mdi-paperclip',            label: 'File' },
+  video: { icon: 'mdi-video-outline',        label: 'Video' },
+  link:  { icon: 'mdi-link-variant',         label: 'Link' },
+};
+function pushKindChips(parts: BlockPart[], counts: Record<string, number>): void {
+  // Giữ thứ tự ưu tiên: text → image → album → file → video → link
+  for (const kind of ['text', 'image', 'album', 'file', 'video', 'link']) {
+    const n = counts[kind];
+    if (!n) continue;
+    const meta = KIND_META[kind] ?? { icon: 'mdi-shape-outline', label: kind };
+    parts.push({
+      icon: meta.icon,
+      label: n > 1 ? `${meta.label} ×${n}` : meta.label,
+      title: `${n} ${meta.label.toLowerCase()}`,
+    });
+  }
+}
+
+// Tổng số mẫu (variant) text trong khối — gửi random 1 mẫu khi chạy thật.
+function blockVariantCount(id: string): number {
+  const b = blockMap.value.get(id);
+  if (!b) return 0;
+  const c = (b.content ?? {}) as Record<string, any>;
+  if (Array.isArray(c.greetingVariants)) return c.greetingVariants.length;
+  if (Array.isArray(c.components)) {
+    let n = 0;
+    for (const cmp of c.components) {
+      if (cmp?.kind === 'text') n += (Array.isArray(cmp.variants) ? cmp.variants.length : 0) + 1;
+    }
+    return n;
+  }
+  if (Array.isArray(c.textVariants)) return c.textVariants.length;
+  return 0;
+}
+
+// ── Preview khối (chỉ-xem) ────────────────────────────────────────────────
+const previewOpen = ref(false);
+const previewBlock = ref<Block | null>(null);
+function previewStep(idx: number) {
+  const b = blockMap.value.get(props.steps[idx].blockId);
+  if (!b) return;
+  previewBlock.value = b;
+  previewOpen.value = true;
+}
 function cardStyleFor(blockId: string): Record<string, string> {
   const c = ACTION_TYPE_COLOR[blockActionType(blockId)];
   return { '--card-accent': c.bg, '--card-tint': c.tint, '--card-text': c.text };
@@ -197,8 +323,8 @@ function addStep() {
   pickerOpen.value = true;
 }
 function editStep(idx: number) {
-  // Đổi blockId step giữa = destructive_reorder ngầm → chỉ cho phép step CUỐI.
-  if (idx !== props.steps.length - 1) return;
+  // Anh chốt 2026-06-07: cho đổi khối ở MỌI bước. Nếu luồng đang có KH chạy dở,
+  // server sẽ chặn khi lưu (sequence_edit_destructive) + hiện dialog hướng dẫn.
   pickerStepIdx.value = idx;
   pickerOpen.value = true;
 }
@@ -381,6 +507,32 @@ function removeStep(idx: number) {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+/* Thành phần trong khối — chips nhỏ (Anh chốt 2026-06-07) */
+.step-card__parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+.part-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border-radius: var(--at-r-pill);
+  background: var(--at-surface-soft);
+  border: 1px solid var(--at-hairline);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--at-body);
+  white-space: nowrap;
+}
+.part-chip--variant {
+  background: var(--card-tint);
+  border-color: transparent;
+  color: var(--card-text);
 }
 .step-card__actions {
   display: flex;

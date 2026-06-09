@@ -60,6 +60,10 @@ export interface InternalNotifyJobData {
   link?: string;
   // I5 2026-06-03 — reaction hooks
   emoji?: string;
+  // T9 2026-06-07 (CareSession D-notify): khóa chống double-send. Khi set,
+  // dùng làm BullMQ jobId → đa phiên cùng (eventId, recipient) → 1 tin duy nhất.
+  // Khuyến nghị: `${eventId}-${targetUserId}`.
+  dedupeKey?: string;
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -439,8 +443,14 @@ export async function stopInternalNotifyWorker(): Promise<void> {
 // ════════════════════════════════════════════════════════════════════════
 export async function enqueueNotify(data: InternalNotifyJobData): Promise<void> {
   const queue = getInternalNotifyQueue();
-  await queue.add(data.kind, data);
-  logger.info(`[internal-notify] enqueued kind=${data.kind} target=${data.targetUserId}`);
+  // T9 2026-06-07 (D-notify dedup): nếu có dedupeKey → dùng làm jobId. BullMQ tự
+  // nuốt job trùng jobId → chống DOUBLE-SEND khi khách ở nhiều phiên cùng sale
+  // (cùng eventId + recipient → 1 tin, không 2). DASH thay `:` (BullMQ v5 cấm `:`).
+  const opts = data.dedupeKey
+    ? { jobId: `notif-${data.dedupeKey.replace(/:/g, '-')}` }
+    : undefined;
+  await queue.add(data.kind, data, opts);
+  logger.info(`[internal-notify] enqueued kind=${data.kind} target=${data.targetUserId}${data.dedupeKey ? ' dedupe=' + data.dedupeKey : ''}`);
 }
 
 // Convenience enqueuers cho từng hook

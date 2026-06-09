@@ -45,6 +45,7 @@ const COLOR_HEX_TO_ZALO_ST: Record<string, string> = {
   '#f5a623': 'c_f27806', // orange
   '#f8e71c': 'c_f7b503', // yellow
   '#2ecc71': 'c_15a85f', // green
+  '#2962ff': 'c_2962ff', // blue (Atlas v3 2026-06-08 — khớp palette RichTextEditor)
 };
 
 export function toZaloStyles(textStyles: InternalTextStyle[]): ZaloSendStyle[] {

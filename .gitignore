@@ -9,6 +9,10 @@ backups/
 # Local dev artifacts — không commit
 .backfill*.sql
 .diag.sql
+# DB dump / backup tạm ở root (predeup/tagbackup/autotag...) — KHÔNG commit
+/*.sql
+_merge-backup/
+*-merge-backup-*.json
 TODO.local.md
 .zalo-icon-preview.html
 .zalo-phase6-preview.html
@@ -35,3 +39,4 @@ frontend/public/mockups/
 # Dev tools tự gắn (Anh)
 frontend/.capture-submit.js
 CLAUDE.md
+_chat_ui_backups/

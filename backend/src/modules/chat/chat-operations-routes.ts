@@ -4,22 +4,19 @@
  */
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import type { Server } from 'socket.io';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
 import { zaloOps, ZaloOpError } from '../../shared/zalo-operations.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
-import { config } from '../../config/index.js';
 import { eventBuffer } from '../../shared/event-buffer.js';
 import { logger } from '../../shared/utils/logger.js';
 import { sendNativeVideo } from '../../shared/video-processor.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { markExpected as markReactionEchoExpected } from './reaction-echo-cache.js';
 import { getUserFullName } from './chat-helpers.js';
+import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
 
 interface ResolvedMessageRefs {
   messageId: string;
@@ -155,96 +152,6 @@ function pickString(source: Record<string, unknown>, keys: string[]): string | u
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
   return undefined;
-}
-
-function extractZaloMsgId(result: unknown): string {
-  const sr = result as {
-    msgId?: string | number;
-    data?: { msgId?: string | number };
-    message?: { msgId?: string | number } | null;
-    attachment?: Array<{ msgId?: string | number }>;
-  } | null;
-  const raw = sr?.message?.msgId ?? sr?.attachment?.[0]?.msgId ?? sr?.data?.msgId ?? sr?.msgId ?? '';
-  return String(raw || '');
-}
-
-function sameOrigin(a: string, b: string): boolean {
-  try {
-    const au = new URL(a);
-    const bu = new URL(b);
-    return au.protocol === bu.protocol && au.host === bu.host;
-  } catch {
-    return false;
-  }
-}
-
-function candidateDownloadUrls(url: string): string[] {
-  const candidates = [url];
-  try {
-    if (sameOrigin(url, config.s3PublicUrl)) {
-      const publicUrl = new URL(config.s3PublicUrl);
-      const endpoint = new URL(config.s3Endpoint);
-      const original = new URL(url);
-      original.protocol = endpoint.protocol;
-      original.host = endpoint.host;
-      const publicPath = publicUrl.pathname.replace(/\/$/, '');
-      if (publicPath && original.pathname.startsWith(publicPath)) {
-        original.pathname = original.pathname.slice(publicPath.length) || '/';
-      }
-      candidates.push(original.toString());
-    }
-  } catch {
-    // keep original only
-  }
-  return [...new Set(candidates)];
-}
-
-function filenameFromUrl(url: string, contentType: string, fallback?: string): string {
-  const cleanFallback = sanitizeFileName(fallback);
-  if (cleanFallback) return cleanFallback;
-  try {
-    const name = new URL(url).pathname.split('/').filter(Boolean).pop();
-    const cleanName = sanitizeFileName(name ? decodeURIComponent(name) : undefined);
-    if (cleanName) return cleanName;
-  } catch {
-    // fall through
-  }
-  return `forward-${contentType}${extensionForContentType(contentType)}`;
-}
-
-function sanitizeFileName(value?: string): string | undefined {
-  const cleaned = value?.replace(/[^\w.\-() ]+/g, '_').replace(/^\.+/, '').trim();
-  return cleaned || undefined;
-}
-
-function extensionForContentType(contentType: string): string {
-  switch (contentType) {
-    case 'image': return '.jpg';
-    case 'video': return '.mp4';
-    case 'voice':
-    case 'audio': return '.mp3';
-    default: return '';
-  }
-}
-
-async function downloadMediaToTemp(media: { url: string; filename?: string }, contentType: string): Promise<{ path: string; cleanup: () => Promise<void> }> {
-  let lastError: unknown;
-  for (const url of candidateDownloadUrls(media.url)) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length === 0) throw new Error('empty response');
-
-      const dir = await mkdtemp(path.join(tmpdir(), 'zalocrm-forward-'));
-      const filePath = path.join(dir, filenameFromUrl(url, contentType, media.filename));
-      await writeFile(filePath, buffer);
-      return { path: filePath, cleanup: () => rm(dir, { recursive: true, force: true }) };
-    } catch (err) {
-      lastError = err;
-    }
-  }
-  throw new Error(`Không tải được file media để chuyển tiếp: ${(lastError as Error)?.message ?? String(lastError)}`);
 }
 
 function handleError(err: unknown, reply: FastifyReply) {

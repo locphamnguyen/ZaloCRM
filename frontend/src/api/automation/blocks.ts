@@ -135,3 +135,26 @@ export async function blockFromComposer(input: FromComposerInput): Promise<Block
   const { data } = await api.post<Block>(`${BLOCKS}/from-composer`, input);
   return data;
 }
+
+// ─── Gửi cả Khối vào 1 hội thoại (cột 4 tab Automation) 2026-06-07 ──────────
+// Backend dispatch ĐỦ mọi thành phần (text/image/album/file/video) đúng thứ tự,
+// giữ rich-text, render {gender}/{name}/{sale}, delay an toàn giữa tin. Tin hiện
+// live ở cột 3 qua socket 'chat:message' (không cần refetch).
+export interface SendBlockResult {
+  ok: boolean;
+  sentCount: number;
+  totalMessages: number;
+  partial: boolean;
+  errors: Array<{ index: number; type: string; message: string }>;
+  stub?: boolean;
+}
+export async function sendBlockToConversation(
+  conversationId: string,
+  blockId: string,
+): Promise<SendBlockResult> {
+  const { data } = await api.post<SendBlockResult>(
+    `/conversations/${conversationId}/send-block`,
+    { blockId },
+  );
+  return data;
+}

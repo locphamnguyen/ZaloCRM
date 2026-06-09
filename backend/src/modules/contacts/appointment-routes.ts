@@ -308,7 +308,11 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       const updated = await prisma.appointment.update({
         where: { id },
         data: {
-          contactId: body.contactId,
+          // FIX 2026-06-09 (Anh báo "Failed to update appointment"): contactId là relation FK
+          // BẮT BUỘC — truyền null (editor gửi khi KH chưa link / đã gỡ link) làm Prisma ném
+          // "Unknown argument contactId" → 500. Chỉ update khi có giá trị thật; KHÔNG cho null
+          // hoá contact của lịch hẹn (mỗi lịch luôn thuộc 1 KH).
+          ...(body.contactId ? { contactId: body.contactId } : {}),
           assignedUserId: body.assignedUserId,
           appointmentDate: body.appointmentDate ? new Date(body.appointmentDate) : undefined,
           appointmentTime: body.appointmentTime,

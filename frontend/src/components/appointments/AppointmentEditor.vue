@@ -971,7 +971,9 @@ async function submit() {
       notes: form.notes.trim() || null,
     };
     if (isEdit.value && props.appointment) {
-      const res = await api.patch(`/appointments/${props.appointment.id}`, payload);
+      // FIX 2026-06-09 (Anh báo "lưu sửa lịch báo not_found"): BE chỉ có PUT /appointments/:id
+      // (PATCH /:id chưa định nghĩa → 404 not_found). Đổi patch→put, khớp use-appointments.ts.
+      const res = await api.put(`/appointments/${props.appointment.id}`, payload);
       emit('updated', res.data);
     } else {
       const res = await api.post('/appointments', payload);
@@ -1001,6 +1003,15 @@ if (typeof window !== 'undefined') {
 <style scoped>
 @import '@/components/automation/phase7/airtable.css';
 
+/* FIX 2026-06-09 (Anh báo bể UI): 2 token --at-coral-tint / --at-coral-text KHÔNG
+   được định nghĩa trong airtable.css → render rỗng → hàng KH liên kết (.linked-kh-row)
+   + banner lỗi (.error-banner) mất nền/màu chữ. Bổ sung scoped tại đây (không đụng
+   airtable.css dùng chung). Tint = nền đỏ nhạt, text = chữ đỏ đậm — khớp --at-coral. */
+.airtable-scope {
+  --at-coral-tint: var(--at-atlas-danger-soft, #fdeceb);
+  --at-coral-text: var(--at-coral, #f04438);
+}
+
 /* ─── Backdrop + modal ─── */
 .editor-backdrop {
   position: fixed; inset: 0;
@@ -1012,9 +1023,10 @@ if (typeof window !== 'undefined') {
 }
 .editor {
   width: 560px; max-width: 100%;
-  /* Fix size: chiều cao 780px (tăng từ 720 để khỏi scroll khi đủ 6 section).
-     Modal KHÔNG expand khi popup mở vì popup TELEPORT ra ngoài (position fixed). */
-  height: 780px;
+  /* FIX 2026-06-09 (Anh báo bể): bỏ height cứng 780px (gây dồn cục section + dư khoảng
+     trống đáy). Modal tự co theo nội dung, cap 94vh — body flex:1 overflow-y:auto tự cuộn
+     nếu thiếu chỗ. Popup ngày/giờ TELEPORT ra ngoài (position fixed) nên không push modal. */
+  height: auto;
   max-height: 94vh;
   background: var(--at-canvas);
   border-radius: var(--at-r-lg);
@@ -1066,7 +1078,32 @@ if (typeof window !== 'undefined') {
 .editor-foot .actions { display: flex; gap: 6px; }
 
 /* ─── Field common ─── */
-.field { display: flex; flex-direction: column; gap: var(--at-s-xs); position: relative; }
+/* FIX 2026-06-09 (Anh báo "bể tè le"): global hs-crm-theme.css định nghĩa `.field` là
+   1 Ô INPUT (height:40px, flex row, border, bg, padding) — leak vào đây làm MỖI section
+   thành 1 khung viền đè chồng lên field dưới. Trong editor, `.field` là 1 KHỐI DỌC
+   (label trên + control dưới). Phải RESET đè lại toàn bộ box-prop global + ép cao tự động.
+   Scope dưới .editor để KHÔNG đụng .field nơi khác. */
+.editor .field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--at-s-xs);
+  position: relative;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+.editor .field:focus-within { box-shadow: none; } /* huỷ glow global của .field:focus-within */
+/* Khôi phục viền cho input/select THẬT bên trong editor (global .field input{border:0} đã xoá) */
+.editor .field .title-input-wrap,
+.editor .field .location-input-wrap,
+.editor .field .picker-display,
+.editor .field .sale-select,
+.editor .field .notes-area,
+.editor .field .cust-suggest-search { border: 1px solid var(--at-hairline); }
 .field-label {
   font-size: 11.5px; font-weight: 500; color: var(--at-muted);
   text-transform: uppercase; letter-spacing: 0.08em;

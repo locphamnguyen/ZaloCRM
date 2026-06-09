@@ -31,7 +31,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma, tenantTransaction } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
 import { resolveSegmentToContactIds } from '../engine/segment-resolver.js';
@@ -341,7 +341,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Start ──────────────────────────────────────────────────────────────
-  app.post(`${BASE}/:id/start`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/start`, { preHandler: requireGrant('broadcast', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -376,7 +376,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Pause ──────────────────────────────────────────────────────────────
-  app.post(`${BASE}/:id/pause`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/pause`, { preHandler: requireGrant('broadcast', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const bc = await prisma.automationBroadcast.findFirst({ where: { id, orgId: user.orgId }, select: { state: true } });
@@ -394,7 +394,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Resume — re-enqueue worker tick để pickup từ resumeCursor ──────────
-  app.post(`${BASE}/:id/resume`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/resume`, { preHandler: requireGrant('broadcast', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const bc = await prisma.automationBroadcast.findFirst({
@@ -421,7 +421,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Cancel ─────────────────────────────────────────────────────────────
-  app.post(`${BASE}/:id/cancel`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/cancel`, { preHandler: requireGrant('broadcast', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const bc = await prisma.automationBroadcast.findFirst({ where: { id, orgId: user.orgId }, select: { state: true } });
@@ -441,7 +441,7 @@ export async function broadcastRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Delete (draft only) ────────────────────────────────────────────────
-  app.delete(`${BASE}/:id`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:id`, { preHandler: requireGrant('broadcast', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const bc = await prisma.automationBroadcast.findFirst({ where: { id, orgId: user.orgId }, select: { state: true } });

@@ -10,7 +10,10 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 
-export type OnboardingStep = 'change_password' | 'connect_nick' | 'internal_contact' | 'pin';
+// 2026-06-09 (Anh chốt): gỡ 'internal_contact' khỏi onboarding. User giờ tạo bằng SĐT
+// đã verify có Zalo 100% (wizard create-with-zalo điền sẵn recipient) → không cần bắt sale
+// tự thiết lập kênh nhận thông báo nữa. Còn 3 bước: đổi mk / kết nối nick / PIN.
+export type OnboardingStep = 'change_password' | 'connect_nick' | 'pin';
 
 interface StepStatus {
   step: OnboardingStep;
@@ -66,26 +69,9 @@ export async function getOnboardingState(userId: string, orgId: string): Promise
   });
   const connectNickDone = connectedNickCount >= 1;
 
-  // Step 3: internal_contact — recipient.status='ready' (đã verify code xong)
-  const org = await prisma.organization.findUnique({
-    where: { id: orgId },
-    select: { systemNotifyZaloAccountId: true },
-  });
-  let internalContactDone = false;
-  if (org?.systemNotifyZaloAccountId) {
-    const recipient = await prisma.systemNotifyRecipient.findUnique({
-      where: {
-        targetUserId_senderZaloAccountId: {
-          targetUserId: userId,
-          senderZaloAccountId: org.systemNotifyZaloAccountId,
-        },
-      },
-      select: { status: true },
-    });
-    internalContactDone = recipient?.status === 'ready';
-  }
+  // 2026-06-09: bước internal_contact đã gỡ — bỏ luôn query org + recipient (không còn dùng).
 
-  // Step 4: pin — đã đặt PIN hoặc sale chủ động skip
+  // Step 3: pin — đã đặt PIN hoặc sale chủ động skip
   const pinSkipped = stepsJson.pin === 'skipped';
   const pinDone = user.privacyPinHash !== null || pinSkipped;
 
@@ -103,15 +89,6 @@ export async function getOnboardingState(userId: string, orgId: string): Promise
       completedAt: stepsJson.connect_nick ?? null,
       skipped: false,
       detail: connectNickDone ? `${connectedNickCount} nick đã kết nối` : 'Quét QR đăng nhập nick Zalo vào CRM',
-    },
-    {
-      step: 'internal_contact',
-      completed: internalContactDone,
-      completedAt: stepsJson.internal_contact ?? null,
-      skipped: false,
-      detail: internalContactDone
-        ? 'Đã thiết lập kênh nhận thông báo'
-        : 'Chọn nick CRM hoặc SĐT Zalo cá nhân nhận alert',
     },
     {
       step: 'pin',
@@ -134,8 +111,8 @@ export async function getOnboardingState(userId: string, orgId: string): Promise
     percent,
     dismissed: user.onboardingDismissedAt !== null,
     dismissedAt: user.onboardingDismissedAt?.toISOString() ?? null,
-    // Cho dismiss khi ≥ 3/4 (PIN optional), hoặc khi đã xong toàn bộ
-    canDismiss: completedCount >= 3,
+    // Còn 3 bước (PIN optional) → cho dismiss khi xong ≥ 2 bước bắt buộc (đổi mk + kết nối nick).
+    canDismiss: completedCount >= 2,
   };
 }
 
@@ -244,7 +221,6 @@ export interface OnboardingSummary {
   pendingSteps: OnboardingStep[];   // các step CHƯA done (loại pin nếu skipped)
   changePassword: boolean;
   connectNick: boolean;
-  internalContact: boolean;
   pin: boolean;                     // true nếu đặt PIN hoặc đã skip
   pinSkipped: boolean;
   dismissed: boolean;
@@ -280,41 +256,23 @@ export async function getOnboardingSummariesForOrg(orgId: string): Promise<Recor
     if (row.ownerUserId) nickCountByUser.set(row.ownerUserId, row._count._all);
   }
 
-  // Step 3: internal_contact — recipient.status='ready' trên nick system-notify của org
-  const org = await prisma.organization.findUnique({
-    where: { id: orgId },
-    select: { systemNotifyZaloAccountId: true },
-  });
-  const readyContactUserIds = new Set<string>();
-  if (org?.systemNotifyZaloAccountId) {
-    const recipients = await prisma.systemNotifyRecipient.findMany({
-      where: {
-        senderZaloAccountId: org.systemNotifyZaloAccountId,
-        targetUserId: { in: userIds },
-        status: 'ready',
-      },
-      select: { targetUserId: true },
-    });
-    for (const r of recipients) readyContactUserIds.add(r.targetUserId);
-  }
+  // 2026-06-09: bước internal_contact đã gỡ — không còn query recipient ở đây nữa.
 
   const result: Record<string, OnboardingSummary> = {};
   for (const u of users) {
     const stepsJson = (u.onboardingStepsCompleted as Record<string, string> | null) ?? {};
     const changePassword = u.passwordChangedAt !== null;
     const connectNick = (nickCountByUser.get(u.id) ?? 0) >= 1;
-    const internalContact = readyContactUserIds.has(u.id);
     const pinSkipped = stepsJson.pin === 'skipped';
     const pin = u.privacyPinHash !== null || pinSkipped;
 
-    const flags = [changePassword, connectNick, internalContact, pin];
+    const flags = [changePassword, connectNick, pin];
     const completedCount = flags.filter(Boolean).length;
-    const totalCount = 4;
+    const totalCount = 3;
 
     const pendingSteps: OnboardingStep[] = [];
     if (!changePassword) pendingSteps.push('change_password');
     if (!connectNick) pendingSteps.push('connect_nick');
-    if (!internalContact) pendingSteps.push('internal_contact');
     if (!pin) pendingSteps.push('pin');
 
     result[u.id] = {
@@ -325,7 +283,6 @@ export async function getOnboardingSummariesForOrg(orgId: string): Promise<Recor
       pendingSteps,
       changePassword,
       connectNick,
-      internalContact,
       pin,
       pinSkipped,
       dismissed: u.onboardingDismissedAt !== null,

@@ -441,13 +441,14 @@ async function runCampaignTimeoutSweeper(): Promise<void> {
     // sẽ reset KH về queue ở mốc ngưỡng trước khi sweeper này kích campaign timeout.
     // Sweeper campaign-timeout còn giữ làm safety net cho campaign orphan.
     const { campaignTimeoutHours } = await getTechThresholds();
-    // Phase 1a 2026-06-08 — quét campaign stale cross-org ở chế độ system; flip +
-    // event-log từng campaign trong withTenant(c.orgId) bên dưới.
+    // FIX C 2026-06-08 — BỎ điều kiện `triggerId NOT NULL`. Campaign mồ côi (trigger đã xoá
+    // → onDelete:SetNull set triggerId=null) trước đây kẹt state='active' vĩnh viễn → an toàn
+    // flip 'timeout'. Nhánh mồ côi xử lý riêng trong vòng lặp (không scan BullMQ).
+    // Phase 1a: quét cross-org ở chế độ system; flip + event-log từng campaign trong withTenant.
     const stale = await runSystemQuery(() =>
       prisma.automationCampaign.findMany({
         where: {
           state: { in: ['active', 'on_hold'] },
-          triggerId: { not: null },
           updatedAt: { lt: new Date(Date.now() - campaignTimeoutHours * 60 * 60_000) },
         },
         select: {
@@ -478,14 +479,20 @@ async function runCampaignTimeoutSweeper(): Promise<void> {
 
     let flipped = 0;
     for (const c of stale) {
-      if (!c.triggerId) continue;
-      const prefix = `${c.triggerId}-`;
-      const hasPendingJob = pendingJobs.some((j) => j.id && j.id.startsWith(prefix));
-      if (hasPendingJob) {
-        logger.debug(
-          `[campaign-timeout-sweeper] skip campaign=${c.id} trigger=${c.triggerId} — vẫn còn job pending trong BullMQ`,
-        );
-        continue;
+      // FIX C 2026-06-08 — Campaign mồ côi (triggerId=null, trigger đã xoá): không thể
+      // scan BullMQ theo prefix triggerId. Trigger đã xoá → không nguồn job mới + jobId cũ
+      // không khớp gì → flip thẳng 'timeout', BỎ QUA double-check job và BỎ QUA logEvent
+      // (logEvent yêu cầu triggerId hợp lệ — xem event-log-service.ts). Nhánh trigger thật
+      // giữ nguyên double-check như cũ.
+      if (c.triggerId) {
+        const prefix = `${c.triggerId}-`;
+        const hasPendingJob = pendingJobs.some((j) => j.id && j.id.startsWith(prefix));
+        if (hasPendingJob) {
+          logger.debug(
+            `[campaign-timeout-sweeper] skip campaign=${c.id} trigger=${c.triggerId} — vẫn còn job pending trong BullMQ`,
+          );
+          continue;
+        }
       }
 
       // Step 3: atomic flip — đảm bảo vẫn 'active' hoặc 'on_hold' (tránh race với tryCompleteCampaign).
@@ -503,24 +510,28 @@ async function runCampaignTimeoutSweeper(): Promise<void> {
         (Date.now() - c.updatedAt.getTime()) / 3_600_000,
       );
       logger.warn(
-        `[campaign-timeout-sweeper] FLIPPED campaign=${c.id} trigger=${c.triggerId} ` +
+        `[campaign-timeout-sweeper] FLIPPED campaign=${c.id} trigger=${c.triggerId ?? 'orphan'} ` +
           `sequence=${c.sequenceId ?? 'null'} state='timeout' (stale ${staleHours}h, zero BullMQ jobs)`,
       );
 
-      // Step 4: alert event log (fire-and-forget).
-      void withTenant(c.orgId, () => logEvent({
-        orgId: c.orgId,
-        triggerId: c.triggerId!,
-        eventType: 'campaign_timeout',
-        eventPriority: 'urgent',
-        summary: `Campaign ${c.id} bị timeout sau ${staleHours}h không advance (worker crash hoặc Redis mất việc).`,
-        metadata: {
-          campaignId: c.id,
-          sequenceId: c.sequenceId,
-          staleHours,
-          flippedAt: new Date().toISOString(),
-        },
-      }));
+      // Step 4: alert event log (fire-and-forget). Chỉ log khi có triggerId hợp lệ —
+      // campaign mồ côi (FIX C) không có Mục tiêu để gắn event nên bỏ qua, chỉ flip state.
+      // Phase 1a: bọc withTenant(c.orgId).
+      if (c.triggerId) {
+        void withTenant(c.orgId, () => logEvent({
+          orgId: c.orgId,
+          triggerId: c.triggerId!,
+          eventType: 'campaign_timeout',
+          eventPriority: 'urgent',
+          summary: `Campaign ${c.id} bị timeout sau ${staleHours}h không advance (worker crash hoặc Redis mất việc).`,
+          metadata: {
+            campaignId: c.id,
+            sequenceId: c.sequenceId,
+            staleHours,
+            flippedAt: new Date().toISOString(),
+          },
+        }));
+      }
     }
 
     if (flipped > 0) {

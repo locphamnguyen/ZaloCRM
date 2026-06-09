@@ -30,6 +30,9 @@ export interface Appointment {
   // Audit: ai đổi status cuối + lúc nào (cron auto-flip không set)
   statusChangedAt: string | null;
   statusChangedBy: { id: string; fullName: string | null; email: string } | null;
+  // Người phụ trách lịch hẹn (BE trả qua APPOINTMENT_INCLUDE). Dùng cho màu/filter theo sale.
+  assignedUserId?: string | null;
+  assignedUser?: { id: string; fullName: string | null } | null;
 }
 
 export interface AppointmentFilters {

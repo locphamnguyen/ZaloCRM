@@ -107,7 +107,8 @@ import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
 
 interface StepStatus {
-  step: 'change_password' | 'connect_nick' | 'internal_contact' | 'pin';
+  // 2026-06-09 (Anh chốt): gỡ 'internal_contact' — onboarding còn 3 bước.
+  step: 'change_password' | 'connect_nick' | 'pin';
   completed: boolean;
   completedAt: string | null;
   skipped: boolean;
@@ -179,7 +180,6 @@ function stepTitle(step: string): string {
   return ({
     change_password: 'Đổi mật khẩu',
     connect_nick: 'Kết nối nick Zalo',
-    internal_contact: 'Thiết lập nhận thông báo',
     pin: 'Đặt PIN bảo mật',
   } as Record<string, string>)[step] || step;
 }
@@ -187,7 +187,6 @@ function stepTitle(step: string): string {
 function ctaLabel(step: string): string {
   return ({
     connect_nick: 'Kết nối ngay',
-    internal_contact: 'Thiết lập',
     pin: 'Setup',
   } as Record<string, string>)[step] || 'Thiết lập';
 }
@@ -207,10 +206,6 @@ function onGoStep(step: string) {
   if (step === 'change_password') return;
   if (step === 'connect_nick') {
     router.push('/settings/channels/zalo');
-    return;
-  }
-  if (step === 'internal_contact') {
-    router.push('/settings/channels/zalo?tab=internal-contact');
     return;
   }
   if (step === 'pin') {

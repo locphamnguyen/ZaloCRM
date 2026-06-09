@@ -5,7 +5,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from './auth-middleware.js';
-import { requireRole } from './role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../shared/utils/logger.js';
 
@@ -13,7 +13,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // GET /api/v1/teams — list all teams in org
-  app.get('/api/v1/teams', async (request: FastifyRequest) => {
+  app.get('/api/v1/teams', { preHandler: requireGrant('department', 'access') }, async (request: FastifyRequest) => {
     const user = request.user!;
     const teams = await prisma.team.findMany({
       where: { orgId: user.orgId },
@@ -26,7 +26,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/teams — create team (owner/admin only)
   app.post(
     '/api/v1/teams',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('department', 'create') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { name } = request.body as { name: string };
@@ -43,7 +43,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   // PUT /api/v1/teams/:id — update team name (owner/admin only)
   app.put(
     '/api/v1/teams/:id',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('department', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -65,7 +65,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /api/v1/teams/:id — delete team (owner only, unassigns members first)
   app.delete(
     '/api/v1/teams/:id',
-    { preHandler: requireRole('owner') },
+    { preHandler: requireGrant('department', 'delete') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -83,7 +83,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // GET /api/v1/teams/:id/members — list members of a team
-  app.get('/api/v1/teams/:id/members', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/teams/:id/members', { preHandler: requireGrant('department', 'access') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
 
@@ -103,7 +103,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/teams/:id/members — assign user to team (owner/admin only)
   app.post(
     '/api/v1/teams/:id/members',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('department', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -129,7 +129,7 @@ export async function teamRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /api/v1/teams/:id/members/:userId — remove user from team (owner/admin only)
   app.delete(
     '/api/v1/teams/:id/members/:userId',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('department', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const user = request.user!;
       const { id, userId } = request.params as { id: string; userId: string };

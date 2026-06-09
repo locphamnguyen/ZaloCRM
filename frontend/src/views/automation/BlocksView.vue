@@ -14,10 +14,10 @@
         <div class="mts">Mẫu hành động tái sử dụng — gửi 1-1 hàng ngày hoặc ghép vào Luồng</div>
       </div>
       <div class="actions">
-        <button class="btn btn-ghost btn-sm" @click="createFolderInline">
+        <button v-if="canCreateBlock" class="btn btn-ghost btn-sm" @click="createFolderInline">
           <v-icon size="16">mdi-folder-plus-outline</v-icon> Tạo thư mục
         </button>
-        <button class="btn btn-primary btn-sm" @click="openCreate">
+        <button v-if="canCreateBlock" class="btn btn-primary btn-sm" @click="openCreate">
           <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo khối
         </button>
       </div>
@@ -85,7 +85,7 @@
           <span class="bv-folder-label">Đã lưu trữ</span>
           <span class="bv-folder-count num">{{ archivedCount }}</span>
         </button>
-        <button class="bv-new-folder" @click="createFolderInline">
+        <button v-if="canCreateBlock" class="bv-new-folder" @click="createFolderInline">
           <v-icon size="14">mdi-folder-plus-outline</v-icon> Tạo thư mục mới
         </button>
       </aside>
@@ -152,7 +152,7 @@
             Khối là 1 cụm tin nhắn (chữ + ảnh + tệp...) gửi cho khách hàng.
             Tạo 1 lần dùng nhiều nơi.
           </p>
-          <button v-if="!showArchived" class="btn btn-primary btn-sm" @click="openCreate">
+          <button v-if="!showArchived && canCreateBlock" class="btn btn-primary btn-sm" @click="openCreate">
             <v-icon size="16">mdi-plus-circle-outline</v-icon> Tạo khối đầu tiên
           </button>
         </div>
@@ -177,7 +177,7 @@
                 class="blk"
                 @click="openEdit(block)"
               >
-                <button class="bk-more" @click.stop="onCardMore(block, $event)" title="Tùy chọn">
+                <button v-if="canEditBlock || canCreateBlock" class="bk-more" @click.stop="onCardMore(block, $event)" title="Tùy chọn">
                   <v-icon size="16">mdi-dots-vertical</v-icon>
                 </button>
 
@@ -219,6 +219,7 @@
       :folders="folders"
       :status-items="statusItems"
       @saved="onSaved"
+      @folders-changed="onFoldersChanged"
     />
 
     <v-snackbar v-model="toastOpen" :color="toastColor" timeout="3000" location="bottom right">
@@ -233,6 +234,12 @@ import { blocksApi } from '@/api/automation';
 import { SUPPORTED_ACTION_TYPES, type Block, type BlockFolder, type BlockActionType } from '@/api/automation/types';
 import BlockEditorDialog from '@/components/automation/phase7/BlockEditorDialog.vue';
 import { api } from '@/api';
+import { useAuthStore } from '@/stores/auth';
+
+// RBAC 2026-06-09 — Sale chỉ XEM + DÙNG Khối; tạo/sửa/xóa cần grant block.create/edit.
+const authStore = useAuthStore();
+const canCreateBlock = computed(() => authStore.canAccess('block', 'create'));
+const canEditBlock = computed(() => authStore.canAccess('block', 'edit'));
 
 const blocks = ref<Block[]>([]);
 const folders = ref<BlockFolder[]>([]);
@@ -462,6 +469,12 @@ function showToast(msg: string, color: 'success' | 'error' | 'info' = 'info') {
   toastMsg.value = msg; toastColor.value = color; toastOpen.value = true;
 }
 function onSaved(_block: Block) { loadAll(); showToast('Đã lưu khối', 'success'); }
+
+// Editor vừa tạo thư mục inline → refresh list folder (không full reload để giữ editor mở).
+async function onFoldersChanged(_newFolderId: string) {
+  folders.value = await blocksApi.listFolders();
+  showToast('Đã tạo thư mục mới', 'success');
+}
 
 async function onCardMore(block: Block, ev: MouseEvent) {
   ev.preventDefault();

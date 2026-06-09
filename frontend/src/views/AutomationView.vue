@@ -67,7 +67,8 @@ import { useAuthStore } from '@/stores/auth';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 
 const authStore = useAuthStore();
-const canManage = computed(() => authStore.isAdmin);
+// RBAC 2026-06-08 — sửa/tạo rule automation theo grants 'settings.edit' (khớp backend), không theo legacy role.
+const canManage = computed(() => authStore.canAccess('settings', 'edit'));
 const tab = ref('rules');
 const showRuleDialog = ref(false);
 const selectedRule = ref<AutomationRule | null>(null);

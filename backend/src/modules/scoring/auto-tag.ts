@@ -239,6 +239,11 @@ export async function updateFriendAutoTags(friendId: string): Promise<boolean> {
         const tagId = await resolveDetectTagId(key);
         if (tagId) {
           await addFriendTag({ friendId, tagId, source: 'auto_detect', addedBy: null });
+          // CareSession 2026-06-07: tag tự động cũng đóng phiên nếu ∈ closeConditions.
+          if (friend.contactId) {
+            const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+            await onTagAdded({ orgId: friend.orgId, contactId: friend.contactId, tagKind: 'friendTag', tagId });
+          }
         }
       } catch (err) {
         logger.warn?.(`[auto-tag] addFriendTag fail ${key}: ${(err as Error).message}`);

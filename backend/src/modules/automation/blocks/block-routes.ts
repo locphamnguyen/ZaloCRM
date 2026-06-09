@@ -12,9 +12,9 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { authMiddleware } from '../../auth/auth-middleware.js';
-import { requireRole } from '../../auth/role-middleware.js';
+import { requireGrant } from '../../rbac/rbac-middleware.js';
 import { logger } from '../../../shared/utils/logger.js';
-import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+import { getOwnerScope } from '../../rbac/owner-scope.js';
 import { automationTaskStub as _automationTaskStub } from '../engine/_automation-task-stub.js';
 import { resolveBlockContent } from './resolve-block-content.js';
 import {
@@ -24,6 +24,29 @@ import {
 } from './types.js';
 
 const BASE = '/api/v1/automation/blocks';
+
+/**
+ * RBAC visibility 2026-06-09 — fragment Prisma where lọc Khối user được THẤY/DÙNG.
+ * canViewAll (Marketing/Trưởng phòng/Admin/owner) → {} (thấy hết org).
+ * Còn lại (Sale):
+ *   - Khối trong thư mục CÔNG KHAI (cả org dùng),
+ *   - Khối trong thư mục RIÊNG TƯ của chính mình,
+ *   - Khối LẺ (chưa phân loại, folderId NULL) — coi như công khai (UI hiển thị 'public').
+ * Khớp block-folder-routes (folder public | private+ownerUserId) + BlocksView (block lẻ = public).
+ */
+function blockVisibilityWhere(
+  ownerScope: { canViewAll: boolean },
+  userId: string,
+): Record<string, unknown> {
+  if (ownerScope.canViewAll) return {};
+  return {
+    OR: [
+      { folder: { visibility: 'public' } },
+      { folder: { visibility: 'private', ownerUserId: userId } },
+      { folderId: null }, // Khối lẻ chưa phân loại = công khai (mọi sale dùng)
+    ],
+  };
+}
 
 export async function blockRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -44,12 +67,15 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       const tagList = q.tags.split(',').map((t) => t.trim()).filter(Boolean);
       if (tagList.length > 0) where.tagIds = { hasSome: tagList };
     }
-    // Phase Marketing Scope 2026-05-27: sale chỉ thấy block mình tạo;
-    // manager thấy block của subordinate; admin thấy tất cả.
+    // RBAC visibility 2026-06-09 (Anh chốt): Sale DÙNG được Khối công khai.
+    // - view_all (Marketing/Trưởng phòng/Admin/owner) → thấy mọi Khối trong org.
+    // - còn lại (Sale): thấy Khối nằm trong THƯ MỤC công khai (cả org dùng),
+    //   + Khối trong thư mục Riêng tư CỦA CHÍNH MÌNH, + Khối lẻ (chưa có thư mục) do mình tạo.
+    // Khớp với cách block-folder-routes lọc folder theo visibility (public | private+owner).
     const ownerScope = await getOwnerScope({
       userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
     });
-    Object.assign(where, applyOwnerScope(ownerScope));
+    Object.assign(where, blockVisibilityWhere(ownerScope, user.id));
 
     const blocks = await prisma.block.findMany({
       where,
@@ -67,12 +93,12 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
   app.get(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    // Phase Marketing Scope 2026-05-27: assert ownership trước khi trả content
+    // RBAC visibility 2026-06-09: Khối user được xem = công khai + riêng tư của mình (hoặc view_all).
     const ownerScope = await getOwnerScope({
       userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
     });
     const where: any = { id, orgId: user.orgId };
-    Object.assign(where, applyOwnerScope(ownerScope));
+    Object.assign(where, blockVisibilityWhere(ownerScope, user.id));
     const block = await prisma.block.findFirst({
       where,
       include: {
@@ -84,8 +110,8 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
     return block;
   });
 
-  // Create block
-  app.post(BASE, async (request: FastifyRequest, reply: FastifyReply) => {
+  // Create block — RBAC 2026-06-09: cần grant block.create (Sale chỉ access → 403)
+  app.post(BASE, { preHandler: requireGrant('block', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const body = request.body as Record<string, any>;
@@ -155,7 +181,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
 
   // Update block — content edits create a NEW snapshot reference at task-enroll
   // time, so running tasks keep their frozen content (anh chốt Q1 snapshot rule).
-  app.put(`${BASE}/:id`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.put(`${BASE}/:id`, { preHandler: requireGrant('block', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -213,7 +239,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
 
   // Archive (soft delete) — running tasks unaffected because they hold their
   // own blockSnapshot. New enrollments cannot pick this block.
-  app.post(`${BASE}/:id/archive`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/archive`, { preHandler: requireGrant('block', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -235,7 +261,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Unarchive
-  app.post(`${BASE}/:id/unarchive`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/unarchive`, { preHandler: requireGrant('block', 'edit') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -258,7 +284,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
 
   // Hard delete — only allowed if zero references (sequences/broadcasts/triggers/tasks).
   // Otherwise force user to archive instead.
-  app.delete(`${BASE}/:id`, { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.delete(`${BASE}/:id`, { preHandler: requireGrant('block', 'delete') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -297,7 +323,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Duplicate block (clones content, appends "(copy)" to name)
-  app.post(`${BASE}/:id/duplicate`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/:id/duplicate`, { preHandler: requireGrant('block', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
@@ -344,7 +370,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
       archivedAt: null,
       lastUsedAt: { not: null },
     };
-    Object.assign(where, applyOwnerScope(ownerScope));
+    Object.assign(where, blockVisibilityWhere(ownerScope, user.id));
     const blocks = await prisma.block.findMany({
       where,
       orderBy: { lastUsedAt: 'desc' },
@@ -363,8 +389,12 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
+      // RBAC visibility 2026-06-09: chỉ resolve được Khối mình được THẤY (công khai + riêng tư của mình).
+      const ownerScope = await getOwnerScope({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, resource: 'block',
+      });
       const block = await prisma.block.findFirst({
-        where: { id, orgId: user.orgId, archivedAt: null },
+        where: { id, orgId: user.orgId, archivedAt: null, ...blockVisibilityWhere(ownerScope, user.id) },
       });
       if (!block) return reply.status(404).send({ error: 'block not found' });
 
@@ -392,7 +422,7 @@ export async function blockRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /blocks/from-composer — snapshot composer state thành Block (Approach C)
   // Reviewer R4: reject upload pending, strip emoji shortcodes, reject reply/quote, cap 20 components.
-  app.post(`${BASE}/from-composer`, async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post(`${BASE}/from-composer`, { preHandler: requireGrant('block', 'create') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const user = request.user!;
       const body = request.body as {

@@ -233,9 +233,18 @@ const props = withDefaults(defineProps<{
   modelValue: string;
   placeholder?: string;
   showToolbar?: boolean;
+  // 2026-06-08: ô chat (MessageThread) cần Enter = gửi ngay → giữ default true.
+  // Trình soạn nhiều dòng (BlockEditorDialog) set false → Enter + Shift+Enter đều
+  // xuống dòng bình thường (anh hay dùng Shift+Enter). Fix "Enter không xuống dòng".
+  submitOnEnter?: boolean;
+  // 2026-06-09: khi popup mẫu (gõ "/") đang mở, cha truyền hàm này để CHẶN ↑↓/Enter/Esc
+  // ở editor và chuyển cho popup điều hướng (vì popup Teleport ra body, không hứng được phím).
+  // Trả true = đã xử lý → editor consume, KHÔNG tự gửi/xuống dòng.
+  interceptKeys?: (event: KeyboardEvent) => boolean;
 }>(), {
   placeholder: 'Nhập tin nhắn...',
   showToolbar: false,
+  submitOnEnter: true,
 });
 
 const emit = defineEmits<{
@@ -261,10 +270,28 @@ const editor = useEditor({
   ],
   editorProps: {
     handleKeyDown(_view, event) {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        emit('submit');
-        return true;
+      // Popup mẫu đang mở → nhường ↑↓/Enter/Esc cho popup điều hướng (chèn/đóng).
+      if (props.interceptKeys && ['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(event.key)) {
+        if (props.interceptKeys(event)) {
+          event.preventDefault();
+          return true; // consume — không để Tiptap dời con trỏ / gửi tin
+        }
+      }
+      if (event.key === 'Enter') {
+        // Shift+Enter = LUÔN xuống dòng (soft break) ngay trong ô đang gõ, KHÔNG nhảy
+        // focus sang ô khác. Tự chèn hardBreak + consume event (return true) để Tiptap/
+        // Vuetify dialog không nuốt phím rồi đẩy focus đi (bug "Shift+Enter nhảy ô sau").
+        if (event.shiftKey) {
+          event.preventDefault();
+          editor.value?.chain().focus().setHardBreak().run();
+          return true;
+        }
+        // Enter thường: ô chat (submitOnEnter) → gửi. Block editor → để Tiptap xuống dòng.
+        if (props.submitOnEnter) {
+          event.preventDefault();
+          emit('submit');
+          return true;
+        }
       }
       return false;
     },
@@ -287,22 +314,33 @@ const editor = useEditor({
     },
     attributes: { class: 'tiptap-input' },
   },
-  onUpdate({ editor: ed }) {
-    const text = ed.getText();
-    emit('update:modelValue', text);
+  onUpdate() {
+    // 2026-06-08: emit text từ getRichPayload (đoạn nối bằng '\n' đơn) để khớp tuyệt đối
+    // với watch modelValue ở trên (tránh vòng lặp setContent). getText() nối '\n\n' gây lệch.
+    emit('update:modelValue', getRichPayload().text);
     emit('typing');
   },
   onFocus() { isFocused.value = true; },
   onBlur() { isFocused.value = false; },
 });
 
-// Sync external modelValue changes into editor
+// Sync external modelValue changes into editor.
+// 2026-06-08 FIX: dùng getRichPayload().text (chứa '\n' đúng từng đoạn) để so sánh, KHÔNG
+// dùng getText() (TipTap nối đoạn bằng '\n\n' → luôn lệch với modelValue '\n' → vòng lặp
+// setContent mỗi keystroke → gộp dòng + nhảy focus). Khi cần set thật thì convert '\n' →
+// nhiều paragraph (setContent string thuần KHÔNG tạo xuống dòng → đó là bug "dán bị gộp").
 watch(() => props.modelValue, (val) => {
   if (!editor.value) return;
-  const current = editor.value.getText();
-  if (val !== current) {
-    editor.value.commands.setContent(val || '');
-  }
+  const current = getRichPayload().text;
+  if ((val || '') === current) return; // round-trip do chính editor phát ra → bỏ qua
+  const lines = (val || '').split('\n');
+  editor.value.commands.setContent({
+    type: 'doc',
+    content: lines.map((line) => ({
+      type: 'paragraph',
+      content: line ? [{ type: 'text', text: line }] : [],
+    })),
+  });
 });
 
 // ── Apply color / size to selection ──────────────────────────────────────
@@ -465,7 +503,7 @@ async function onAiFormat() {
       toast.warning('AI chưa apply được format (đoạn quá ngắn hoặc AI tắt). Anh tự format hoặc gửi plain text.');
       return;
     }
-    applyRichPayload(data);
+    applyRichPayload(data, { focus: true });
     toast.success(`AI đã format ${data.styles.length} đoạn — anh xem rồi bấm gửi`);
   } catch (err: any) {
     const msg = err?.response?.data?.error || 'Lỗi gọi AI Format';
@@ -483,10 +521,20 @@ async function onAiFormat() {
  * Caveat: Zalo styles support per-char overlap (b + i + color cùng range). Tiptap setMark
  * idempotent → apply nhiều mark cùng range = OK.
  */
-function applyRichPayload(payload: { text: string; styles?: Array<{ st: string; start: number; len: number }> }) {
+// opts.focus: chỉ TRUE khi caller chủ động muốn lấy focus (vd AI Format). MẶC ĐỊNH false
+// để nạp nội dung lúc mount KHÔNG cướp focus — fix bug nhiều editor (block stack) giành
+// focus, con trỏ loạn khi chuyển giữa các thành phần (anh báo 2026-06-08).
+function applyRichPayload(
+  payload: { text: string; styles?: Array<{ st: string; start: number; len: number }> },
+  opts: { focus?: boolean } = {},
+) {
   if (!editor.value) return;
   const text = payload.text || '';
-  if (!text) return;
+  if (!text) {
+    // Vẫn clear nội dung cũ khi payload rỗng (đổi sang biến thể trống) để không sót text card trước.
+    editor.value.commands.setContent('');
+    return;
+  }
 
   // Set raw text first — convert \n thành paragraph break để Tiptap render đúng nhiều dòng.
   const lines = text.split('\n');
@@ -528,7 +576,8 @@ function applyRichPayload(payload: { text: string; styles?: Array<{ st: string; 
 
     editor.value.chain().setTextSelection({ from, to }).setMark(markName, attrs || {}).run();
   }
-  editor.value.commands.focus('end');
+  // Chỉ focus khi caller yêu cầu (AI Format). Nạp lúc mount → KHÔNG focus → không cướp con trỏ.
+  if (opts.focus) editor.value.commands.focus('end');
 }
 
 defineExpose({ clear, focus, insertText, getRichPayload, applyRichPayload });

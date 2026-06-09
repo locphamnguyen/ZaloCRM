@@ -36,7 +36,8 @@ export interface PermissionGroupNode {
   children: PermissionGroupNode[];
 }
 
-export type OnboardingStepKey = 'change_password' | 'connect_nick' | 'internal_contact' | 'pin';
+// 2026-06-09 (Anh chốt): gỡ 'internal_contact' khỏi onboarding (còn 3 bước).
+export type OnboardingStepKey = 'change_password' | 'connect_nick' | 'pin';
 
 export interface OnboardingSummary {
   userId: string;
@@ -46,7 +47,6 @@ export interface OnboardingSummary {
   pendingSteps: OnboardingStepKey[];
   changePassword: boolean;
   connectNick: boolean;
-  internalContact: boolean;
   pin: boolean;
   pinSkipped: boolean;
   dismissed: boolean;

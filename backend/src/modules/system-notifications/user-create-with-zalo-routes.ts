@@ -6,12 +6,12 @@
  *   POST /api/v1/users/create-with-zalo
  *   POST /api/v1/users/:userId/resend-credentials
  *
- * Tất cả routes yêu cầu role owner|admin (gate qua requireRole).
+ * Tất cả routes gate qua requireGrant theo nhóm quyền (resource 'user').
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { requireRole } from '../auth/role-middleware.js';
+import { requireGrant } from '../rbac/rbac-middleware.js';
 import {
   UserCreateWithZaloError,
   checkZaloByPhone,
@@ -24,7 +24,7 @@ export async function userCreateWithZaloRoutes(app: FastifyInstance): Promise<vo
 
   app.post(
     '/api/v1/users/check-zalo-by-phone',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('user', 'access') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as { phone?: string };
@@ -45,7 +45,7 @@ export async function userCreateWithZaloRoutes(app: FastifyInstance): Promise<vo
 
   app.post(
     '/api/v1/users/create-with-zalo',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('user', 'create') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const body = (request.body ?? {}) as {
@@ -94,7 +94,7 @@ export async function userCreateWithZaloRoutes(app: FastifyInstance): Promise<vo
 
   app.post(
     '/api/v1/users/:userId/resend-credentials',
-    { preHandler: requireRole('owner', 'admin') },
+    { preHandler: requireGrant('user', 'edit') },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const currentUser = request.user!;
       const { userId } = request.params as { userId: string };

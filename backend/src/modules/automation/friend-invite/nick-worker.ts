@@ -269,6 +269,7 @@ export async function stopNickWorker(nickId: string): Promise<void> {
  * Stop all workers (graceful shutdown).
  */
 export async function stopAllNickWorkers(): Promise<void> {
+  stopNickRespawnSweeper(); // dừng sweeper trước để không respawn ngược trong lúc shutdown
   const nickIds = Array.from(nickWorkers.keys());
   for (const nickId of nickIds) {
     await stopNickWorker(nickId);
@@ -483,10 +484,12 @@ async function runTick(nickId: string): Promise<void> {
       }
       resolvedUid = found.uid;
       // Extract gender + name + avatar from Zalo profile
+      // FIX 2026-06-08 (Anh báo + verify SDK live): Zalo trả 0=NAM, 1=NỮ. Code cũ map
+      // NGƯỢC (0=female) → KH nam bị ghi nữ ngay lúc search phone→UID trong friend-invite.
       const profile = found as Record<string, unknown>;
       const rawGender = profile.gender;
-      if (rawGender === 'female' || rawGender === 0 || rawGender === '0') zaloGender = 'female';
-      else if (rawGender === 'male' || rawGender === 1 || rawGender === '1') zaloGender = 'male';
+      if (rawGender === 'male' || rawGender === 0 || rawGender === '0') zaloGender = 'male';
+      else if (rawGender === 'female' || rawGender === 1 || rawGender === '1') zaloGender = 'female';
       const profileName = (profile.displayName as string | undefined) ?? (profile.zaloName as string | undefined);
       resolvedDisplayName = profileName?.trim() || null;
       resolvedAvatarUrl = (profile.avatar as string | undefined)?.trim() || null;
@@ -878,30 +881,21 @@ async function runTick(nickId: string): Promise<void> {
 }
 
 /**
- * Bootstrap: spawn workers cho mọi connected ZaloAccount có entry trong pool.
- * Called once from app.ts on server start.
+ * Helper dùng chung (bootstrap + sweeper): spawn worker cho mọi nick connected gắn
+ * Mục tiêu friend_invite_to_list đang active mà CHƯA có worker. startNickWorker idempotent
+ * (skip nếu đã trong nickWorkers map) → gọi lặp an toàn.
+ *
+ * @returns { spawned, needed } — spawned = số worker MỚI vừa tạo; needed = tổng nick cần worker.
  */
-export async function bootstrapFriendInviteWorkers(): Promise<void> {
-  // Find nicks that are connected AND có entry trong pool (queue active)
+async function ensureNickWorkers(): Promise<{ spawned: number; needed: number }> {
+  // Nick đang connected
   const nicks = await prisma.zaloAccount.findMany({
     where: { status: 'connected' },
-    select: { id: true, orgId: true, displayName: true },
+    select: { id: true, orgId: true },
   });
+  if (nicks.length === 0) return { spawned: 0, needed: 0 };
 
-  if (nicks.length === 0) {
-    logger.info('[nick-worker] bootstrap: no connected nicks');
-    return;
-  }
-
-  // Only spawn workers cho nicks có entries pending
-  const nicksWithPending = await prisma.$queryRaw<Array<{ nick_id: string }>>`
-    SELECT DISTINCT (segment_spec->'nickIds')::jsonb->>0 AS nick_id
-    FROM automation_triggers
-    WHERE event_type = 'friend_invite_to_list'
-      AND state = 'active'
-      AND segment_spec IS NOT NULL
-  `;
-  // Simpler approach: spawn worker for all nicks tied to active friend_invite_to_list triggers
+  // Nick gắn Mục tiêu friend_invite active
   const activeNickIds = new Set<string>();
   const activeTriggers = await prisma.automationTrigger.findMany({
     where: { eventType: 'friend_invite_to_list', state: 'active' },
@@ -909,17 +903,78 @@ export async function bootstrapFriendInviteWorkers(): Promise<void> {
   });
   for (const t of activeTriggers) {
     const spec = t.segmentSpec as { nickIds?: string[] } | null;
-    if (spec?.nickIds) {
-      for (const nid of spec.nickIds) activeNickIds.add(nid);
-    }
+    if (spec?.nickIds) for (const nid of spec.nickIds) activeNickIds.add(nid);
   }
 
   let spawned = 0;
+  let needed = 0;
   for (const nick of nicks) {
     if (!activeNickIds.has(nick.id)) continue;
+    needed++;
+    if (nickWorkers.has(nick.id)) continue; // đã có worker → skip
     await startNickWorker(nick.id, nick.orgId);
-    spawned++;
+    if (nickWorkers.has(nick.id)) spawned++; // chỉ đếm nếu spawn thành công (lock acquired)
   }
+  return { spawned, needed };
+}
 
-  logger.info(`[nick-worker] bootstrap done: spawned ${spawned}/${nicks.length} workers`);
+/**
+ * Bootstrap: spawn workers cho mọi connected ZaloAccount gắn trigger active.
+ * Called once from app.ts on server start.
+ */
+export async function bootstrapFriendInviteWorkers(): Promise<void> {
+  const { spawned, needed } = await ensureNickWorkers();
+  logger.info(`[nick-worker] bootstrap done: spawned ${spawned}/${needed} workers`);
+  // FIX 2026-06-08 (Anh chốt): khởi động sweeper RESPAWN. Bootstrap chạy 1 lần lúc boot,
+  // nếu nick chưa connect kịp (sau restart nick cần vài giây-phút re-login) → spawn 0/thiếu
+  // worker, luồng chết âm thầm tới lần restart kế. Sweeper quét mỗi 30s, spawn bù worker cho
+  // nick đã connected + gắn trigger active mà còn thiếu → tự hồi sau MỌI restart, không cần
+  // restart tay. Idempotent qua startNickWorker (skip nick đã có worker).
+  startNickRespawnSweeper();
+}
+
+// ── Respawn sweeper (FIX 2026-06-08) ──
+let respawnSweeperInterval: NodeJS.Timeout | null = null;
+export function startNickRespawnSweeper(): void {
+  if (respawnSweeperInterval) return; // đã chạy
+  respawnSweeperInterval = setInterval(() => {
+    void ensureNickWorkers()
+      .then(({ spawned, needed }) => {
+        if (spawned > 0) {
+          logger.info(
+            `[nick-worker] respawn-sweeper: spawned ${spawned} worker còn thiếu (tổng cần ${needed})`,
+          );
+        }
+      })
+      .catch((err) => logger.warn(`[nick-worker] respawn-sweeper error: ${(err as Error).message}`));
+  }, 30_000);
+}
+export function stopNickRespawnSweeper(): void {
+  if (respawnSweeperInterval) {
+    clearInterval(respawnSweeperInterval);
+    respawnSweeperInterval = null;
+  }
+}
+
+/**
+ * Respawn tức thì 1 nick vừa chuyển 'connected' (gọi từ zalo-pool.updateAccountDB).
+ * Chỉ spawn nếu nick gắn ít nhất 1 Mục tiêu friend_invite active VÀ chưa có worker.
+ * Idempotent — startNickWorker tự skip nếu đã có worker.
+ */
+export async function respawnNickWorkerIfActive(nickId: string, orgId: string): Promise<void> {
+  if (nickWorkers.has(nickId)) return; // đã có worker
+  // Nick này có gắn Mục tiêu friend_invite active không?
+  const active = await prisma.automationTrigger.findFirst({
+    where: {
+      eventType: 'friend_invite_to_list',
+      state: 'active',
+      segmentSpec: { path: ['nickIds'], array_contains: nickId },
+    },
+    select: { id: true },
+  });
+  if (!active) return; // nick không phục vụ Mục tiêu nào → không cần worker
+  await startNickWorker(nickId, orgId);
+  if (nickWorkers.has(nickId)) {
+    logger.info(`[nick-worker] respawn-on-connect: spawned worker cho nick=${nickId} vừa online lại`);
+  }
 }

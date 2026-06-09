@@ -32,7 +32,10 @@
           <v-icon size="13">mdi-check</v-icon> Đã lưu {{ lastSavedHint }}
         </span>
         <div class="bed-actions">
-          <button class="bed-btn bed-btn-primary" :disabled="saving" @click="onSave">
+          <span v-if="!canSave" class="bed-save-status" title="Bạn chỉ có quyền xem và dùng Khối này">
+            <v-icon size="13">mdi-eye-outline</v-icon> Chỉ xem
+          </span>
+          <button v-else class="bed-btn bed-btn-primary" :disabled="saving" @click="onSave">
             <v-icon size="16">mdi-content-save-outline</v-icon> Lưu
           </button>
         </div>
@@ -42,20 +45,60 @@
       <div class="bed-subbar">
         <div class="bed-sub-group">
           <span class="bed-sub-label"><v-icon size="14">mdi-folder-outline</v-icon> Thư mục:</span>
-          <select v-model="draft.folderId" class="bed-folder-select">
-            <option :value="null">— Chưa chọn —</option>
-            <option
-              v-for="f in folders"
-              :key="f.id"
-              :value="f.id"
-            >
-              {{ f.name }}
-            </option>
-          </select>
-          <span v-if="selectedFolderInfo" class="bed-vis-hint" :class="{ private: selectedFolderInfo.visibility === 'private' }">
-            <v-icon size="12">{{ selectedFolderInfo.visibility === 'private' ? 'mdi-lock-outline' : 'mdi-earth' }}</v-icon>
-            {{ selectedFolderInfo.visibility === 'private' ? 'Riêng tư (chỉ tôi)' : 'Công khai (cả org dùng)' }}
-          </span>
+          <template v-if="!folderCreateOpen">
+            <select v-model="draft.folderId" class="bed-folder-select">
+              <option :value="null">— Chưa chọn —</option>
+              <option
+                v-for="f in folders"
+                :key="f.id"
+                :value="f.id"
+              >
+                {{ f.name }}
+              </option>
+            </select>
+            <button class="bed-folder-new-btn" title="Tạo thư mục mới" @click="openFolderCreate">
+              <v-icon size="13">mdi-folder-plus-outline</v-icon> Tạo mới
+            </button>
+            <span v-if="selectedFolderInfo" class="bed-vis-hint" :class="{ private: selectedFolderInfo.visibility === 'private' }">
+              <v-icon size="12">{{ selectedFolderInfo.visibility === 'private' ? 'mdi-lock-outline' : 'mdi-earth' }}</v-icon>
+              {{ selectedFolderInfo.visibility === 'private' ? 'Riêng tư (chỉ tôi)' : 'Công khai (cả org dùng)' }}
+            </span>
+          </template>
+          <!-- Tạo thư mục inline ngay tại UI (anh chốt 2026-06-08, bỏ prompt/confirm). -->
+          <template v-else>
+            <input
+              ref="folderNameRef"
+              v-model="folderCreateName"
+              type="text"
+              class="bed-folder-name-input"
+              placeholder="Tên thư mục mới..."
+              maxlength="60"
+              @keydown.enter.prevent="commitFolderCreate"
+              @keydown.esc="cancelFolderCreate"
+            />
+            <div class="bed-folder-vis-toggle">
+              <button
+                class="bed-vis-opt"
+                :class="{ active: folderCreateVis === 'public' }"
+                @click="folderCreateVis = 'public'"
+              >
+                <v-icon size="12">mdi-earth</v-icon> Công khai
+              </button>
+              <button
+                class="bed-vis-opt"
+                :class="{ active: folderCreateVis === 'private' }"
+                @click="folderCreateVis = 'private'"
+              >
+                <v-icon size="12">mdi-lock-outline</v-icon> Riêng tư
+              </button>
+            </div>
+            <button class="bed-folder-save" :disabled="folderSaving || !folderCreateName.trim()" @click="commitFolderCreate">
+              <v-icon size="13">{{ folderSaving ? 'mdi-timer-sand' : 'mdi-check' }}</v-icon> Lưu
+            </button>
+            <button class="bed-folder-cancel" @click="cancelFolderCreate">
+              <v-icon size="13">mdi-close</v-icon>
+            </button>
+          </template>
         </div>
         <div class="bed-sub-divider"></div>
         <div class="bed-sub-group bed-tag-group">
@@ -68,7 +111,23 @@
             {{ tag }}
             <button class="bed-tag-x" @click="removeTag(tag)"><v-icon size="11">mdi-close</v-icon></button>
           </span>
-          <button class="bed-tag-add" @click="addTag">
+          <!-- Nhập tag inline ngay tại UI (anh chốt 2026-06-08, bỏ prompt() Chrome xấu). -->
+          <span v-if="tagInputOpen" class="bed-tag-input-wrap">
+            <span class="bed-tag-hash">#</span>
+            <input
+              ref="tagInputRef"
+              v-model="tagInputText"
+              type="text"
+              class="bed-tag-input"
+              placeholder="SunshineQ7"
+              maxlength="30"
+              @focus="clearTagBlurTimer"
+              @keydown.enter.prevent="commitTagAndContinue"
+              @keydown.esc="cancelTagInput"
+              @blur="onTagBlur"
+            />
+          </span>
+          <button v-else class="bed-tag-add" @click="openTagInput">
             <v-icon size="13">mdi-plus</v-icon> Thêm tag
           </button>
         </div>
@@ -210,14 +269,32 @@
                     :ref="(el: any) => setCardEditor(idx, el)"
                     :model-value="variantTextOf(idx)"
                     :show-toolbar="true"
-                    placeholder="Em xin chào anh/chị {tên_khách}..."
+                    :submit-on-enter="false"
+                    placeholder="Em xin chào {gender} {name}..."
                     class="bed-rich"
                     @update:model-value="onComponentRichInput(idx)"
                   />
+                  <div class="bed-var-bar">
+                    <span class="bed-var-bar-label">
+                      <v-icon size="13">mdi-cursor-text</v-icon> Chèn biến cá nhân hoá:
+                    </span>
+                    <button
+                      v-for="v in PERSONALIZE_VARS"
+                      :key="v.code"
+                      type="button"
+                      class="bed-var-chip"
+                      :title="`Chèn ${v.code} (${v.label}) tại vị trí con trỏ`"
+                      @click="insertVariable(v.code)"
+                    >
+                      <v-icon size="12">{{ v.icon }}</v-icon>
+                      <code>{{ v.code }}</code>
+                      <span class="bed-var-chip-label">{{ v.label }}</span>
+                    </button>
+                  </div>
                   <div class="bed-editor-footer">
                     <span class="bed-hint">
                       <v-icon size="13">mdi-lightbulb-on-outline</v-icon>
-                      Dùng <code>{{ '{tên_khách}' }}</code>, <code>{{ '{tên_sale}' }}</code> để cá nhân hoá
+                      Bấm chip phía trên để chèn biến vào ngay vị trí đang gõ
                     </span>
                     <span class="bed-char-counter">{{ (variantTextOf(idx) || '').length }} / 1000 ký tự</span>
                   </div>
@@ -313,14 +390,32 @@
                 ref="greetingEditorRef"
                 v-model="activeGreetingText"
                 :show-toolbar="true"
+                :submit-on-enter="false"
                 placeholder="Chào anh/chị, em là Thành bên Sunshine..."
                 class="bed-rich"
                 @update:model-value="onGreetingInput"
               />
+              <div class="bed-var-bar">
+                <span class="bed-var-bar-label">
+                  <v-icon size="13">mdi-cursor-text</v-icon> Chèn biến cá nhân hoá:
+                </span>
+                <button
+                  v-for="v in PERSONALIZE_VARS"
+                  :key="v.code"
+                  type="button"
+                  class="bed-var-chip"
+                  :title="`Chèn ${v.code} (${v.label}) tại vị trí con trỏ`"
+                  @click="insertVariable(v.code)"
+                >
+                  <v-icon size="12">{{ v.icon }}</v-icon>
+                  <code>{{ v.code }}</code>
+                  <span class="bed-var-chip-label">{{ v.label }}</span>
+                </button>
+              </div>
               <div class="bed-editor-footer">
                 <span class="bed-hint">
                   <v-icon size="13">mdi-lightbulb-on-outline</v-icon>
-                  Dùng <code>{{ '{tên_khách}' }}</code>, <code>{{ '{tên_sale}' }}</code> để cá nhân hoá
+                  Bấm chip phía trên để chèn biến vào ngay vị trí đang gõ
                 </span>
                 <span class="bed-char-counter">{{ activeGreetingText.length }} / 500 ký tự (Zalo cap)</span>
               </div>
@@ -354,7 +449,9 @@
             <span class="bed-live"><span class="bed-live-dot"></span> LIVE</span>
           </div>
           <div class="bed-zalo-window">
-            <div class="bed-zalo-time-label">Hôm nay · {{ currentHHmm }}</div>
+            <div class="bed-zalo-time-label">
+              <v-icon size="12">mdi-cellphone</v-icon> KH sẽ thấy thế này trên Zalo · {{ currentHHmm }}
+            </div>
             <template v-if="draft.actionType === 'send_message'">
               <template v-for="(c, idx) in components" :key="idx">
                 <div v-if="c.kind === 'text'" class="bed-zalo-bubble out" v-html="previewVariantHtml(c, idx)"></div>
@@ -370,7 +467,9 @@
                 <div v-else-if="c.kind === 'video'" class="bed-zalo-video">
                   <v-icon size="18" color="#fff">mdi-play-circle-outline</v-icon> Video
                 </div>
-                <div class="bed-zalo-time">{{ currentHHmm }} · Tin {{ idx + 1 }}/{{ components.length }}</div>
+                <div class="bed-zalo-time">
+                  {{ currentHHmm }} · <span class="bed-zalo-tin">Tin {{ idx + 1 }}/{{ components.length }}</span>
+                </div>
               </template>
               <div v-if="components.length === 0" class="bed-zalo-empty">
                 Thêm thành phần bên trái để xem KH thấy gì
@@ -414,6 +513,7 @@ import { ref, computed, watch, nextTick } from 'vue';
 import { blocksApi } from '@/api/automation';
 import { type Block, type BlockFolder, type BlockActionType } from '@/api/automation/types';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
+import { useAuthStore } from '@/stores/auth';
 
 // ── Zalo rich-format render (COPY từ chat/special-message-renderer.vue 2026-06-06) ──
 // Render {text, styles[]} → escaped HTML cho bubble preview col 3.
@@ -480,7 +580,18 @@ function applyRichFormat(text: string, sList: ZaloStyle[]): string {
 type RichEditorExposed = {
   getRichPayload: () => { text: string; styles: ZaloStyle[] };
   applyRichPayload: (p: { text: string; styles?: ZaloStyle[] }) => void;
+  insertText: (text: string) => void;
+  focus: (position?: 'start' | 'end' | number) => void;
 };
+
+// Biến cá nhân hoá — KHỚP backend render-template.ts (anh chốt 2026-05-28):
+// {gender} Anh/Chị, {name} tên KH, {sale} tên sale. KHÔNG dùng {tên_khách}/{tên_sale}
+// (cũ, sai — engine không thay) per [[greeting-template-variables]].
+const PERSONALIZE_VARS = [
+  { code: '{gender}', label: 'Anh/Chị', icon: 'mdi-human-male-female' },
+  { code: '{name}', label: 'Tên khách', icon: 'mdi-account-outline' },
+  { code: '{sale}', label: 'Tên em (sale)', icon: 'mdi-account-tie-outline' },
+] as const;
 
 const props = defineProps<{
   modelValue: boolean;
@@ -491,6 +602,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [open: boolean];
   saved: [block: Block];
+  // Báo parent (BlocksView) reload danh sách thư mục sau khi tạo inline.
+  'folders-changed': [newFolderId: string];
 }>();
 
 interface Draft {
@@ -529,7 +642,9 @@ const stackAddMenu = ref<boolean>(false);
 // Stack card mode: mỗi text card có 1 editor riêng → lưu theo Map index component.
 const cardEditors = new Map<number, RichEditorExposed>();
 const greetingEditorRef = ref<RichEditorExposed | null>(null);
-const applyingRich = ref<boolean>(false);
+const applyingRich = ref<boolean>(false); // dùng cho greeting (request_friend) — 1 editor
+// Guard PER-COMPONENT cho stack card: nạp nội dung card B không được chặn keystroke card A.
+const applyingCardSet = new Set<number>();
 
 // Đọc/ghi biến thể active của 1 component (default 0).
 function variantIdxOf(compIdx: number): number {
@@ -564,24 +679,27 @@ function variantObjOf(compIdx: number): TextVariant | null {
   return tc.variants[i];
 }
 
-// Function template ref: khi RichTextEditor của card compIdx mount/unmount.
-// Khi MOUNT (el != null) → nạp {text, styles} đã lưu của biến thể đang chọn (guarded).
-// :key đổi theo (compIdx + variantIdx) nên đổi biến thể = remount = nạp lại đúng format.
+// Function template ref: Vue gọi LẠI mỗi lần re-render (kể cả khi đang gõ) → nếu cứ
+// applyRichPayload mỗi lần sẽ setContent đè lên nội dung đang gõ → con trỏ reset/loạn,
+// nhiều editor giành nhau. Fix 2026-06-08: CHỈ nạp 1 lần khi đúng instance editor mới
+// mount (so sánh identity). :key đổi theo (compIdx+variantIdx) → đổi biến thể = instance
+// mới = nạp lại đúng. Cùng instance (re-render do gõ) → bỏ qua, giữ nguyên con trỏ.
 function setCardEditor(compIdx: number, el: RichEditorExposed | null) {
   if (!el) { cardEditors.delete(compIdx); return; }
+  if (cardEditors.get(compIdx) === el) return; // đã nạp cho instance này rồi → KHÔNG đụng nữa
   cardEditors.set(compIdx, el);
   const variant = variantObjOf(compIdx);
   if (!variant) return;
   void nextTick(() => {
-    applyingRich.value = true;
+    applyingCardSet.add(compIdx);
     el.applyRichPayload({ text: variant.text || '', styles: variant.styles || [] });
-    void nextTick(() => { applyingRich.value = false; });
+    void nextTick(() => { applyingCardSet.delete(compIdx); });
   });
 }
 
 // Mỗi keystroke trong card text → đọc payload từ ĐÚNG editor đó → lưu vào ĐÚNG biến thể.
 function onComponentRichInput(compIdx: number) {
-  if (applyingRich.value) return; // bỏ qua update do applyRichPayload phát ra
+  if (applyingCardSet.has(compIdx)) return; // bỏ qua update do applyRichPayload card NÀY phát ra
   const ed = cardEditors.get(compIdx);
   const variant = variantObjOf(compIdx);
   if (!ed || !variant) return;
@@ -591,12 +709,44 @@ function onComponentRichInput(compIdx: number) {
   markDirty();
 }
 
+// Chèn biến cá nhân hoá ({gender}/{name}/{sale}) vào ĐÚNG vị trí con trỏ đang nhập.
+// send_message → editor card đang active; request_friend → editor greeting.
+// insertText của Tiptap chèn tại selection hiện tại rồi giữ focus → đúng ý anh chốt 2026-06-08.
+function insertVariable(code: string) {
+  if (draft.value.actionType === 'request_friend') {
+    const ed = greetingEditorRef.value;
+    if (!ed) return;
+    ed.insertText(code);
+    onGreetingInput();
+    return;
+  }
+  // send_message: chèn vào card text đang active. Nếu card active không phải text
+  // (vd đang chọn card hình) thì chèn vào text card đầu tiên cho an toàn.
+  let compIdx = activeComponentIdx.value;
+  if (components.value[compIdx]?.kind !== 'text') {
+    compIdx = components.value.findIndex((c) => c.kind === 'text');
+  }
+  if (compIdx < 0) return;
+  activeComponentIdx.value = compIdx;
+  const ed = cardEditors.get(compIdx);
+  if (!ed) return;
+  ed.insertText(code);
+  onComponentRichInput(compIdx);
+}
+
 const saving = ref(false);
 const lastSavedAt = ref<Date | null>(null);
 const error = ref<string>('');
 const isDirty = ref<boolean>(false);
 
 const isEdit = computed(() => props.block !== null);
+
+// RBAC 2026-06-09 — Sale chỉ XEM Khối (mở từ list để dùng), KHÔNG lưu được.
+// Lưu được khi: sửa Khối có sẵn + có block.edit, HOẶC tạo mới + có block.create.
+const auth = useAuthStore();
+const canSave = computed(() =>
+  isEdit.value ? auth.canAccess('block', 'edit') : auth.canAccess('block', 'create'),
+);
 
 const activeComponent = computed<Component | null>(() => {
   if (draft.value.actionType !== 'send_message') return null;
@@ -780,19 +930,100 @@ function removeAlbumItemOf(compIdx: number, i: number) {
   markDirty();
 }
 
-// Tags
-function addTag() {
-  const input = prompt('Tag mới (vd #SunshineQ7):');
-  if (!input?.trim()) return;
-  const tag = input.trim().startsWith('#') ? input.trim() : `#${input.trim()}`;
-  if (!draft.value.tagIds.includes(tag)) {
-    draft.value.tagIds.push(tag);
-    markDirty();
+// Tags — nhập inline ngay tại UI (anh chốt 2026-06-08, KHÔNG prompt() Chrome).
+const tagInputOpen = ref<boolean>(false);
+const tagInputText = ref<string>('');
+const tagInputRef = ref<HTMLInputElement | null>(null);
+// Blur dùng setTimeout defer: nếu input refocus ngay (gõ phím IME/transient blur) thì huỷ
+// commit → tránh bug "gõ 1 ký tự đã commit + đóng ô" do blur quá nhạy. id=null khi không pending.
+let tagBlurTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearTagBlurTimer() {
+  if (tagBlurTimer !== null) { clearTimeout(tagBlurTimer); tagBlurTimer = null; }
+}
+function openTagInput() {
+  clearTagBlurTimer();
+  tagInputOpen.value = true;
+  tagInputText.value = '';
+  void nextTick(() => tagInputRef.value?.focus());
+}
+function cancelTagInput() {
+  clearTagBlurTimer();
+  tagInputOpen.value = false;
+  tagInputText.value = '';
+}
+// Enter: lưu tag rồi giữ ô mở để gõ tiếp tag kế (gõ nhanh nhiều tag).
+function commitTagAndContinue() {
+  clearTagBlurTimer();
+  const clean = tagInputText.value.trim().replace(/^#+/, '').trim(); // bỏ # đầu nếu user tự gõ
+  if (clean) {
+    const tag = `#${clean}`;
+    if (!draft.value.tagIds.includes(tag)) {
+      draft.value.tagIds.push(tag);
+      markDirty();
+    }
   }
+  tagInputText.value = '';
+  void nextTick(() => tagInputRef.value?.focus());
+}
+// Blur: defer 150ms — nếu input lấy lại focus (transient blur khi gõ) thì huỷ. Hết thời gian
+// mà vẫn mất focus thật → lưu phần đã gõ (nếu có) rồi đóng ô.
+function onTagBlur() {
+  clearTagBlurTimer();
+  tagBlurTimer = setTimeout(() => {
+    tagBlurTimer = null;
+    if (document.activeElement === tagInputRef.value) return; // đã refocus → bỏ qua
+    const clean = tagInputText.value.trim().replace(/^#+/, '').trim();
+    if (clean) {
+      const tag = `#${clean}`;
+      if (!draft.value.tagIds.includes(tag)) {
+        draft.value.tagIds.push(tag);
+        markDirty();
+      }
+    }
+    tagInputText.value = '';
+    tagInputOpen.value = false;
+  }, 150);
 }
 function removeTag(tag: string) {
   draft.value.tagIds = draft.value.tagIds.filter((t) => t !== tag);
   markDirty();
+}
+
+// ── Tạo thư mục inline (anh chốt 2026-06-08: tạo được ngay tại UI, không chỉ chọn) ──
+const folderCreateOpen = ref<boolean>(false);
+const folderCreateName = ref<string>('');
+const folderCreateVis = ref<'public' | 'private'>('public');
+const folderSaving = ref<boolean>(false);
+const folderNameRef = ref<HTMLInputElement | null>(null);
+
+function openFolderCreate() {
+  folderCreateOpen.value = true;
+  folderCreateName.value = '';
+  folderCreateVis.value = 'public';
+  void nextTick(() => folderNameRef.value?.focus());
+}
+function cancelFolderCreate() {
+  folderCreateOpen.value = false;
+  folderCreateName.value = '';
+}
+async function commitFolderCreate() {
+  const name = folderCreateName.value.trim();
+  if (!name || folderSaving.value) return;
+  folderSaving.value = true;
+  try {
+    const folder = await blocksApi.createFolder({ name, visibility: folderCreateVis.value });
+    // Chọn luôn thư mục vừa tạo cho Khối đang soạn + báo parent reload list.
+    draft.value.folderId = folder.id;
+    markDirty();
+    emit('folders-changed', folder.id);
+    folderCreateOpen.value = false;
+    folderCreateName.value = '';
+  } catch (err: any) {
+    error.value = err?.response?.data?.detail || err?.response?.data?.error || err?.message || 'Lỗi tạo thư mục';
+  } finally {
+    folderSaving.value = false;
+  }
 }
 
 function markDirty() { isDirty.value = true; }
@@ -865,6 +1096,12 @@ watch(() => props.modelValue, (open) => {
   }
   cardEditors.clear(); // editor cũ remount → setCardEditor nạp lại {text,styles} từng card.
   stackAddMenu.value = false;
+  // Reset UI nhập inline (tag + tạo thư mục) mỗi lần mở lại dialog.
+  clearTagBlurTimer();
+  tagInputOpen.value = false;
+  tagInputText.value = '';
+  folderCreateOpen.value = false;
+  folderCreateName.value = '';
   // Text card: setCardEditor() tự applyRichPayload lúc mount (block cũ có sẵn styles).
   if (draft.value.actionType === 'request_friend') void loadActiveGreetingIntoEditor();
 });
@@ -1123,6 +1360,106 @@ async function onSave() {
 }
 .bed-tag-add:hover { color: var(--ink); border-color: var(--ink-4); }
 
+/* Inline tag input (2026-06-08) */
+.bed-tag-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 9px;
+}
+.bed-tag-hash { color: var(--brand-700); font-size: 11px; font-weight: 700; }
+.bed-tag-input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--ink);
+  width: 96px;
+  padding: 1px 0;
+}
+
+/* Inline tạo thư mục (2026-06-08) */
+.bed-folder-new-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: 1px dashed var(--line);
+  padding: 4px 9px;
+  border-radius: var(--r-xs);
+  font-size: 11px;
+  color: var(--brand-700);
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+.bed-folder-new-btn:hover { border-color: var(--brand); background: var(--brand-softer); }
+.bed-folder-name-input {
+  padding: 5px 9px;
+  border: 1px solid var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--ink);
+  outline: none;
+  width: 170px;
+}
+.bed-folder-vis-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  overflow: hidden;
+}
+.bed-vis-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 9px;
+  background: var(--surface);
+  border: 0;
+  font-size: 11px;
+  color: var(--ink-3);
+  cursor: pointer;
+  font-family: inherit;
+}
+.bed-vis-opt + .bed-vis-opt { border-left: 1px solid var(--line); }
+.bed-vis-opt:hover { background: var(--surface-3); }
+.bed-vis-opt.active { background: var(--brand-soft); color: var(--brand-700); font-weight: 600; }
+.bed-folder-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 11px;
+  background: var(--brand);
+  border: 0;
+  border-radius: var(--r-xs);
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bed-folder-save:hover:not(:disabled) { background: var(--brand-600); }
+.bed-folder-save:disabled { opacity: 0.5; cursor: not-allowed; }
+.bed-folder-cancel {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 7px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.bed-folder-cancel:hover { color: var(--error); border-color: var(--error); }
+
 .bed-action-pill {
   display: inline-flex;
   align-items: center;
@@ -1142,14 +1479,16 @@ async function onSave() {
   min-height: 0;
 }
 
-/* Col 1 */
+/* Col 1 — 2026-06-08: 3 cột BẰNG NHAU (anh chốt). flex 1 1 0 = chia đều 1/3. */
 .bed-col1 {
-  width: 236px;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0; /* con .bed-comp-list (overflow-y:auto) co lại đúng để cuộn */
+  overflow: hidden;
   background: var(--surface-2);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
 }
 .bed-col1-head {
   padding: 12px 14px 8px;
@@ -1261,13 +1600,14 @@ async function onSave() {
   padding: 20px 10px;
 }
 
-/* Col 2 */
+/* Col 2 — 2026-06-08: 3 cột BẰNG NHAU (anh chốt). flex 1 1 0 = chia đều 1/3. */
 .bed-col2 {
-  /* Anh chốt 2026-06-06: ô nhập gọn — cap ~320px, rộng tối đa ~600px;
-     diện tích dư chừa cho cột preview (col3) giãn rộng xem thành phần. */
-  flex: 0 1 600px;
-  min-width: 320px;
-  max-width: 600px;
+  flex: 1 1 0;
+  min-width: 0;
+  /* 2026-06-08 FIX: min-height:0 + overflow:hidden để con .bed-stack-scroll (flex:1,
+     overflow-y:auto) co lại đúng → CUỘN khi nhiều thành phần, không tràn/đè lên nhau. */
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background: var(--surface-2);
@@ -1291,6 +1631,9 @@ async function onSave() {
   cursor: pointer;
   transition: border-color 0.12s, box-shadow 0.12s;
   overflow: hidden;
+  /* 2026-06-08 FIX: KHÔNG cho card co lại trong flex column → mỗi card giữ chiều cao
+     thật (toolbar + ô soạn + chip), nhiều card thì .bed-stack-scroll CUỘN, không đè/cắt nhau. */
+  flex-shrink: 0;
 }
 .bed-stack-card:hover { border-color: var(--ink-4); }
 .bed-stack-card.active {
@@ -1351,7 +1694,7 @@ async function onSave() {
 .bed-media-row .bed-field-label { margin: 0; }
 
 /* Nút thêm thành phần cuối stack */
-.bed-stack-add-wrap { position: relative; align-self: stretch; }
+.bed-stack-add-wrap { position: relative; align-self: stretch; flex-shrink: 0; }
 .bed-stack-add-btn {
   width: 100%;
   display: inline-flex;
@@ -1513,6 +1856,48 @@ async function onSave() {
 }
 .bed-char-counter { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .bed-hint { color: var(--ink-3); display: inline-flex; align-items: center; gap: 4px; }
+
+/* Thanh chip biến cá nhân hoá — bấm chèn {gender}/{name}/{sale} tại con trỏ (2026-06-08) */
+.bed-var-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+  margin-top: 2px;
+}
+.bed-var-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.bed-var-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--brand-bright);
+  background: var(--brand-soft);
+  color: var(--brand-700);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s, transform 0.12s;
+}
+.bed-var-chip:hover { background: var(--brand-softer); transform: translateY(-1px); }
+.bed-var-chip:active { transform: translateY(0); }
+.bed-var-chip code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  background: transparent;
+  color: inherit;
+}
+.bed-var-chip-label { color: var(--ink-3); font-weight: 500; font-size: 10px; }
 .bed-hint-block { display: block; margin-top: 12px; font-style: normal; }
 .bed-hint code {
   background: var(--surface-3);
@@ -1558,20 +1943,23 @@ async function onSave() {
   font-size: 13px;
 }
 
-/* Col 3 Zalo preview — GIỮ #0084ff/#0068ff đúng màu bong bóng Zalo thật */
+/* Col 3 Zalo preview — 2026-06-08: 3 cột BẰNG NHAU + COPY UI xem trước Khối ở chat
+   (BlockPreviewDialog): bong bóng TRẮNG viền xám, nền xanh nhạt gradient, chip "Tin x/y". */
 .bed-col3 {
-  /* Preview giãn rộng lấy phần diện tích dư (col2 editor đã cap 600px). */
-  flex: 1;
-  min-width: 324px;
-  background: linear-gradient(180deg, #e3f2fd 0%, #cfe5fb 100%);
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0; /* con .bed-zalo-window (overflow-y:auto) co lại đúng để cuộn preview */
+  overflow: hidden;
+  background: linear-gradient(180deg, #e3f2fd 0%, #bbdefb 100%);
   border-left: 1px solid var(--line);
   display: flex;
   flex-direction: column;
 }
 .bed-col3-head {
   padding: 11px 14px;
-  background: #0084ff;
-  color: #fff;
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
   font-size: 12px;
   font-weight: 600;
   display: flex;
@@ -1599,25 +1987,29 @@ async function onSave() {
 }
 .bed-zalo-time-label {
   align-self: center;
-  font-size: 10px;
-  color: var(--ink-2);
-  background: rgba(255,255,255,0.6);
-  padding: 3px 10px;
-  border-radius: var(--r-md);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #475569;
+  padding: 4px 10px;
   font-weight: 500;
+  text-align: center;
 }
 .bed-zalo-bubble {
   max-width: 85%;
-  padding: 9px 13px;
+  padding: 10px 14px;
   border-radius: 14px;
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.5;
   word-wrap: break-word;
   white-space: pre-wrap;
 }
+/* Copy BlockPreviewDialog (.bpd-bubble.out): trắng, viền xám, chữ tối. */
 .bed-zalo-bubble.out {
-  background: #0084ff;
-  color: #fff;
+  background: #fff;
+  color: #1f2328;
+  border: 1px solid #e3e6ea;
   align-self: flex-end;
   border-bottom-right-radius: 5px;
 }
@@ -1626,11 +2018,13 @@ async function onSave() {
 .bed-zalo-bubble :deep(em) { font-style: italic; }
 .bed-zalo-bubble :deep(u) { text-decoration: underline; }
 .bed-zalo-bubble :deep(s) { text-decoration: line-through; }
+/* Media preview — copy gradient màu của BlockPreviewDialog ở chat (xanh lá/cam…). */
 .bed-zalo-image {
-  width: 160px;
-  height: 100px;
-  background: linear-gradient(135deg, var(--brand-bright), var(--brand));
+  width: 180px;
+  height: 112px;
+  background: linear-gradient(135deg, #a7f3d0, #10b981);
   border-radius: 12px;
+  border-bottom-right-radius: 5px;
   align-self: flex-end;
 }
 .bed-zalo-album {
@@ -1639,26 +2033,27 @@ async function onSave() {
   gap: 3px;
   width: 200px;
   border-radius: 12px;
+  border-bottom-right-radius: 5px;
   overflow: hidden;
   align-self: flex-end;
 }
 .bed-zalo-album-item {
   aspect-ratio: 1;
-  background: linear-gradient(135deg, var(--brand-soft), var(--brand-bright));
+  background: linear-gradient(135deg, #fde68a, #f59e0b);
 }
-.bed-zalo-album-item:nth-child(2) { background: linear-gradient(135deg, var(--brand-bright), var(--brand)); }
-.bed-zalo-album-item:nth-child(3) { background: linear-gradient(135deg, var(--brand-soft), var(--brand-600)); }
-.bed-zalo-album-item:nth-child(4) { background: linear-gradient(135deg, var(--brand-bright), var(--brand-700)); }
+.bed-zalo-album-item:nth-child(2) { background: linear-gradient(135deg, #a7f3d0, #10b981); }
+.bed-zalo-album-item:nth-child(3) { background: linear-gradient(135deg, #bfdbfe, #3b82f6); }
+.bed-zalo-album-item:nth-child(4) { background: linear-gradient(135deg, #fbcfe8, #ec4899); }
 .bed-zalo-file {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   align-self: flex-end;
-  background: var(--surface);
+  background: #fff;
   border-radius: 12px;
-  padding: 10px 14px;
-  font-size: 12px;
-  color: var(--ink);
+  padding: 11px 14px;
+  font-size: 12.5px;
+  color: #1f2328;
   max-width: 240px;
   border-bottom-right-radius: 5px;
 }
@@ -1667,7 +2062,7 @@ async function onSave() {
   align-items: center;
   gap: 8px;
   align-self: flex-end;
-  background: var(--ink);
+  background: #1f2328;
   color: #fff;
   border-radius: 12px;
   padding: 22px 40px;
@@ -1687,12 +2082,21 @@ async function onSave() {
   text-align: center;
 }
 .bed-zalo-time {
-  font-size: 9.5px;
-  color: var(--ink-3);
+  font-size: 10px;
+  color: #475569;
   align-self: flex-end;
   padding: 0 6px;
   margin-top: -2px;
-  font-family: var(--mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Chip "Tin x/y" — copy .bpd-tin-label ở chat preview (pill trắng mờ). */
+.bed-zalo-tin {
+  background: rgba(255,255,255,0.6);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 600;
 }
 .bed-zalo-empty {
   align-self: center;

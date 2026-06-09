@@ -278,8 +278,9 @@ export async function userHasGrant(
     if (hasGrant(grants, resource, action)) return true;
   }
 
-  // Dual-read fallback (2 tuần): legacy role='owner' → bypass mọi quyền
-  if (user.role === 'owner') return true;
+  // Fallback: legacy role='owner' hoặc 'admin' → bypass mọi quyền.
+  // Anh chốt 2026-06-08: admin toàn quyền như owner (khớp canAccess frontend + getProfile.isFullAccess).
+  if (user.role === 'owner' || user.role === 'admin') return true;
 
   return false;
 }

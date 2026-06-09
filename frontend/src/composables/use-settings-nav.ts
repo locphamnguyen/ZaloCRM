@@ -20,6 +20,9 @@ export interface SettingsItem {
   icon: string;
   route: string;
   permission: SettingsPermission;
+  /** RBAC 2026-06-08 — resource cần để thấy item. Không có resource = luôn hiện (vd Cá nhân). */
+  resource?: string;
+  action?: string;
   /** True nếu route trỏ tới SettingsComingSoon placeholder */
   comingSoon?: boolean;
   /** Search alias bổ sung (vd "phân quyền" → tìm "roles") */
@@ -63,13 +66,13 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     icon: '🏢',
     permission: 'admin',
     items: [
-      { id: 'profile', label: 'Hồ sơ tổ chức', icon: '🏢', route: '/settings/org/profile', permission: 'admin' },
-      { id: 'system-notifications', label: 'Thông báo hệ thống', icon: '🔔', route: '/settings/org/system-notifications', permission: 'admin', aliases: ['system notify', 'thông báo', 'zalo notify', 'uid'] },
-      { id: 'departments', label: 'Sơ đồ tổ chức', icon: '🌳', route: '/settings/rbac/departments', permission: 'admin', aliases: ['phòng ban', 'department', 'tree', 'đội nhóm', 'team'] },
-      { id: 'users', label: 'Nhân viên', icon: '👤', route: '/settings/rbac/users', permission: 'admin', aliases: ['user', 'sale', 'nhân sự'] },
-      { id: 'permission-groups', label: 'Phân quyền', icon: '🛡', route: '/settings/rbac/permission-groups', permission: 'owner', aliases: ['phân quyền', 'permission', 'role', 'vai trò', 'nhóm quyền'] },
-      { id: 'audit', label: 'Audit log', icon: '📜', route: '/settings/org/audit', permission: 'owner', comingSoon: true },
-      { id: 'billing', label: 'Gói cước & Billing', icon: '💳', route: '/settings/org/billing', permission: 'owner', comingSoon: true },
+      { id: 'profile', label: 'Hồ sơ tổ chức', icon: '🏢', route: '/settings/org/profile', permission: 'admin', resource: 'settings' },
+      { id: 'system-notifications', label: 'Thông báo hệ thống', icon: '🔔', route: '/settings/org/system-notifications', permission: 'admin', resource: 'settings', aliases: ['system notify', 'thông báo', 'zalo notify', 'uid'] },
+      { id: 'departments', label: 'Sơ đồ tổ chức', icon: '🌳', route: '/settings/rbac/departments', permission: 'admin', resource: 'department', aliases: ['phòng ban', 'department', 'tree', 'đội nhóm', 'team'] },
+      { id: 'users', label: 'Nhân viên', icon: '👤', route: '/settings/rbac/users', permission: 'admin', resource: 'user', aliases: ['user', 'sale', 'nhân sự'] },
+      { id: 'permission-groups', label: 'Phân quyền', icon: '🛡', route: '/settings/rbac/permission-groups', permission: 'owner', resource: 'permission_group', aliases: ['phân quyền', 'permission', 'role', 'vai trò', 'nhóm quyền'] },
+      { id: 'audit', label: 'Audit log', icon: '📜', route: '/settings/org/audit', permission: 'owner', resource: 'audit_log', comingSoon: true },
+      { id: 'billing', label: 'Gói cước & Billing', icon: '💳', route: '/settings/org/billing', permission: 'owner', resource: 'settings', comingSoon: true },
     ],
   },
 
@@ -80,19 +83,19 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     icon: '⚙',
     permission: 'admin',
     items: [
-      { id: 'statuses', label: 'Trạng thái KH', icon: '🎯', route: '/settings/crm/statuses', permission: 'admin', aliases: ['stage', 'pipeline'] },
-      { id: 'tags', label: 'Tag CRM (cũ)', icon: '🏷', route: '/settings/crm/tags', permission: 'admin' },
-      { id: 'tags-v2', label: 'Tag v2 — 2 Nhóm', icon: '🆕', route: '/settings/crm/tags-v2', permission: 'admin', aliases: ['tag mới', 'tag taxonomy', 'friend tag', 'crm tag'] },
-      { id: 'zalo-labels', label: 'Tag Zalo native', icon: '⚑', route: '/settings/crm/zalo-labels', permission: 'admin', aliases: ['zalo label'] },
-      { id: 'scoring', label: 'Lead scoring', icon: '📊', route: '/settings/crm/scoring', permission: 'admin', aliases: ['điểm', 'chấm điểm'] },
+      { id: 'statuses', label: 'Trạng thái KH', icon: '🎯', route: '/settings/crm/statuses', permission: 'admin', resource: 'settings', aliases: ['stage', 'pipeline'] },
+      { id: 'tags', label: 'Tag CRM (cũ)', icon: '🏷', route: '/settings/crm/tags', permission: 'admin', resource: 'settings' },
+      { id: 'tags-v2', label: 'Tag v2 — 2 Nhóm', icon: '🆕', route: '/settings/crm/tags-v2', permission: 'admin', resource: 'settings', aliases: ['tag mới', 'tag taxonomy', 'friend tag', 'crm tag'] },
+      { id: 'zalo-labels', label: 'Tag Zalo native', icon: '⚑', route: '/settings/crm/zalo-labels', permission: 'admin', resource: 'settings', aliases: ['zalo label'] },
+      { id: 'scoring', label: 'Lead scoring', icon: '📊', route: '/settings/crm/scoring', permission: 'admin', resource: 'settings', aliases: ['điểm', 'chấm điểm'] },
       // Phase Lead Pool — bố trí menu 2026-05-29
-      { id: 'lead-pool', label: 'Nhận Lead', icon: '🎁', route: '/settings/crm/lead-pool', permission: 'admin', aliases: ['pool lead', 'lead pool', 'nhận lead', 'pool', 'quota', 'câu chào', 'greeting'] },
-      { id: 'lead-pool-queue', label: 'Queue chia Lead', icon: '🎯', route: '/settings/crm/lead-pool/queue', permission: 'admin', aliases: ['queue lead', 'preview pool', 'xem trước'] },
+      { id: 'lead-pool', label: 'Nhận Lead', icon: '🎁', route: '/settings/crm/lead-pool', permission: 'admin', resource: 'settings', aliases: ['pool lead', 'lead pool', 'nhận lead', 'pool', 'quota', 'câu chào', 'greeting'] },
+      { id: 'lead-pool-queue', label: 'Queue chia Lead', icon: '🎯', route: '/settings/crm/lead-pool/queue', permission: 'admin', resource: 'settings', aliases: ['queue lead', 'preview pool', 'xem trước'] },
       // M53 2026-05-30: AI Trợ Lý Virtual Chat
-      { id: 'ai-assistant', label: 'Trợ lý AI (Chat nội bộ)', icon: '🤖', route: '/settings/crm/ai-assistant', permission: 'admin', aliases: ['ai', 'tro ly', 'virtual chat', 'gemini', 'prompt'] },
-      { id: 'stuck', label: 'Stuck detection', icon: '⏸', route: '/settings/crm/stuck', permission: 'admin', comingSoon: true },
-      { id: 'folders', label: 'Folder mặc định', icon: '📁', route: '/settings/crm/folders', permission: 'admin', comingSoon: true },
-      { id: 'templates', label: 'Template tin nhắn', icon: '📝', route: '/settings/crm/templates', permission: 'admin', comingSoon: true },
+      { id: 'ai-assistant', label: 'Trợ lý AI (Chat nội bộ)', icon: '🤖', route: '/settings/crm/ai-assistant', permission: 'admin', resource: 'settings', aliases: ['ai', 'tro ly', 'virtual chat', 'gemini', 'prompt'] },
+      { id: 'stuck', label: 'Stuck detection', icon: '⏸', route: '/settings/crm/stuck', permission: 'admin', resource: 'settings', comingSoon: true },
+      { id: 'folders', label: 'Folder mặc định', icon: '📁', route: '/settings/crm/folders', permission: 'admin', resource: 'settings', comingSoon: true },
+      { id: 'templates', label: 'Template tin nhắn', icon: '📝', route: '/settings/crm/templates', permission: 'admin', resource: 'settings', comingSoon: true },
     ],
   },
 
@@ -103,12 +106,12 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     icon: '🔌',
     permission: 'admin',
     items: [
-      { id: 'zalo', label: 'Tài khoản Zalo', icon: '💬', route: '/settings/channels/zalo', permission: 'admin', aliases: ['nick', 'zalo account'] },
+      { id: 'zalo', label: 'Tài khoản Zalo', icon: '💬', route: '/settings/channels/zalo', permission: 'admin', resource: 'zalo_account', aliases: ['nick', 'zalo account'] },
       // Phase Multi-Source Lead Ads 2026-05-27
-      { id: 'fb-leadads', label: 'Facebook Lead Ads', icon: '📘', route: '/settings/channels/facebook-leadads', permission: 'admin', aliases: ['fb', 'facebook', 'lead ads', 'leadads', 'meta'] },
-      { id: 'rate-limit', label: 'Rate limit per nick', icon: '⏱', route: '/settings/channels/rate-limit', permission: 'admin', comingSoon: true },
-      { id: 'automation', label: 'Cài đặt kỹ thuật tự động hoá', icon: '⚙️', route: '/settings/channels/automation', permission: 'admin', aliases: ['automation', 'kỹ thuật', 'nhịp quét', 'timeout', 'bám đuổi kỹ thuật'] },
-      { id: 'integrations', label: 'Tích hợp 3rd party', icon: '🔗', route: '/settings/channels/integrations', permission: 'admin' },
+      { id: 'fb-leadads', label: 'Facebook Lead Ads', icon: '📘', route: '/settings/channels/facebook-leadads', permission: 'admin', resource: 'settings', aliases: ['fb', 'facebook', 'lead ads', 'leadads', 'meta'] },
+      { id: 'rate-limit', label: 'Rate limit per nick', icon: '⏱', route: '/settings/channels/rate-limit', permission: 'admin', resource: 'settings', comingSoon: true },
+      { id: 'automation', label: 'Cài đặt kỹ thuật tự động hoá', icon: '⚙️', route: '/settings/channels/automation', permission: 'admin', resource: 'settings', aliases: ['automation', 'kỹ thuật', 'nhịp quét', 'timeout', 'bám đuổi kỹ thuật'] },
+      { id: 'integrations', label: 'Tích hợp 3rd party', icon: '🔗', route: '/settings/channels/integrations', permission: 'admin', resource: 'settings' },
     ],
   },
 
@@ -119,35 +122,31 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     icon: '🛠',
     permission: 'owner',
     items: [
-      { id: 'api', label: 'API Key & Webhook', icon: '🔌', route: '/settings/dev/api', permission: 'owner', aliases: ['webhook', 'api key'] },
-      { id: 'public-token', label: 'Public API token', icon: '🎫', route: '/settings/dev/public-token', permission: 'owner', comingSoon: true },
-      { id: 'feature-flags', label: 'Feature flags', icon: '🚩', route: '/settings/dev/feature-flags', permission: 'owner', comingSoon: true },
-      { id: 'backup', label: 'Backup & Restore', icon: '💾', route: '/settings/dev/backup', permission: 'owner', comingSoon: true },
+      { id: 'api', label: 'API Key & Webhook', icon: '🔌', route: '/settings/dev/api', permission: 'owner', resource: 'webhook', aliases: ['webhook', 'api key'] },
+      { id: 'public-token', label: 'Public API token', icon: '🎫', route: '/settings/dev/public-token', permission: 'owner', resource: 'settings', comingSoon: true },
+      { id: 'feature-flags', label: 'Feature flags', icon: '🚩', route: '/settings/dev/feature-flags', permission: 'owner', resource: 'settings', comingSoon: true },
+      { id: 'backup', label: 'Backup & Restore', icon: '💾', route: '/settings/dev/backup', permission: 'owner', resource: 'settings', comingSoon: true },
     ],
   },
 ];
 
 // ─── Helpers ────────────────────────────────────────────
 
-function meetsPermission(required: SettingsPermission, userRole: string | undefined): boolean {
-  if (required === 'everyone') return true;
-  if (required === 'admin') return userRole === 'admin' || userRole === 'owner';
-  if (required === 'owner') return userRole === 'owner';
-  return false;
-}
-
 export function useSettingsNav() {
   const auth = useAuthStore();
   const route = useRoute();
 
-  /** Groups + items đã filter theo role user hiện tại */
+  /**
+   * Groups + items đã filter theo NHÓM QUYỀN (grants) của user hiện tại.
+   * RBAC enforce 2026-06-08: item không có resource → luôn hiện (vd Cá nhân);
+   * có resource → cần canAccess. Group ẩn nếu không còn item con.
+   * (Trước đây lọc theo legacy role nên Trưởng phòng/Marketing role=member bị ẩn oan.)
+   */
   const visibleGroups = computed<SettingsGroup[]>(() => {
-    const role = auth.user?.role;
     return SETTINGS_GROUPS
-      .filter((g) => meetsPermission(g.permission, role))
       .map((g) => ({
         ...g,
-        items: g.items.filter((item) => meetsPermission(item.permission, role)),
+        items: g.items.filter((item) => !item.resource || auth.canAccess(item.resource, item.action)),
       }))
       .filter((g) => g.items.length > 0);
   });
@@ -192,10 +191,9 @@ export function useSettingsNav() {
     return results;
   }
 
-  /** Default route when user lands on /settings */
+  /** Default route when user lands on /settings — RBAC theo grants */
   const defaultRoute = computed<string>(() => {
-    const role = auth.user?.role;
-    if (meetsPermission('admin', role)) return '/settings/team/users';
+    if (auth.canAccess('user')) return '/settings/rbac/users';
     return '/settings/personal/profile';
   });
 

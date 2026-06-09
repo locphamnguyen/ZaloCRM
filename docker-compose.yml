@@ -39,6 +39,13 @@ services:
       - /tmp
     security_opt:
       - no-new-privileges:true
+    # FIX 2026-06-08: log driver json-file CŨ bị đóng băng (docker logs kẹt 1 mốc, không
+    # stream log mới) → không debug được worker. Giới hạn + rotate để tránh corrupt/đầy.
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
 
   db:
     image: postgres:16-alpine

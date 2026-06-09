@@ -288,6 +288,24 @@ async function processJob(
     return { status: 'skipped', stepIdx, reason: `nick_${nick.status}` };
   }
 
+  // ── CareSession SELF-HEAL (anh chốt 2026-06-07) ──
+  // Luồng chạy nhiều STEP nhưng phiên chỉ tạo 1 lần ở STEP 0. Nếu phiên mồ côi
+  // (bị xóa/chưa kịp tạo) → tái tạo để luồng + phiên luôn đồng bộ. KHÔNG hồi sinh
+  // phiên đã đóng có chủ ý (chặn/sale/điều kiện). Fail không làm hỏng STEP.
+  if (nick.ownerUserId) {
+    try {
+      const { ensureCareSessionForStep } = await import(
+        '../care-session/care-session-service.js'
+      );
+      await ensureCareSessionForStep({
+        orgId, triggerId, contactId, nickId, sequenceId,
+        ownerUserId: nick.ownerUserId,
+      });
+    } catch (err) {
+      logger.warn(`${tag} care-session self-heal failed (non-fatal): ${(err as Error).message}`);
+    }
+  }
+
   const steps = await loadSequenceSteps(sequence.id); // 2026-06-04 dual-read
   if (stepIdx >= steps.length) {
     return { status: 'skipped', stepIdx, reason: 'step_out_of_range' };
@@ -492,7 +510,7 @@ async function processJob(
     // Fix #6 v2 (2026-06-02): KH này hoàn tất sequence → check xem CÒN KH nào của trigger
     // chưa hoàn tất không. Nếu hết → flip campaign.state='completed' để sweeper trigger
     // (sweepers.ts:runTriggerCompletionSweeper) có thể flip trigger.state='completed'.
-    await tryCompleteCampaign({ triggerId, sequenceId, contactId, orgId });
+    await tryCompleteCampaign({ triggerId, sequenceId, contactId, orgId, currentJobId: job.id });
   }
 
   return { status: 'sent', stepIdx, messageId };
@@ -511,6 +529,8 @@ async function tryCompleteCampaign(input: {
   sequenceId: string;
   contactId: string;
   orgId: string;
+  /** FIX B 2026-06-08 — jobId của step cuối đang chạy, loại khỏi phép đếm (xem dưới). */
+  currentJobId?: string;
 }): Promise<void> {
   try {
     const queue = getSequenceStepQueue();
@@ -521,9 +541,16 @@ async function tryCompleteCampaign(input: {
     // (jobId pattern = `${triggerId}-${contactId}-${stepIdx}` — xem buildSequenceStepJobId).
     // Tradeoff: getJobs scan toàn queue (có thể chậm với 10k+ jobs) nhưng
     // tryCompleteCampaign chỉ chạy sau step cuối, tần suất rất thấp → chấp nhận được.
+    //
+    // FIX B 2026-06-08 — RACE: hàm này được gọi TỪ TRONG chính job step-cuối, lúc đó
+    // job ấy vẫn nằm ở set 'active' của BullMQ → getJobs(['active']) đếm cả CHÍNH NÓ →
+    // pendingForTrigger ≥ 1 → return sớm → campaign KHÔNG bao giờ flip 'completed' ngay,
+    // phải chờ campaign-timeout-sweeper dọn sau 24h. Loại currentJobId khỏi phép đếm.
     const jobs = await queue.getJobs(['delayed', 'waiting', 'active']);
     const prefix = `${input.triggerId}-`;
-    const pendingForTrigger = jobs.filter((j) => j.id?.startsWith(prefix)).length;
+    const pendingForTrigger = jobs.filter(
+      (j) => j.id?.startsWith(prefix) && j.id !== input.currentJobId,
+    ).length;
     if (pendingForTrigger > 0) {
       // Còn jobs của trigger này đang chạy — chưa thể chắc chắn campaign xong.
       // Để sweeper kiểm tra chính xác hơn qua DB scan ở lần tick tiếp.

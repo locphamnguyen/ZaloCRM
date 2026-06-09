@@ -151,10 +151,6 @@
                 <span class="ob-mark">{{ user.onboarding.connectNick ? '✅' : '⬜' }}</span>
                 Kết nối ≥ 1 nick Zalo
               </li>
-              <li class="ob-stepitem" :class="{ done: user.onboarding.internalContact }">
-                <span class="ob-mark">{{ user.onboarding.internalContact ? '✅' : '⬜' }}</span>
-                Thiết lập nhận thông báo
-              </li>
               <li
                 class="ob-stepitem"
                 :class="{ done: user.onboarding.pin && !user.onboarding.pinSkipped, skipped: user.onboarding.pinSkipped }"

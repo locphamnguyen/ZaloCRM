@@ -52,7 +52,7 @@
           {{ statusLabel(effectiveStatus(apt)) }}
         </span>
         <button class="apt-edit-btn" title="Sửa nhắc hẹn" @click="openEditor(apt)">
-          ✎
+          <PencilIcon :size="14" :stroke-width="2" />
         </button>
       </div>
 
@@ -63,7 +63,7 @@
       <!-- Row 3: time + duration line -->
       <div class="apt-time-line">
         <span class="apt-datetime">
-          {{ formatAptDate(apt.appointmentDate) }} · {{ formatAptTime(apt.appointmentDate) }}
+          {{ formatAptDate(apt.appointmentDate) }} · {{ formatAptTime(apt) }}
         </span>
         <span class="apt-dur">· {{ apt.durationMin || 15 }}p</span>
       </div>
@@ -81,22 +81,22 @@
           class="qa-btn qa-success"
           :disabled="changingId === apt.id && changingTo === 'completed'"
           @click="quickChangeStatus(apt, 'completed')"
-        >✓ Hoàn thành</button>
+        ><CheckIcon :size="14" :stroke-width="2" /> Hoàn thành</button>
         <button
           class="qa-btn qa-danger"
           :disabled="changingId === apt.id && changingTo === 'no_show'"
           @click="quickChangeStatus(apt, 'no_show')"
-        >⊘ Không đến</button>
+        ><BanIcon :size="14" :stroke-width="2" /> Không đến</button>
         <button
           class="qa-btn qa-ghost"
           :disabled="changingId === apt.id && changingTo === 'cancelled'"
           @click="quickChangeStatus(apt, 'cancelled')"
-        >✕ Huỷ</button>
+        ><XIcon :size="14" :stroke-width="2" /> Huỷ</button>
       </div>
 
       <!-- Audit line: ai đổi status + lúc nào -->
       <div v-if="apt.statusChangedBy && apt.status !== 'scheduled' && apt.status !== 'overdue'" class="apt-audit">
-        ✓ {{ apt.statusChangedBy.fullName || apt.statusChangedBy.email }}<span v-if="apt.statusChangedAt"> · {{ formatRelativeTime(apt.statusChangedAt) }}</span>
+        <CheckIcon :size="12" :stroke-width="2" /> {{ apt.statusChangedBy.fullName || apt.statusChangedBy.email }}<span v-if="apt.statusChangedAt"> · {{ formatRelativeTime(apt.statusChangedAt) }}</span>
       </div>
     </div>
 
@@ -109,11 +109,18 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { api } from '@/api/index';
+// Icon nút — Lucide line (anh chốt 2026-06-08, bỏ ký tự thô).
+import {
+  Pencil as PencilIcon,
+  Check as CheckIcon,
+  Ban as BanIcon,
+  X as XIcon,
+} from 'lucide-vue-next';
 import AppointmentEditor from '@/components/appointments/AppointmentEditor.vue';
 import { useAuthStore } from '@/stores/auth';
 const _authStoreChatApt = useAuthStore();
 const currentUserId = computed<string | null>(() => _authStoreChatApt.user?.id ?? null);
-import { getOrgParts, weekdayInOrgTz, formatInOrgTz, startOfOrgDay } from '@/composables/use-org-timezone';
+import { getOrgParts, weekdayInOrgTz, formatInOrgTz, startOfOrgDay, orgDayKey, orgWallClockToUtc } from '@/composables/use-org-timezone';
 import { typeIcon, typeLabel } from '@/composables/appointment-helpers';
 
 export interface Appointment {
@@ -171,10 +178,24 @@ const statusOptions = [
   { title: 'Không đến', value: 'no_show' },
 ];
 
+// FIX 2026-06-09 (Anh báo cột 4 chat sai giờ): dựng start Date GHÉP appointmentDate (ngày)
+// + appointmentTime (giờ thật "HH:mm" wall-clock org), khớp appointmentStart() ở
+// appointment-helpers. Trước đây mọi nơi dùng new Date(appointmentDate) (midnight UTC →
+// 07:00 VN) làm giờ hiển thị + overdue + sort đều sai.
+function aptStart(apt: Appointment): Date {
+  const dayKey = orgDayKey(apt.appointmentDate);
+  const t = (apt.appointmentTime || '').trim();
+  if (dayKey && t) {
+    const combined = orgWallClockToUtc(dayKey, t);
+    if (combined) return combined;
+  }
+  return new Date(apt.appointmentDate);
+}
+
 // Compute "effective status" — bao gồm cả scheduled qua hạn nhưng cron chưa flip
 // (cron chạy mỗi 30 phút → có lag, UI cần real-time hơn).
 function effectiveStatus(apt: Appointment): string {
-  if (apt.status === 'scheduled' && new Date(apt.appointmentDate).getTime() < Date.now()) {
+  if (apt.status === 'scheduled' && aptStart(apt).getTime() < Date.now()) {
     return 'overdue';
   }
   return apt.status;
@@ -195,13 +216,13 @@ const sortedAppointments = computed(() => {
     else done.push(a); // completed | cancelled | no_show
   }
   // Overdue: quá hạn gần nhất (sát now) lên trên — dễ action
-  overdue.sort((a, b) => new Date(b.appointmentDate).getTime() - new Date(a.appointmentDate).getTime());
+  overdue.sort((a, b) => aptStart(b).getTime() - aptStart(a).getTime());
   // Scheduled: gần đến giờ nhất lên đầu
-  scheduled.sort((a, b) => new Date(a.appointmentDate).getTime() - new Date(b.appointmentDate).getTime());
+  scheduled.sort((a, b) => aptStart(a).getTime() - aptStart(b).getTime());
   // Done: gần nhất (vừa close) lên trước
   done.sort((a, b) => {
-    const ta = a.statusChangedAt ? new Date(a.statusChangedAt).getTime() : new Date(a.appointmentDate).getTime();
-    const tb = b.statusChangedAt ? new Date(b.statusChangedAt).getTime() : new Date(b.appointmentDate).getTime();
+    const ta = a.statusChangedAt ? new Date(a.statusChangedAt).getTime() : aptStart(a).getTime();
+    const tb = b.statusChangedAt ? new Date(b.statusChangedAt).getTime() : aptStart(b).getTime();
     return tb - ta;
   });
   return [...overdue, ...scheduled, ...done];
@@ -218,10 +239,10 @@ function statusLabel(s: string): string {
   return statusOptions.find(o => o.value === s)?.title || s;
 }
 
-// Hiển thị giờ từ appointmentDate (UTC ISO) → browser local timezone tự chuyển đúng.
-// Không dùng appointmentTime string vì rows cũ có thể lưu UTC sai (bug Zalo sync).
-function formatAptTime(d: string): string {
-  const p = getOrgParts(d);
+// FIX 2026-06-09: hiển thị giờ THẬT = aptStart (ghép appointmentDate + appointmentTime),
+// không còn lấy mình appointmentDate (midnight UTC → 07:00). Khớp các view khác.
+function formatAptTime(apt: Appointment): string {
+  const p = getOrgParts(aptStart(apt));
   if (!p) return '';
   return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
 }
@@ -425,4 +446,10 @@ function formatRelativeTime(iso: string): string {
   padding: 14px 0;
   font-style: italic;
 }
+
+/* Icon Lucide nút — căn giữa với text (2026-06-08). */
+.apt-edit-btn { display: inline-flex; align-items: center; justify-content: center; }
+.qa-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.apt-audit { display: inline-flex; align-items: center; gap: 4px; }
+.apt-edit-btn svg, .qa-btn svg, .apt-audit svg { display: block; }
 </style>

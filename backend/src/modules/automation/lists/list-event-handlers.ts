@@ -52,6 +52,25 @@ export async function onPhoneUidResolved(payload: {
 
     if (entries.length === 0) return;
 
+    // FIX 2026-06-08 — "Nick tìm ra +N": N = số nick KHÁC (ngoài nick gốc) cũng có KH này.
+    // BUG cũ: nhánh trường-hợp-2 dùng `multiNickCount: { increment: 1 }` mỗi lần handler
+    // chạy (mỗi friendship_accepted / first_message / re-sync) mà KHÔNG dedup nick đã đếm
+    // → cùng 1 nick cộng lặp → phồng 357/626/3468 dù org chỉ 5 nick. Thay bằng RECOMPUTE
+    // distinct: đếm số nick (zalo_account_id) thật sự có KH này qua Friend (join Contact
+    // theo phoneNormalized), trừ 1 nick gốc. Idempotent: chạy bao nhiêu lần cũng ra cùng số.
+    const friendsForPhone = await prisma.friend.findMany({
+      where: {
+        orgId: payload.orgId,
+        contact: { orgId: payload.orgId, phoneNormalized: payload.phoneNormalized },
+      },
+      select: { zaloAccountId: true },
+      distinct: ['zaloAccountId'],
+    });
+    const distinctNicks = new Set(friendsForPhone.map((f) => f.zaloAccountId));
+    // Nick vừa resolve có thể chưa kịp ghi vào Friend (vd find-zalo thủ công qua SDK) →
+    // thêm thủ công cho chắc, Set tự dedup.
+    distinctNicks.add(payload.zaloAccountId);
+
     const affectedListIds = new Set<string>();
     for (const entry of entries) {
       // Trường hợp 1: entry chưa biết hasZalo (lần đầu match)
@@ -64,19 +83,24 @@ export async function onPhoneUidResolved(payload: {
             zaloGlobalId: payload.zaloGlobalId,
             zaloName: payload.zaloDisplayName,
             resolvedByNickId: payload.zaloAccountId,
-            multiNickCount: 0,
+            // Nick gốc vừa set = 1 nick → "+N nick khác" = distinct - 1 (≥ 0).
+            multiNickCount: Math.max(0, distinctNicks.size - 1),
             status: 'enriched',
             enrichedAt: new Date(),
           },
         });
         affectedListIds.add(entry.customerListId);
-      } else if (entry.resolvedByNickId !== payload.zaloAccountId) {
-        // Trường hợp 2: entry đã có nick khác resolve → tăng multiNickCount
-        await prisma.customerListEntry.update({
-          where: { id: entry.id },
-          data: { multiNickCount: { increment: 1 } },
-        });
-        // KHÔNG override resolvedByNickId — giữ nick đầu tiên
+      } else {
+        // Trường hợp 2: entry đã có nick gốc → recompute "+N nick khác" = distinct - 1.
+        // KHÔNG override resolvedByNickId — giữ nick đầu tiên. Recompute thay vì increment
+        // nên không phồng dù nick này trùng/đã đếm.
+        const newCount = Math.max(0, distinctNicks.size - 1);
+        if (newCount !== entry.multiNickCount) {
+          await prisma.customerListEntry.update({
+            where: { id: entry.id },
+            data: { multiNickCount: newCount },
+          });
+        }
       }
     }
 
