@@ -3,6 +3,7 @@
  * All routes require JWT auth and are scoped to the user's org.
  */
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
@@ -133,6 +134,20 @@ export async function chatRoutes(app: FastifyInstance) {
     const now = new Date();
     const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
+    // FIX 2026-06-09 (Anh báo): badge "Tin nhắn" (chưa trả lời / bot / sale đã trả lời)
+    // PHẢI scope theo nick user được quyền — trước đây chỉ lọc org_id → user 1 nick
+    // vẫn đếm tin của TOÀN org (246/96 ảo). Khớp scope với /conversations/counts.
+    const { getZaloScope } = await import('../zalo/zalo-scope.js');
+    const zScope = await getZaloScope(user.id, user.orgId, user.role);
+    // Admin/owner → không giới hạn nick. User thường → chỉ nick accessible.
+    // Mảng rỗng (không nick nào) → điều kiện FALSE để đếm = 0 (không lọt tin org).
+    const nickScopeSql =
+      zScope.isOrgAdmin
+        ? Prisma.empty
+        : zScope.accessibleIds.length > 0
+          ? Prisma.sql`AND cv.zalo_account_id IN (${Prisma.join(zScope.accessibleIds)})`
+          : Prisma.sql`AND FALSE`;
+
     const [birthdayRows, appointmentSoon, appointmentOverdue, replyStateRows] = await Promise.all([
       // Sinh nhật 7 ngày tới — so ngày/tháng (bỏ năm, wrap qua năm mới).
       prisma.$queryRaw<Array<{ n: bigint }>>`
@@ -183,6 +198,7 @@ export async function chatRoutes(app: FastifyInstance) {
         WHERE cv.org_id = ${user.orgId}
           AND cv."threadType" = 'user'
           AND agg.last_inbound IS NOT NULL
+          ${nickScopeSql}
       `,
     ]);
 
@@ -1472,7 +1488,20 @@ export async function chatRoutes(app: FastifyInstance) {
       return safeMessage;
     } catch (err) {
       logger.error('[chat] Send message error:', err);
-      return reply.status(500).send({ error: 'Failed to send message' });
+      // 2026-06-09 (anh báo "Máy chủ lỗi" khi gửi tin): phân biệt lỗi ZALO nghiệp vụ
+      // (vd "người này chặn không nhận tin từ người lạ") với lỗi hệ thống thật.
+      // Lỗi Zalo có message tiếng Việt sẵn → trả 422 + message thật để sale HIỂU
+      // (KHÔNG còn toast 500 "Máy chủ lỗi" che mất lý do). Lỗi khác giữ 500.
+      const e = err as { name?: string; message?: string };
+      const isZaloError =
+        e?.name === 'ZaloApiError' ||
+        e?.name === 'ZcaApiError' ||
+        /ZaloApiError|ZcaApiError/.test(String(e?.name || '')) ||
+        /chặn không nhận tin|người lạ|chưa thể gửi tin|Tham số không hợp lệ/i.test(String(e?.message || ''));
+      if (isZaloError && e?.message) {
+        return reply.status(422).send({ error: e.message, code: 'ZALO_SEND_REJECTED' });
+      }
+      return reply.status(500).send({ error: 'Không gửi được tin nhắn, vui lòng thử lại' });
     }
   });
 
