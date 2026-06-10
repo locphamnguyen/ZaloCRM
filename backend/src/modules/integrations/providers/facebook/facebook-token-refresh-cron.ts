@@ -21,6 +21,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../../../shared/database/prisma-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { decrypt, encrypt } from '../../../../shared/crypto/aes-gcm.js';
+import { getTokenEncKey } from './facebook-config-service.js';
 import { logActivity } from '../../../activity/activity-logger.js';
 
 const CRON_SCHEDULE = '0 3 * * *'; // daily at 03:00
@@ -172,9 +173,12 @@ async function refreshConnection(conn: ConnectionRow): Promise<RefreshOutcome> {
     return 'skipped';
   }
 
+  // Khoá mã hoá per-org (UI ⚙) → fallback env. Dùng cho cả decrypt + re-encrypt dưới đây.
+  const encKey = await getTokenEncKey(conn.orgId);
+
   let pageToken: string;
   try {
-    pageToken = decrypt(conn.accessTokenEnc);
+    pageToken = decrypt(conn.accessTokenEnc, encKey);
   } catch (err) {
     // Decryption failure = key rotation or corruption — treat as token dead
     const errMsg = `Decrypt failed: ${(err as Error).message}`;
@@ -189,7 +193,7 @@ async function refreshConnection(conn: ConnectionRow): Promise<RefreshOutcome> {
     // Token is still alive — extend expiry
     const newExpiry = new Date(Date.now() + EXTEND_DAYS * 24 * 60 * 60 * 1_000);
     // Re-encrypt to persist the unchanged token (in case key was rotated)
-    const newEnc = encrypt(pageToken);
+    const newEnc = encrypt(pageToken, encKey);
     await prisma.facebookPageConnection.update({
       where: { id: conn.id },
       data: {

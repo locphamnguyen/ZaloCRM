@@ -16,7 +16,7 @@ import {
 } from './facebook-graph-client.js';
 import { logActivity } from '../../../activity/activity-logger.js';
 import { enqueueFormDiscovery } from './facebook-form-discovery-worker.js';
-import { getFacebookConfig } from './facebook-config-service.js';
+import { getFacebookConfig, getTokenEncKey } from './facebook-config-service.js';
 import { encryptToken, decryptToken } from '../../_shared/token-encryption.util.js';
 
 export type FacebookOAuthFlow = 'campaign' | 'form';
@@ -136,11 +136,14 @@ export async function handleCallback(
   const pages = await getManagedPages(longUserToken);
   logger.info('[fb-oauth] Found %d managed pages for org %s', pages.length, orgId);
 
+  // Khoá mã hoá page token per-org (UI ⚙) → fallback env. Resolve 1 lần cho cả vòng lặp.
+  const tokenEncKey = await getTokenEncKey(orgId);
+
   let connectedPages = 0;
 
   for (const page of pages) {
     try {
-      const tokenEnc = encrypt(page.access_token);
+      const tokenEnc = encrypt(page.access_token, tokenEncKey);
 
       // Step 4a: upsert connection
       await prisma.facebookPageConnection.upsert({
@@ -311,7 +314,7 @@ export async function disconnectPage(orgId: string, pageId: string): Promise<voi
   // Best-effort unsubscribe using the token we had before wipe
   if (conn.accessTokenEnc) {
     try {
-      const pageToken = decrypt(conn.accessTokenEnc);
+      const pageToken = decrypt(conn.accessTokenEnc, await getTokenEncKey(orgId));
       await unsubscribePage(pageId, pageToken);
     } catch (err) {
       logger.warn('[fb-oauth] Unsubscribe failed for page %s (best effort): %s', pageId, (err as Error).message);

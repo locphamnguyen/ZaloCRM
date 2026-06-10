@@ -100,10 +100,19 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
         });
         const creatorMap = new Map(creators.map((c) => [c.id, c]));
 
+        // Phase FB 2-tab 2026-06-10 — list bị FacebookFormMapping trỏ tới = "khoá" (tạo
+        // tự động từ FB Lead Form). FE hiện 🔒 + chặn xoá/đổi tên để không vỡ luồng nhận lead.
+        const fbMappings = await prisma.facebookFormMapping.findMany({
+          where: { orgId: user.orgId, customerListId: { in: lists.map((l) => l.id) } },
+          select: { customerListId: true },
+        });
+        const fbLockedIds = new Set(fbMappings.map((m) => m.customerListId));
+
         return {
           lists: lists.map((l) => ({
             ...l,
             createdBy: creatorMap.get(l.createdById) ?? null,
+            fbLocked: fbLockedIds.has(l.id),
           })),
           total,
           page: pageNum,
@@ -470,6 +479,18 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
 
     if (Object.keys(data).length === 0) return reply.status(400).send({ error: 'no_fields' });
 
+    // Phase FB 2-tab 2026-06-10 — chặn ĐỔI TÊN list khoá (tạo tự động từ FB Lead Form;
+    // tên list = tên form, đổi sẽ lệch luồng nhận lead). Field khác vẫn cho sửa.
+    if (data.name !== undefined) {
+      const fbLocked = await prisma.facebookFormMapping.findFirst({
+        where: { orgId: user.orgId, customerListId: id },
+        select: { id: true },
+      });
+      if (fbLocked) {
+        return reply.status(409).send({ error: 'fb_locked', message: 'Tệp khoá: tạo tự động từ Facebook Lead Form — không thể đổi tên' });
+      }
+    }
+
     try {
       const updated = await prisma.customerList.updateMany({
         where: { id, orgId: user.orgId },
@@ -585,6 +606,15 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params;
       try {
+        // Phase FB 2-tab 2026-06-10 — chặn XOÁ list khoá (FacebookFormMapping trỏ tới →
+        // xoá sẽ vỡ luồng nhận lead). Phải ngắt kết nối form/page trước.
+        const fbLocked = await prisma.facebookFormMapping.findFirst({
+          where: { orgId: user.orgId, customerListId: id },
+          select: { id: true },
+        });
+        if (fbLocked) {
+          return reply.status(409).send({ error: 'fb_locked', message: 'Tệp khoá: tạo tự động từ Facebook Lead Form — ngắt kết nối form trước khi xoá' });
+        }
         const deleted = await prisma.customerList.deleteMany({
           where: { id, orgId: user.orgId },
         });

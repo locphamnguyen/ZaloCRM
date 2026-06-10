@@ -32,6 +32,8 @@ export interface CustomerListSummary {
   integrationKey?: string | null;
   displayInlineFields?: string[] | null;
   shareableToPool?: boolean;
+  // Phase FB 2-tab 2026-06-10 — list tạo tự động từ FB Lead Form → khoá (chặn xoá/đổi tên).
+  fbLocked?: boolean;
 }
 
 export interface MappedRow {
