@@ -160,10 +160,17 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
 
       // Stop listener trước (nick archived không cần kết nối nữa).
       zaloPool.disconnect(id);
+      // 2026-06-10 ROOT CAUSE "nick kẹt qr_pending": nick archived VẪN giữ zalo_uid (unique)
+      // → khi quét QR lại / thêm lại CÙNG tài khoản Zalo, nick mới lấy uid thật rồi update →
+      // đụng unique constraint zalo_uid với nick archived → updateAccountDB fail → kẹt.
+      // Fix: GIẢI PHÓNG zalo_uid (set null) khi soft-delete. Dữ liệu (conv/friend) key theo
+      // zaloAccountId (id) nên null uid KHÔNG mất dữ liệu; chỉ nhả khoá uid cho nick mới claim.
       await prisma.zaloAccount.update({
         where: { id },
-        data: { archivedAt: new Date(), status: 'disconnected' },
+        data: { archivedAt: new Date(), status: 'disconnected', zaloUid: null },
       });
+      // Log lifecycle 2026-06-10: xác nhận soft-delete chạy (debug "xoá không được").
+      request.log?.info?.(`[zalo:${id}] soft-deleted (archivedAt set, status=disconnected, zaloUid freed, listener stopped)`);
 
       return reply.status(204).send();
     },

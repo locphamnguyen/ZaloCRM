@@ -69,8 +69,8 @@
           :disabled="isReconnecting(a.id)"
           @click.stop="$emit('reconnect', a)"
         >
-          <v-icon size="16" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : 'mdi-refresh' }}</v-icon>
-          {{ isReconnecting(a.id) ? 'Đang kết nối…' : 'Kết nối lại' }}
+          <v-icon size="16" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : reconnectIcon(a) }}</v-icon>
+          {{ isReconnecting(a.id) ? 'Đang kết nối…' : reconnectLabel(a) }}
         </button>
         <div v-else-if="isOnline(a)" class="ngc-online-hint">
           <v-icon size="13">mdi-check-circle</v-icon> Đang hoạt động
@@ -114,6 +114,14 @@ function stateLabel(a: any): string {
   if (s === 'connecting') return 'Đang kết nối lại…';
   if (s === 'qr_pending') return 'Chờ quét QR';
   return 'Mất kết nối';
+}
+// Nhãn nút theo trạng thái: qr_pending (session hết hạn / breaker) → quét QR lại;
+// còn lại (disconnected) → reconnect ngầm bằng session đã lưu.
+function reconnectLabel(a: any): string {
+  return liveOf(a) === 'qr_pending' ? 'Quét QR lại' : 'Kết nối lại';
+}
+function reconnectIcon(a: any): string {
+  return liveOf(a) === 'qr_pending' ? 'mdi-qrcode-scan' : 'mdi-refresh';
 }
 function crewOf(a: any): Crew[] {
   return (a.crew || []).filter((c: Crew) => !!c);
