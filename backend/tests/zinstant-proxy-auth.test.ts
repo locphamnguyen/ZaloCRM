@@ -80,12 +80,14 @@ describe('zinstant-proxy-routes auth gate', () => {
     await app.close();
   });
 
-  it('does NOT 401 on GET /zalo-sticker-list (public)', async () => {
+  it('401 on GET /zalo-sticker-list khi chưa auth (nhánh này chặt hơn main)', async () => {
+    // private-hs cố ý gắn preHandler authMiddleware riêng cho /zalo-sticker-list
+    // (picker chỉ dùng khi đã đăng nhập) → KHÁC main (coi sticker-list là public).
+    // Giữ chính sách chặt hơn này; test phản ánh đúng hành vi nhánh.
     authShouldPass = false;
     const app = await buildApp();
-    // No connected account → 503, not 401.
     const res = await app.inject({ method: 'GET', url: '/api/v1/zalo-sticker-list' });
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(401);
     await app.close();
   });
 
