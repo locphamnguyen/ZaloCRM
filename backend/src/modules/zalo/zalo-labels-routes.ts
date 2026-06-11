@@ -183,17 +183,33 @@ export async function syncLabelsForAccount(
     });
     const groupName = `Zalo - ${account?.displayName || 'Nick'}${account?.phone ? ` (${account.phone})` : ''}`;
 
-    // Upsert CrmTagGroup for this Zalo account (managedBy='zalo_sync')
-    const group = await prisma.crmTagGroup.upsert({
+    // Upsert CrmTagGroup for this Zalo account (managedBy='zalo_sync').
+    // 2026-06-11 FIX (Bug Zalo native không hiện cột 2): collision-safe.
+    // Nick re-QR tạo account row MỚI cùng displayName → groupName trùng, nhưng group cũ
+    // thuộc nick cũ (đã archived) → upsert hit create-branch → đụng unique (orgId, name)
+    // → P2002 CRASH giữa full sync → friend.zaloLabels KHÔNG được rebuild (bước sau).
+    // Fix: nếu lookup theo (zaloAccountId, managedBy) miss → tìm theo (orgId, name) →
+    // CLAIM (reassign sang account hiện tại) thay vì create. Giống pattern CrmTag 3-bước.
+    let group = await prisma.crmTagGroup.findUnique({
       where: { zaloAccountId_managedBy: { zaloAccountId: accountId, managedBy: 'zalo_sync' } },
-      create: {
-        orgId,
-        name: groupName,
-        managedBy: 'zalo_sync',
-        zaloAccountId: accountId,
-      },
-      update: { name: groupName }, // rename khi displayName/phone đổi
     });
+    if (group) {
+      if (group.name !== groupName) {
+        group = await prisma.crmTagGroup.update({ where: { id: group.id }, data: { name: groupName } });
+      }
+    } else {
+      const byName = await prisma.crmTagGroup.findFirst({ where: { orgId, name: groupName } });
+      if (byName) {
+        group = await prisma.crmTagGroup.update({
+          where: { id: byName.id },
+          data: { zaloAccountId: accountId, managedBy: 'zalo_sync' },
+        });
+      } else {
+        group = await prisma.crmTagGroup.create({
+          data: { orgId, name: groupName, managedBy: 'zalo_sync', zaloAccountId: accountId },
+        });
+      }
+    }
 
     // Upsert CrmTag per label — 3-step để xử lý legacy data từ PR2:
     //  1. Find theo sourceZaloLabelId (PR3+ rows) → update
