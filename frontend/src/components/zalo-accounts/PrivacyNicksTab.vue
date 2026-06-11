@@ -9,6 +9,19 @@
 -->
 <template>
   <div class="privacy-tab">
+    <!-- ═════════ BANNER TẠM KHÓA TÍNH NĂNG (2026-06-11) ═════════
+      Audit bảo mật phát hiện nick Riêng tư còn bị lộ nội dung qua kênh
+      thời gian thực + vài màn hình. Tạm chặn BẬT MỚI để tránh cảm giác an
+      toàn giả; vẫn cho TẮT. Gỡ banner + bỏ privacyFeatureLocked khi vá xong. -->
+    <div v-if="privacyFeatureLocked" class="privacy-locked-banner">
+      <span class="plb-icon">🛡️</span>
+      <div class="plb-text">
+        <strong>Tính năng Riêng tư đang tạm nâng cấp bảo mật</strong>
+        <span>Tạm thời chưa bật thêm nick Riêng tư mới. Các nick đang bật vẫn giữ nguyên,
+        và bạn vẫn có thể tắt. Đội kỹ thuật đang hoàn thiện lớp bảo vệ nội dung — sẽ mở lại sớm.</span>
+      </div>
+    </div>
+
     <!-- ═════════ PIN CONFIG GRID V2 ═════════ -->
     <section class="pin-grid">
       <!-- Primary action card (state-aware gradient) -->
@@ -76,14 +89,14 @@
       <section v-if="privateNicks.length > 0" class="ptab-group">
         <div class="group-header"><span class="group-icon">🔒</span><span class="group-name">Nick Riêng tư</span><span class="group-count">{{ privateNicks.length }}</span></div>
         <div class="nick-list">
-          <NickRow v-for="n in privateNicks" :key="n.id" :nick="n" :submitting="submittingId === n.id" @toggle="onToggleRequest(n)" />
+          <NickRow v-for="n in privateNicks" :key="n.id" :nick="n" :submitting="submittingId === n.id" :feature-locked="privacyFeatureLocked" @toggle="onToggleRequest(n)" />
         </div>
       </section>
 
       <section v-if="normalNicks.length > 0" class="ptab-group">
         <div class="group-header"><span class="group-icon">📭</span><span class="group-name">Nick Thường</span><span class="group-count">{{ normalNicks.length }}</span></div>
         <div class="nick-list">
-          <NickRow v-for="n in normalNicks" :key="n.id" :nick="n" :submitting="submittingId === n.id" @toggle="onToggleRequest(n)" />
+          <NickRow v-for="n in normalNicks" :key="n.id" :nick="n" :submitting="submittingId === n.id" :feature-locked="privacyFeatureLocked" @toggle="onToggleRequest(n)" />
         </div>
       </section>
     </template>
@@ -117,6 +130,10 @@ interface MyNick {
 }
 
 const store = usePrivacyStore();
+
+// 2026-06-11 — Tạm khóa BẬT MỚI nick Riêng tư cho tới khi vá xong lỗ lộ nội dung
+// (audit bảo mật). Vẫn cho TẮT nick đang bật. Đặt false để mở lại sau khi vá.
+const privacyFeatureLocked = ref(true);
 
 const nicks = ref<MyNick[]>([]);
 const loading = ref(true);
@@ -196,6 +213,12 @@ async function loadAll() {
 // (kể cả đang trong phiên unlock). Tin OTP nêu cụ thể nick + bật/tắt + owner.
 async function onToggleRequest(nick: MyNick) {
   if (submittingId.value) return;
+  // 2026-06-11 — chặn BẬT MỚI khi tính năng đang tạm khóa (vẫn cho TẮT).
+  // nick.privacyMode !== 'main' = đang Thường → thao tác này là BẬT Riêng tư.
+  if (privacyFeatureLocked.value && nick.privacyMode !== 'main') {
+    errorMsg.value = 'Tính năng Riêng tư đang tạm nâng cấp bảo mật — chưa bật thêm nick mới được. Vui lòng đợi đội kỹ thuật mở lại.';
+    return;
+  }
   pendingToggle.value = nick;
   unlockOpen.value = true;
 }
@@ -279,6 +302,7 @@ const NickRow = defineComponent({
   props: {
     nick: { type: Object as () => MyNick, required: true },
     submitting: { type: Boolean, default: false },
+    featureLocked: { type: Boolean, default: false },
   },
   emits: ['toggle'],
   setup(props, { emit }) {
@@ -336,12 +360,17 @@ const NickRow = defineComponent({
             h('span', { class: 'nr-seg-label' }, 'Thường'),
           ]),
           h('button', {
-            class: ['nr-seg-opt', 'private', { active: isMain }],
-            disabled: props.submitting,
+            // 2026-06-11 — khóa nút BẬT Riêng tư khi tính năng tạm nâng cấp (nick đang Thường).
+            class: ['nr-seg-opt', 'private', { active: isMain, locked: props.featureLocked && !isMain }],
+            disabled: props.submitting || (props.featureLocked && !isMain),
             onClick: () => { if (!isMain) emit('toggle'); }, // chỉ gạt khi đang Thường
-            title: isMain ? 'Đang để Riêng tư' : 'Gạt sang Riêng tư (cần nhập OTP)',
+            title: isMain
+              ? 'Đang để Riêng tư'
+              : (props.featureLocked
+                  ? 'Tính năng Riêng tư đang tạm nâng cấp bảo mật — chưa bật thêm được'
+                  : 'Gạt sang Riêng tư (cần nhập OTP)'),
           }, [
-            h('span', { class: 'nr-seg-icon' }, '🔒'),
+            h('span', { class: 'nr-seg-icon' }, props.featureLocked && !isMain ? '🛠️' : '🔒'),
             h('span', { class: 'nr-seg-label' }, 'Riêng tư'),
           ]),
         ]),
@@ -353,6 +382,17 @@ const NickRow = defineComponent({
 
 <style scoped>
 .privacy-tab { padding: 20px 4px; display: flex; flex-direction: column; gap: 20px; }
+
+/* ═════════ Banner tạm khóa tính năng (2026-06-11) ═════════ */
+.privacy-locked-banner {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  border: 1px solid #FCD34D; border-radius: 12px; padding: 14px 18px;
+}
+.plb-icon { font-size: 22px; line-height: 1.3; flex-shrink: 0; }
+.plb-text { display: flex; flex-direction: column; gap: 3px; }
+.plb-text strong { font-size: 13.5px; color: #92400E; font-weight: 700; }
+.plb-text span { font-size: 12px; color: #78350F; line-height: 1.5; }
 
 /* ═════════ PIN Config Grid V2 ═════════ */
 .pin-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
@@ -456,6 +496,9 @@ const NickRow = defineComponent({
   box-shadow: 0 1px 3px rgba(180, 83, 9, 0.2);
 }
 :deep(.nr-seg-opt:disabled) { cursor: not-allowed; }
+/* Nút Riêng tư bị khóa tạm thời (2026-06-11) */
+:deep(.nr-seg-opt.private.locked) { opacity: 0.5; cursor: not-allowed; }
+:deep(.nr-seg-opt.private.locked:hover) { background: transparent; color: #6B7280; }
 
 .ptab-error { position: fixed; bottom: 24px; right: 24px; background: #FEF2F2; color: #B91C1C; border: 1px solid #FCA5A5; padding: 12px 18px; border-radius: 10px; font-size: 13px; display: flex; align-items: center; gap: 12px; cursor: pointer; box-shadow: 0 8px 24px rgba(185, 28, 28, 0.15); z-index: 1000; max-width: 480px; }
 .ptab-error .dismiss { color: #DC2626; font-weight: 700; }

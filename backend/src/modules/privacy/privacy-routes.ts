@@ -209,6 +209,18 @@ export async function registerPrivacyRoutes(app: FastifyInstance): Promise<void>
       return reply.status(403).send({ error: 'Chỉ owner của nick mới flip privacy mode' });
     }
 
+    // 2026-06-11 — TẠM KHÓA BẬT MỚI Riêng tư cho tới khi vá xong lỗ lộ nội dung
+    // (audit bảo mật: nick main còn lộ qua socket realtime + vài endpoint). Vẫn cho
+    // TẮT (mode='sub') để ai lỡ bật có thể gỡ. Phòng vệ tầng API vì FE chặn được
+    // nhưng người dùng kỹ thuật vẫn gọi thẳng API. Đặt env PRIVACY_ENABLE_NEW=1 để mở lại.
+    const privacyNewLocked = process.env.PRIVACY_ENABLE_NEW !== '1';
+    if (privacyNewLocked && body.mode === 'main' && account.privacyMode !== 'main') {
+      return reply.status(423).send({
+        error: 'Tính năng Riêng tư đang tạm nâng cấp bảo mật — chưa bật thêm nick mới được.',
+        code: 'PRIVACY_FEATURE_LOCKED',
+      });
+    }
+
     // Hard cap khi flip sang 'main' (Phase Privacy v2 2026-05-23).
     if (body.mode === 'main' && account.privacyMode !== 'main') {
       const me = await prisma.user.findUnique({
