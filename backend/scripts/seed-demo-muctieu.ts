@@ -14,9 +14,17 @@ import { PrismaPg } from '@prisma/adapter-pg';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
-const ORG_ID = 'ca8e0a05-65ff-41ac-b960-a395e158592d';
+// Portable: org resolve từ owner (ép qua env SEED_ORG_ID nếu muốn).
+let ORG_ID = process.env.SEED_ORG_ID || '';
 
 async function main() {
+  const owner = await prisma.user.findFirst({
+    where: ORG_ID ? { orgId: ORG_ID, role: 'owner' } : { role: 'owner' },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!owner) throw new Error('Chưa có owner — đăng ký owner qua /setup rồi chạy seed-demo-data trước.');
+  ORG_ID = owner.orgId;
+
   const existed = await prisma.automationTrigger.findFirst({
     where: { orgId: ORG_ID, eventType: 'friend_invite_to_list' },
   });
@@ -24,9 +32,6 @@ async function main() {
     console.log('⚠ Đã có Mục tiêu (friend_invite_to_list). Bỏ qua.');
     return;
   }
-
-  const owner = await prisma.user.findFirst({ where: { orgId: ORG_ID, role: 'owner' } });
-  if (!owner) throw new Error('Không có owner');
   const nick = await prisma.zaloAccount.findFirst({
     where: { orgId: ORG_ID, archivedAt: null },
     orderBy: { lastConnectedAt: 'desc' },

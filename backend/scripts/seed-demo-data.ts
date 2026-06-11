@@ -16,7 +16,9 @@ import bcrypt from 'bcryptjs';
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const ORG_ID = 'ca8e0a05-65ff-41ac-b960-a395e158592d'; // org "Thiên Phúc"
+// Portable: org tự resolve từ tài khoản chủ (owner) — chạy được trên BẤT KỲ server nào sau
+// khi đã đăng ký owner. Có thể ép org cụ thể qua env SEED_ORG_ID.
+let ORG_ID = process.env.SEED_ORG_ID || '';
 const DEMO_PASSWORD = 'Demo@1234';
 
 const HO = ['Nguyễn', 'Trần', 'Lê', 'Phạm', 'Hoàng', 'Huỳnh', 'Phan', 'Vũ', 'Võ', 'Đặng', 'Bùi', 'Đỗ', 'Hồ', 'Ngô', 'Dương', 'Lý'];
@@ -34,6 +36,15 @@ function fullName(): string {
 }
 
 async function main() {
+  // ── Resolve org từ owner (portable) ────────────────────────────────
+  const owner = await prisma.user.findFirst({
+    where: ORG_ID ? { orgId: ORG_ID, role: 'owner' } : { role: 'owner' },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!owner) throw new Error('Chưa có tài khoản chủ (owner). Hãy đăng ký owner qua trang /setup trước, rồi chạy lại seed.');
+  ORG_ID = owner.orgId;
+  console.log(`→ Seed vào org ${ORG_ID}`);
+
   // ── Idempotency guard ──────────────────────────────────────────────
   const existed = await prisma.department.findFirst({ where: { orgId: ORG_ID, name: 'Ban Giám Đốc' } });
   if (existed) {
@@ -41,8 +52,6 @@ async function main() {
     return;
   }
 
-  const owner = await prisma.user.findFirst({ where: { orgId: ORG_ID, role: 'owner' } });
-  if (!owner) throw new Error('Không tìm thấy owner user trong org demo');
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 12);
 
   // ── 1. Phòng ban (cây: BGĐ root → 4 phòng con) ─────────────────────
@@ -194,7 +203,7 @@ async function main() {
     const created = await prisma.automationBroadcast.create({
       data: {
         orgId: ORG_ID, name: bc.name, blockId: bc.blockId,
-        segmentSpec: { type: 'filter', filters: [{ field: 'status', op: 'in', value: ['interested', 'contacted'] }] }),
+        segmentSpec: { type: 'filter', filters: [{ field: 'status', op: 'in', value: ['interested', 'contacted'] }] },
         scheduleKind: bc.scheduleKind, state: bc.state,
         scheduledAt: bc.scheduleKind === 'scheduled' ? new Date(Date.now() + 2 * 86400000) : null,
         totalRecipients: bc.total, sentCount: bc.sent, deliveredCount: bc.sent, createdById: owner.id,
