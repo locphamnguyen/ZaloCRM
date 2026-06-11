@@ -16,6 +16,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
 import { userHasGrant } from '../rbac/permission-group-service.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
+import { zaloOps } from '../../shared/zalo-operations.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, type MediaKind } from './media-service.js';
 import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
@@ -277,8 +278,15 @@ export async function mediaRoutes(app: FastifyInstance) {
       });
       if (!conversation) return reply.status(404).send({ error: 'Không tìm thấy hội thoại' });
 
+      // Guard sớm: nick phải đang KẾT NỐI (status connected) — tránh treo khi nick
+      // QR-pending/disconnected. zaloOps cũng check lại, nhưng báo sớm rõ hơn cho sale.
       const instance = zaloPool.getInstance(conversation.zaloAccountId);
-      if (!instance?.api) return reply.status(400).send({ error: 'Nick Zalo chưa kết nối' });
+      if (!instance?.api || instance.status !== 'connected') {
+        return reply.status(400).send({
+          error: 'Nick Zalo chưa kết nối (cần quét QR đăng nhập lại nick).',
+          code: 'NICK_NOT_CONNECTED',
+        });
+      }
 
       // PRIVACY: nick Riêng tư → chỉ chính chủ gửi được (như chat-attachment).
       if (conversation.zaloAccount.privacyMode === 'main'
@@ -302,20 +310,21 @@ export async function mediaRoutes(app: FastifyInstance) {
         tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: asset.name }, asset.kind);
         zaloRateLimiter.recordSend(conversation.zaloAccountId);
 
+        // Gửi QUA zaloOps (KHÔNG gọi instance.api trực tiếp): zaloOps.exec check
+        // status==='connected' TRƯỚC → nick mất kết nối thì throw NOT_CONNECTED ngay,
+        // KHÔNG treo (bug anh báo: nick QR-pending làm sendMessage trực tiếp đứng vô hạn).
         let zaloMsgId = '';
         let content = '';
+        // Dùng zaloOps.sendFile cho MỌI loại: nó build api.sendMessage({ msg: caption,
+        // attachments }) — LUÔN có `msg` (kể cả ''). Tránh bug zca-js sendMessage.cjs:445
+        // đọc `msg.length` khi sendImage build {attachments} KHÔNG có msg → crash undefined.
+        const sendResult: any = await zaloOps.sendFile(
+          conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+        );
+        zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
         if (asset.kind === 'image') {
-          const sendResult: any = await instance.api.sendMessage(
-            { msg: caption, attachments: [tmp.path] }, threadId, threadType,
-          );
-          zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = JSON.stringify({ href: blob.publicUrl, thumb: blob.publicUrl, size: blob.sizeBytes });
         } else {
-          // video/file: gửi qua attachments (zca-js đọc local path).
-          const sendResult: any = await instance.api.sendMessage(
-            { msg: caption, attachments: [tmp.path] }, threadId, threadType,
-          );
-          zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = asset.kind === 'video'
             ? JSON.stringify({ href: blob.publicUrl, thumb: asset.thumbnailUrl ?? blob.publicUrl, size: blob.sizeBytes })
             : JSON.stringify({ href: blob.publicUrl, name: asset.name, size: blob.sizeBytes, mime: blob.mimeType });
