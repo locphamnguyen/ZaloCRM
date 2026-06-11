@@ -142,13 +142,21 @@ function contentTypeToExtension(contentType: string): string {
 }
 
 async function mirrorRemoteMediaUrl(url: string, contentType: string): Promise<string | null> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+  // 2026-06-11 FIX (ảnh từ Zalo Desktop mất hình): Zalo CDN hay trả 200 nhưng body RỖNG
+  // (eventual consistency — ảnh vừa gửi chưa sẵn trên CDN). Trước đây upload buffer 0-byte
+  // rồi REPLACE href gốc bằng URL MinIO hỏng → ảnh mất vĩnh viễn. Giờ: RETRY 1 lần sau 1.5s
+  // để bắt bytes thật; nếu vẫn rỗng → throw để caller GIỮ URL Zalo gốc (khớp downloadMediaToTemp).
+  let buffer: Buffer | null = null;
+  let mimeType = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1500));
+    const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    buffer = Buffer.from(await response.arrayBuffer());
+    mimeType = response.headers.get('content-type')?.split(';')[0] || guessMimeType(url, contentType);
+    if (buffer.length > 0) break;
   }
-  const arrayBuffer = await response.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-  const mimeType = response.headers.get('content-type')?.split(';')[0] || guessMimeType(url, contentType);
+  if (!buffer || buffer.length === 0) throw new Error('empty response');
   const uploaded = await uploadBuffer(buffer, mimeType, fileNameFromUrl(url, contentType, mimeType));
   return uploaded.url;
 }

@@ -190,24 +190,32 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
       user = request.user as any;
     } catch { /* no JWT — fallback */ }
 
+    // 2026-06-11 FIX (sticker hỏng/vỡ): chọn account theo trạng thái SỐNG của pool, KHÔNG
+    // theo DB status — DB hay kẹt 'qr_pending' sau re-QR dù pool đang connected → trước đây
+    // where:{status:'connected'} không khớp account nào → 503 → <img> sticker vỡ. Pool mới
+    // là nguồn thật để gọi getStickersDetail.
+    const liveConnectedIds = Object.entries(zaloPool.getAllStatuses())
+      .filter(([, s]) => s === 'connected')
+      .map(([accId]) => accId);
     let account: { id: string } | null = null;
-    if (user?.id && user.orgId) {
-      const scope = await getZaloScope(user.id, user.orgId, user.role);
-      account = await prisma.zaloAccount.findFirst({
-        where: {
-          orgId: user.orgId,
-          status: 'connected',
-          ...(scope.isOrgAdmin ? {} : { id: { in: scope.accessibleIds } }),
-        },
-        select: { id: true },
-      });
-    } else {
-      // No-auth path (img tag): use any connected account org-wide
-      account = await prisma.zaloAccount.findFirst({
-        where: { status: 'connected' },
-        select: { id: true },
-        orderBy: { lastConnectedAt: 'desc' },
-      });
+    if (liveConnectedIds.length) {
+      if (user?.id && user.orgId) {
+        const scope = await getZaloScope(user.id, user.orgId, user.role);
+        const allowed = scope.isOrgAdmin
+          ? liveConnectedIds
+          : liveConnectedIds.filter((accId) => scope.accessibleIds.includes(accId));
+        account = await prisma.zaloAccount.findFirst({
+          where: { orgId: user.orgId, id: { in: allowed } },
+          select: { id: true },
+        });
+      } else {
+        // No-auth path (img tag): bất kỳ nick nào pool đang connected.
+        account = await prisma.zaloAccount.findFirst({
+          where: { id: { in: liveConnectedIds } },
+          select: { id: true },
+          orderBy: { lastConnectedAt: 'desc' },
+        });
+      }
     }
     if (!account) return reply.status(503).send({ error: 'no connected Zalo account' });
 

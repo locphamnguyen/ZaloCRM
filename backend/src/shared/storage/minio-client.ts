@@ -35,6 +35,8 @@ export interface UploadResult {
 }
 
 export async function uploadBuffer(buffer: Buffer, mimeType: string, originalName?: string): Promise<UploadResult> {
+  // 2026-06-11: từ chối buffer rỗng — tránh tạo object MinIO 0-byte (ảnh/sticker hỏng).
+  if (!buffer || buffer.length === 0) throw new Error('uploadBuffer: empty buffer (refusing 0-byte object)');
   const ext = originalName ? extname(originalName) : mimeToExt(mimeType);
   const key = `${new Date().toISOString().slice(0, 10)}/${randomUUID()}${ext}`;
   await minioClient.putObject(BUCKET, key, buffer, buffer.length, {
