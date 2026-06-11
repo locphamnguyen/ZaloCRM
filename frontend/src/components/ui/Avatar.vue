@@ -11,6 +11,8 @@
       :src="src"
       :alt="name || 'avatar'"
       class="av-img"
+      loading="lazy"
+      decoding="async"
       @error="imgError = true"
     />
     <span v-else class="av-initials" :style="initialsStyle">{{ initials }}</span>

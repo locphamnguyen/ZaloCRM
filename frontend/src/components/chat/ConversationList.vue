@@ -128,7 +128,7 @@
               {{ displayName(conv) }}
             </div>
             <div class="ci-meta-right">
-              <div class="ci-time">{{ formatTime(conv.lastMessageAt, now) }}</div>
+              <div class="ci-time"><ConvTime :at="conv.lastMessageAt" /></div>
               <div
                 v-if="conv.unreadCount > 0 && conv.id !== selectedId"
                 class="ci-unread-count"
@@ -278,7 +278,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
+import { ref, reactive, watch, onMounted, computed, nextTick } from 'vue';
 import type { Conversation, AiSentiment } from '@/composables/use-chat';
 import { api } from '@/api/index';
 // Icon chrome — Lucide line (anh chốt 2026-06-08, bỏ ký tự thô).
@@ -287,12 +287,12 @@ import AiSentimentBadge from '@/components/ai/ai-sentiment-badge.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import NewMessageDialog from '@/components/chat/NewMessageDialog.vue';
 import ConversationContextMenu from '@/components/chat/conversation-context-menu.vue';
+import ConvTime from '@/components/chat/ConvTime.vue';
 import NickPickerPopup from '@/components/zalo-accounts/NickPickerPopup.vue';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 import { loadTagDefs, isZaloManaged, cleanTagName, tagColor } from '@/composables/use-crm-tag-defs';
 import { loadTagTaxonomy, findTagBySlug, useTagTaxonomy } from '@/composables/use-tag-taxonomy';
 import { getAutoTagDef } from '@/constants/auto-tags';
-import { getOrgParts } from '@/composables/use-org-timezone';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import { usePrivacyVisibility } from '@/composables/use-privacy-visibility';
 
@@ -405,24 +405,11 @@ onMounted(() => { if (props.autoComposePhone) triggerAutoCompose(props.autoCompo
 // ── Tab state ──────────────────────────────────────────────────────────────
 const activeTab = ref<'main' | 'other'>('main');
 
-// ── Live "now" ticker (2026-06-11) ──────────────────────────────────────────
-// Bug fix: thời gian tương đối ("Now", "1p", "2p"...) ở mỗi hàng hội thoại trước
-// đây KHÔNG tự nhảy khi để UI yên — vì formatTime() chỉ chạy lại khi conv.lastMessageAt
-// đổi (static). Tạo ref `now` cập nhật mỗi 30s + truyền vào formatTime làm dependency
-// reactive → Vue re-render time mỗi 30s mà không cần reload/đổi hội thoại.
-const now = ref(Date.now());
-let nowTimer: ReturnType<typeof setInterval> | null = null;
-function tickNow() { now.value = Date.now(); }
-onMounted(() => {
-  nowTimer = setInterval(tickNow, 30000);
-  // Snap lại ngay khi tab được focus lại (browser throttle setInterval ở tab nền).
-  document.addEventListener('visibilitychange', onVisibilityTick);
-});
-onUnmounted(() => {
-  if (nowTimer) { clearInterval(nowTimer); nowTimer = null; }
-  document.removeEventListener('visibilitychange', onVisibilityTick);
-});
-function onVisibilityTick() { if (!document.hidden) tickNow(); }
+// ── Thời gian tương đối: chuyển sang component con ConvTime + ticker CHUNG ───
+// (2026-06-11 perf) — trước đây ref `now` 30s truyền vào formatTime mọi hàng → đổi
+// `now` re-render CẢ 100 hàng → giật chu kỳ. Giờ ConvTime tự cập nhật, chỉ phần giờ
+// re-render. formatTime() bên dưới giữ lại cho code cũ tham chiếu (nếu có), không
+// còn dùng trong template.
 
 // ── Context menu state ─────────────────────────────────────────────────────
 const contextMenu = reactive({
@@ -503,8 +490,21 @@ function resolveCrmTag(slug: string): DisplayTag {
   return { name: cleanTagName(slug), color: tagColor(slug) || '#6B7280', isZalo: false, key: 'c:' + slug };
 }
 
+// 2026-06-11 (perf) — memoize: displayTags gọi 3 lần/hàng × 100 hàng. Cache theo conv,
+// invalidate khi tags (zaloLabels/autoTags/crmTagsPerNick) hoặc taxonomyVersion đổi.
+const _tagsCache = new WeakMap<Conversation, { sig: string; result: DisplayTag[] }>();
 function displayTags(conv: Conversation): DisplayTag[] {
-  void taxonomyVersion.value; // reactive dep — re-eval khi taxonomy load/refresh
+  const tv = taxonomyVersion.value; // reactive dep — re-eval khi taxonomy load/refresh
+  const f = conv.friendship as { zaloLabels?: unknown[]; autoTags?: unknown[]; crmTagsPerNick?: unknown[] } | null | undefined;
+  const ct = Array.isArray(conv.contact?.tags) ? conv.contact!.tags as unknown[] : [];
+  const sig = `${tv}|${(f?.zaloLabels?.length ?? 0)}|${(f?.autoTags?.length ?? 0)}|${(f?.crmTagsPerNick?.length ?? 0)}|${ct.length}`;
+  const hit = _tagsCache.get(conv);
+  if (hit && hit.sig === sig) return hit.result;
+  const result = computeDisplayTags(conv);
+  _tagsCache.set(conv, { sig, result });
+  return result;
+}
+function computeDisplayTags(conv: Conversation): DisplayTag[] {
   const seen = new Set<string>();
   const out: DisplayTag[] = [];
   // 1. Tag Zalo Real từ zaloLabels (màu chuẩn) — ƯU TIÊN đầu.
@@ -803,7 +803,20 @@ function fmtDuration(sec: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// 2026-06-11 (perf) — memoize: lastMessagePreviewResult được gọi 2 lần/hàng (preview +
+// tone) × 100 hàng × mỗi render → nặng (JSON.parse). Cache theo conv object (WeakMap),
+// invalidate khi tin nhắn đầu đổi (id) hoặc thu hồi. Wrapper giữ API cũ.
+const _previewCache = new WeakMap<Conversation, { sig: string; result: PreviewResult }>();
 function lastMessagePreviewResult(conv: Conversation): PreviewResult {
+  const msg = conv.messages?.[0];
+  const sig = msg ? `${msg.id}|${msg.isDeleted ? 1 : 0}|${msg.content?.length ?? 0}` : 'none';
+  const hit = _previewCache.get(conv);
+  if (hit && hit.sig === sig) return hit.result;
+  const result = computeLastMessagePreview(conv);
+  _previewCache.set(conv, { sig, result });
+  return result;
+}
+function computeLastMessagePreview(conv: Conversation): PreviewResult {
   const msg = conv.messages?.[0];
   if (!msg) return { text: '' };
 
@@ -961,42 +974,8 @@ function parseSentiment(conv: Conversation): AiSentiment | null {
   }
 }
 
-// Time format theo spec user (tăng độ rộng tên conv):
-//   < 1 phút     → "Now"   (2026-06-11 đổi từ "Vừa xong")
-//   < 60 phút    → "Xp"   (vd "5p")
-//   < 24h        → "HH:mm"
-//   = 1 ngày     → "Hôm qua"
-//   < 7 ngày     → "Xd"   (vd "3d")
-//   ≥ 7 ngày cùng năm → "DD/MM" (vd "12/05") — không hiện năm
-//   năm cũ (≠ năm nay) → "MM/YYYY" (vd "11/2025") — không hiện ngày
-// _tick: timestamp reactive (từ `now` ref) — chỉ dùng để tạo dependency cho Vue
-// re-render mỗi 30s. KHÔNG bỏ tham số này, nếu không thời gian sẽ đứng yên.
-function formatTime(dateStr: string | null, _tick: number = now.value): string {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const nowDate = new Date(_tick);
-  const diffMs = nowDate.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Now';
-  if (diffMins < 60) return `${diffMins}p`;
-  const diffHours = Math.floor(diffMins / 60);
-  // 2026-05-21 Phase B-5: hour/date/year đọc theo org TZ thay vì browser local.
-  // diffMs/diffMins/diffHours/diffDays là delta UTC → TZ-agnostic, OK giữ nguyên.
-  const p = getOrgParts(date);
-  const nowP = getOrgParts(nowDate);
-  if (!p || !nowP) return '';
-  if (diffHours < 24) {
-    return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
-  }
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return 'Hôm qua';
-  if (diffDays < 7) return `${diffDays}d`;
-  // ≥ 7 ngày — phân biệt cùng năm vs năm cũ (so theo org TZ)
-  const dd = String(p.day).padStart(2, '0');
-  const mm = String(p.month).padStart(2, '0');
-  if (p.year === nowP.year) return `${dd}/${mm}`;
-  return `${mm}/${p.year}`;
-}
+// formatTime đã chuyển sang composable use-relative-time (formatConvTime) + render
+// qua component con ConvTime (2026-06-11 perf). Không còn định nghĩa ở đây.
 
 // ─── Phase 8 — Engagement pattern badge ──────────────────
 function patternIcon(pattern: string | null | undefined): string {

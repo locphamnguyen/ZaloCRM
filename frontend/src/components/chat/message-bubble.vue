@@ -131,11 +131,21 @@
 
           <!-- Image (có thể kèm caption phía dưới) -->
           <div v-else-if="getImageUrl(message)">
+            <!-- 2026-06-11: @error → placeholder khi ảnh Zalo hết hạn link (404) thay vì
+                 ô vỡ + log đỏ Console. loading=lazy: ảnh ngoài màn hình không tải vội. -->
+            <div v-if="imgFailed" class="chat-image-failed">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              <span>Ảnh không tải được</span>
+            </div>
             <img
+              v-else
               :src="getImageUrl(message)!"
               alt="Hình ảnh"
               class="chat-image"
+              loading="lazy"
+              decoding="async"
               @click="emit('preview-image', getImageUrl(message)!)"
+              @error="imgFailed = true"
             />
             <div v-if="formattedCaption" class="media-caption" v-html="formattedCaption" />
           </div>
@@ -374,6 +384,9 @@ const emit = defineEmits<{
   'explain-native': [];
   'audit-ai': [];
 }>();
+
+// 2026-06-11 — ảnh tin nhắn 404 (link Zalo hết hạn) → hiện placeholder thay ô vỡ.
+const imgFailed = ref(false);
 
 // M55 2026-05-30 — Sender attribution: hiện tên sale khác cùng chăm nếu tin
 // self do user khác (collaborator) gửi qua CRM. Skip nếu tin do mình gửi.
@@ -864,6 +877,13 @@ function openFile(href: string) {
 </script>
 
 <style scoped>
+/* 2026-06-11 — placeholder ảnh tin nhắn không tải được (Zalo hết hạn link). */
+.chat-image-failed {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  width: 180px; height: 120px; border-radius: 10px;
+  background: #f1f5f9; color: #94a3b8;
+  font-size: 11.5px; border: 1px dashed #cbd5e1;
+}
 /* Phase A UI fix (2026-05-21):
    - align-items: flex-start → avatar luôn nằm TOP-LEFT của bubble (cả user msg + group msg)
    - Bỏ msg-avatar margin-bottom hack (cũ: align với bottom + offset sender name)
