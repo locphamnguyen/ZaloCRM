@@ -44,7 +44,12 @@ export function mockReply() {
 
 // ── Mock Socket.IO server ──────────────────────────────────────────────────
 export function mockIO() {
-  return { emit: vi.fn() } as any;
+  // 2026-06-11: code thật giờ scope socket theo room (io.to('org:...').emit / 'user:...').
+  // mockIO phải hỗ trợ .to() trả về object có .emit để emitChatMessage không throw.
+  const emit = vi.fn();
+  const to = vi.fn(() => ({ emit }));
+  const inFn = vi.fn(() => ({ fetchSockets: vi.fn(async () => []) }));
+  return { emit, to, in: inFn } as any;
 }
 
 // ── Prisma mock factory ────────────────────────────────────────────────────

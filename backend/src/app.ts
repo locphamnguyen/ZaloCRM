@@ -59,6 +59,7 @@ import { zaloDashboardRoutes } from './modules/zalo/zalo-dashboard-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
 import { registerSocketAuth } from './shared/realtime/socket-auth.js';
+import { registerPrivacyLeakGuard } from './modules/privacy/privacy-leak-guard.js';
 import { registerSecurityHeaders } from './shared/security/security-headers.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
 import { searchRoutes } from './modules/search/search-routes.js';
@@ -186,6 +187,11 @@ async function bootstrap() {
 
   // Register chat Socket.IO event handlers
   registerChatSocketHandlers(io);
+
+  // PRIVACY 2026-06-11 (Đợt 3.1) — guard giám sát rò rỉ: onSend toàn cục, quét
+  // response route content/mixed, CẢNH BÁO (không tự sửa) nếu nick main chưa redact.
+  // Đăng ký TRƯỚC routes để áp cho mọi route đăng ký sau.
+  registerPrivacyLeakGuard(app);
 
   // ── Routes ────────────────────────────────────────────────────────────────
 
