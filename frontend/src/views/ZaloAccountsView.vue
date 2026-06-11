@@ -77,6 +77,7 @@
         :reconnecting-ids="reconnectingIds"
         @reconnect="onCardReconnect"
         @delete="onConfirmDelete"
+        @disconnect="onCardDisconnect"
         @open-detail="openDrawer"
         @add="openAddDialog"
       />
@@ -212,10 +213,15 @@
     <!-- DELETE CONFIRM -->
     <div v-if="showDeleteDialog" class="modal-backdrop" @click.self="showDeleteDialog = false">
       <div class="modal">
-        <div class="modal-head"><h3>Xác nhận xoá</h3></div>
+        <div class="modal-head"><h3>Xoá nick</h3></div>
         <div class="modal-body">
-          Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>"?
-          <div class="hint">Hành động này không thể hoàn tác.</div>
+          <p>Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>" khỏi quản lý?</p>
+          <div class="hint">Nick sẽ bị ẩn khỏi danh sách. Nếu kết nối lại Zalo vào nick này, toàn bộ dữ liệu CRM sẽ hiện lại.</div>
+          <label class="purge-check">
+            <input type="checkbox" v-model="deletePurge" />
+            <span>Xoá khỏi CRM (xoá phiên đăng nhập — kết nối lại sẽ tạo nick mới)</span>
+          </label>
+          <div v-if="deletePurge" class="hint hint-danger">Nếu kết nối lại Zalo, sẽ tạo một nick CRM mới với dữ liệu CRM mới.</div>
         </div>
         <div class="modal-foot">
           <button class="btn" @click="showDeleteDialog = false">Huỷ</button>
@@ -307,6 +313,7 @@ const wizardPhone = ref('');
 const connectedNickName = ref<string | null>(null);
 const showDeleteDialog = ref(false);
 const deleteTargetId = ref<string | null>(null);
+const deletePurge = ref(false); // checkbox "Xoá khỏi CRM" → wipe phiên + nhả uid
 const bulkLoading = ref(false);
 const lastRefresh = ref(new Date());
 
@@ -566,9 +573,21 @@ async function onCardReconnect(account: any) {
   }
 }
 function onConfirmDelete(account: any) {
-  // Xác nhận xóa MỀM (ẩn khỏi danh sách, giữ dữ liệu).
-  if (confirm(`Xóa nick "${account.displayName || account.phone || ''}" khỏi danh sách?\n(Dữ liệu hội thoại vẫn được giữ trong hệ thống.)`)) {
-    deleteAccount(account.id);
+  // Mở modal xác nhận (giống tab nâng cao) — có checkbox "Xoá khỏi CRM".
+  deleteTargetId.value = account.id;
+  deletePurge.value = false;
+  showDeleteDialog.value = true;
+}
+
+// Grid "Ngắt kết nối" → dùng chung flow disable (bulk-action) như tab nâng cao.
+async function onCardDisconnect(account: any) {
+  // eslint-disable-next-line no-alert
+  if (!window.confirm('Ngắt kết nối nick này?')) return;
+  try {
+    await api.post('/zalo-accounts/bulk-action', { ids: [account.id], action: 'disable' });
+    await refreshAll();
+  } catch (e: any) {
+    toast.push('Ngắt kết nối thất bại: ' + (e.response?.data?.error || e.message), 'error');
   }
 }
 
@@ -594,16 +613,24 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
       case 'sync-contacts':
         await api.post(`/zalo-accounts/${id}/sync-contacts`);
         await refreshAll();
+        toast.push('Đồng bộ danh bạ thành công', 'success');
         break;
       case 'sync-history':
         await api.post(`/zalo-accounts/${id}/sync-history`);
+        toast.push('Đồng bộ lịch sử chat thành công', 'success');
         break;
       case 'reconnect':
         await reconnectAccount(id);
         break;
-      case 'qr-login':
-        await loginAccount(id);
+      case 'qr-login': {
+        // 2026-06-11 FIX: mở wizard ở bước QR (ConnectNickWizard render qrImage) thay vì
+        // loginAccount trần — trước đây chỉ set showQRDialog (dialog cũ không còn render)
+        // → "bấm QR không nhảy QR". openQrForReconnect set wizardStep='qr' + loginAccount.
+        const acct = filtered.value.find((a) => a.id === id);
+        if (acct) openQrForReconnect(acct);
+        else { wizardStep.value = 'qr'; wizardOpen.value = true; await loginAccount(id); }
         break;
+      }
       case 'edit-proxy':
         // Simple inline prompt — replaces the dedicated proxy dialog for now.
         // eslint-disable-next-line no-alert
@@ -617,14 +644,16 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         if (!window.confirm('Ngắt kết nối nick này?')) return;
         await api.post('/zalo-accounts/bulk-action', { ids: [id], action: 'disable' });
         await refreshAll();
+        toast.push('Đã ngắt kết nối nick', 'success');
         break;
       case 'delete':
         deleteTargetId.value = id;
+        deletePurge.value = false;
         showDeleteDialog.value = true;
         break;
     }
   } catch (e: any) {
-    alert('Lỗi: ' + (e.response?.data?.error || e.message));
+    toast.push('Lỗi: ' + (e.response?.data?.error || e.message), 'error');
   }
 }
 
@@ -670,11 +699,17 @@ async function onBulkAction(action: 'reconnect' | 'sync-contacts' | 'disable') {
 
 async function handleDelete() {
   if (!deleteTarget.value) return;
-  const ok = await deleteAccount(deleteTarget.value as any);
+  const purge = deletePurge.value;
+  const ok = await deleteAccount(deleteTarget.value as any, purge);
   if (ok) {
     showDeleteDialog.value = false;
     deleteTargetId.value = null;
+    deletePurge.value = false;
+    drawerOpen.value = false; // 2026-06-11: đóng drawer chi tiết sau khi xoá (giống main)
+    toast.push(purge ? 'Đã xoá nick và dữ liệu khỏi CRM' : 'Đã ẩn nick khỏi quản lý', 'success');
     await refreshAll();
+  } else {
+    toast.push('Xoá nick thất bại', 'error');
   }
 }
 
@@ -970,6 +1005,14 @@ onMounted(async () => {
   color: #9CA3AF;
   margin-top: 4px;
 }
+.purge-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  margin-top: 12px; padding: 10px 12px;
+  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px;
+  cursor: pointer; font-size: 12.5px; color: #991B1B; line-height: 1.4;
+}
+.purge-check input { margin-top: 2px; flex-shrink: 0; }
+.hint-danger { color: #B91C1C; font-weight: 500; margin-top: 8px; }
 .modal-foot {
   padding: 12px 18px;
   background: #FAFBFC;

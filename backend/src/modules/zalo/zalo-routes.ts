@@ -3,6 +3,7 @@
  * All endpoints require authentication via authMiddleware.
  */
 import type { FastifyInstance } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
@@ -151,26 +152,36 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // Giờ: set archivedAt = now() → ẩn khỏi danh sách nhưng GIỮ toàn bộ dữ liệu trong DB.
   // Listener stop, health-check bỏ qua nick archived (không reconnect).
   // RBAC: requireAccountManagement đã chặn — owner-of-nick + admin (sale chỉ xóa nick mình).
-  app.delete<{ Params: { id: string } }>(
+  //
+  // ?purge=true → "Xoá khỏi CRM": ngoài archive còn xoá sessionData + nhả zaloUid.
+  //   Kết nối lại CÙNG tài khoản Zalo sẽ tạo nick CRM MỚI (dữ liệu CRM mới) vì uid đã nhả.
+  // ?purge=false (mặc định) → chỉ ẩn: GIỮ sessionData + zaloUid để kết nối lại nguyên vẹn.
+  app.delete<{ Params: { id: string }; Querystring: { purge?: string } }>(
     '/api/v1/zalo-accounts/:id',
     async (request, reply) => {
       const { id } = request.params;
+      const purge = request.query.purge === 'true';
       const gate = await requireAccountManagement(request, reply, id);
       if (!gate) return reply;
 
       // Stop listener trước (nick archived không cần kết nối nữa).
       zaloPool.disconnect(id);
-      // 2026-06-10 ROOT CAUSE "nick kẹt qr_pending": nick archived VẪN giữ zalo_uid (unique)
-      // → khi quét QR lại / thêm lại CÙNG tài khoản Zalo, nick mới lấy uid thật rồi update →
-      // đụng unique constraint zalo_uid với nick archived → updateAccountDB fail → kẹt.
-      // Fix: GIẢI PHÓNG zalo_uid (set null) khi soft-delete. Dữ liệu (conv/friend) key theo
-      // zaloAccountId (id) nên null uid KHÔNG mất dữ liệu; chỉ nhả khoá uid cho nick mới claim.
-      await prisma.zaloAccount.update({
-        where: { id },
-        data: { archivedAt: new Date(), status: 'disconnected', zaloUid: null },
-      });
+      if (purge) {
+        // Wipe phiên + nhả uid → re-connect tạo nick mới. Dữ liệu conv/friend key theo
+        // zaloAccountId (id) nên null uid KHÔNG mất dữ liệu; chỉ nhả khoá uid cho nick mới claim.
+        await prisma.zaloAccount.update({
+          where: { id },
+          data: { archivedAt: new Date(), status: 'disconnected', zaloUid: null, sessionData: Prisma.DbNull },
+        });
+      } else {
+        // Chỉ ẩn — giữ sessionData + zaloUid để kết nối lại nguyên vẹn.
+        await prisma.zaloAccount.update({
+          where: { id },
+          data: { archivedAt: new Date(), status: 'disconnected' },
+        });
+      }
       // Log lifecycle 2026-06-10: xác nhận soft-delete chạy (debug "xoá không được").
-      request.log?.info?.(`[zalo:${id}] soft-deleted (archivedAt set, status=disconnected, zaloUid freed, listener stopped)`);
+      request.log?.info?.(`[zalo:${id}] soft-deleted (purge=${purge}, archivedAt set, status=disconnected, listener stopped)`);
 
       return reply.status(204).send();
     },
