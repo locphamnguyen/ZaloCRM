@@ -29,6 +29,10 @@ export interface OtpStatus {
   blockedReason: 'no_internal_contact' | 'locked' | null;
   /** Còn bao lâu mới hết lock (ISO string) */
   lockedUntil: string | null;
+  /** 2026-06-11: user đã đặt ≥1 nick Riêng tư chưa (rule badge). */
+  hasPrivateNick?: boolean;
+  /** Nick nhận OTP (Zalo chính của user): SĐT liên lạc nội bộ + tên nick nội bộ. */
+  internalContact?: { phone: string | null; nickName: string | null } | null;
 }
 
 export interface RequestOtpResult {

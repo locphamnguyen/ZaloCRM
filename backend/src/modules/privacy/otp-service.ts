@@ -512,22 +512,43 @@ export interface OtpStatus {
   blockedReason: 'no_internal_contact' | 'locked' | null;
   /** Còn bao lâu mới hết lock */
   lockedUntil: Date | null;
+  /** 2026-06-11 (rule badge): user đã đặt ≥1 nick Riêng tư (privacyMode='main') chưa.
+   *  FE dùng để phân biệt: chưa bật → dialog mời cài đặt; đã bật → dialog mở khoá. */
+  hasPrivateNick: boolean;
+  /** Thông tin nick nhận OTP để FE hiển thị "gửi qua Zalo {SĐT} - {Tên}" — đây là
+   *  Zalo CHÍNH của user (SĐT user đặt liên lạc nội bộ + tên nick nội bộ). */
+  internalContact: { phone: string | null; nickName: string | null } | null;
 }
 
 export async function getOtpStatus(userId: string, orgId: string): Promise<OtpStatus> {
-  const [user, target] = await Promise.all([
+  const [user, target, privateNickCount, internalNick] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { privacyLockedUntil: true },
+      select: { privacyLockedUntil: true, phone: true },
     }),
     resolveZaloTarget(userId, orgId),
+    // Đếm nick Riêng tư của chính user (owner) — quyết định hasPrivateNick.
+    prisma.zaloAccount.count({
+      where: { orgId, ownerUserId: userId, privacyMode: 'main', archivedAt: null },
+    }),
+    // Tên nick liên lạc nội bộ của org (nick hệ thống gửi OTP đi).
+    prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { systemNotifyNick: { select: { displayName: true } } },
+    }),
   ]);
 
+  const hasPrivateNick = privateNickCount > 0;
+  const internalContact = {
+    phone: user?.phone ?? null,
+    nickName: internalNick?.systemNotifyNick?.displayName ?? null,
+  };
+
   if (user?.privacyLockedUntil && user.privacyLockedUntil > new Date()) {
-    return { canRequestOtp: false, blockedReason: 'locked', lockedUntil: user.privacyLockedUntil };
+    return { canRequestOtp: false, blockedReason: 'locked', lockedUntil: user.privacyLockedUntil, hasPrivateNick, internalContact };
   }
   if (!target) {
-    return { canRequestOtp: false, blockedReason: 'no_internal_contact', lockedUntil: null };
+    return { canRequestOtp: false, blockedReason: 'no_internal_contact', lockedUntil: null, hasPrivateNick, internalContact };
   }
-  return { canRequestOtp: true, blockedReason: null, lockedUntil: null };
+  return { canRequestOtp: true, blockedReason: null, lockedUntil: null, hasPrivateNick, internalContact };
 }

@@ -19,8 +19,28 @@
         <button class="otp-close" :disabled="busy" @click="tryClose">×</button>
       </header>
 
+      <!-- ── View 0: CHƯA BẬT NICK RIÊNG TƯ (D-A, anh chốt 2026-06-11) ── -->
+      <div v-if="view === 'no_private_nick'" class="otp-body">
+        <div class="otp-banner banner-warn">
+          <div class="banner-icon">⚠️</div>
+          <div>
+            <div class="banner-title">Bạn chưa kích hoạt nick Riêng tư</div>
+            <div class="banner-sub">
+              Tính năng mở khoá phiên chỉ dùng được khi bạn đã đặt ít nhất 1 nick Zalo ở
+              chế độ Riêng tư. Bạn có muốn đi tới cài đặt để kích hoạt không?
+            </div>
+          </div>
+        </div>
+        <footer class="otp-footer">
+          <button class="btn-secondary" @click="tryClose">Để sau</button>
+          <RouterLink class="btn-primary" :to="'/settings/channels/zalo?tab=privacy'" @click="tryClose">
+            ⚙️ Tới cài đặt kích hoạt
+          </RouterLink>
+        </footer>
+      </div>
+
       <!-- ── View 1: BLOCKED (no internal contact) ──────────────────── -->
-      <div v-if="view === 'blocked'" class="otp-body">
+      <div v-else-if="view === 'blocked'" class="otp-body">
         <div class="otp-banner banner-warn">
           <div class="banner-icon">⚠️</div>
           <div>
@@ -58,9 +78,21 @@
 
       <!-- ── View 3: CHỌN DURATION ──────────────────────────────────── -->
       <div v-else-if="view === 'pick'" class="otp-body">
+        <!-- Text mới (anh chốt 2026-06-11) -->
         <p class="otp-sub">
-          Mở khóa để xem nội dung nick chính. Mã OTP 4 số sẽ gửi qua Zalo (nick Liên lạc nội bộ).
+          <b>Mở khoá phiên làm việc Riêng tư cho chủ nick</b> trong khoảng thời gian Phiên làm việc.
         </p>
+        <p class="otp-sub" style="margin-bottom:2px;">
+          Mã OTP 4 số dùng 1 lần sẽ gửi qua Zalo:
+        </p>
+        <!-- Zalo chính của user: {SĐT liên lạc nội bộ} - {Tên nick nội bộ} -->
+        <div class="otp-zalo-target">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+          </svg>
+          <span class="ozt-text">{{ zaloTargetLabel }}</span>
+          <span class="ozt-hint">Zalo chính của bạn</span>
+        </div>
 
         <div class="duration-grid">
           <button
@@ -202,9 +234,20 @@ const DURATIONS = [
   { value: 720, label: '12 giờ', icon: '🌙', hint: 'Nửa ngày' },
 ] as const;
 
-type View = 'blocked' | 'locked' | 'pick' | 'enter' | 'success';
+type View = 'no_private_nick' | 'blocked' | 'locked' | 'pick' | 'enter' | 'success';
 const view = ref<View>('pick');
 const selectedDuration = ref<5 | 15 | 480 | 720>(15);
+
+// Nick nhận OTP — Zalo chính của user: "{SĐT} - {Tên nick nội bộ}" (anh chốt 2026-06-11).
+const internalContact = ref<{ phone: string | null; nickName: string | null } | null>(null);
+const zaloTargetLabel = computed(() => {
+  const phone = internalContact.value?.phone;
+  const name = internalContact.value?.nickName;
+  if (phone && name) return `${phone} · ${name}`;
+  if (phone) return phone;
+  if (name) return name;
+  return 'nick Liên lạc nội bộ';
+});
 
 const tokenId = ref('');
 const expiresAt = ref<Date | null>(null);
@@ -261,7 +304,12 @@ async function checkInitialStatus() {
   errorText.value = '';
   try {
     const s = await privacyStore.fetchOtpStatus();
-    if (s.blockedReason === 'no_internal_contact') {
+    internalContact.value = s.internalContact ?? null;
+    // D-A (anh chốt 2026-06-11): mở khoá XEM mà CHƯA bật nick Riêng tư nào →
+    // mời đi cài đặt. KHÔNG áp cho toggle (enable/disable đang thao tác chính nick đó).
+    if (!isToggleMode.value && s.hasPrivateNick === false) {
+      view.value = 'no_private_nick';
+    } else if (s.blockedReason === 'no_internal_contact') {
       view.value = 'blocked';
     } else if (s.blockedReason === 'locked' && s.lockedUntil) {
       const min = Math.ceil((new Date(s.lockedUntil).getTime() - Date.now()) / 60000);
@@ -453,7 +501,17 @@ onBeforeUnmount(() => {
 }
 .otp-close:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
 .otp-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
-.otp-sub { font-size: 13px; color: #555; margin: 0; line-height: 1.5; }
+.otp-sub { font-size: 13px; color: #555; margin: 0 0 8px; line-height: 1.5; }
+.otp-sub b { color: #181d26; }
+/* Zalo target: SĐT + tên nick nội bộ (Zalo chính của user) — anh chốt 2026-06-11 */
+.otp-zalo-target {
+  display: flex; align-items: center; gap: 8px;
+  background: #eef4ff; border: 1px solid #cfe0ff; border-radius: 9px;
+  padding: 9px 12px; margin: 4px 0 4px;
+}
+.otp-zalo-target svg { width: 18px; height: 18px; color: #1a4ba8; flex-shrink: 0; }
+.ozt-text { font-size: 13.5px; font-weight: 700; color: #1a4ba8; font-variant-numeric: tabular-nums; }
+.ozt-hint { font-size: 11px; color: #6b85b8; margin-left: auto; white-space: nowrap; }
 
 .duration-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
