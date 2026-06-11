@@ -21,6 +21,7 @@ import { DEFAULT_VIRTUAL_CHAT_PROMPT } from './prompts/virtual-chat-assistant.js
 import { safeParseEntities, type ExtractedEntities } from './schemas/extracted-entities.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
 import { assertAiCapability, auditAiAction } from './ai-capabilities.js';
+import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 
 const THROTTLE_MS = 5_000;
 const throttleMap = new Map<string, number>(); // in-memory fallback (no Redis)
@@ -172,17 +173,22 @@ async function runVirtualChatAiReply(
     const safeMessage = { ...aiMessage, zaloMsgIdNum: null as string | null };
     const conv = await prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { zaloAccountId: true },
+      select: { zaloAccountId: true, zaloAccount: { select: { privacyMode: true, ownerUserId: true } } },
     });
-    io?.emit('chat:message', {
-      accountId: conv?.zaloAccountId,
-      message: safeMessage,
+    // PRIVACY 2026-06-11: qua emit-chat (redact + scope org).
+    await emitChatMessage({
+      io,
+      orgId,
+      accountId: conv?.zaloAccountId ?? '',
       conversationId,
-      _virtual: true,
-      _aiAssistant: true,
+      message: safeMessage,
+      privacyMode: conv?.zaloAccount?.privacyMode ?? 'sub',
+      ownerUserId: conv?.zaloAccount?.ownerUserId ?? null,
+      extra: { _virtual: true, _aiAssistant: true },
     });
     if (entities) {
-      io?.emit('chat:ai-suggestion', {
+      // ai-suggestion chỉ là entities (metadata), scope org để chặn cross-tenant.
+      io?.to(`org:${orgId}`).emit('chat:ai-suggestion', {
         conversationId,
         messageId: aiMessage.id,
         entities,

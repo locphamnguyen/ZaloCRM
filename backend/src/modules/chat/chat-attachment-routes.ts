@@ -9,6 +9,7 @@ import { writeFile, unlink, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Server } from 'socket.io';
+import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
@@ -310,15 +311,16 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
         });
 
         for (const m of created) {
-          // PRIVACY 2026-05-22: kèm _privacyMeta cho FE realtime blur
-          io?.emit('chat:message', {
+          // PRIVACY 2026-06-11: redact + scope org (emit-chat). Nick main → URL file
+          // KHÔNG ra room org (chỉ chính chủ đã unlock nhận bản thật).
+          await emitChatMessage({
+            io,
+            orgId: user.orgId,
             accountId: conversation.zaloAccountId,
-            message: m,
             conversationId: id,
-            _privacyMeta: {
-              privacyMode: conversation.zaloAccount.privacyMode,
-              ownerUserId: conversation.zaloAccount.ownerUserId,
-            },
+            message: m,
+            privacyMode: conversation.zaloAccount.privacyMode,
+            ownerUserId: conversation.zaloAccount.ownerUserId,
           });
         }
 

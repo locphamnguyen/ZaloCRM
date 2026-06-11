@@ -13,6 +13,7 @@ import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
+import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { applyContactAggregateFromMessage, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 // M53 2026-05-30 — AI Trợ Lý cho Virtual Chat (KH no-Zalo)
@@ -904,11 +905,20 @@ export async function chatRoutes(app: FastifyInstance) {
             },
           },
         },
-        zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true } },
+        // PRIVACY 2026-06-11: cần privacyMode + ownerUserId để gate redact.
+        zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true, privacyMode: true, ownerUserId: true } },
         pins: { select: { id: true } },
       },
     });
     if (!conversation) return reply.status(404).send({ error: 'Not found' });
+
+    // PRIVACY 2026-06-11 — SCOPE GUARD: endpoint này trước đây thiếu cả scope lẫn redact
+    // (audit C4). Chặn user ngoài quyền đọc chi tiết hội thoại của nick người khác.
+    const { getZaloScope } = await import('../zalo/zalo-scope.js');
+    const scope = await getZaloScope(user.id, user.orgId, user.role);
+    if (!scope.isOrgAdmin && !scope.accessibleIds.includes(conversation.zaloAccountId)) {
+      return reply.status(403).send({ error: 'Bạn không có quyền xem hội thoại này', code: 'not_in_scope' });
+    }
 
     // Friend per-pair info — counters + leadScore + status RIÊNG cặp (nick, KH).
     // Header chat phải dùng per-pair counter (KHÔNG dùng contact.totalInbound aggregate
@@ -952,7 +962,29 @@ export async function chatRoutes(app: FastifyInstance) {
       friendship = f;
     }
 
-    return { ...conversation, isPinned: conversation.pins.length > 0, friendship };
+    // PRIVACY 2026-06-11 — redact PII contact + alias friend nếu nick main & viewer
+    // không phải chính chủ đã unlock (audit C4: trước đây trả full PII).
+    const { buildPrivacyContext, canSeeConversationContent, redactContact, redactFriend } =
+      await import('../privacy/redact.js');
+    const privacyCtx = await buildPrivacyContext(request);
+    let outContact: any = conversation.contact;
+    let outFriendship: any = friendship;
+    if (!canSeeConversationContent(conversation as any, privacyCtx)) {
+      if (outContact) outContact = redactContact(outContact, privacyCtx);
+      if (outFriendship) {
+        outFriendship = redactFriend(
+          { ...outFriendship, zaloAccount: { privacyMode: conversation.zaloAccount.privacyMode, ownerUserId: conversation.zaloAccount.ownerUserId } } as any,
+          privacyCtx,
+        );
+      }
+    }
+
+    return {
+      ...conversation,
+      contact: outContact,
+      isPinned: conversation.pins.length > 0,
+      friendship: outFriendship,
+    };
   });
 
   // ── POST /conversations/:id/touch-profile — pull profile từ Zalo SDK on conv click.
@@ -1280,11 +1312,15 @@ export async function chatRoutes(app: FastifyInstance) {
 
     const redacted = ordered.map((m) => {
       const r = redactMessage(m as any, conversation as any, privacyCtx);
+      // PRIVACY 2026-06-11 (audit H1): senderResolved (tên/crmName/alias KH) gán SAU
+      // redactMessage → KHÔNG gán cho tin đã redact, nếu không cấp trên vẫn đọc được
+      // DANH SÁCH tên KH riêng tư dù nội dung đã mờ.
+      const isRedacted = (r as any).redacted === true;
       // BigInt zaloMsgIdNum → string cho JSON serialize
       return {
         ...r,
         zaloMsgIdNum: (r as any).zaloMsgIdNum?.toString() ?? null,
-        senderResolved: resolveSender(m),
+        senderResolved: isRedacted ? null : resolveSender(m),
       };
     });
     return { messages: redacted, total, page: parseInt(page), limit: parseInt(limit) };
@@ -1352,11 +1388,17 @@ export async function chatRoutes(app: FastifyInstance) {
 
         const safeMessage = { ...message, zaloMsgIdNum: null as string | null };
         const io = (app as any).io as Server;
-        io?.emit('chat:message', {
+        // PRIVACY 2026-06-11: qua emit-chat (redact + scope org). Virtual conv vẫn
+        // theo privacy của nick để nhất quán (kèm cờ _virtual).
+        await emitChatMessage({
+          io,
+          orgId: user.orgId,
           accountId: conversation.zaloAccountId,
-          message: safeMessage,
           conversationId: id,
-          _virtual: true,
+          message: safeMessage,
+          privacyMode: conversation.zaloAccount.privacyMode,
+          ownerUserId: conversation.zaloAccount.ownerUserId,
+          extra: { _virtual: true },
         });
 
         // M53 AI Trợ Lý — fire-and-forget, KHÔNG block response
@@ -1504,15 +1546,16 @@ export async function chatRoutes(app: FastifyInstance) {
       // Cast trước khi emit + return.
       const safeMessage = { ...message, zaloMsgIdNum: message.zaloMsgIdNum?.toString() ?? null };
       const io = (app as any).io as Server;
-      // PRIVACY 2026-05-22: kèm _privacyMeta để FE detect & blur cho non-owner
-      io?.emit('chat:message', {
+      // PRIVACY 2026-06-11: redact server-side + scope org (emit-chat). Nick main →
+      // room org nhận bản mờ, chính chủ đã unlock nhận bản thật ở room riêng.
+      await emitChatMessage({
+        io,
+        orgId: user.orgId,
         accountId: conversation.zaloAccountId,
-        message: safeMessage,
         conversationId: id,
-        _privacyMeta: {
-          privacyMode: conversation.zaloAccount.privacyMode,
-          ownerUserId: conversation.zaloAccount.ownerUserId,
-        },
+        message: safeMessage,
+        privacyMode: conversation.zaloAccount.privacyMode,
+        ownerUserId: conversation.zaloAccount.ownerUserId,
       });
 
       return safeMessage;
@@ -1742,14 +1785,15 @@ export async function chatRoutes(app: FastifyInstance) {
           sentCount++;
 
           const safeMessage = { ...created, zaloMsgIdNum: created.zaloMsgIdNum?.toString() ?? null };
-          io?.emit('chat:message', {
+          // PRIVACY 2026-06-11: redact + scope org (emit-chat).
+          await emitChatMessage({
+            io,
+            orgId: user.orgId,
             accountId: zaloAccountId,
-            message: safeMessage,
             conversationId: id,
-            _privacyMeta: {
-              privacyMode: conversation.zaloAccount.privacyMode,
-              ownerUserId: conversation.zaloAccount.ownerUserId,
-            },
+            message: safeMessage,
+            privacyMode: conversation.zaloAccount.privacyMode,
+            ownerUserId: conversation.zaloAccount.ownerUserId,
           });
         }
       } catch (err: any) {
@@ -1937,15 +1981,15 @@ export async function chatRoutes(app: FastifyInstance) {
 
       const io = (app as any).io as Server;
       for (const m of createdMessages) {
-        // PRIVACY 2026-05-22: kèm _privacyMeta để FE detect & blur cho non-owner
-        io?.emit('chat:message', {
+        // PRIVACY 2026-06-11: redact + scope org (emit-chat).
+        await emitChatMessage({
+          io,
+          orgId: user.orgId,
           accountId: conversation.zaloAccountId,
-          message: m,
           conversationId: id,
-          _privacyMeta: {
-            privacyMode: conversation.zaloAccount.privacyMode,
-            ownerUserId: conversation.zaloAccount.ownerUserId,
-          },
+          message: m,
+          privacyMode: conversation.zaloAccount.privacyMode,
+          ownerUserId: conversation.zaloAccount.ownerUserId,
         });
       }
 

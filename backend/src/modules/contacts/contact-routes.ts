@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
+import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireAnyGrant, requireGrant } from '../rbac/rbac-middleware.js';
@@ -798,14 +799,23 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       });
 
       // Emit socket cho realtime (nếu sale đang mở /chat)
+      // PRIVACY 2026-06-11: qua emit-chat (redact + scope org). myNickId là nick nội
+      // bộ của chính sale (owner=sale) nên chính chủ vẫn nhận thật; nếu nick để main,
+      // người khác nhận bản mờ.
       const io = (app as any).io as Server | undefined;
-      io?.emit('chat:message', {
+      const myNickPriv = await prisma.zaloAccount.findUnique({
+        where: { id: myNickId },
+        select: { privacyMode: true, ownerUserId: true },
+      });
+      await emitChatMessage({
+        io,
+        orgId: user.orgId,
         accountId: myNickId,
-        message: { ...welcomeMessage, zaloMsgIdNum: null as string | null },
         conversationId: created.id,
-        _virtual: true,
-        _aiAssistant: true,
-        _welcome: true,
+        message: { ...welcomeMessage, zaloMsgIdNum: null as string | null },
+        privacyMode: myNickPriv?.privacyMode ?? 'sub',
+        ownerUserId: myNickPriv?.ownerUserId ?? null,
+        extra: { _virtual: true, _aiAssistant: true, _welcome: true },
       });
 
       // M55.3 2026-05-30: AI message #2 — Cảnh báo KH duplicate sau welcome 2.5s.
@@ -1744,27 +1754,43 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         _count: { select: { conversations: true, appointments: true } },
       };
 
+      // PRIVACY 2026-06-11 (audit C5) — endpoint này trước đây KHÔNG scope + KHÔNG
+      // redact: POST 1 SĐT/zaloUid là harvest full PII KH của nick main sale khác.
+      // Helper: chỉ trả KH viewer có quyền scope, và redact PII nếu thuộc nick main
+      // non-owner. Ngoài scope → coi như không khớp (matched:false, không lộ tồn tại).
+      const { buildPrivacyContext, shouldRedactContactPii, redactContact } =
+        await import('../privacy/redact.js');
+      const privacyCtx = await buildPrivacyContext(request);
+      async function gateContact(c: any, by: string) {
+        const visible = await assertContactVisible({
+          userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: c.id,
+        });
+        if (!visible) return reply.send({ matched: false });
+        const out = (await shouldRedactContactPii(c.id, privacyCtx)) ? redactContact(c, privacyCtx) : c;
+        return reply.send({ matched: true, by, contact: out });
+      }
+
       // Order: globally-unique trước, phone sau cùng (vì có thể trùng/đổi chủ).
       if (body.zaloGlobalId) {
         const c = await prisma.contact.findFirst({
           where: { ...baseWhere, zaloGlobalId: body.zaloGlobalId },
           include,
         });
-        if (c) return reply.send({ matched: true, by: 'zaloGlobalId', contact: c });
+        if (c) return gateContact(c, 'zaloGlobalId');
       }
       if (body.zaloUsername) {
         const c = await prisma.contact.findFirst({
           where: { ...baseWhere, zaloUsername: body.zaloUsername },
           include,
         });
-        if (c) return reply.send({ matched: true, by: 'zaloUsername', contact: c });
+        if (c) return gateContact(c, 'zaloUsername');
       }
       if (body.zaloUid) {
         const c = await prisma.contact.findFirst({
           where: { ...baseWhere, zaloUid: body.zaloUid },
           include,
         });
-        if (c) return reply.send({ matched: true, by: 'zaloUid', contact: c });
+        if (c) return gateContact(c, 'zaloUid');
       }
       const canonicalPhone = normalizePhone(body.phone);
       if (canonicalPhone) {
@@ -1772,7 +1798,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           where: { ...baseWhere, phoneNormalized: canonicalPhone },
           include,
         });
-        if (c) return reply.send({ matched: true, by: 'phone', contact: c });
+        if (c) return gateContact(c, 'phone');
       }
       return reply.send({ matched: false });
     } catch (err) {
@@ -2413,13 +2439,20 @@ async function sendDuplicateAlertMessage(
           where: { id: conversationId },
           data: { lastMessageAt: new Date() },
         });
-        io?.emit('chat:message', {
+        // PRIVACY 2026-06-11: qua emit-chat (redact + scope org).
+        const nickPriv = await prisma.zaloAccount.findUnique({
+          where: { id: myNickId },
+          select: { privacyMode: true, ownerUserId: true },
+        });
+        await emitChatMessage({
+          io,
+          orgId,
           accountId: myNickId,
-          message: { ...dupMsg, zaloMsgIdNum: null as string | null },
           conversationId,
-          _virtual: true,
-          _aiAssistant: true,
-          _dupAlert: true,
+          message: { ...dupMsg, zaloMsgIdNum: null as string | null },
+          privacyMode: nickPriv?.privacyMode ?? 'sub',
+          ownerUserId: nickPriv?.ownerUserId ?? null,
+          extra: { _virtual: true, _aiAssistant: true, _dupAlert: true },
         });
       } catch (err) {
         logger.warn(`[virtual-conv] dup-alert send failed: ${String(err)}`);

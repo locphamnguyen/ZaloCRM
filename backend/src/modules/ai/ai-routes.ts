@@ -32,6 +32,33 @@ async function assertConversationReadAccess(request: FastifyRequest, reply: Fast
   return conversation;
 }
 
+/**
+ * PRIVACY 2026-06-11 (audit C6/H10) — chặn AI đọc content của nick Riêng tư cho
+ * người KHÔNG phải chính chủ đã unlock. Tóm tắt/cảm xúc/nháp được SINH RA từ nội
+ * dung nên không thể chỉ blur output — phải ngăn AI đọc input. Trả false (đã gửi
+ * 403) nếu không được phép; true nếu OK.
+ */
+async function assertPrivacyAllowsAi(request: FastifyRequest, reply: FastifyReply, conversationId: string): Promise<boolean> {
+  const conv = await prisma.conversation.findFirst({
+    where: { id: conversationId, orgId: request.user!.orgId },
+    select: { zaloAccount: { select: { privacyMode: true, ownerUserId: true } } },
+  });
+  if (!conv) {
+    reply.status(404).send({ error: 'Conversation not found' });
+    return false;
+  }
+  const { buildPrivacyContext, canSeeConversationContent } = await import('../privacy/redact.js');
+  const ctx = await buildPrivacyContext(request);
+  if (!canSeeConversationContent(conv as any, ctx)) {
+    reply.status(403).send({
+      error: 'Nick này đang bật Riêng tư — chỉ chính chủ đã mở khoá mới dùng được AI trên hội thoại này.',
+      code: 'PRIVACY_LOCKED',
+    });
+    return false;
+  }
+  return true;
+}
+
 function getStatusFromError(err: unknown, fallback: string) {
   const message = err instanceof Error ? err.message : fallback;
   const status = message.includes('quota exceeded') ? 429 : message.includes('not found') ? 404 : message.includes('disabled') || message.includes('configured') ? 400 : 500;
@@ -88,6 +115,7 @@ export async function aiRoutes(app: FastifyInstance) {
       if (!body.conversationId) return reply.status(400).send({ error: 'conversationId is required' });
       const access = await assertConversationReadAccess(request, reply, body.conversationId);
       if (!access) return;
+      if (!(await assertPrivacyAllowsAi(request, reply, body.conversationId))) return;
       return await generateAiOutput({ orgId: request.user!.orgId, conversationId: body.conversationId, messageId: body.messageId, type: 'reply_draft' });
     } catch (err) {
       logger.error('[ai] Suggest error:', err);
@@ -98,6 +126,7 @@ export async function aiRoutes(app: FastifyInstance) {
   app.post('/api/v1/ai/summarize/:id', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!(await assertPrivacyAllowsAi(request, reply, id))) return;
       return await generateAiOutput({ orgId: request.user!.orgId, conversationId: id, type: 'summary' });
     } catch (err) {
       logger.error('[ai] Summary error:', err);
@@ -108,6 +137,7 @@ export async function aiRoutes(app: FastifyInstance) {
   app.post('/api/v1/ai/sentiment/:id', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { id } = request.params as { id: string };
+      if (!(await assertPrivacyAllowsAi(request, reply, id))) return;
       return await generateAiOutput({ orgId: request.user!.orgId, conversationId: id, type: 'sentiment' });
     } catch (err) {
       logger.error('[ai] Sentiment error:', err);

@@ -93,6 +93,10 @@ export function registerSocketAuth(io: Server, app: FastifyInstance): void {
     if (ctx) {
       // Room org lấy từ token — KHÔNG nhận orgId từ client nữa.
       socket.join(`org:${ctx.orgId}`);
+      // Privacy 2026-06-11 — room riêng theo user, để emit bản nội dung THẬT của
+      // nick Riêng tư CHỈ tới chính chủ (per-recipient redaction). Người khác trong
+      // org nhận bản đã làm mờ ở room org. userId lấy từ token (không nhận từ client).
+      socket.join(`user:${ctx.userId}`);
     }
     socket.on('disconnect', () => {
       const t = socket.data?.expiryTimer as NodeJS.Timeout | undefined;

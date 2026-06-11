@@ -142,6 +142,35 @@ export async function getStatus(userId: string): Promise<{
 }
 
 /**
+ * hasActivePrivacySession — user có phiên mở khóa Riêng tư đang hiệu lực không?
+ * Dùng cho emit realtime per-recipient (emit-chat.ts): chỉ owner ĐÃ unlock mới nhận
+ * bản nội dung thật của nick main qua socket.
+ *
+ * Cache ngắn 5s theo userId để không query DB mỗi tin nhắn đến (hot path). Đủ tươi
+ * vì idle/expiry tính bằng phút; trễ tối đa 5s khi vừa unlock/lock là chấp nhận được.
+ */
+const activeSessionCache = new Map<string, { value: boolean; at: number }>();
+const ACTIVE_SESSION_CACHE_MS = 5 * 1000;
+
+export async function hasActivePrivacySession(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = activeSessionCache.get(userId);
+  if (cached && now - cached.at < ACTIVE_SESSION_CACHE_MS) return cached.value;
+
+  const session = await prisma.userPrivacySession.findFirst({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    select: { lastActivityAt: true },
+  });
+  // Tôn trọng idle timeout: session quá hạn idle coi như không active.
+  let active = false;
+  if (session) {
+    active = now - session.lastActivityAt.getTime() <= IDLE_TIMEOUT_MS;
+  }
+  activeSessionCache.set(userId, { value: active, at: now });
+  return active;
+}
+
+/**
  * Owner reset lock cho user (forgot/offline Zalo recovery).
  * Clear fail counter + lockout + revoke sessions. (Không còn PIN hash để clear.)
  */
