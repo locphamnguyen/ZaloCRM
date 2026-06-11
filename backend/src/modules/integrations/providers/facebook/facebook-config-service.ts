@@ -60,6 +60,15 @@ export async function getFacebookConfig(orgId: string): Promise<ResolvedFacebook
   };
 }
 
+/**
+ * Khoá AES-256-GCM mã hoá page token luồng Form: DB per-org (UI ⚙) → fallback env.
+ * Trả null nếu chưa cấu hình ở cả 2 nơi (aes-gcm sẽ throw khi dùng — fail-safe).
+ */
+export async function getTokenEncKey(orgId: string): Promise<string | null> {
+  const cfg = await getFacebookConfig(orgId);
+  return cfg.tokenEncKey;
+}
+
 /** Bản che secret để trả ra UI. */
 export async function getFacebookConfigMasked(orgId: string): Promise<MaskedFacebookConfig> {
   const row = await runSystemQuery(() =>

@@ -23,6 +23,7 @@ import { prisma } from '../../../../shared/database/prisma-client.js';
 import { getRedis } from '../../../../shared/redis-client.js';
 import { logger } from '../../../../shared/utils/logger.js';
 import { decrypt } from '../../../../shared/crypto/aes-gcm.js';
+import { getTokenEncKey } from './facebook-config-service.js';
 import { getLeadgenForms } from './facebook-graph-client.js';
 import { randomUUID } from 'node:crypto';
 
@@ -104,7 +105,7 @@ export async function processFormDiscoveryJob(
 
   let pageToken: string;
   try {
-    pageToken = decrypt(pageConn.accessTokenEnc);
+    pageToken = decrypt(pageConn.accessTokenEnc, await getTokenEncKey(orgId));
   } catch (err) {
     logger.error('[fb-discovery] token decrypt failed for pageId=%s: %s', pageId, (err as Error).message);
     return summary;

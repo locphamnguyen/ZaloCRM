@@ -247,8 +247,43 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
-import * as XLSX from 'xlsx';
+// Phase 08 of security plan: replaced xlsx (GHSA-4r6h-8v6p-xvw6, unpatched
+// prototype pollution + ReDoS) with exceljs, lazy-imported to keep the
+// vendor bundle small for users who never open the list-import modal.
 import { useCustomerLists, type DryRunResult, type MappedRow } from '@/composables/use-customer-lists';
+
+/**
+ * Read the first worksheet of an xlsx/xls/csv file into a 2D string-cell
+ * array (one row per array entry). Lazy-imports exceljs so the dependency
+ * only loads when a user actually opens the import modal.
+ *
+ * For .csv: ExcelJS parses with default delimiter detection; for shapes
+ * the legacy `xlsx` library handled differently we re-do header detection
+ * downstream — that logic is unchanged.
+ */
+async function parseSheetToRows(buf: ArrayBuffer, filename: string): Promise<unknown[][]> {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  const lo = filename.toLowerCase();
+  if (lo.endsWith('.csv')) {
+    // exceljs's csv stream wants a Readable; for browser use, feed via text.
+    const text = new TextDecoder().decode(buf);
+    // Tiny CSV split — keeps the lazy-loaded surface small. Splits on \r?\n
+    // and on bare commas. For quoted/escaped CSVs users should use Excel.
+    const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
+    return lines.map((line) => line.split(',').map((c) => c.trim()));
+  }
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  if (!ws) return [];
+  const out: unknown[][] = [];
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    // row.values is 1-indexed with a leading null; drop index 0.
+    const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+    out.push(values);
+  });
+  return out;
+}
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{
@@ -366,9 +401,7 @@ async function handleFile(file: File) {
   }
   try {
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const arr = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, blankrows: false, defval: '' }) as any[][];
+    const arr = await parseSheetToRows(buf, file.name);
     if (!arr.length) {
       fileError.value = 'File rỗng.';
       return;

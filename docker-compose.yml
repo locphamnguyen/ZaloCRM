@@ -101,11 +101,22 @@ services:
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # SECURITY: no defaults — deploy MUST set MINIO_ROOT_USER and
+      # MINIO_ROOT_PASSWORD in .env. Previously fell back to minioadmin/
+      # minioadmin which let anyone with network access pop the admin console.
+      MINIO_ROOT_USER:     "${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}"
     volumes:
       - minio_data:/data
     ports:
+      # Port 9000 (S3 API) MUST stay reachable from Zalo CDN — Zalo's servers
+      # fetch attachment URLs we send via zca-js sendImage/sendVideo, so we
+      # can't bind to loopback. In production this MUST sit behind a TLS
+      # reverse proxy (nginx/Caddy) on the host that:
+      #   - serves /<bucket>/<key> with HTTPS
+      #   - rate-limits per IP
+      #   - keeps the admin console (:9001) firewalled to ops VPN only.
+      # The :9001 admin console IS bound to 127.0.0.1 below — never expose it.
       - "9000:9000"
       - "127.0.0.1:9001:9001"
     healthcheck:
@@ -122,14 +133,21 @@ services:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
       mc mb --ignore-existing local/${S3_BUCKET:-zalocrm-attachments};
       mc anonymous set download local/${S3_BUCKET:-zalocrm-attachments};
       exit 0;
       "
+    # Anonymous DOWNLOAD on the bucket is intentional: Zalo's CDN fetches
+    # attachment URLs we hand to zca-js. Keys are random UUIDs (see
+    # backend/src/shared/storage/minio-client.ts: `${date}/${randomUUID()}${ext}`)
+    # so listing is disabled and enumeration is infeasible.
+    # Anonymous UPLOAD is NOT enabled — only the backend can write via
+    # access-key auth.
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Same hard-fail pattern as minio service — no default credentials.
+      MINIO_ROOT_USER:     "${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}"
       S3_BUCKET: ${S3_BUCKET:-zalocrm-attachments}
 
   backup:

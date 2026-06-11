@@ -128,7 +128,15 @@
                     <v-icon size="18">mdi-folder-outline</v-icon>
                   </div>
                   <div class="nst">
-                    <div class="nm cell-strong">{{ list.name }}</div>
+                    <div class="nm cell-strong">
+                      {{ list.name }}
+                      <v-icon
+                        v-if="list.fbLocked"
+                        size="13"
+                        color="primary"
+                        title="Tệp khoá: tạo tự động từ Facebook Lead Form — không thể xoá/đổi tên"
+                      >mdi-lock</v-icon>
+                    </div>
                     <div class="sub t-cap">{{ list.createdBy?.fullName ?? list.createdBy?.email ?? '—' }}</div>
                   </div>
                 </div>
@@ -221,7 +229,15 @@
                       <v-list-item-title>Lưu trữ</v-list-item-title>
                     </v-list-item>
                     <v-divider />
-                    <v-list-item @click="onDelete(list.id)" prepend-icon="mdi-delete-outline" class="danger">
+                    <v-list-item
+                      v-if="list.fbLocked"
+                      disabled
+                      prepend-icon="mdi-lock"
+                      title="Tệp khoá: tạo tự động từ Facebook Lead Form — ngắt kết nối form trước khi xoá"
+                    >
+                      <v-list-item-title style="color: var(--text-muted)">Khoá (FB Form)</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item v-else @click="onDelete(list.id)" prepend-icon="mdi-delete-outline" class="danger">
                       <v-list-item-title style="color: var(--error)">Xoá tệp</v-list-item-title>
                     </v-list-item>
                   </v-list>

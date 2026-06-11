@@ -161,10 +161,10 @@
               v-for="tag in displayTags(conv).slice(0, 3)"
               :key="tag.key"
               class="tag-mini"
-              :class="{ 'tag-zalo': tag.isZalo, 'tag-crm': !tag.isZalo }"
+              :class="{ 'tag-zalo': tag.isZalo, 'tag-crm': !tag.isZalo, 'tag-auto': tag.isAuto }"
               :style="{ '--tag-color': tag.color }"
             >
-              <ZaloBrandIcon v-if="tag.isZalo" :size="11" />{{ tag.name }}
+              <ZaloBrandIcon v-if="tag.isZalo" :size="11" /><span v-else-if="tag.emoji" class="tag-mini-emoji">{{ tag.emoji }}</span>{{ tag.name }}
             </span>
 
             <v-menu
@@ -186,10 +186,10 @@
                   v-for="tag in displayTags(conv).slice(3)"
                   :key="tag.key"
                   class="tag-popup-pill"
-                  :class="{ 'tag-zalo': tag.isZalo, 'tag-crm': !tag.isZalo }"
+                  :class="{ 'tag-zalo': tag.isZalo, 'tag-crm': !tag.isZalo, 'tag-auto': tag.isAuto }"
                   :style="{ '--tag-color': tag.color }"
                 >
-                  <ZaloBrandIcon v-if="tag.isZalo" :size="11" />{{ tag.name }}
+                  <ZaloBrandIcon v-if="tag.isZalo" :size="11" /><span v-else-if="tag.emoji" class="tag-mini-emoji">{{ tag.emoji }}</span>{{ tag.name }}
                 </span>
               </div>
             </v-menu>
@@ -271,6 +271,8 @@ import NewMessageDialog from '@/components/chat/NewMessageDialog.vue';
 import NickPickerPopup from '@/components/zalo-accounts/NickPickerPopup.vue';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 import { loadTagDefs, isZaloManaged, cleanTagName, tagColor } from '@/composables/use-crm-tag-defs';
+import { loadTagTaxonomy, findTagBySlug, useTagTaxonomy } from '@/composables/use-tag-taxonomy';
+import { getAutoTagDef } from '@/constants/auto-tags';
 import { getOrgParts } from '@/composables/use-org-timezone';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import { usePrivacyVisibility } from '@/composables/use-privacy-visibility';
@@ -437,8 +439,25 @@ function buildFilterParams(): Record<string, string> {
 // 2026-06-06 (Anh chốt) — Tag Zalo Real ở cột 2 lấy từ Friend.zaloLabels (object {name,color}
 // màu CHUẨN = zalo_labels.color, đồng bộ TagCrmBar + header) thay vì string '🔵 X' + crm_tags legacy.
 // Tag khác (manual/auto) giữ đường cũ. Trả object {name, color, isZalo} thống nhất.
-interface DisplayTag { name: string; color: string; isZalo: boolean; key: string }
+interface DisplayTag { name: string; color: string; emoji?: string | null; isZalo: boolean; isAuto?: boolean; key: string }
+
+// Reactive trigger — displayTags đọc taxonomyVersion.value để Vue re-render khi
+// taxonomy load xong (slug→name). Không có dòng này thì tag hiện slug tới lần render sau.
+const { taxonomyVersion } = useTagTaxonomy();
+
+// Resolve 1 slug CRM/manual → def taxonomy (name/color/emoji). Fallback slug thô nếu
+// không tìm thấy (free-text tag chưa migrate / taxonomy chưa load).
+function resolveCrmTag(slug: string): DisplayTag {
+  const def = findTagBySlug(slug);
+  if (def) {
+    return { name: def.name, color: def.color || '#6B7280', emoji: def.emoji, isZalo: false, key: 'c:' + slug };
+  }
+  // Fallback: tag legacy lưu NAME (CrmTag table) hoặc free-text → dùng đường cũ.
+  return { name: cleanTagName(slug), color: tagColor(slug) || '#6B7280', isZalo: false, key: 'c:' + slug };
+}
+
 function displayTags(conv: Conversation): DisplayTag[] {
+  void taxonomyVersion.value; // reactive dep — re-eval khi taxonomy load/refresh
   const seen = new Set<string>();
   const out: DisplayTag[] = [];
   // 1. Tag Zalo Real từ zaloLabels (màu chuẩn) — ƯU TIÊN đầu.
@@ -450,7 +469,25 @@ function displayTags(conv: Conversation): DisplayTag[] {
       out.push({ name: z.name, color: z.color || '#0068FF', isZalo: true, key: 'z:' + (z.id ?? z.name) });
     }
   }
-  // 2. Tag CRM khác (manual/auto) — Contact.tags + crmTagsPerNick KHÔNG có prefix 🔵 (Zalo đã lấy ở trên).
+  // 2. Auto-tags (Friend.autoTags) — slug cố định. Nhóm Detect (active/cold/ready/…)
+  //    dùng AUTO_TAG_DISPLAY (nhãn Việt + icon). Nhóm Engagement (engagement-hot/…) là
+  //    Tag v2 thật → resolve qua taxonomy. Ưu tiên taxonomy, fallback AUTO_TAG_DISPLAY.
+  const autoTagsRaw = (conv.friendship as { autoTags?: string[] } | null | undefined)?.autoTags;
+  if (Array.isArray(autoTagsRaw)) {
+    for (const key of autoTagsRaw) {
+      if (!key || seen.has('a:' + key)) continue;
+      seen.add('a:' + key);
+      const taxDef = findTagBySlug(key);
+      if (taxDef) {
+        out.push({ name: taxDef.name, color: taxDef.color || '#9CA3AF', emoji: taxDef.emoji, isZalo: false, isAuto: true, key: 'a:' + key });
+      } else {
+        const def = getAutoTagDef(key);
+        out.push({ name: def.label, color: def.color, emoji: def.icon, isZalo: false, isAuto: true, key: 'a:' + key });
+      }
+    }
+  }
+  // 3. Tag CRM khác (manual/crm) — Contact.tags + crmTagsPerNick lưu SLUG tag v2.
+  //    KHÔNG có prefix 🔵 (Zalo đã lấy ở trên). Resolve slug→name/màu qua taxonomy.
   const contactTags = Array.isArray(conv.contact?.tags) ? (conv.contact!.tags as string[]) : [];
   const friendTagsRaw = (conv.friendship as { crmTagsPerNick?: string[] } | null | undefined)?.crmTagsPerNick;
   const friendTags = Array.isArray(friendTagsRaw) ? friendTagsRaw : [];
@@ -458,7 +495,7 @@ function displayTags(conv: Conversation): DisplayTag[] {
     if (t.startsWith('🔵 ')) continue; // tag Zalo mirror → đã lấy từ zaloLabels
     if (seen.has('c:' + t)) continue;
     seen.add('c:' + t);
-    out.push({ name: cleanTagName(t), color: tagColor(t) || '#6B7280', isZalo: false, key: 'c:' + t });
+    out.push(resolveCrmTag(t));
   }
   return out;
 }
@@ -587,7 +624,8 @@ watch(activeTab, () => {
 
 onMounted(async () => {
   // Load CrmTag defs (color + managedBy) cho TagIcon render — share cache toàn app
-  await Promise.all([fetchCounts(), fetchAvailableTags(), loadTagDefs()]);
+  // loadTagTaxonomy: slug→{name,color,emoji} cho tag v2 (crmTagsPerNick/contact.tags lưu slug).
+  await Promise.all([fetchCounts(), fetchAvailableTags(), loadTagDefs(), loadTagTaxonomy()]);
 });
 
 /* ── Auto-scroll selected row vào viewport ──────────────────────────────────
@@ -1346,6 +1384,12 @@ function onPatternLeave() {
   border-color: color-mix(in srgb, var(--tag-color) 60%, white);
   color: color-mix(in srgb, var(--tag-color) 80%, black);
 }
+/* Auto-tag (Friend.autoTags) — viền nét đứt để phân biệt với tag manual. */
+.tag-mini.tag-auto {
+  border-style: dashed;
+}
+/* Emoji prefix (auto-tag icon / tag v2 emoji) — căn line giống ZaloBrandIcon. */
+.tag-mini-emoji { font-size: 10px; line-height: 1; flex-shrink: 0; }
 /* Overflow "+N" chip — hover/click hiện popup các tag còn lại */
 .tag-overflow {
   display: inline-flex;

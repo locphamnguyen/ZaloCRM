@@ -401,7 +401,14 @@
           </div>
           <div class="fp-body">
             <div class="fp-name">{{ folderPickerName }}</div>
-            <div class="fp-sub">{{ folderSubLabel }}</div>
+            <div class="fp-sub">
+              <template v-if="selectedAccount">{{ folderSubLabel }}</template>
+              <template v-else>
+                <span class="nk-dot nk-on"></span>{{ scopeNickCounts.online }} online
+                <span class="nk-gap">·</span>
+                <span class="nk-dot nk-off"></span>{{ scopeNickCounts.offline }} offline
+              </template>
+            </div>
           </div>
           <div class="fp-arrow" aria-hidden="true">⋯</div>
         </button>
@@ -848,6 +855,8 @@ const props = defineProps<{
   resultCount?: number;
   currentAccountId?: string | null;
   currentAccount?: { id: string; displayName: string | null; avatarUrl?: string | null; status: string } | null;
+  // 2026-06-11: trạng thái live từng nick để đếm online/offline ở fp-sub.
+  accountStatuses?: { id: string; online: boolean }[];
 }>();
 
 defineEmits<{
@@ -1038,12 +1047,29 @@ const selectedAccount = computed(() => {
 
 const folderSubLabel = computed(() => {
   if (selectedAccount.value) {
-    return selectedAccount.value.status === 'connected' ? 'Active · Nick Zalo' : 'Offline · Nick Zalo';
+    // 2026-06-11: dùng trạng thái LIVE (accountStatuses từ pool) thay vì status DB stale →
+    // hết cảnh nick đang online mà hiện "Offline · Nick Zalo".
+    const st = (props.accountStatuses || []).find((s) => s.id === selectedAccount.value!.id);
+    const online = st ? st.online : selectedAccount.value.status === 'connected';
+    return online ? 'Active · Nick Zalo' : 'Offline · Nick Zalo';
   }
   if (selectedFolder.value) {
     return `${selectedFolder.value.members.length} nick`;
   }
   return `${props.allAccountsCount || 0} nick`;
+});
+
+// 2026-06-11: đếm online/offline theo scope đang xem (folder members hoặc tất cả nick)
+// dựa trên trạng thái LIVE (accountStatuses từ ChatView). Hiển thị chấm xanh/đỏ ở fp-sub
+// thay vì chỉ tổng "N nick".
+const scopeNickCounts = computed(() => {
+  const statusMap = new Map((props.accountStatuses || []).map((s) => [s.id, s.online]));
+  const ids: string[] = selectedFolder.value
+    ? (selectedFolder.value.members as Array<{ id: string }>).map((m) => m.id)
+    : (props.accountStatuses || []).map((s) => s.id);
+  let online = 0;
+  for (const id of ids) if (statusMap.get(id)) online++;
+  return { online, offline: ids.length - online, total: ids.length };
 });
 
 const folderPickerName = computed(() => {
@@ -1829,7 +1855,11 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.fp-sub { font-size: 10.5px; color: #6B7785; }
+.fp-sub { font-size: 10.5px; color: #6B7785; display: flex; align-items: center; gap: 3px; }
+.fp-sub .nk-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.fp-sub .nk-on { background: #22C55E; }
+.fp-sub .nk-off { background: #EF4444; }
+.fp-sub .nk-gap { margin: 0 2px; color: #C7CDD4; }
 .fp-arrow { font-size: 13px; color: #5E6AD2; font-weight: 700; }
 .fp-thumb .single {
   width: 26px;

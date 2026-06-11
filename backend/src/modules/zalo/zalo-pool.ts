@@ -127,16 +127,43 @@ class ZaloAccountPool {
 
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string, proxyUrl?: string | null): Promise<void> {
-    // Fix flap 2026-06-06: dọn listener/WS cũ trước khi tạo mới (tránh duplicate WS).
+    // Fix lifecycle 2026-06-10: nick kẹt qr_pending/connecting do logout bên ngoài hoặc
+    // breaker chặn. User CHỦ ĐỘNG quét QR lại → phải dọn SẠCH mọi state cũ trước khi tạo
+    // instance mới, nếu không QR mới không sinh / bị instance ma ghi đè.
+    const prev = this.instances.get(accountId);
+    const hadStale = !!prev;
+    logger.info(
+      `[zalo:${accountId}] loginQR start — prevInstance=${hadStale ? prev!.status : 'none'} epoch=${prev?.epoch ?? '-'}`,
+    );
+
+    // (1) Dọn listener/WS/message-sync cũ (Fix flap 2026-06-06).
     this.teardownExisting(accountId);
+    // (2) Nhả in-flight reconnect guard — nếu 1 reconnect cũ kẹt guard sẽ chặn luồng sau.
+    this.reconnecting.delete(accountId);
+    // (3) Clear sticky-hold notification timers — user đang re-login, không cần báo "nick chết".
+    const holdTimers = this.stickyHoldNotificationTimers.get(accountId);
+    if (holdTimers?.length) {
+      holdTimers.forEach(clearTimeout);
+      this.stickyHoldNotificationTimers.delete(accountId);
+    }
+    // (4) RESET circuit breaker: breaker chỉ để chặn AUTO-reconnect, KHÔNG được chặn người
+    //     dùng quét QR thủ công. Xoá lịch sử disconnect để nick "sạch" sau khi re-login.
+    if (this.disconnectHistory.delete(`dc_${accountId}`)) {
+      logger.info(`[zalo:${accountId}] loginQR — circuit breaker history cleared (manual QR re-login)`);
+    }
+
     const epoch = ++this.epochCounter;
+    // (5) Bump epoch + set instance mới NGAY → mọi autoReconnect timer cũ đang chờ (30s/2min)
+    //     khi fire sẽ thấy epoch lệch / status mới và bỏ qua, không ghi đè instance QR mới.
     const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
     this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date(), epoch });
+    logger.info(`[zalo:${accountId}] loginQR — fresh instance created (epoch=${epoch}), waiting for QR event…`);
 
     try {
       const api: any = await withProxy(proxyUrl, () => zalo.loginQR({}, (event: any) => {
         switch (event.type) {
           case 0: // QRCodeGenerated
+            logger.info(`[zalo:${accountId}] loginQR — QR code generated, emitting to socket room`);
             this.io?.to(`account:${accountId}`).emit('zalo:qr', { accountId, qrImage: event.data.image });
             break;
           case 1: // QRCodeExpired
@@ -366,8 +393,11 @@ class ZaloAccountPool {
           return; // DON'T reconnect
         }
 
-        // Normal auto-reconnect after 30 seconds
-        setTimeout(() => this.autoReconnect(id), 30_000);
+        // Normal auto-reconnect after 30 seconds.
+        // Fix lifecycle 2026-06-10: capture epoch hiện tại — nếu trước khi timer fire user đã
+        // quét QR lại (loginQR bump epoch + tạo instance mới), timer này sẽ tự bỏ qua (xem
+        // guard epoch trong autoReconnect) thay vì ghi đè instance QR mới.
+        setTimeout(() => this.autoReconnect(id, myEpoch), 30_000);
       },
     });
 
@@ -433,11 +463,23 @@ class ZaloAccountPool {
     }
   }
 
-  // Auto-reconnect using saved session from DB
-  private async autoReconnect(accountId: string): Promise<void> {
+  // Auto-reconnect using saved session from DB.
+  // `expectedEpoch`: epoch của instance lúc lên lịch timer. Nếu instance hiện tại có epoch
+  // khác → đã bị thay thế (vd: user quét QR lại) → KHÔNG auto-reconnect đè lên.
+  private async autoReconnect(accountId: string, expectedEpoch?: number): Promise<void> {
     const inst = this.instances.get(accountId);
     // Skip if already reconnected or manually disconnected
     if (inst?.status === 'connected') return;
+    // Fix lifecycle 2026-06-10: instance đã bị supersede (user re-login QR) → bỏ timer cũ.
+    if (expectedEpoch !== undefined && inst && inst.epoch !== expectedEpoch) {
+      logger.info(`[zalo:${accountId}] autoReconnect skipped — superseded (epoch ${expectedEpoch} != current ${inst.epoch})`);
+      return;
+    }
+    // qr_pending = đang chờ user quét QR thủ công → không auto-reconnect đè.
+    if (inst?.status === 'qr_pending') {
+      logger.info(`[zalo:${accountId}] autoReconnect skipped — instance đang qr_pending (chờ quét QR)`);
+      return;
+    }
 
     try {
       const account = await prisma.zaloAccount.findUnique({

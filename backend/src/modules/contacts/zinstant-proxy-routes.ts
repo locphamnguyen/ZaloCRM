@@ -14,6 +14,19 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { getZaloScope } from '../zalo/zalo-scope.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 
+// Public routes (no auth) — bankcard parser is hit from Zalo iframe context
+// where cookies don't reliably forward, and sticker assets are read-only CDN
+// proxies. Everything else (user-info endpoints that expose phone/DOB) must
+// require a valid JWT — see PII enumeration fix in phase 03 of security plan.
+const PUBLIC_PATH_PREFIXES = [
+  '/api/v1/zalo-bankcard',
+  '/api/v1/zalo-sticker', // covers /zalo-sticker/:catId/:id and /zalo-sticker-list
+];
+
+// Hard cap on batch lookup size to slow down enumeration by an authenticated
+// attacker. 200 was the legacy value; 50 is enough for typical group views.
+const USER_INFO_BATCH_CAP = 50;
+
 // In-memory cache cho sticker metadata — key = `${catId}:${id}`
 interface StickerMeta {
   type: number;
@@ -84,6 +97,15 @@ function parseVietQR(qrString: string): { bankBin: string; accountNumber: string
 }
 
 export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
+  // Auth gate: every route in this plugin requires a valid JWT EXCEPT the
+  // explicitly-public bankcard and sticker prefixes. Previously every
+  // endpoint was unauthenticated, letting anyone enumerate Zalo user PII
+  // (phone, DOB) through /zalo-user-info/* via the host org's accounts.
+  app.addHook('preHandler', async (request, reply) => {
+    if (PUBLIC_PATH_PREFIXES.some((p) => request.url.startsWith(p))) return;
+    await authMiddleware(request, reply);
+  });
+
   // GET /api/v1/zalo-bankcard?url=<encoded zalo cdn url> → structured JSON
   // Public endpoint — chỉ parse public Zalo CDN content, không lộ data CRM
   app.get('/api/v1/zalo-bankcard', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -379,7 +401,7 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
     const { uids } = (request.body || {}) as { uids?: string[] };
     if (!Array.isArray(uids) || uids.length === 0) return { users: {} };
 
-    const uniqueUids = Array.from(new Set(uids.filter(u => typeof u === 'string' && u.length > 0))).slice(0, 200);
+    const uniqueUids = Array.from(new Set(uids.filter(u => typeof u === 'string' && u.length > 0))).slice(0, USER_INFO_BATCH_CAP);
     const users: Record<string, Record<string, unknown> | null> = {};
     const misses: string[] = [];
 

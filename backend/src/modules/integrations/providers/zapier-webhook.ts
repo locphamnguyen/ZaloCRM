@@ -5,6 +5,7 @@
  */
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
+import { assertSafeOutboundUrl, SsrfBlockedError } from '../../../shared/utils/ssrf-guard.js';
 
 interface ZapierConfig {
   webhookUrl?: string;
@@ -20,17 +21,14 @@ export async function triggerZapierWebhook(
     return { direction: 'export', recordCount: 0, status: 'failed', errorMessage: 'Missing webhookUrl' };
   }
 
-  // SSRF guard: only allow HTTPS to non-private hosts
+  // SSRF guard via shared util — covers loopback, RFC1918, link-local, metadata,
+  // IPv6 ULA + scheme enforcement (HTTPS only). See ssrf-guard.ts for full list.
   try {
-    const parsed = new URL(webhookUrl);
-    if (parsed.protocol !== 'https:') {
-      return { direction: 'export', recordCount: 0, status: 'failed', errorMessage: 'webhookUrl must use HTTPS' };
+    assertSafeOutboundUrl(webhookUrl);
+  } catch (err) {
+    if (err instanceof SsrfBlockedError) {
+      return { direction: 'export', recordCount: 0, status: 'failed', errorMessage: err.message };
     }
-    const blocked = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.)/;
-    if (blocked.test(parsed.hostname)) {
-      return { direction: 'export', recordCount: 0, status: 'failed', errorMessage: 'webhookUrl target is not allowed' };
-    }
-  } catch {
     return { direction: 'export', recordCount: 0, status: 'failed', errorMessage: 'Invalid webhookUrl' };
   }
 

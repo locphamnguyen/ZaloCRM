@@ -64,7 +64,15 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
         return { success: true, created, updated, linked, total: friends.length };
       } catch (err) {
         logger.error('[sync] Zalo contacts error:', err);
-        return reply.status(500).send({ error: 'Sync failed: ' + String(err) });
+        // 2026-06-11: Zalo trả 429 (Too Many Requests) khi đồng bộ quá dày → map sang thông
+        // báo rõ ràng thay vì "Sync failed: ZcaApiError 429" khó hiểu. Trả đúng 429 (không 500).
+        const msg = String(err);
+        if (/\b429\b|too many requests/i.test(msg)) {
+          return reply.status(429).send({
+            error: 'Zalo đang giới hạn tần suất đồng bộ. Vui lòng thử lại sau vài phút.',
+          });
+        }
+        return reply.status(500).send({ error: 'Đồng bộ danh bạ thất bại: ' + msg });
       }
     }
   );

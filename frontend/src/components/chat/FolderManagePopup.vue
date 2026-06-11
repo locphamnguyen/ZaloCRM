@@ -91,25 +91,45 @@
             <div v-else-if="filteredAllAccounts.length === 0" class="nick-empty">
               {{ viewNickSearch ? `Không tìm thấy nick "${viewNickSearch}"` : 'Chưa có nick Zalo nào' }}
             </div>
-            <button
+            <div
               v-for="acc in filteredAllAccounts"
               :key="`np-${acc.id}`"
-              type="button"
-              class="nick-pick-row"
-              :class="{ selected: viewAccountId === acc.id && viewFolderId === null }"
-              @click="onApplyAccount(acc.id)"
+              class="nick-pick-rowwrap"
             >
-              <img v-if="acc.avatarUrl" :src="acc.avatarUrl" class="np-avatar-img" :alt="acc.displayName || ''" />
-              <div v-else class="np-avatar" :style="{ background: accountGradient(acc.id) }">{{ initials(acc.displayName) }}</div>
-              <div class="np-body">
-                <div class="np-name">{{ acc.displayName || 'Chưa đặt tên' }}</div>
-                <div class="np-sub">
-                  <span class="status-dot" :class="{ off: acc.status !== 'connected' }"></span>
-                  {{ acc.status === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
+              <button
+                type="button"
+                class="nick-pick-row"
+                :class="{ selected: viewAccountId === acc.id && viewFolderId === null }"
+                @click="onApplyAccount(acc.id)"
+              >
+                <img v-if="acc.avatarUrl" :src="acc.avatarUrl" class="np-avatar-img" :alt="acc.displayName || ''" />
+                <div v-else class="np-avatar" :style="{ background: accountGradient(acc.id) }">{{ initials(acc.displayName) }}</div>
+                <div class="np-body">
+                  <div class="np-name">{{ acc.displayName || 'Chưa đặt tên' }}</div>
+                  <div class="np-sub">
+                    <span class="status-dot" :class="{ off: (acc.liveStatus || acc.status) !== 'connected' }"></span>
+                    {{ (acc.liveStatus || acc.status) === 'connected' ? 'Active' : 'Offline' }}<span v-if="acc.phone"> · {{ acc.phone }}</span>
+                  </div>
                 </div>
+                <div v-if="viewAccountId === acc.id && viewFolderId === null" class="np-check">✓</div>
+              </button>
+              <!-- 2026-06-11: nút nhanh per-nick (port main): Sync danh bạ / Sync lịch sử /
+                   Kết nối lại / Đăng nhập QR. Mờ theo liveStatus cho nhất quán. -->
+              <div class="np-actions" @click.stop>
+                <button type="button" class="np-act" title="Sync danh bạ" @click="onSyncContacts(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Sync lịch sử chat" :disabled="(acc.liveStatus || acc.status) !== 'connected'" @click="onSyncHistory(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Kết nối lại" :disabled="(acc.liveStatus || acc.status) === 'connected'" @click="onReconnect(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+                </button>
+                <button type="button" class="np-act" title="Đăng nhập QR" :disabled="(acc.liveStatus || acc.status) === 'connected'" @click="onQRLogin(acc.id)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                </button>
               </div>
-              <div v-if="viewAccountId === acc.id && viewFolderId === null" class="np-check">✓</div>
-            </button>
+            </div>
           </div>
         </div>
 
@@ -286,6 +306,10 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import type { AccountFolder } from '@/composables/use-inbox-filters';
 import { useZaloAccounts, type ZaloAccount } from '@/composables/use-zalo-accounts';
+import { api } from '@/api/index';
+import { useToast } from '@/composables/use-toast';
+
+const toast = useToast();
 
 const props = defineProps<{
   modelValue: boolean;
@@ -301,6 +325,43 @@ const emit = defineEmits<{
 }>();
 
 const { accounts, fetchAccounts } = useZaloAccounts();
+
+// ─── Nút nhanh per-nick (port main 2026-06-11) ──────────────────────────────
+async function onSyncContacts(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/sync-contacts`);
+    toast.push('Đồng bộ danh bạ thành công', 'success');
+    await fetchAccounts();
+  } catch (e: any) {
+    const m = e.response?.data?.error || e.message;
+    toast.push(/429|giới hạn/i.test(m) ? m : 'Đồng bộ danh bạ thất bại: ' + m, 'error');
+  }
+}
+async function onSyncHistory(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/sync-history`);
+    toast.push('Đồng bộ lịch sử chat thành công', 'success');
+  } catch (e: any) {
+    toast.push('Đồng bộ lịch sử chat thất bại: ' + (e.response?.data?.error || e.message), 'error');
+  }
+}
+async function onReconnect(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/reconnect`);
+    toast.push('Đang kết nối lại nick…', 'success');
+    await fetchAccounts();
+  } catch (e: any) {
+    toast.push('Kết nối lại thất bại: ' + (e.response?.data?.error || e.message), 'error');
+  }
+}
+async function onQRLogin(id: string) {
+  try {
+    await api.post(`/zalo-accounts/${id}/login`);
+    toast.push('Đã khởi tạo QR — mở Cài đặt → Tài khoản Zalo để quét', 'success');
+  } catch (e: any) {
+    toast.push('Khởi tạo QR thất bại: ' + (e.response?.data?.error || e.message), 'error');
+  }
+}
 const loadingAccounts = ref(false);
 
 // Default to "view" tab — daily use case
@@ -874,6 +935,18 @@ onMounted(() => {
   border-color: rgba(94, 106, 210, 0.4);
 }
 .nick-pick-row:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 1px; }
+/* 2026-06-11: wrapper row + nút nhanh per-nick (port main) */
+.nick-pick-rowwrap { display: flex; align-items: center; gap: 4px; }
+.nick-pick-rowwrap > .nick-pick-row { flex: 1; min-width: 0; }
+.np-actions { display: flex; gap: 2px; flex-shrink: 0; }
+.np-act {
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; padding: 0; color: #6B7280;
+}
+.np-act:hover:not(:disabled) { background: #F3F4F6; border-color: #E5E7EB; color: #111827; }
+.np-act:disabled { opacity: 0.3; cursor: not-allowed; }
+.np-act svg { width: 14px; height: 14px; }
 
 .np-avatar-img,
 .np-avatar {

@@ -77,18 +77,26 @@
           </div>
         </div>
 
-        <!-- Nút kết nối lại (1 chạm) khi không online -->
-        <button
-          v-if="a.canManage && !isOnline(a)"
-          class="ngc-reconnect"
-          :disabled="isReconnecting(a.id)"
-          @click.stop="$emit('reconnect', a)"
-        >
-          <v-icon size="16" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : 'mdi-refresh' }}</v-icon>
-          {{ isReconnecting(a.id) ? 'Đang kết nối…' : 'Kết nối lại' }}
-        </button>
-        <div v-else-if="isOnline(a)" class="ngc-online-hint">
-          <v-icon size="13">mdi-check-circle</v-icon> Đang hoạt động
+        <!-- Hàng nút: Kết nối lại + Ngắt kết nối — luôn hiện (xám khi không dùng được) -->
+        <div v-if="a.canManage" class="ngc-actions">
+          <!-- Kết nối lại: xám khi nick đang online hoặc đang kết nối -->
+          <button
+            class="ngc-reconnect"
+            :disabled="isOnline(a) || isReconnecting(a.id)"
+            @click.stop="$emit('reconnect', a)"
+          >
+            <v-icon size="16" :class="{ 'ngc-spin': isReconnecting(a.id) }">{{ isReconnecting(a.id) ? 'mdi-loading' : reconnectIcon(a) }}</v-icon>
+            {{ isReconnecting(a.id) ? 'Đang kết nối…' : reconnectLabel(a) }}
+          </button>
+          <!-- Ngắt kết nối: xám khi nick KHÔNG online -->
+          <button
+            class="ngc-disconnect"
+            :disabled="!isOnline(a)"
+            @click.stop="$emit('disconnect', a)"
+          >
+            <v-icon size="16">mdi-link-off</v-icon>
+            Ngắt kết nối
+          </button>
         </div>
       </div>
         </div>
@@ -109,6 +117,7 @@ function isReconnecting(id: string): boolean {
 }
 defineEmits<{
   reconnect: [account: any];
+  disconnect: [account: any];
   delete: [account: any];
   'open-detail': [accountId: string];
   add: [];
@@ -133,6 +142,14 @@ function stateLabel(a: any): string {
   if (s === 'connecting') return 'Đang kết nối lại…';
   if (s === 'qr_pending') return 'Chờ quét QR';
   return 'Mất kết nối';
+}
+// Nhãn nút theo trạng thái: qr_pending (session hết hạn / breaker) → quét QR lại;
+// còn lại (disconnected) → reconnect ngầm bằng session đã lưu.
+function reconnectLabel(a: any): string {
+  return liveOf(a) === 'qr_pending' ? 'Quét QR lại' : 'Kết nối lại';
+}
+function reconnectIcon(a: any): string {
+  return liveOf(a) === 'qr_pending' ? 'mdi-qrcode-scan' : 'mdi-refresh';
 }
 function crewOf(a: any): Crew[] {
   return (a.crew || []).filter((c: Crew) => !!c);
@@ -269,13 +286,18 @@ function initials(name?: string | null): string {
 .ngc-crew-chip { width: 22px; height: 22px; border-radius: 50%; background: #eef2f7; color: #4b5563; font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 .ngc-crew-more { font-size: 11px; color: #9ca3af; align-self: center; }
 
-.ngc-reconnect {
-  margin-top: 2px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 9px; border: none; border-radius: 9px; background: #f04438; color: #fff; font-weight: 600; font-size: 13.5px; cursor: pointer;
+.ngc-actions { display: flex; gap: 8px; margin-top: 2px; }
+.ngc-reconnect, .ngc-disconnect {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px; border: none; border-radius: 9px; font-weight: 600; font-size: 13.5px; cursor: pointer;
 }
-.ngc-reconnect:hover { background: #d92d20; }
-.ngc-reconnect:disabled { opacity: .7; cursor: default; }
+.ngc-reconnect { background: #f04438; color: #fff; }
+.ngc-reconnect:hover:not(:disabled) { background: #d92d20; }
+/* Ngắt kết nối: style giống .dz-btn (Danger zone drawer) — nền trắng, viền đỏ, chữ đỏ */
+.ngc-disconnect { background: #fff; border: 1px solid #FECACA; color: #B91C1C; }
+.ngc-disconnect:hover:not(:disabled) { background: #FEF2F2; }
+/* Greyed/disabled — khớp main: opacity thấp + not-allowed */
+.ngc-reconnect:disabled, .ngc-disconnect:disabled { opacity: .4; cursor: not-allowed; }
 .ngc-spin { animation: ngc-spin .8s linear infinite; }
 @keyframes ngc-spin { to { transform: rotate(360deg); } }
-.ngc-online-hint { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #047857; justify-content: center; padding: 6px; }
 </style>

@@ -131,6 +131,7 @@ import { api } from '@/api/index';
 import { Tag as TagIcon, X as XIcon, Check as CheckIcon, Settings as SettingsIcon } from 'lucide-vue-next';
 import { useToast } from '@/composables/use-toast';
 import { useFriendSocket } from '@/composables/use-friend-socket';
+import { refreshTagTaxonomy } from '@/composables/use-tag-taxonomy';
 import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 
 interface TagV2 {
@@ -262,6 +263,19 @@ function notifyTimeline() {
   }
 }
 
+// 2026-06-10 — Sau khi gắn/gỡ tag manual, BE mirror SLUG vào Friend.crmTagsPerNick (dual-write).
+// Cột 2 (ConversationList) đọc field này → bắn event để ChatView patch conv trong list NGAY,
+// không bắt sale F5. Gửi slug manual hiện tại (zalo_real/auto KHÔNG vào crmTagsPerNick).
+function notifyConvListTags() {
+  if (!props.friendId) return;
+  const slugs = friendTags.value
+    .filter(ft => ft.tag.source === 'manual_per_nick' && !ft.removedAt)
+    .map(ft => ft.tag.slug);
+  window.dispatchEvent(new CustomEvent('friend-crm-tags-changed', {
+    detail: { friendId: props.friendId, slugs },
+  }));
+}
+
 async function onPickTag(def: TagV2) {
   if (!props.friendId) return;
   // Toggle: nếu đã có → remove, chưa có → add
@@ -277,6 +291,7 @@ async function onPickTag(def: TagV2) {
     });
     await loadFriendTags();
     notifyTimeline();
+    notifyConvListTags();
     dropdownOpen.value = false;
   } catch (err) {
     const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error ?? 'Gắn tag thất bại';
@@ -295,7 +310,10 @@ async function onCreateNewTag() {
     fetchedDefsOnce = false; // refetch defs để dropdown thấy tag mới
     await loadManualTagDefs();
     await loadFriendTags();
+    // Refresh taxonomy slug→name để cột 2 resolve được tag vừa tạo (không hiện slug thô).
+    await refreshTagTaxonomy();
     notifyTimeline();
+    notifyConvListTags();
     search.value = '';
     dropdownOpen.value = false;
     toast.success('Đã tạo và gắn tag mới');
@@ -311,6 +329,7 @@ async function removeManualTag(tag: TagV2) {
     await api.delete(`/friends/${props.friendId}/tags/${tag.id}`);
     await loadFriendTags();
     notifyTimeline();
+    notifyConvListTags();
   } catch (err) {
     toast.error('Gỡ tag thất bại');
   }

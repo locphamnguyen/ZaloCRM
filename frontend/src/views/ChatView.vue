@@ -8,6 +8,7 @@
       :current-user-name="currentUserName"
       :current-user-id="currentUserId"
       :all-accounts-count="zaloAccounts?.length || 0"
+      :account-statuses="accountStatuses"
       :total-unread="totalUnreadCount"
       :current-account-id="accountFilter"
       :current-account="currentAccount"
@@ -80,6 +81,7 @@
       v-model="showFolderManagePopup"
       :filters="inboxFilters"
       :all-accounts-count="zaloAccounts?.length || 0"
+      :account-statuses="accountStatuses"
       :total-unread="totalUnreadCount"
       :current-account-id="accountFilter"
       @view-applied="onFolderViewApplied"
@@ -206,6 +208,14 @@ const accountList = computed(() =>
     isOwnedByMe: (a as any).isOwnedByMe ?? (a.ownerUserId === authStore.user?.id),
     owner: (a as any).owner ?? null,
     zaloUid: (a as any).zaloUid ?? null,
+  })),
+);
+// 2026-06-11: trạng thái LIVE từng nick (liveStatus pool → fallback DB status) cho sidebar
+// đếm online/offline + chấm màu thay vì chỉ tổng "N nick".
+const accountStatuses = computed(() =>
+  (zaloAccounts.value || []).map(a => ({
+    id: a.id,
+    online: (((a as any).liveStatus || a.status) === 'connected'),
   })),
 );
 

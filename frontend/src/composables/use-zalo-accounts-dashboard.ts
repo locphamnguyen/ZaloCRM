@@ -109,7 +109,10 @@ export interface BulkActionResult {
 }
 
 export function useZaloAccountsDashboard() {
-  const base = useZaloAccounts();
+  // onStatusChange: khi nick đổi trạng thái qua socket → refresh cả list enriched (grid card)
+  // + stats, để card tự đổi "mất kết nối" → "đang kết nối" mà KHÔNG cần F5. refreshAll là
+  // function declaration (hoisted) nên closure tham chiếu được dù khai báo bên dưới.
+  const base = useZaloAccounts({ onStatusChange: () => { void refreshAll(); } });
 
   const enriched = ref<EnrichedAccount[]>([]);
   const stats = ref<TeamStats | null>(null);

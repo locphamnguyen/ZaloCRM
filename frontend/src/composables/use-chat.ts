@@ -4,7 +4,7 @@ import { Socket } from 'socket.io-client';
 import { createAppSocket } from '@/api/socket';
 import type { Contact } from '@/composables/use-contacts';
 import { useAuthStore } from '@/stores/auth';
-import { applyPendingTags } from '@/composables/use-pending-mutations';
+import { applyPendingTags, registerPendingTags } from '@/composables/use-pending-mutations';
 import { usePrivacyStore } from '@/stores/privacy';
 
 interface ZaloAccount {
@@ -84,8 +84,11 @@ export interface FriendshipInfo {
   statusRef?: { id: string; name: string; color: string | null; order: number } | null;
   /** Zalo native labels synced từ Zalo client (Friend.zaloLabels) */
   zaloLabels?: Array<{ id?: string; name?: string; color?: string }>;
-  /** Per-pair CRM tags (kèm Zalo-mirrored "🔵 X" tags). Source of truth Friend-level. */
+  /** Per-pair CRM tags (kèm Zalo-mirrored "🔵 X" tags). Source of truth Friend-level.
+   *  Tag v2 manual lưu SLUG (vd "tiem-nang") — resolve qua use-tag-taxonomy ở UI. */
   crmTagsPerNick?: string[];
+  /** Auto-tags engine (Friend.autoTags) — key cố định (active/cold/ready/…). */
+  autoTags?: string[];
   /** "Tên gợi nhớ" — alias sale đặt qua Zalo Real, sync 2-way với CRM. */
   aliasInNick?: string | null;
 }
@@ -346,7 +349,14 @@ export function useChat() {
     // state đã được socket update → conv "tụt xuống xíu rồi nhảy lên top" flicker.
     // Fix 2026-05-29: preserve conv đang được select (vd stub từ Lead Pool,
     // lastMessageAt=null không vào top 100 → bị wipe → UI blank).
-    const preserveIds = selectedConvId.value ? new Set([selectedConvId.value]) : undefined;
+    // Fix 2026-06-10 (#1): KHI đang lọc theo tag (tags/zaloLabels/autoTagsAny) thì
+    // KHÔNG ép giữ conv đang mở nếu nó không match filter — trước đây conv active
+    // vẫn dính lại trong list dù không thuộc tag đã chọn.
+    const ef = extraFilters.value as Record<string, string>;
+    const tagFilterActive = !!(ef.tags || ef.zaloLabels || ef.autoTagsAny);
+    const preserveIds = selectedConvId.value && !tagFilterActive
+      ? new Set([selectedConvId.value])
+      : undefined;
 
     if (cached) {
       logCacheEvent('hit', cacheKey);
@@ -647,7 +657,25 @@ export function useChat() {
     }
   }
 
+  // 2026-06-10 — Patch tag CRM (cột 2) NGAY khi sale gắn/gỡ tag manual ở khung chat.
+  // TagCrmBar bắn 'friend-crm-tags-changed' {friendId, slugs} sau khi BE confirm.
+  // Tìm conv theo friendship.id → ghi đè crmTagsPerNick (slug) → displayTags resolve
+  // sang tên. Đăng ký pending-mutation để refetch chạy xen kẽ không wipe optimistic.
+  function onFriendCrmTagsChanged(e: Event) {
+    const detail = (e as CustomEvent).detail as { friendId?: string; slugs?: string[] } | undefined;
+    if (!detail?.friendId) return;
+    const slugs = Array.isArray(detail.slugs) ? detail.slugs : [];
+    const conv = conversations.value.find(c => c.friendship?.id === detail.friendId);
+    if (!conv || !conv.friendship) return;
+    // Giữ lại tag Zalo-mirror "🔵 X" (không nằm trong manual slug list) + thay phần manual.
+    const old = Array.isArray(conv.friendship.crmTagsPerNick) ? conv.friendship.crmTagsPerNick : [];
+    const zaloMirror = old.filter(t => t.startsWith('🔵 '));
+    conv.friendship.crmTagsPerNick = [...zaloMirror, ...slugs];
+    registerPendingTags(conv.id, conv.friendship.crmTagsPerNick);
+  }
+
   function initSocket() {
+    window.addEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     socket = createAppSocket();
 
     socket.on('chat:message', (data: { message: Message; conversationId: string; _privacyMeta?: { privacyMode?: string; ownerUserId?: string | null } }) => {
@@ -849,6 +877,7 @@ export function useChat() {
   }
 
   function destroySocket() {
+    window.removeEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     socket?.disconnect();
     socket = null;
   }
