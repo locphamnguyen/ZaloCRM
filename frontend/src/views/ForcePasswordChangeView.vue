@@ -7,12 +7,12 @@
 <template>
   <div class="fpc-page">
     <div class="fpc-card">
-      <!-- Brand lockup HS Holding -->
+      <!-- Brand lockup — lấy logo + tên theo hồ sơ tổ chức (như trang /login) -->
       <div class="fpc-brand">
-        <span class="fpc-bbox"><img src="/brand/hs-monogram.png" alt="HS Holding" /></span>
+        <span class="fpc-bbox"><img :src="brandLogo" :alt="brandName" @error="onLogoError" /></span>
         <span class="fpc-bwm">
-          <span class="fpc-b1">HS Holding</span>
-          <span class="fpc-b2">CRM</span>
+          <span class="fpc-b1">{{ brandName }}</span>
+          <span class="fpc-b2">ZaloCRM</span>
         </span>
       </div>
 
@@ -102,13 +102,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
+import { fetchPublicBranding } from '@/api/public-branding';
 
 const router = useRouter();
 const auth = useAuthStore();
+
+// Branding lockup — đồng bộ logo + tên tổ chức với trang /login.
+const DEFAULT_LOGO = '/brand/hs-monogram.png';
+const brandLogo = ref(DEFAULT_LOGO);
+const brandName = ref('HS Holding');
+function onLogoError() {
+  if (brandLogo.value !== DEFAULT_LOGO) brandLogo.value = DEFAULT_LOGO;
+}
+onMounted(() => {
+  fetchPublicBranding()
+    .then((b) => {
+      if (!b) return;
+      brandLogo.value = b.logoUrl || DEFAULT_LOGO;
+      brandName.value = b.name || 'HS Holding';
+    })
+    .catch(() => {});
+});
 
 const currentPassword = ref('');
 const newPassword = ref('');
