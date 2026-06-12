@@ -95,6 +95,39 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
+      // FIX CORE nick trùng (Anh chốt 2026-06-12) — chặn TỪ GỐC việc đẻ 2 record cùng
+      // 1 tài khoản Zalo → tranh chấp session (KICKOUT_BY_WORKER) → loop QR vô tận.
+      // ROOT: check theo phone phía trên BỎ SÓT ghost cũ KHÔNG có phone (tạo trước khi có
+      // logic lưu phone, hoặc sale bỏ qua bước nhập SĐT). Owner connect lại → đẻ record MỚI
+      // có UID, record GHOST cũ (qr_pending, chưa UID) vẫn nằm đó → pool giữ cả 2 → đá nhau.
+      // FIX: TÁI DÙNG ghost qr_pending CHƯA CONNECT của chính owner (zaloUid=null = chưa
+      // phải nick thật) thay vì tạo mới. Nick chưa có UID thì login vào record cũ là đúng;
+      // gộp luôn phone mới nhập vào ghost để lần sau check-by-phone bắt được.
+      const ghost = await prisma.zaloAccount.findFirst({
+        where: {
+          orgId: user.orgId,
+          ownerUserId: userId,
+          zaloUid: null,            // chưa từng connect thành công → chưa phải nick thật
+          status: 'qr_pending',
+          archivedAt: null,
+        },
+        orderBy: { createdAt: 'asc' },  // tái dùng ghost CŨ NHẤT (dọn rác tồn lâu nhất)
+        select: { id: true, displayName: true, status: true, ownerUserId: true },
+      });
+      if (ghost) {
+        // Cập nhật phone/displayName mới nhập (nếu có) vào ghost rồi trả về để FE login.
+        const reused = await prisma.zaloAccount.update({
+          where: { id: ghost.id },
+          data: {
+            ...(phone ? { phone } : {}),
+            ...(displayName ? { displayName } : {}),
+            ...(proxyUrl !== undefined ? { proxyUrl: proxyUrl ?? null } : {}),
+          },
+          select: { id: true, displayName: true, status: true, ownerUserId: true, phone: true },
+        });
+        return reply.status(200).send({ ...reused, reused: true, reusedGhost: true });
+      }
+
       // FIX 2026-05-22 Bug A: tạo nick + auto-insert ZaloAccountAccess cho owner.
       // Trước: owner KHÔNG hiện trong crew list (frontend đọc crew từ access table).
       // Giờ: atomic create cả 2 trong tx, owner mặc định permission='admin'.

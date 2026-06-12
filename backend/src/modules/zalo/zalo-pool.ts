@@ -8,6 +8,7 @@
  */
 import { createRequire } from 'module';
 import type { Server } from 'socket.io';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { runSystemQuery } from '../../shared/tenant/tenant-context.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -469,9 +470,47 @@ class ZaloAccountPool {
             ...(zaloUid !== null ? { zaloUid } : {}),
             ...(status === 'connected' ? { lastConnectedAt: new Date() } : {}),
           },
-          select: { orgId: true },
+          select: { orgId: true, ownerUserId: true },
         });
       });
+
+      // FIX CORE nick trùng — tầng 2 (Anh chốt 2026-06-12). Khi nick này connect THẬT
+      // (có zaloUid), NGẮT mọi GHOST cũ cùng owner còn lửng lơ (qr_pending, chưa UID) để
+      // chúng NGỪNG tranh chấp session → hết KICKOUT_BY_WORKER + loop QR. Bắt cả ghost
+      // tạo TRƯỚC fix route (vd nick "Thanh Vỹ" baee7ba5). Chỉ ngắt ghost CHƯA connect
+      // (zaloUid=null) → KHÔNG đụng nick thật thứ 2 của owner. Xoá session_data để pool
+      // ngừng auto-reconnect; KHÔNG xoá record (giữ data bạn bè/hội thoại gắn vào — admin
+      // gộp sau). Fire-and-forget, bọc runSystemQuery (chạy nền không tenant ctx).
+      if (status === 'connected' && zaloUid !== null) {
+        void runSystemQuery(() =>
+          prisma.zaloAccount.updateMany({
+            where: {
+              orgId: updated.orgId,
+              ownerUserId: updated.ownerUserId,
+              id: { not: accountId },
+              zaloUid: null,
+              status: 'qr_pending',
+              archivedAt: null,
+            },
+            data: { status: 'disconnected', sessionData: Prisma.JsonNull },
+          }),
+        ).then((r) => {
+          if (r.count > 0) {
+            logger.info(`[zalo:${accountId}] ngắt ${r.count} ghost qr_pending cùng owner (chống tranh chấp session nick trùng)`);
+            // Ngắt khỏi pool nếu ghost đang chạy listener (đá nhau live). Thu thập id
+            // TRƯỚC rồi disconnect (disconnect xoá khỏi this.instances → tránh sửa Map
+            // đang lặp).
+            const ghostIds = [...this.instances]
+              .filter(([id, inst]) => id !== accountId && inst.status === 'qr_pending')
+              .map(([id]) => id);
+            for (const id of ghostIds) {
+              try { this.disconnect(id); } catch { /* best-effort */ }
+            }
+          }
+        }).catch((err) => {
+          logger.warn(`[zalo:${accountId}] dọn ghost cùng owner lỗi (bỏ qua): ${String(err)}`);
+        });
+      }
 
       // Status log: chỉ ghi khi status thuộc enum ZaloStatus. Skip 'connecting' (intermediate).
       const logStatus = mapToLogStatus(status);
