@@ -35,7 +35,7 @@ vi.mock('../src/modules/rbac/rbac-middleware.js', () => ({
   },
 }));
 
-const { orgBrandingRoutes } = await import('../src/modules/branding/org-branding-routes.js');
+const { orgBrandingRoutes, resetOrgBrandingCache } = await import('../src/modules/branding/org-branding-routes.js');
 const { orgRoutes } = await import('../src/modules/auth/org-routes.js');
 
 function buildApp(): FastifyInstance {
@@ -48,6 +48,7 @@ function buildApp(): FastifyInstance {
 beforeEach(() => {
   vi.clearAllMocks();
   grantAllowed = true;
+  resetOrgBrandingCache(); // cache cấp module → reset để case không nhiễu nhau
 });
 
 // ── GET /api/v1/public/org-branding ───────────────────────────────────────────
@@ -113,6 +114,16 @@ describe('GET /api/v1/public/org-branding (public)', () => {
     prismaMock.organization.findFirst.mockResolvedValue(null);
     const res = await buildApp().inject({ method: 'GET', url: PUB });
     expect(res.headers['cache-control']).toBe('public, max-age=60');
+  });
+
+  it('cache RAM — gọi 2 lần chỉ query DB 1 lần (chống DB amplifier #8)', async () => {
+    prismaMock.organization.findFirst.mockResolvedValue({
+      name: 'HS', logoUrl: null, slogan: null, copyright: null, emailDomain: null,
+    });
+    const app = buildApp();
+    await app.inject({ method: 'GET', url: PUB });
+    await app.inject({ method: 'GET', url: PUB });
+    expect(prismaMock.organization.findFirst).toHaveBeenCalledTimes(1);
   });
 });
 

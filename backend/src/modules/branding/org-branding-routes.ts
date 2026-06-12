@@ -33,9 +33,23 @@ const DEFAULTS = {
   emailDomain: null as string | null,
 };
 
+// Cache trong RAM 60s — endpoint công khai (pre-auth) bị mỗi lượt mở /login gọi,
+// kẻ xấu có thể spam (giả X-Forwarded-File để né rate-limit). Cache khiến request
+// lặp KHÔNG đụng Postgres → chặn "DB amplifier" bất kể hạ tầng proxy (review #8),
+// đồng thời tăng tốc trang login. Lỗi DB không cache (để tự hồi khi DB sống lại).
+const CACHE_TTL_MS = 60_000;
+let cache: { at: number; data: Record<string, unknown> } | null = null;
+
+// Cho test reset giữa các case (cache là state cấp module).
+export function resetOrgBrandingCache(): void {
+  cache = null;
+}
+
 export async function orgBrandingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/public/org-branding', async (_request, reply: FastifyReply) => {
     reply.header('Cache-Control', 'public, max-age=60');
+    const now = Date.now();
+    if (cache && now - cache.at < CACHE_TTL_MS) return cache.data;
     try {
       const org = await prisma.organization.findFirst({
         orderBy: { createdAt: 'asc' },
@@ -43,20 +57,23 @@ export async function orgBrandingRoutes(app: FastifyInstance): Promise<void> {
         select: { name: true, logoUrl: true, slogan: true, copyright: true, emailDomain: true },
       });
       // Chưa có org (cài lần đầu) → defaults đẹp để login không trống trơn.
-      if (!org) return DEFAULTS;
       // Org đã tồn tại → trả ĐÚNG giá trị admin cấu hình. KHÔNG nhồi default cho
       // từng trường: nếu admin để slogan/copyright trống thì login ẩn luôn, tránh
       // "leak" chữ mặc định (vd vẫn hiện "Bền vững · Trường tồn" dù đã xoá).
       // Riêng name luôn có (cột NOT NULL) → fallback chỉ phòng chuỗi rỗng.
-      return {
-        logoUrl: org.logoUrl ?? null,
-        name: org.name?.trim() || DEFAULTS.name,
-        slogan: org.slogan ?? null,
-        copyright: org.copyright ?? null,
-        emailDomain: org.emailDomain ?? null,
-      };
+      const data = org
+        ? {
+            logoUrl: org.logoUrl ?? null,
+            name: org.name?.trim() || DEFAULTS.name,
+            slogan: org.slogan ?? null,
+            copyright: org.copyright ?? null,
+            emailDomain: org.emailDomain ?? null,
+          }
+        : DEFAULTS;
+      cache = { at: now, data };
+      return data;
     } catch {
-      // Lỗi DB không được làm vỡ trang login → trả defaults.
+      // Lỗi DB không được làm vỡ trang login → trả defaults (KHÔNG cache lỗi).
       return DEFAULTS;
     }
   });
