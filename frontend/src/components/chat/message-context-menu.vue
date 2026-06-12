@@ -57,11 +57,31 @@
         </button>
 
         <!-- Lưu vào Media (chỉ tin có media: ảnh/video/tệp) — Phase Media Library 2026-06-11 -->
-        <button v-if="isMediaMessage" class="ctx-item" role="menuitem" @click="onAction('save-media')">
-          <svg class="ctx-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
-          </svg>
-          <span class="ctx-item__label">Lưu vào Media</span>
+        <!-- Có submenu: Kho cá nhân Riêng tư (mặc định) / Kho chung Công khai (G3) -->
+        <div v-if="isMediaMessage" class="ctx-sub" @mouseenter="saveSubOpen = true" @mouseleave="saveSubOpen = false">
+          <button class="ctx-item" role="menuitem" @click="onSaveMedia('private')">
+            <svg class="ctx-item__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+            </svg>
+            <span class="ctx-item__label">Lưu vào Media</span>
+            <span class="ctx-caret">▸</span>
+          </button>
+          <div v-if="saveSubOpen" class="ctx-flyout" :class="{ left: flipLeft }">
+            <button class="ctx-item" role="menuitem" @click="onSaveMedia('private')">
+              <span class="ctx-item__icon emoji">🔒</span>
+              <span class="ctx-item__label">Kho cá nhân (Riêng tư)</span>
+            </button>
+            <button class="ctx-item" role="menuitem" @click="onSaveMedia('public')">
+              <span class="ctx-item__icon emoji">🌐</span>
+              <span class="ctx-item__label">Kho chung (Công khai)</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Thêm vào Yêu thích — lưu private rồi gắn ⭐ (G3) -->
+        <button v-if="isMediaMessage" class="ctx-item" role="menuitem" @click="onAction('favorite-media')">
+          <span class="ctx-item__icon emoji">⭐</span>
+          <span class="ctx-item__label">Thêm vào Yêu thích</span>
         </button>
 
         <!-- Thu hồi (self only) -->
@@ -106,13 +126,21 @@ const emit = defineEmits<{
   undo: [];
   forward: [];
   copy: [];
-  'save-media': [];
+  'save-media': [visibility: 'private' | 'public'];
+  'favorite-media': [];
 }>();
 
 // Tin có media (ảnh/video/tệp) → hiện "Lưu vào Media". Phase Media Library 2026-06-11.
 const isMediaMessage = computed(() =>
   ['image', 'video', 'file'].includes(props.message?.contentType ?? ''),
 );
+
+// Submenu "Lưu vào Media" (Riêng tư / Công khai) — mở khi hover.
+const saveSubOpen = ref(false);
+function onSaveMedia(visibility: 'private' | 'public') {
+  emit('save-media', visibility);
+  close();
+}
 
 const menuRef = ref<HTMLElement | null>(null);
 const flipUp = ref(false);
@@ -195,15 +223,15 @@ onBeforeUnmount(() => {
 function close() {
   emit('update:modelValue', false);
 }
-function onAction(name: 'reply' | 'edit' | 'forward' | 'undo' | 'delete' | 'save-media') {
+function onAction(name: 'reply' | 'edit' | 'forward' | 'undo' | 'delete' | 'favorite-media') {
   // Switch để TS narrow đúng từng emit signature (union không inferr được)
   switch (name) {
-    case 'reply':      emit('reply');      break;
-    case 'edit':       emit('edit');       break;
-    case 'forward':    emit('forward');    break;
-    case 'undo':       emit('undo');       break;
-    case 'delete':     emit('delete');     break;
-    case 'save-media': emit('save-media'); break;
+    case 'reply':          emit('reply');          break;
+    case 'edit':           emit('edit');           break;
+    case 'forward':        emit('forward');        break;
+    case 'undo':           emit('undo');           break;
+    case 'delete':         emit('delete');         break;
+    case 'favorite-media': emit('favorite-media'); break;
   }
   close();
 }
@@ -273,7 +301,26 @@ async function onCopy() {
   flex-shrink: 0;
   color: #6b7280;
 }
+.ctx-item__icon.emoji { display: flex; align-items: center; justify-content: center; font-size: 14px; }
 .ctx-item__label { flex: 1; }
+.ctx-caret { color: #9ca3af; font-size: 11px; margin-left: 4px; }
+
+/* Submenu "Lưu vào Media" — flyout bên phải (hoặc trái khi sát mép). */
+.ctx-sub { position: relative; }
+.ctx-flyout {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: 2px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18), 0 2px 6px rgba(15, 23, 42, 0.08);
+  min-width: 190px;
+  padding: 6px 0;
+  z-index: 102;
+}
+.ctx-flyout.left { left: auto; right: 100%; margin-left: 0; margin-right: 2px; }
 
 .ctx-item.is-danger { color: #ef4444; }
 .ctx-item.is-danger .ctx-item__icon { color: #ef4444; }

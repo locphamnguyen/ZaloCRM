@@ -149,6 +149,8 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     include: { asset: true },
   });
   if (existingBlob) {
+    // S8 observability: log dedup-hit (đo tiết kiệm thật — bao nhiêu ô lưu trữ né được).
+    logger.info(`[media][dedup] hit org=${orgId} hash=${up.contentHash.slice(0, 12)} reusedAsset=${existingBlob.assetId} source=${source}`);
     // Tăng lượt dùng asset đang sở hữu blob này (catalog vẫn cập nhật khi dedup-hit).
     const asset = await prisma.mediaAsset.update({
       where: { id: existingBlob.assetId },
@@ -156,6 +158,8 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     });
     return { asset, blob: existingBlob, deduped: true };
   }
+  // S8: log MISS (bytes mới hoàn toàn) — để tính hit-rate = hit/(hit+miss).
+  logger.info(`[media][dedup] miss org=${orgId} hash=${up.contentHash.slice(0, 12)} source=${source}`);
 
   // 4. Tạo Asset (danh tính) + Blob (variant original) trong 1 transaction.
   try {
@@ -248,6 +252,37 @@ export async function bumpUsage(assetId: string): Promise<void> {
     .catch(() => { /* asset đã archive/xóa — bỏ qua */ });
 }
 
+export type MediaUsageEventType =
+  | 'sent_chat' | 'sent_album' | 'broadcast' | 'saved_from_chat' | 'made_public';
+
+/**
+ * Ghi 1 sự kiện dùng media (S8 observability + tách event type usageCount).
+ * KHÔNG throw — log lỗi là phụ trợ, không được làm hỏng luồng gửi/lưu chính.
+ */
+export async function logMediaUsage(args: {
+  orgId: string;
+  mediaAssetId: string;
+  eventType: MediaUsageEventType;
+  userId?: string | null;
+  conversationId?: string | null;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    await prisma.mediaUsageEvent.create({
+      data: {
+        orgId: args.orgId,
+        mediaAssetId: args.mediaAssetId,
+        eventType: args.eventType,
+        userId: args.userId ?? null,
+        conversationId: args.conversationId ?? null,
+        meta: (args.meta ?? undefined) as any,
+      },
+    });
+  } catch (err) {
+    logger.warn('[media] logMediaUsage failed:', (err as Error)?.message ?? err);
+  }
+}
+
 // ── Watermark (GĐ2) — sinh blob variant 'watermarked' từ blob gốc ─────────────
 // Logo HS đặt ở static/brand. Cache buffer 1 lần (không đọc đĩa mỗi lần watermark).
 let _logoCache: Buffer | null = null;
@@ -272,6 +307,8 @@ export async function generateWatermarkVariant(args: {
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center';
   opacity?: number; // 0..1, mặc định 0.65
 }): Promise<{ blobId: string; url: string; deduped: boolean }> {
+  const position = args.position ?? 'bottom-right';
+  const opacityIn = Math.min(1, Math.max(0.1, args.opacity ?? 0.65));
   const asset = await prisma.mediaAsset.findFirst({
     where: { id: args.assetId, orgId: args.orgId },
     include: { blobs: true },
@@ -279,9 +316,12 @@ export async function generateWatermarkVariant(args: {
   if (!asset) throw new Error('Asset không tồn tại');
   if (asset.kind !== 'image') throw new Error('Chỉ ảnh mới đóng được watermark');
 
-  // Đã có variant watermark? → trả luôn (không sinh lại).
+  // BẬT/đổi góc-độ-mờ: nếu đã có variant watermark cũ → XÓA để sinh lại theo cấu hình mới.
+  // (Trước đây trả luôn bản cũ → đổi góc/opacity không có tác dụng — đã sửa 2026-06-12.)
   const existed = asset.blobs.find((b) => b.variantType === 'watermarked');
-  if (existed) return { blobId: existed.id, url: existed.publicUrl, deduped: true };
+  if (existed) {
+    await prisma.mediaBlob.delete({ where: { id: existed.id } }).catch(() => { /* đã xóa */ });
+  }
 
   const original = asset.blobs.find((b) => b.variantType === 'original');
   if (!original) throw new Error('Asset chưa có dữ liệu gốc');
@@ -303,7 +343,7 @@ export async function generateWatermarkVariant(args: {
   const bw = meta.width ?? 800;
   // Logo rộng ~22% ảnh, mờ theo opacity (tô lớp alpha đè để giảm độ đậm).
   const logoW = Math.max(80, Math.round(bw * 0.22));
-  const opacity = Math.min(1, Math.max(0.1, args.opacity ?? 0.65));
+  const opacity = opacityIn;
   // resize logo rồi nhân alpha bằng 1 lớp đen trong suốt qua composite 'dest-in'.
   const resized = await sharp(logo).resize(logoW).ensureAlpha().png().toBuffer();
   const dims = await sharp(resized).metadata();
@@ -322,7 +362,7 @@ export async function generateWatermarkVariant(args: {
   const gravity = {
     'bottom-right': 'southeast', 'bottom-left': 'southwest',
     'top-right': 'northeast', 'top-left': 'northwest', 'center': 'center',
-  }[args.position ?? 'bottom-right'] as string;
+  }[position] as string;
 
   const out = await base
     .composite([{ input: logoResized, gravity }])
@@ -351,5 +391,25 @@ export async function generateWatermarkVariant(args: {
     }
     throw err;
   });
+  // Lưu cấu hình watermark per-ảnh → BẬT (gửi đi dùng bản watermark) + nhớ góc/độ mờ.
+  await prisma.mediaAsset.update({
+    where: { id: asset.id },
+    data: { watermarkEnabled: true, watermarkPosition: position, watermarkOpacity: opacityIn },
+  }).catch(() => { /* asset đã archive — bỏ qua */ });
   return { blobId: blob.id, url: blob.publicUrl, deduped: up.deduped };
+}
+
+/**
+ * TẮT watermark per-ảnh: gỡ blob 'watermarked' + đặt watermarkEnabled=false.
+ * Bản gốc luôn giữ. Gửi đi sau đó dùng lại bản gốc.
+ */
+export async function disableWatermark(orgId: string, assetId: string): Promise<void> {
+  const asset = await prisma.mediaAsset.findFirst({
+    where: { id: assetId, orgId }, include: { blobs: { where: { variantType: 'watermarked' } } },
+  });
+  if (!asset) throw new Error('Asset không tồn tại');
+  for (const b of asset.blobs) {
+    await prisma.mediaBlob.delete({ where: { id: b.id } }).catch(() => { /* đã xóa */ });
+  }
+  await prisma.mediaAsset.update({ where: { id: assetId }, data: { watermarkEnabled: false } });
 }

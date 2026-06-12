@@ -15,6 +15,14 @@ export interface MediaAssetItem {
   thumbnailUrl: string | null;
   sizeBytes: number | null;
   createdAt: string;
+  // Watermark per-ảnh (GĐ2) — backend trả khi list/detail.
+  watermarkEnabled?: boolean;
+  watermarkPosition?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'center';
+  watermarkOpacity?: number;
+  watermarkUrl?: string | null;
+  // Privacy (D11): ảnh lưu từ nick Riêng tư → cần xác nhận khi chia sẻ công khai.
+  sourceFromPrivateNick?: boolean;
+  favorited?: boolean;
 }
 
 export interface ListMediaParams {
@@ -74,10 +82,10 @@ export interface MediaFolder {
   ownerUserId: string | null;
 }
 
-/** Sửa quyền/tên/tag/thư mục của 1 asset. */
+/** Sửa quyền/tên/tag/thư mục của 1 asset. confirmShare=true: xác nhận chia sẻ ảnh nick Riêng tư (D11). */
 export async function updateMedia(
   id: string,
-  patch: { name?: string; visibility?: 'private' | 'public'; tagIds?: string[]; folderId?: string | null },
+  patch: { name?: string; visibility?: 'private' | 'public'; tagIds?: string[]; folderId?: string | null; confirmShare?: boolean },
 ): Promise<{ asset: { id: string; name: string; visibility: string; tagIds: string[] } }> {
   const { data } = await api.patch(`/media/${id}`, patch);
   return data;
@@ -89,12 +97,18 @@ export async function archiveMedia(id: string): Promise<{ ok: boolean }> {
   return data;
 }
 
-/** Đóng dấu logo HS lên 1 ảnh (sinh bản watermark). */
+/** Đóng dấu logo HS lên 1 ảnh (BẬT watermark per-ảnh + chọn góc/độ mờ). */
 export async function watermarkMedia(
   id: string,
   opts: { position?: string; opacity?: number } = {},
 ): Promise<{ blobId: string; url: string }> {
   const { data } = await api.post(`/media/${id}/watermark`, opts);
+  return data;
+}
+
+/** TẮT watermark per-ảnh — gửi lại ảnh gốc (giữ bản watermark variant nếu cần bật lại). */
+export async function removeWatermark(id: string): Promise<{ ok: boolean }> {
+  const { data } = await api.delete(`/media/${id}/watermark`);
   return data;
 }
 

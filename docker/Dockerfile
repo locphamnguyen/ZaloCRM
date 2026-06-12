@@ -9,6 +9,9 @@ RUN npm run build
 # ── Stage 2: Build backend ───────────────────────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /app/backend
+# sharp (nén ảnh + watermark Media): trên alpine/musl cần libvips. Cài vips-dev + build tools
+# để sharp có thể build từ source nếu prebuild musl không tải được (mạng/registry chặn).
+RUN apk add --no-cache vips-dev build-base python3
 COPY backend/package.json backend/package-lock.json ./
 # Dùng `npm install` thay `npm ci` vì lock file đôi khi out of sync với package.json
 # (vd: thêm package mới qua npm install --no-save trong dev). Tradeoff: build chậm hơn ~10s
@@ -22,7 +25,9 @@ RUN npm run build
 FROM node:20-alpine
 # tzdata = zoneinfo data cho Asia/Ho_Chi_Minh (memory feedback_timezone_vietnam.md).
 # Trước đây alpine không có → Node process fallback UTC → log + new Date() lệch 7h vs giờ VN.
-RUN apk add --no-cache tini ffmpeg tzdata && \
+# vips = thư viện nền runtime cho sharp (nén ảnh + watermark Media). THIẾU vips → sharp
+# crash lúc require → upload ảnh 500. Phải có cả ở image production, không chỉ builder.
+RUN apk add --no-cache tini ffmpeg tzdata vips && \
     cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime && \
     echo "Asia/Ho_Chi_Minh" > /etc/timezone
 ENV TZ=Asia/Ho_Chi_Minh

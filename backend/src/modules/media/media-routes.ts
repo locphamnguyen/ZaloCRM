@@ -18,7 +18,7 @@ import { userHasGrant } from '../rbac/permission-group-service.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
-import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, type MediaKind } from './media-service.js';
+import { registerAsset, bumpUsage, resolveSavedVisibility, generateWatermarkVariant, disableWatermark, logMediaUsage, type MediaKind } from './media-service.js';
 import { downloadMediaToTemp } from '../chat/chat-media-helpers.js';
 import { createMediaMessage, getUserFullName } from '../chat/chat-helpers.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
@@ -86,11 +86,24 @@ export async function mediaRoutes(app: FastifyInstance) {
         where,
         orderBy: [{ lastUsedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
         take: limit,
-        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
+        include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
       });
 
+      // Bộ ảnh yêu thích của user (để FE hiện trạng thái ⭐ ngay trong list/panel).
+      const favAlbum = await prisma.mediaAlbum.findFirst({
+        where: { orgId: user.orgId, ownerUserId: userId, kind: 'favorite' }, select: { id: true },
+      });
+      const favSet = new Set<string>();
+      if (favAlbum) {
+        const favItems = await prisma.mediaAlbumItem.findMany({
+          where: { albumId: favAlbum.id }, select: { mediaAssetId: true },
+        });
+        for (const fi of favItems) favSet.add(fi.mediaAssetId);
+      }
+
       const items = assets.map((a) => {
-        const blob = a.blobs[0];
+        const blob = a.blobs.find((b) => b.variantType === 'original');
+        const wm = a.blobs.find((b) => b.variantType === 'watermarked');
         return {
           id: a.id,
           kind: a.kind,
@@ -103,6 +116,14 @@ export async function mediaRoutes(app: FastifyInstance) {
           thumbnailUrl: a.thumbnailUrl ?? blob?.publicUrl ?? null,
           sizeBytes: blob?.sizeBytes ?? null,
           createdAt: a.createdAt,
+          // Watermark per-ảnh (GĐ2).
+          watermarkEnabled: a.watermarkEnabled,
+          watermarkPosition: a.watermarkPosition,
+          watermarkOpacity: a.watermarkOpacity,
+          watermarkUrl: wm?.publicUrl ?? null,
+          // D11: ảnh lưu từ nick Riêng tư → FE hỏi xác nhận trước khi chia sẻ công khai.
+          sourceFromPrivateNick: !!a.sourceZaloAccountId,
+          favorited: favSet.has(a.id),
         };
       });
       return { items };
@@ -238,6 +259,13 @@ export async function mediaRoutes(app: FastifyInstance) {
           source: 'saved_from_chat',
           sourceZaloAccountId: isPrivateNick ? nick.id : null,
         });
+        // AUDIT privacy (S8): ghi log "Lưu từ chat" + nguồn nick (riêng tư hay không).
+        logger.info(`[media][audit] save_from_chat asset=${res.asset.id} user=${userId} visibility=${vis.visibility} fromPrivateNick=${isPrivateNick} deduped=${res.deduped}`);
+        await logMediaUsage({
+          orgId: user.orgId, mediaAssetId: res.asset.id, eventType: 'saved_from_chat', userId,
+          conversationId: message.conversationId,
+          meta: { visibility: vis.visibility, fromPrivateNick: isPrivateNick, deduped: res.deduped },
+        });
         return { asset: { id: res.asset.id, name: res.asset.name }, deduped: res.deduped };
       } catch (err: any) {
         logger.error('[media] save-from-chat error:', err);
@@ -266,10 +294,13 @@ export async function mediaRoutes(app: FastifyInstance) {
           id, orgId: user.orgId, archivedAt: null,
           ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }),
         },
-        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
+        include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
       });
       if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media trong kho' });
-      const blob = asset.blobs[0];
+      // WATERMARK BẬT → gửi bản có logo; ngược lại gửi bản gốc. (Ảnh mới đóng dấu được.)
+      const original = asset.blobs.find((b) => b.variantType === 'original');
+      const watermarked = asset.blobs.find((b) => b.variantType === 'watermarked');
+      const blob = (asset.kind === 'image' && asset.watermarkEnabled && watermarked) ? watermarked : original;
       if (!blob) return reply.status(400).send({ error: 'Media chưa có dữ liệu (đã xóa khỏi kho?)' });
 
       const conversation = await prisma.conversation.findFirst({
@@ -349,6 +380,11 @@ export async function mediaRoutes(app: FastifyInstance) {
           data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
         });
         await bumpUsage(asset.id);
+        await logMediaUsage({
+          orgId: user.orgId, mediaAssetId: asset.id, eventType: 'sent_chat',
+          userId, conversationId: conversation.id,
+          meta: { watermarked: blob.variantType === 'watermarked' },
+        });
 
         await emitChatMessage({
           io,
@@ -377,7 +413,10 @@ export async function mediaRoutes(app: FastifyInstance) {
       const user = request.user!;
       const userId = (user as any).userId ?? user.id;
       const { id } = request.params as { id: string };
-      const body = request.body as { name?: string; visibility?: 'private' | 'public'; tagIds?: string[]; folderId?: string | null };
+      const body = request.body as {
+        name?: string; visibility?: 'private' | 'public';
+        tagIds?: string[]; folderId?: string | null; confirmShare?: boolean;
+      };
 
       const canViewAll = await userHasGrant(userId, 'media', 'view_all');
       const asset = await prisma.mediaAsset.findFirst({
@@ -385,11 +424,14 @@ export async function mediaRoutes(app: FastifyInstance) {
       });
       if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media (hoặc không thuộc bạn)' });
 
-      // PRIVACY: asset lưu từ nick Riêng tư → KHÔNG cho đổi sang public (chống lộ PII khách).
-      if (body.visibility === 'public' && asset.sourceZaloAccountId) {
-        return reply.status(403).send({
-          error: 'Ảnh lưu từ nick Riêng tư — không thể chuyển Công khai (bảo vệ thông tin khách).',
-          code: 'PRIVACY_LOCKED',
+      // PRIVACY (D11 — anh chốt 2026-06-12: HỎI XÁC NHẬN thay vì chặn cứng):
+      // Ảnh lưu từ nick Riêng tư → chuyển Công khai PHẢI kèm confirmShare=true (FE đã hiện
+      // dialog "có thể chứa thông tin khách — chắc chắn chia sẻ?"). Thiếu → trả NEED_CONFIRM.
+      const sharingPrivateNickAsset = body.visibility === 'public' && asset.sourceZaloAccountId;
+      if (sharingPrivateNickAsset && !body.confirmShare) {
+        return reply.status(409).send({
+          error: 'Ảnh lưu từ nick Riêng tư — cần xác nhận trước khi chia sẻ Công khai.',
+          code: 'NEED_SHARE_CONFIRM',
         });
       }
 
@@ -402,6 +444,15 @@ export async function mediaRoutes(app: FastifyInstance) {
           ...(body.folderId !== undefined ? { folderId: body.folderId } : {}),
         },
       });
+
+      // AUDIT privacy (S8): chuyển sang Công khai → ghi log (đặc biệt ảnh từ nick Riêng tư).
+      if (body.visibility === 'public') {
+        logger.info(`[media][audit] make_public asset=${id} user=${userId} fromPrivateNick=${!!asset.sourceZaloAccountId}`);
+        await logMediaUsage({
+          orgId: user.orgId, mediaAssetId: id, eventType: 'made_public', userId,
+          meta: { fromPrivateNick: !!asset.sourceZaloAccountId, confirmed: !!body.confirmShare },
+        });
+      }
       return { asset: { id: updated.id, name: updated.name, visibility: updated.visibility, tagIds: updated.tagIds } };
     },
   );
@@ -451,6 +502,30 @@ export async function mediaRoutes(app: FastifyInstance) {
       } catch (err: any) {
         logger.error('[media] watermark error:', err);
         return reply.status(400).send({ error: err?.message ?? 'watermark failed' });
+      }
+    },
+  );
+
+  // ── DELETE /api/v1/media/:id/watermark — TẮT watermark (gửi lại ảnh gốc) ────
+  app.delete(
+    '/api/v1/media/:id/watermark',
+    { preHandler: requireGrant('media', 'edit') },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const user = request.user!;
+      const userId = (user as any).userId ?? user.id;
+      const { id } = request.params as { id: string };
+      const canViewAll = await userHasGrant(userId, 'media', 'view_all');
+      const asset = await prisma.mediaAsset.findFirst({
+        where: { id, orgId: user.orgId, archivedAt: null, ...(canViewAll ? {} : { ownerUserId: userId }) },
+        select: { id: true },
+      });
+      if (!asset) return reply.status(404).send({ error: 'Không tìm thấy media' });
+      try {
+        await disableWatermark(user.orgId, id);
+        return { ok: true };
+      } catch (err: any) {
+        logger.error('[media] disable watermark error:', err);
+        return reply.status(400).send({ error: err?.message ?? 'disable watermark failed' });
       }
     },
   );
@@ -671,9 +746,16 @@ export async function mediaRoutes(app: FastifyInstance) {
       const assets = await prisma.mediaAsset.findMany({
         where: { id: { in: body.assetIds }, orgId: user.orgId, archivedAt: null, kind: 'image',
           ...(canViewAll ? {} : { OR: [{ ownerUserId: userId }, { visibility: 'public' }] }) },
-        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
+        include: { blobs: { where: { variantType: { in: ['original', 'watermarked'] } } } },
       });
       if (assets.length === 0) return reply.status(404).send({ error: 'Không có ảnh hợp lệ' });
+
+      // Chọn variant đúng cho từng ảnh: watermark BẬT → bản có logo, ngược lại bản gốc.
+      const pickBlob = (a: typeof assets[number]) => {
+        const orig = a.blobs.find((b) => b.variantType === 'original');
+        const wm = a.blobs.find((b) => b.variantType === 'watermarked');
+        return (a.watermarkEnabled && wm) ? wm : orig;
+      };
 
       const conversation = await prisma.conversation.findFirst({
         where: { id: body.conversationId, orgId: user.orgId }, include: { zaloAccount: true },
@@ -698,7 +780,7 @@ export async function mediaRoutes(app: FastifyInstance) {
       const tmps: Array<{ path: string; cleanup: () => Promise<void> }> = [];
       try {
         for (const a of assets) {
-          const blob = a.blobs[0];
+          const blob = pickBlob(a);
           if (!blob) continue;
           // KHÔNG truyền filename (name mất đuôi → file lạ). Để lấy đuôi .webp từ URL.
           const tmp = await downloadMediaToTemp({ url: blob.publicUrl }, 'image');
@@ -717,7 +799,13 @@ export async function mediaRoutes(app: FastifyInstance) {
           metadata: { sender: { kind: 'user_crm', name: userFullName } }, sentVia: 'user',
         });
         await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 } });
-        for (const a of assets) await bumpUsage(a.id);
+        for (const a of assets) {
+          await bumpUsage(a.id);
+          await logMediaUsage({
+            orgId: user.orgId, mediaAssetId: a.id, eventType: 'sent_album',
+            userId, conversationId: conversation.id, meta: { albumCount: assets.length },
+          });
+        }
         await emitChatMessage({ io, orgId: user.orgId, accountId: conversation.zaloAccountId, conversationId: conversation.id, message: msg, privacyMode: conversation.zaloAccount.privacyMode, ownerUserId: conversation.zaloAccount.ownerUserId });
         return { message: msg, sent: assets.length };
       } catch (err: any) {

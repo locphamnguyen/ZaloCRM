@@ -155,6 +155,7 @@ model Organization {
   mediaBlobs              MediaBlob[]
   mediaAssets             MediaAsset[]
   mediaAlbums             MediaAlbum[]
+  mediaUsageEvents        MediaUsageEvent[]
 
   @@map("organizations")
 }
@@ -383,8 +384,6 @@ model ZaloAccount {
   systemNotificationsAsInternal    SystemNotification[]    @relation("SystemNotificationInternalContact")
   // 2026-06-06 (Anh chốt) — trần SDK ghi đè riêng per-nick (NULL = theo org default).
   sdkLimits                        SdkLimit[]
-  // Phase Media Library 2026-06-11 — cache forward-ref per-nick (đã gửi blob nào).
-  mediaUploadRefs                  MediaUploadRef[]
 
   @@map("zalo_accounts")
 }
@@ -3436,8 +3435,9 @@ model FacebookAppConfig {
 //                  1 Asset có nhiều Blob variant (original / watermarked / compressed).
 //   • MediaAsset = DANH TÍNH + metadata + quyền (KHÔNG mang minioKey trực tiếp).
 //   Dedup ở tầng Blob (hash), query kho ở tầng Asset.
-//   MediaUploadRef trỏ BLOB (per-nick, per-variant) để forward đúng bản đã gửi.
 // INVARIANT: object immutable, "xóa" = archive (archivedAt), không 404 lịch sử chat.
+// (MediaUploadRef cache forward-ref ĐÃ BỎ 2026-06-12: zca-js không forward được media
+//  → luôn gửi lẻ Đường B, ref không bao giờ dùng. Xem reference_zalo_forward_media_impossible.)
 // ════════════════════════════════════════════════════════════════════════════
 
 // MediaBlob — object thô trên MinIO. Dedup theo contentHash (sha256 bytes đã lưu).
@@ -3460,7 +3460,6 @@ model MediaBlob {
 
   org        Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   asset      MediaAsset       @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  uploadRefs MediaUploadRef[]
 
   // Dedup key: cùng org + cùng bytes = 1 blob. statObject + upsert chống trùng.
   @@unique([orgId, contentHash])
@@ -3488,6 +3487,10 @@ model MediaAsset {
   tagIds              String[]  @default([]) @map("tag_ids") // tag dự án (EGV/HS...) — Gin index
   originalFilename    String?   @map("original_filename")
   thumbnailUrl        String?   @map("thumbnail_url") // video thumbnail
+  // Watermark per-ảnh (GĐ2): BẬT/TẮT + góc + độ mờ. Khi BẬT, gửi đi dùng blob 'watermarked'.
+  watermarkEnabled    Boolean   @default(false) @map("watermark_enabled")
+  watermarkPosition   String    @default("bottom-right") @map("watermark_position") // bottom-right|bottom-left|top-right|top-left|center
+  watermarkOpacity    Float     @default(0.65) @map("watermark_opacity")
   usageCount          Int       @default(0) @map("usage_count")
   lastUsedAt          DateTime? @map("last_used_at")
   archivedAt          DateTime? @map("archived_at") // soft delete — KHÔNG xóa object MinIO
@@ -3501,6 +3504,7 @@ model MediaAsset {
   folder     MediaAlbum?      @relation(fields: [folderId], references: [id], onDelete: SetNull)
   blobs      MediaBlob[]
   albumItems MediaAlbumItem[]
+  usageEvents MediaUsageEvent[]
 
   @@index([orgId, kind])
   @@index([orgId, visibility])
@@ -3554,22 +3558,25 @@ model MediaAlbumItem {
   @@map("media_album_items")
 }
 
-// MediaUploadRef — cache forward-ref per-nick (GĐ3 / Trục 2 tối ưu Zalo).
-// Trỏ BLOB (per-variant): nick gửi bản gốc → 1 ref; gửi bản watermark → ref khác.
-// zaloMsgId + ts dùng cho forwardMessage.reference. expiresAt mặc định 24h.
-model MediaUploadRef {
-  id            String   @id @default(uuid())
-  zaloAccountId String   @map("zalo_account_id")
-  blobId        String   @map("blob_id")
-  zaloMsgId     String   @map("zalo_msg_id")
-  ts            BigInt // timestamp tin gốc (ms) — cho forwardMessage.reference
-  expiresAt     DateTime @map("expires_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+// MediaUsageEvent — log từng lần media được gửi (tách event type để sau aggregate).
+// Codex/observability S8 + usageCount-tách-event: usageCount giữ tổng (đếm nhanh),
+// event này lưu chi tiết loại (sent_chat / sent_album / broadcast / saved_public).
+model MediaUsageEvent {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  mediaAssetId String   @map("media_asset_id")
+  // eventType: 'sent_chat' | 'sent_album' | 'broadcast' | 'saved_from_chat' | 'made_public'
+  eventType    String   @map("event_type")
+  userId       String?  @map("user_id") // ai thực hiện (audit privacy)
+  conversationId String? @map("conversation_id")
+  meta         Json?    // dữ liệu phụ (vd albumCount, deduped, fromPrivateNick)
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  zaloAccount ZaloAccount @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-  blob        MediaBlob   @relation(fields: [blobId], references: [id], onDelete: Cascade)
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  asset MediaAsset   @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
 
-  @@unique([zaloAccountId, blobId])
-  @@index([blobId])
-  @@map("media_upload_refs")
+  @@index([orgId, eventType])
+  @@index([mediaAssetId])
+  @@index([orgId, createdAt])
+  @@map("media_usage_events")
 }

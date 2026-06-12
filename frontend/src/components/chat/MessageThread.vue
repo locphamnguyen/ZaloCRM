@@ -723,6 +723,7 @@
       @undo="onUndo"
       @forward="showForwardDialog = true"
       @save-media="onSaveToMedia"
+      @favorite-media="onFavoriteFromChat"
       @copy="() => {}"
     />
 
@@ -830,7 +831,7 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
-import { saveFromChat, suggestMedia, sendMediaToConversation, type MediaAssetItem } from '@/api/media';
+import { saveFromChat, suggestMedia, sendMediaToConversation, toggleFavorite, type MediaAssetItem } from '@/api/media';
 import MediaPickerPopover from '@/components/media/MediaPickerPopover.vue';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
@@ -2323,18 +2324,40 @@ function onDelete() { if (contextMsg.value) emit('delete-message', contextMsg.va
 function onUndo() { if (contextMsg.value) emit('undo-message', contextMsg.value.id); }
 
 // Lưu ảnh/file từ chat vào Kho phương tiện — Phase Media Library 2026-06-11.
-async function onSaveToMedia() {
+// visibility: 'private' = Kho cá nhân (mặc định) / 'public' = Kho chung (G3 submenu).
+async function onSaveToMedia(visibility: 'private' | 'public' = 'private') {
   const msg = contextMsg.value;
   if (!msg) return;
   try {
-    const res = await saveFromChat(msg.id);
-    toast.success(res.deduped ? 'Đã có sẵn trong kho — không tốn thêm dung lượng' : `Đã lưu "${res.asset.name}" vào Kho phương tiện`);
+    const res = await saveFromChat(msg.id, visibility);
+    const where = visibility === 'public' ? 'Kho chung' : 'Kho cá nhân';
+    toast.success(res.deduped
+      ? `Đã có sẵn trong kho — không tốn thêm dung lượng (${where})`
+      : `Đã lưu "${res.asset.name}" vào ${where}`);
   } catch (e: any) {
     const code = e?.response?.data?.code;
     if (code === 'PRIVACY_LOCKED') {
       toast.warning('Tin từ nick Riêng tư — chỉ chính chủ nick mới lưu được');
     } else {
       toast.warning(e?.response?.data?.error || 'Không lưu được vào kho');
+    }
+  }
+}
+
+// "Thêm vào Yêu thích" từ bong bóng chat (G3): lưu private trước rồi gắn ⭐.
+async function onFavoriteFromChat() {
+  const msg = contextMsg.value;
+  if (!msg) return;
+  try {
+    const res = await saveFromChat(msg.id, 'private');
+    await toggleFavorite(res.asset.id);
+    toast.success(`Đã lưu "${res.asset.name}" và thêm vào ⭐ Yêu thích`);
+  } catch (e: any) {
+    const code = e?.response?.data?.code;
+    if (code === 'PRIVACY_LOCKED') {
+      toast.warning('Tin từ nick Riêng tư — chỉ chính chủ nick mới lưu được');
+    } else {
+      toast.warning(e?.response?.data?.error || 'Không thêm được vào Yêu thích');
     }
   }
 }

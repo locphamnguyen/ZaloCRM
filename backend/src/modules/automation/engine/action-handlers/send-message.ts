@@ -214,7 +214,12 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
         persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'image', url: m.payload.url, caption }] });
         persistContentType = 'image';
       } else if (m.messageType === 'album') {
-        const items = m.payload.items.map((it) => ({ url: it.url, caption: it.caption ?? '' }));
+        // S4 edge case: giới hạn ≤12 ảnh/lần tránh quá tải SDK Zalo (như endpoint gửi tay).
+        const allItems = m.payload.items.map((it) => ({ url: it.url, caption: it.caption ?? '' }));
+        const items = allItems.slice(0, 12);
+        if (allItems.length > 12) {
+          logger.warn(`[automation] album ${allItems.length} ảnh > 12 — chỉ gửi 12 ảnh đầu (giới hạn SDK).`);
+        }
         // download tất cả ảnh album về temp rồi gửi 1 lần (attachments nhiều path).
         const paths: string[] = [];
         for (const it of items) {
