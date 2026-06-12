@@ -176,6 +176,10 @@ export async function getProfile(userId: string) {
       role: true,
       orgId: true,
       teamId: true,
+      // Module Cá nhân 2026-06-13 — avatar ảnh thật của user (cột có sẵn schema:241,
+      // trước đây getProfile quên select → FE luôn fallback chữ cái). Trả để top nav +
+      // trang Tài khoản hiện ảnh.
+      avatarUrl: true,
       isActive: true,
       createdAt: true,
       passwordChangedAt: true,

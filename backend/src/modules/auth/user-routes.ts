@@ -617,6 +617,91 @@ export async function userRoutes(app: FastifyInstance) {
     }
   });
 
+  // ════════════════════════════════════════════════════════════════════════
+  // Module Cá nhân gom "Tài khoản của tôi" 2026-06-13 (CEO review duyệt).
+  //   PATCH /me/profile  → sale tự sửa fullName (+ xoá avatar: avatarUrl=null)
+  //   POST  /me/avatar   → upload ảnh đại diện (gộp registerAsset + update 1 nhịp)
+  // An toàn: cả 2 lấy request.user.id (KHÔNG nhận userId body) → không leo thang quyền.
+  //   KHÔNG cho đổi email/phone/role/isActive qua self-service (admin quản qua PUT /users/:id).
+  //   avatarUrl qua PATCH chỉ nhận null (xoá) — đặt URL ảnh chỉ qua /me/avatar (server tự
+  //   sinh URL) → client không nhét được URL bậy.
+  // ════════════════════════════════════════════════════════════════════════
+  app.patch('/api/v1/me/profile', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    const body = (request.body ?? {}) as { fullName?: unknown; avatarUrl?: unknown };
+    const data: { fullName?: string; avatarUrl?: null } = {};
+
+    if (Object.prototype.hasOwnProperty.call(body, 'fullName')) {
+      const name = typeof body.fullName === 'string' ? body.fullName.trim() : '';
+      if (name.length < 2 || name.length > 80) {
+        return reply.status(400).send({ error: 'Họ tên phải từ 2 đến 80 ký tự' });
+      }
+      data.fullName = name;
+    }
+    // avatarUrl: CHỈ chấp nhận null (nút "Xoá ảnh" → về chữ cái). Mọi URL khác bị bỏ qua —
+    // đặt ảnh phải đi qua POST /me/avatar (server tự sinh URL).
+    if (Object.prototype.hasOwnProperty.call(body, 'avatarUrl') && body.avatarUrl === null) {
+      data.avatarUrl = null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return reply.status(400).send({ error: 'Không có thay đổi hợp lệ (fullName hoặc avatarUrl:null)' });
+    }
+
+    try {
+      const updated = await prisma.user.update({
+        where: { id: currentUser.id },
+        data,
+        select: { id: true, fullName: true, avatarUrl: true },
+      });
+      return updated;
+    } catch (err: any) {
+      logger.error(`[me/profile] update fail user=${currentUser.id}: ${err?.message}`);
+      return reply.status(500).send({ error: 'Không thể cập nhật hồ sơ' });
+    }
+  });
+
+  app.post('/api/v1/me/avatar', async (request: FastifyRequest, reply: FastifyReply) => {
+    const currentUser = request.user!;
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const MAX = 15 * 1024 * 1024; // khớp IMAGE_MAX của media module
+    try {
+      for await (const part of request.parts()) {
+        if (part.type === 'file' && part.fieldname === 'avatar') {
+          if (!ALLOWED.includes(part.mimetype)) {
+            return reply.status(415).send({ error: `Chỉ nhận ảnh jpeg/png/webp/gif (nhận: ${part.mimetype})` });
+          }
+          const buf = await part.toBuffer();
+          if (buf.length > MAX) {
+            return reply.status(413).send({ error: 'Ảnh tối đa 15MB' });
+          }
+          // Gộp: registerAsset (nén webp + dedup + lưu MinIO) → lấy blob.publicUrl → update user.
+          // visibility='private' + folder riêng để KHÔNG hiện tab Kho ảnh chung của org.
+          const { registerAsset } = await import('../media/media-service.js');
+          const res = await registerAsset({
+            orgId: currentUser.orgId,
+            buffer: buf,
+            mimeType: part.mimetype,
+            kind: 'image',
+            name: `Avatar ${currentUser.email ?? currentUser.id}`,
+            originalFilename: part.filename ?? undefined,
+            ownerUserId: currentUser.id,
+            createdById: currentUser.id,
+            visibility: 'private',
+            source: 'upload',
+          });
+          const avatarUrl = res.blob.publicUrl;
+          await prisma.user.update({ where: { id: currentUser.id }, data: { avatarUrl } });
+          return { avatarUrl };
+        }
+      }
+      return reply.status(400).send({ error: 'Thiếu file ảnh (field "avatar")' });
+    } catch (err: any) {
+      logger.error(`[me/avatar] upload fail user=${currentUser.id}: ${err?.message}`);
+      return reply.status(500).send({ error: 'Không thể tải ảnh lên' });
+    }
+  });
+
   app.post('/api/v1/me/onboarding/skip-step', async (request: FastifyRequest, reply: FastifyReply) => {
     const currentUser = request.user!;
     const body = (request.body ?? {}) as { step?: string };

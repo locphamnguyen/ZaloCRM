@@ -78,8 +78,9 @@
       <GlobalSearch class="topnav-search" />
 
       <!-- Right icon buttons -->
-      <RouterLink to="/groups" class="icon-btn" title="Nhóm">
-        <v-icon size="18">mdi-account-group-outline</v-icon>
+      <!-- 2026-06-13 (anh chốt): nút này trỏ về trang quản lý nick Zalo (trước trỏ /groups). -->
+      <RouterLink to="/settings/channels/zalo" class="icon-btn" title="Quản lý nick Zalo">
+        <v-icon size="18">mdi-cellphone-link</v-icon>
       </RouterLink>
 
       <NotificationBell class="icon-btn-wrap" />
@@ -87,14 +88,14 @@
       <v-menu v-model="userMenu" :close-on-content-click="true">
         <template #activator="{ props: act }">
           <button class="user-avatar" v-bind="act" :title="authStore.user?.fullName || 'Tài khoản'">
-            {{ initials }}
+            <Avatar :src="authStore.user?.avatarUrl" :name="authStore.user?.fullName || 'U'" :size="32" :platform="null" />
           </button>
         </template>
         <v-list density="compact" min-width="200">
           <v-list-item :title="authStore.user?.fullName || ''" :subtitle="authStore.user?.email || ''" />
           <v-divider />
-          <v-list-item to="/profile" title="Hồ sơ" prepend-icon="mdi-account-circle-outline" />
-          <v-list-item @click="toggleTheme" :title="isDark ? 'Theme sáng' : 'Theme tối (legacy)'" :prepend-icon="isDark ? 'mdi-weather-sunny' : 'mdi-weather-night'" />
+          <!-- 2026-06-13 (anh chốt): Hồ sơ trỏ về trang gom "Tài khoản của tôi". Bỏ nút Theme tối. -->
+          <v-list-item to="/settings/personal/profile" title="Hồ sơ" prepend-icon="mdi-account-circle-outline" />
           <v-divider />
           <v-list-item @click="logout" title="Đăng xuất" prepend-icon="mdi-logout" />
         </v-list>
@@ -137,6 +138,7 @@ import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
 import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
+import Avatar from '@/components/ui/Avatar.vue';
 import { fetchPublicBranding } from '@/api/public-branding';
 // 2026-06-04: gỡ MiniOnboardingIndicator (Anh chốt code lại setup 4 bước sau)
 // LeadFloatingButton moved to ConversationFilterSidebar 2026-06-01
@@ -196,8 +198,6 @@ function dismissInternalContactBanner() {
   localStorage.setItem(IC_BANNER_DISMISS_KEY, String(Date.now() + 24 * 60 * 60 * 1000));
 }
 
-const isDark = ref((localStorage.getItem('theme') || 'hsLight') === 'legacy-dark');
-
 // Brand lockup trên menu — logo + tên tổ chức (đồng bộ /login, /setup-password).
 const DEFAULT_LOGO = '/brand/hs-monogram.png';
 const brandLogo = ref(DEFAULT_LOGO);
@@ -207,12 +207,11 @@ function onLogoError() {
 }
 
 onMounted(() => {
-  // HS redesign 2026-06-05: mặc định hsLight. Giá trị cũ 'smax-light' trong
-  // localStorage được nâng cấp sang hsLight (chỉ giữ legacy-dark nếu user chọn).
-  let saved = localStorage.getItem('theme') || 'hsLight';
-  if (saved === 'smax-light') saved = 'hsLight';
-  theme.global.name.value = saved;
-  isDark.value = saved === 'legacy-dark';
+  // 2026-06-13 (anh chốt): app LUÔN theme sáng 'hsLight', bỏ chọn theme tối. Ép cứng +
+  // dọn giá trị 'legacy-dark'/'smax-light' cũ trong localStorage để user nào đang kẹt
+  // dark cũng về sáng.
+  theme.global.name.value = 'hsLight';
+  localStorage.setItem('theme', 'hsLight');
   void checkInternalContactSetup();
 
   fetchPublicBranding()
@@ -296,17 +295,8 @@ const isReportsActive = computed(
 // Workspace selector đã ẩn ở Variant A 2026-05-28 (single-tenant chưa cần switch).
 // Sau này multi-tenant → revert back template + uncomment block dưới.
 
-const initials = computed(() => {
-  const name = authStore.user?.fullName || 'U';
-  return name.split(' ').map(p => p[0]).slice(-2).join('').toUpperCase();
-});
-
-function toggleTheme() {
-  const next = isDark.value ? 'hsLight' : 'legacy-dark';
-  isDark.value = !isDark.value;
-  theme.global.name.value = next;
-  localStorage.setItem('theme', next);
-}
+// Avatar top nav 2026-06-13 — dùng <Avatar/> (ảnh thật + fallback chữ cái), bỏ initials thủ công.
+// 2026-06-13 (anh chốt): bỏ chọn theme tối — app luôn theme sáng 'hsLight' (mặc định ở vuetify.ts).
 
 function logout() {
   authStore.logout();
@@ -492,13 +482,14 @@ function logout() {
 .user-avatar {
   width: 32px; height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #fcd34d, #f59e0b);
-  color: white; font-weight: 700;
+  /* Module Cá nhân 2026-06-13 — bọc <Avatar/> (ảnh thật hoặc chữ cái gradient).
+     Bỏ background vàng cũ, để Avatar tự render; button chỉ là khung bấm mở menu. */
+  background: none; padding: 0;
   border: none; cursor: pointer;
   margin-left: 6px;
-  font-size: 11.5px;
   display: flex; align-items: center; justify-content: center;
 }
+.user-avatar :deep(.smax-av) { box-shadow: 0 0 0 2px rgba(255,255,255,.25); }
 
 .smax-main {
   background: var(--smax-grey-100);

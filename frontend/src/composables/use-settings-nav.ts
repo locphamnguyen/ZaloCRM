@@ -55,8 +55,9 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     icon: 'mdi-account-circle-outline',
     permission: 'everyone',
     items: [
-      { id: 'profile', label: 'Hồ sơ của tôi', icon: 'mdi-account-outline', route: '/settings/personal/profile', permission: 'everyone' },
-      { id: 'password', label: 'Đổi mật khẩu', icon: 'mdi-key-outline', route: '/settings/personal/password', permission: 'everyone' },
+      // Module Cá nhân gom 2026-06-13 — "Hồ sơ" + "Đổi mật khẩu" gộp thành 1 mục
+      // "Tài khoản của tôi" (1 trang: avatar + thông tin + đổi mật khẩu modal).
+      { id: 'account', label: 'Tài khoản của tôi', icon: 'mdi-account-outline', route: '/settings/personal/profile', permission: 'everyone', aliases: ['hồ sơ', 'profile', 'avatar', 'ảnh đại diện', 'đổi mật khẩu', 'mật khẩu', 'password', 'tài khoản'] },
       // Riêng Tư 2026-06-06: trỏ thẳng tab Privacy trong trang Zalo (nơi quản lý DUY NHẤT).
       { id: 'privacy', label: 'Riêng tư', icon: 'mdi-shield-lock-outline', route: '/settings/channels/zalo?tab=privacy', permission: 'everyone', aliases: ['privacy', 'otp', 'riêng tư', 'blur', 'nick chính'] },
       { id: 'notifications', label: 'Thông báo của tôi', icon: 'mdi-bell-outline', route: '/settings/channels/zalo?tab=internal-contact', permission: 'everyone', aliases: ['internal contact', 'liên lạc nội bộ', 'system notify', 'thông báo zalo'] },

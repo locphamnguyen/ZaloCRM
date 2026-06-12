@@ -82,11 +82,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
     children: [
       // Default: root /settings → role-based default route (handled in SettingsLayout onMounted)
-      { path: '', name: 'Settings', component: () => import('@/views/settings/PersonalProfilePage.vue') },
+      { path: '', name: 'Settings', component: () => import('@/views/settings/PersonalAccountPage.vue') },
 
-      // 👤 Personal
-      { path: 'personal/profile',       name: 'Settings.Profile',       component: () => import('@/views/settings/PersonalProfilePage.vue') },
-      { path: 'personal/password',      name: 'Settings.Password',      component: () => import('@/views/settings/PersonalPasswordPage.vue') },
+      // 👤 Personal — Module Cá nhân gom 2026-06-13: 1 trang "Tài khoản của tôi".
+      { path: 'personal/profile',       name: 'Settings.Profile',       component: () => import('@/views/settings/PersonalAccountPage.vue') },
+      // Đổi mật khẩu giờ là modal trong trang Tài khoản → giữ link cũ không gãy bằng redirect.
+      { path: 'personal/password',      name: 'Settings.Password',      redirect: '/settings/personal/profile' },
       { path: 'personal/notifications', name: 'Settings.Notifications', component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'notifications' } },
       { path: 'personal/theme',         name: 'Settings.Theme',         component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'theme' } },
       { path: 'personal/sessions',      name: 'Settings.Sessions',      component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'sessions' } },

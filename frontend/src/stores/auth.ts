@@ -12,6 +12,8 @@ interface User {
   orgId: string;
   orgName: string;
   orgTimezone?: string;
+  // Module Cá nhân 2026-06-13 — avatar ảnh thật (null = chưa có → Avatar.vue fallback chữ cái).
+  avatarUrl?: string | null;
   // Phase Onboarding v1 2026-05-24 — track first-run setup state.
   // passwordChangedAt = null → force change pw (router guard redirect /setup-password)
   passwordChangedAt?: string | null;
@@ -83,6 +85,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Login response = { ...jwtPayload, ...getProfile } → đã chứa grants/isFullAccess.
     user.value = {
       ...res.data.user,
+      avatarUrl: res.data.user.avatarUrl ?? null,
       grants: res.data.user.grants ?? {},
       permissionGroupName: res.data.user.permissionGroup?.name ?? null,
       isFullAccess: res.data.user.isFullAccess ?? false,
@@ -108,6 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
         orgId: data.orgId,
         orgName: data.org?.name ?? '',
         orgTimezone: tz,
+        avatarUrl: data.avatarUrl ?? null,
         passwordChangedAt: data.passwordChangedAt ?? null,
         onboardingDismissedAt: data.onboardingDismissedAt ?? null,
         grants: data.grants ?? {},
@@ -139,5 +143,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { user, token, needsSetup, isAuthenticated, isOwner, isAdmin, isManager, canAccess, checkSetup, setup, login, fetchProfile, logout, init };
+  // Module Cá nhân 2026-06-13 — patch store cục bộ sau khi đổi tên/avatar trên trang
+  // "Tài khoản của tôi" → top nav + mọi chỗ dùng user đổi TỨC THÌ, không cần fetchProfile lại.
+  function updateProfile(patch: { fullName?: string; avatarUrl?: string | null }) {
+    if (!user.value) return;
+    if (patch.fullName !== undefined) user.value.fullName = patch.fullName;
+    if (patch.avatarUrl !== undefined) user.value.avatarUrl = patch.avatarUrl;
+  }
+
+  return { user, token, needsSetup, isAuthenticated, isOwner, isAdmin, isManager, canAccess, checkSetup, setup, login, fetchProfile, logout, init, updateProfile };
 });
