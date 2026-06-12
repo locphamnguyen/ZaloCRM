@@ -52,6 +52,18 @@ function classify(mime: string): MediaKind | null {
   return null;
 }
 
+// Nhận diện loại media THẬT theo ĐUÔI file (anh chốt 2026-06-12). Zalo nhiều khi gửi
+// video/ảnh dưới dạng ĐÍNH KÈM FILE (contentType='file') → mặc định lưu thành kind='file'
+// → video lọt tab Tệp, gửi đi mất player. Đuôi cho biết thật sự là gì → nâng cấp kind.
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v', '3gp']);
+const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic']);
+function kindFromExt(ext: string): MediaKind | null {
+  const e = ext.replace(/^\./, '').toLowerCase();
+  if (VIDEO_EXTS.has(e)) return 'video';
+  if (IMAGE_EXTS.has(e)) return 'image';
+  return null;
+}
+
 // mime → đuôi (chỉ các loại tệp được phép). Dùng để vá file cũ lưu trước khi có tên thật
 // (mime octet-stream) hoặc tên không có đuôi → suy đuôi để Zalo bên nhận mở được.
 const MIME_EXT: Record<string, string> = {
@@ -140,7 +152,7 @@ async function saveOneMessageToMedia(args: {
   if (!url) return { messageId, status: 'skipped', reason: 'Tin này không có media để lưu' };
 
   const ct = message.contentType;
-  const kind: MediaKind = ct === 'image' ? 'image' : ct === 'video' ? 'video' : 'file';
+  let kind: MediaKind = ct === 'image' ? 'image' : ct === 'video' ? 'video' : 'file';
 
   // FIX 2026-06-12 (anh báo: tệp toàn "Lưu từ chat" → sale không phân biệt được).
   // Zalo lưu TÊN FILE THẬT (kèm đuôi) ở content.title, KHÔNG phải content.name. Đọc theo thứ
@@ -163,7 +175,19 @@ async function saveOneMessageToMedia(args: {
   if (realName && fileExt && !/\.[A-Za-z0-9]{2,5}$/.test(realName)) {
     realName = `${realName}.${fileExt}`;
   }
-  const mediaName = realName || (kind === 'image' ? 'Lưu từ chat' : 'Tệp lưu từ chat');
+
+  // FIX 2026-06-12 (anh báo video .mp4 lọt tab Tệp): Zalo gửi video dưới dạng ĐÍNH KÈM file
+  // (contentType='file') → kind='file' → vào tab Tệp, gửi đi mất player. Đuôi (fileExt hoặc
+  // đuôi của realName) cho biết THẬT là video → nâng kind='file'→'video' để vào tab Video,
+  // có thumbnail, gửi đi NATIVE. Chỉ NÂNG file→video (anh chốt); ảnh Zalo gửi đúng kind sẵn.
+  if (kind === 'file') {
+    const extForKind = fileExt || (realName?.match(/\.([A-Za-z0-9]{2,5})$/)?.[1] ?? '');
+    if (kindFromExt(extForKind) === 'video') {
+      kind = 'video';
+      logger.info(`[media][audit] nhận diện video từ đuôi .${extForKind} (Zalo gửi dạng file) msg=${messageId}`);
+    }
+  }
+  const mediaName = realName || (kind === 'image' ? 'Lưu từ chat' : kind === 'video' ? 'Video lưu từ chat' : 'Tệp lưu từ chat');
 
   // Validation file (audit 2026-06-12): save-from-chat KHÔNG qua classify() như /upload.
   // Chặn đuôi nguy hiểm (thực thi) để file độc không vào kho rồi gửi lại khách. KHÔNG dùng

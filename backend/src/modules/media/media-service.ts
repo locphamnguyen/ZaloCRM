@@ -211,14 +211,36 @@ export async function registerAsset(input: RegisterAssetInput): Promise<Register
     const shouldPatchName =
       !!input.name && newHasExt &&
       (!old?.originalFilename || (!oldHasExt && (PLACEHOLDER.test(old?.name ?? '') || old?.name === input.originalFilename)));
+    // FIX 2026-06-12 (anh báo file 27.2MB là video Blue Fun...Post-2.mp4 lọt tab Tệp): Zalo gửi
+    // 1 SỐ video dưới content_type='file' (người gửi đính kèm như file, không phải video native)
+    // → asset cũ kẹt kind='file' nằm sai tab Tệp. Nếu lần lưu này nhận diện ĐÚNG là video (đuôi
+    // .mp4/.mov/... ở media-routes nâng kind='video') VÀ asset cũ đang là 'file' → VÁ kind sang
+    // 'video' + gắn thumbnail/metadata (videoMeta đã sinh ở trên vì kind='video'). Chỉ nâng
+    // file→video (không hạ cấp), tránh đụng asset đã phân loại đúng.
+    const shouldPatchKind = kind === 'video' && old?.kind === 'file';
     const asset = await prisma.mediaAsset.update({
       where: { id: existingBlob.assetId },
       data: {
         usageCount: { increment: 1 },
         lastUsedAt: new Date(),
         ...(shouldPatchName ? { name: input.name, originalFilename: input.originalFilename ?? input.name } : {}),
+        ...(shouldPatchKind
+          ? { kind: 'video', ...(videoMeta.thumbnailUrl ? { thumbnailUrl: videoMeta.thumbnailUrl } : {}) }
+          : {}),
       },
     });
+    if (shouldPatchKind) {
+      // Vá luôn metadata video trên blob đã tồn tại (duration/width/height) để player hiển thị đúng.
+      await prisma.mediaBlob.update({
+        where: { id: existingBlob.id },
+        data: {
+          ...(videoMeta.durationSec != null ? { durationSec: videoMeta.durationSec } : {}),
+          ...(videoMeta.width != null ? { width: videoMeta.width } : {}),
+          ...(videoMeta.height != null ? { height: videoMeta.height } : {}),
+        },
+      }).catch((e) => logger.warn(`[media][dedup] vá metadata blob video lỗi: ${(e as Error)?.message}`));
+      logger.info(`[media][dedup] vá kind asset=${existingBlob.assetId} file → video (${old?.name})`);
+    }
     if (shouldPatchName) {
       logger.info(`[media][dedup] vá tên asset=${existingBlob.assetId} "${old?.name}" → "${input.name}"`);
     }
