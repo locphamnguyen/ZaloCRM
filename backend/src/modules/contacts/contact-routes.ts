@@ -1850,6 +1850,49 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // 2026-06-12 — Tìm Contact đang trùng unique key (zaloGlobalId/zaloUsername/zaloUid/phone)
+  // KỂ CẢ KH đã bị gộp (merged_into != null), rồi đi theo chuỗi mergedInto tới KH ĐÍCH còn
+  // sống. Dùng để tránh contact.create đụng unique index (index zaloGlobalId không lọc
+  // merged → P2002 → 500). Trả về contactId đích còn sống, hoặc null nếu không có trùng.
+  async function resolveExistingContactId(
+    orgId: string,
+    uid?: string,
+    zaloGlobalId?: string,
+    zaloUsername?: string,
+    phone?: string,
+  ): Promise<string | null> {
+    // Tìm theo độ tin cậy globally-unique: globalId > username > uid > phone. KHÔNG lọc
+    // mergedInto (mục đích là phát hiện cả row đã gộp đang chiếm unique).
+    let found: { id: string; mergedInto: string | null } | null = null;
+    if (zaloGlobalId) {
+      found = await prisma.contact.findFirst({ where: { orgId, zaloGlobalId }, select: { id: true, mergedInto: true } });
+    }
+    if (!found && zaloUsername) {
+      found = await prisma.contact.findFirst({ where: { orgId, zaloUsername }, select: { id: true, mergedInto: true } });
+    }
+    if (!found && uid) {
+      found = await prisma.contact.findFirst({ where: { orgId, zaloUid: uid }, select: { id: true, mergedInto: true } });
+    }
+    if (!found && phone) {
+      const canonical = normalizePhone(phone);
+      if (canonical) {
+        found = await prisma.contact.findFirst({ where: { orgId, phoneNormalized: canonical }, select: { id: true, mergedInto: true } });
+      }
+    }
+    if (!found) return null;
+    // Đi theo chuỗi mergedInto tới KH đích còn sống (giới hạn 10 bước chống vòng lặp dữ liệu hỏng).
+    let cur = found;
+    for (let hop = 0; hop < 10 && cur.mergedInto; hop++) {
+      const next = await prisma.contact.findFirst({
+        where: { id: cur.mergedInto, orgId },
+        select: { id: true, mergedInto: true },
+      });
+      if (!next) break; // target không còn (dữ liệu lệch) → dùng row hiện tại
+      cur = next;
+    }
+    return cur.id;
+  }
+
   // ── POST /api/v1/conversations/ensure-by-uid — find-or-create Conv (account, uid) ─
   // Use case: user click "Nhắn tin" trong ZaloUserInfoDialog HOẶC sau khi
   // lookup-by-phone discover UID per-nick. UID phải là **UID per-viewer của nick này**
@@ -1941,22 +1984,57 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           if (!c) return reply.status(400).send({ error: 'attach contact not found' });
           linkedContactId = cid;
         } else if (body.contactMode === 'create' || (!linkedContactId && body.phone)) {
-          // Tạo Contact mới khi không match, hoặc khi user explicit chọn 'create'
-          const newC = await prisma.contact.create({
-            data: {
-              orgId: user.orgId,
-              zaloUid: body.uid,
-              zaloGlobalId: body.zaloGlobalId || null,
-              zaloUsername: body.zaloUsername || null,
-              phone: body.phone || null,
-              fullName: body.zaloName || (body.phone ? `KH ${body.phone}` : `KH-${body.uid.slice(-4)}`),
-              avatarUrl: body.zaloAvatarUrl || null,
-              hasZalo: true,
-              source: 'compose_new',
-            },
-            select: { id: true },
-          });
-          linkedContactId = newC.id;
+          // Tạo Contact mới khi không match, hoặc khi user explicit chọn 'create'.
+          // 2026-06-12 (anh báo lỗi "Ensure conversation failed" 500): trước khi tạo,
+          // tìm Contact trùng unique key KỂ CẢ ĐÃ MERGE. Lý do: unique index
+          // contacts_org_id_zalo_global_id_key KHÔNG có WHERE merged_into IS NULL (khác
+          // index phone), nên 1 KH cùng zaloGlobalId đã bị gộp (merged_into != null) vẫn
+          // chiếm unique → contact.create đụng P2002 → 500. Bước tìm trùng ở trên lọc
+          // mergedInto:null nên KHÔNG thấy KH đã gộp → rơi vào create → crash. Có 342 KH
+          // đã gộp còn giữ zaloGlobalId trong 1 org → lỗi diện rộng. Giải: tìm trùng
+          // (không lọc merged) → đi theo mergedInto tới KH ĐÍCH còn sống → dùng lại.
+          const dupId = await resolveExistingContactId(user.orgId, body.uid, body.zaloGlobalId, body.zaloUsername, body.phone);
+          if (dupId) {
+            linkedContactId = dupId;
+            // Backfill zaloUid/global/username vào KH đích nếu thiếu (giống nhánh else-if dưới).
+            await prisma.contact.update({
+              where: { id: dupId },
+              data: {
+                ...(body.uid ? { zaloUid: body.uid } : {}),
+                ...(body.zaloGlobalId ? { zaloGlobalId: body.zaloGlobalId } : {}),
+                ...(body.zaloUsername ? { zaloUsername: body.zaloUsername } : {}),
+                hasZalo: true,
+              },
+            }).catch(() => {});
+          } else {
+            try {
+              const newC = await prisma.contact.create({
+                data: {
+                  orgId: user.orgId,
+                  zaloUid: body.uid,
+                  zaloGlobalId: body.zaloGlobalId || null,
+                  zaloUsername: body.zaloUsername || null,
+                  phone: body.phone || null,
+                  fullName: body.zaloName || (body.phone ? `KH ${body.phone}` : `KH-${body.uid.slice(-4)}`),
+                  avatarUrl: body.zaloAvatarUrl || null,
+                  hasZalo: true,
+                  source: 'compose_new',
+                },
+                select: { id: true },
+              });
+              linkedContactId = newC.id;
+            } catch (createErr: unknown) {
+              // Fail-safe race: nếu vẫn đụng unique (P2002) do row đã merge / KH song song
+              // tạo cùng lúc → resolve lại + dùng KH đích thay vì crash 500.
+              if ((createErr as { code?: string })?.code === 'P2002') {
+                const fallbackId = await resolveExistingContactId(user.orgId, body.uid, body.zaloGlobalId, body.zaloUsername, body.phone);
+                if (!fallbackId) throw createErr;
+                linkedContactId = fallbackId;
+              } else {
+                throw createErr;
+              }
+            }
+          }
         } else if (linkedContactId) {
           // Backfill zaloUid/global/username vào Contact đã có (nếu thiếu)
           await prisma.contact.update({
@@ -2006,9 +2084,23 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.conversation.findFirst({
         where: { zaloAccountId: body.zaloAccountId, externalThreadId: body.uid },
-        select: { id: true },
+        select: { id: true, contactId: true },
       });
-      if (existing) return reply.send({ conversationId: existing.id, created: false });
+      if (existing) {
+        // 2026-06-12 — relink conv CŨ về KH đích còn sống khi commit. Conv tạo từ lần lỗi
+        // trước có thể đang trỏ contactId NULL hoặc 1 KH đã merged (merged_into != null) →
+        // mở chat sẽ hiện KH đã gộp. Khi user "Bắt đầu chat" (commit) + đã resolve được KH
+        // đích, cập nhật lại contactId nếu khác. Không đụng khi không commit (giữ nguyên).
+        if (body.commit && linkedContactId && existing.contactId !== linkedContactId) {
+          await prisma.conversation.update({
+            where: { id: existing.id },
+            data: { contactId: linkedContactId },
+          }).catch((err: unknown) => {
+            logger.warn('[ensure-by-uid] relink existing conv failed:', err);
+          });
+        }
+        return reply.send({ conversationId: existing.id, created: false });
+      }
 
       const created = await prisma.conversation.create({
         data: {
