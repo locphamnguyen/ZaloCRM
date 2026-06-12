@@ -206,9 +206,10 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
       } else if (m.messageType === 'image') {
         const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
         // Đường B: download URL → local path (zca-js readFile path, KHÔNG nhận url).
+        // sendImage (KHÔNG sendFile) → temp có đuôi .webp → Zalo nhận ẢNH INLINE, không phải file.
         const tmp = await downloadMediaToTemp({ url: m.payload.url }, 'image');
         tmpCleanups.push(tmp.cleanup);
-        const raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [tmp.path], null, caption);
+        const raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, [tmp.path], null, caption);
         sdkResult = (raw as Record<string, unknown>) || {};
         persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'image', url: m.payload.url, caption }] });
         persistContentType = 'image';
@@ -221,7 +222,7 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
           tmpCleanups.push(tmp.cleanup);
           paths.push(tmp.path);
         }
-        const raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, paths, null, items[0]?.caption ?? '');
+        const raw = await zaloOps.sendImage(ctx.assignedNickId, threadId, threadType, paths, null, items[0]?.caption ?? '');
         sdkResult = (raw as Record<string, unknown>) || {};
         persistContent = JSON.stringify({ text: '', attachments: items.map((it) => ({ kind: 'image', url: it.url, caption: it.caption })) });
         persistContentType = 'image';

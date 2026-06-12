@@ -307,24 +307,27 @@ export async function mediaRoutes(app: FastifyInstance) {
       // (GĐ3 sẽ tối ưu forward/cache per-nick — chưa làm ở GĐ1.)
       let tmp: { path: string; cleanup: () => Promise<void> } | null = null;
       try {
-        tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: asset.name }, asset.kind);
+        // KHÔNG truyền filename=asset.name (name "Lưu từ chat" KHÔNG có đuôi → temp mất
+        // đuôi → Zalo coi ảnh thành FILE). Để downloadMediaToTemp lấy tên từ URL (media/{hash}.webp).
+        tmp = await downloadMediaToTemp({ url: blob.publicUrl }, asset.kind);
         zaloRateLimiter.recordSend(conversation.zaloAccountId);
 
-        // Gửi QUA zaloOps (KHÔNG gọi instance.api trực tiếp): zaloOps.exec check
-        // status==='connected' TRƯỚC → nick mất kết nối thì throw NOT_CONNECTED ngay,
-        // KHÔNG treo (bug anh báo: nick QR-pending làm sendMessage trực tiếp đứng vô hạn).
+        // Guard nick connected ở trên. Gửi qua zaloOps (check status + reconnect).
         let zaloMsgId = '';
         let content = '';
-        // Dùng zaloOps.sendFile cho MỌI loại: nó build api.sendMessage({ msg: caption,
-        // attachments }) — LUÔN có `msg` (kể cả ''). Tránh bug zca-js sendMessage.cjs:445
-        // đọc `msg.length` khi sendImage build {attachments} KHÔNG có msg → crash undefined.
-        const sendResult: any = await zaloOps.sendFile(
-          conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
-        );
-        zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
         if (asset.kind === 'image') {
+          // ẢNH: sendImage (đã fix có msg) → temp CÓ đuôi .webp → Zalo nhận ẢNH INLINE.
+          const sendResult: any = await zaloOps.sendImage(
+            conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+          );
+          zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = JSON.stringify({ href: blob.publicUrl, thumb: blob.publicUrl, size: blob.sizeBytes });
         } else {
+          // VIDEO/FILE: gửi qua sendFile (zca-js đọc local path → đính kèm file/video).
+          const sendResult: any = await zaloOps.sendFile(
+            conversation.zaloAccountId, threadId, threadType as 0 | 1, [tmp.path], io, caption,
+          );
+          zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');
           content = asset.kind === 'video'
             ? JSON.stringify({ href: blob.publicUrl, thumb: asset.thumbnailUrl ?? blob.publicUrl, size: blob.sizeBytes })
             : JSON.stringify({ href: blob.publicUrl, name: asset.name, size: blob.sizeBytes, mime: blob.mimeType });
@@ -697,11 +700,13 @@ export async function mediaRoutes(app: FastifyInstance) {
         for (const a of assets) {
           const blob = a.blobs[0];
           if (!blob) continue;
-          const tmp = await downloadMediaToTemp({ url: blob.publicUrl, filename: a.name }, 'image');
+          // KHÔNG truyền filename (name mất đuôi → file lạ). Để lấy đuôi .webp từ URL.
+          const tmp = await downloadMediaToTemp({ url: blob.publicUrl }, 'image');
           tmps.push(tmp);
         }
         zaloRateLimiter.recordSend(conversation.zaloAccountId);
-        const sendResult: any = await zaloOps.sendFile(
+        // sendImage (KHÔNG sendFile) → album ảnh inline, không thành file.
+        const sendResult: any = await zaloOps.sendImage(
           conversation.zaloAccountId, threadId, threadType as 0 | 1, tmps.map((t) => t.path), io, body.caption ?? '',
         );
         const zaloMsgId = String(sendResult?.msgId || sendResult?.data?.msgId || '');

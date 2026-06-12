@@ -245,9 +245,12 @@ async function sendMessage(accountId: string, threadId: string, threadType: 0 | 
     (api) => api.sendMessage(msg, threadId, threadType));
 }
 
-async function sendImage(accountId: string, threadId: string, threadType: 0 | 1, attachments: any[], io?: Server | null) {
+// 2026-06-12 FIX: thêm `msg` (kể cả '') vào payload. zca-js sendMessage.cjs:445 đọc
+// `msg.length` → thiếu msg = crash undefined. Có msg + attachments là local path CÓ ĐUÔI
+// ảnh (.jpg/.png/.webp) → Zalo nhận ẢNH INLINE (không phải file). caption tùy chọn.
+async function sendImage(accountId: string, threadId: string, threadType: 0 | 1, attachments: any[], io?: Server | null, caption: string = '') {
   return exec({ accountId, category: 'message', operation: 'sendImage', io },
-    (api) => api.sendMessage({ attachments }, threadId, threadType));
+    (api) => api.sendMessage({ msg: caption, attachments }, threadId, threadType));
 }
 
 async function sendSticker(

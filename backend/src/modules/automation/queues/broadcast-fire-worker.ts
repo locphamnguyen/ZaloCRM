@@ -438,8 +438,15 @@ async function sendBroadcastMessage(
     for (const mi of mediaItems) {
       let tmp: { path: string; cleanup: () => Promise<void> } | null = null;
       try {
-        tmp = await downloadMediaToTemp({ url: mi.url, filename: mi.filename }, mi.kind);
-        await zaloOps.sendFile(nickId, threadId, 0, [tmp.path], null, '');
+        // image: KHÔNG truyền filename (mất đuôi → file lạ); gửi sendImage (inline).
+        // file: giữ filename + sendFile.
+        if (mi.kind === 'image') {
+          tmp = await downloadMediaToTemp({ url: mi.url }, 'image');
+          await zaloOps.sendImage(nickId, threadId, 0, [tmp.path], null, '');
+        } else {
+          tmp = await downloadMediaToTemp({ url: mi.url, filename: mi.filename }, 'file');
+          await zaloOps.sendFile(nickId, threadId, 0, [tmp.path], null, '');
+        }
         await prisma.message.create({
           data: {
             conversationId,
