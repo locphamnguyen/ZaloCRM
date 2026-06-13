@@ -35,6 +35,21 @@ import { getOwnerScope, applyOwnerScope } from '../rbac/owner-scope.js';
 
 type QueryParams = Record<string, string>;
 
+// 2026-06-13: tên file gửi từ Block thường TRỐNG (component chỉ có url+mediaAssetId). Truy ngược
+// tên thật từ Kho qua mediaAssetId (original_filename||name) → Zalo + CRM hiện đúng tên, không
+// rơi về URL-hash. Trả '' nếu không có id / không tìm thấy (caller fallback buildSendFileName từ url).
+async function resolveMediaFilename(mediaAssetId: string | undefined, fallback: string | undefined): Promise<string> {
+  if (fallback && fallback.trim()) return fallback.trim();
+  if (!mediaAssetId) return '';
+  try {
+    const a = await prisma.mediaAsset.findUnique({
+      where: { id: mediaAssetId },
+      select: { originalFilename: true, name: true },
+    });
+    return (a?.originalFilename || a?.name || '').trim();
+  } catch { return ''; }
+}
+
 function mapReplyMsgType(contentType: string): string {
   if (contentType === 'text') return 'webchat';
   if (contentType === 'image') return 'photo';
@@ -1829,10 +1844,13 @@ export async function chatRoutes(app: FastifyInstance) {
           });
         } else if (m.messageType === 'file') {
           const caption = await renderCaption(m.payload.caption);
-          // D4 (2026-06-13): suy tên+đuôi đúng (dùng chung buildSendFileName) — tránh khách nhận
-          // file .bin/không mở được khi block chứa media cũ kẹt tên hoặc filename thiếu đuôi.
+          // 2026-06-13 (anh báo Zalo mất tên file): block file thường có mediaAssetId nhưng filename
+          // TRỐNG → buildSendFileName rơi về tên-hash từ URL. Truy NGƯỢC tên thật từ Kho qua
+          // mediaAssetId (original_filename||name) — sửa được cả block CŨ, không cần edit lại.
+          const realName = await resolveMediaFilename(m.payload.mediaAssetId, m.payload.filename);
+          // D4: suy tên+đuôi đúng (dùng chung buildSendFileName) — tránh khách nhận file .bin.
           const sendName = buildSendFileName(
-            { name: m.payload.filename ?? '', originalFilename: m.payload.filename ?? null },
+            { name: realName, originalFilename: realName || null },
             { mimeType: m.payload.mimeType ?? '', publicUrl: m.payload.url },
           );
           const dl = await downloadMediaToTemp({ url: m.payload.url, filename: sendName }, 'file');
@@ -1840,8 +1858,8 @@ export async function chatRoutes(app: FastifyInstance) {
           const sdkResult = await zaloOps.sendFile(zaloAccountId, threadId, threadType, [dl.path], io, caption);
           toPersist.push({
             sdkResult,
-            // name dùng sendName (đã suy đuôi) khi filename trống → CRM UI không hiện file trống tên.
-            content: JSON.stringify({ href: m.payload.url, name: m.payload.filename || sendName, size: m.payload.sizeBytes ?? 0, mime: m.payload.mimeType ?? '' }),
+            // name = sendName (tên thật từ Kho + đuôi) → CRM UI + Zalo đều hiện đúng tên, không phải URL hash.
+            content: JSON.stringify({ href: m.payload.url, name: sendName, size: m.payload.sizeBytes ?? 0, mime: m.payload.mimeType ?? '' }),
             contentType: 'file',
           });
         } else {

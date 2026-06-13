@@ -33,6 +33,16 @@ const STUB_MODE = process.env.AUTOMATION_STUB_MODE === 'true';
 
 type ZaloStyle = { st: string; start: number; len: number };
 
+// 2026-06-13: truy tên file thật từ Kho qua mediaAssetId (block file thường filename trống).
+async function resolveMediaFilename(mediaAssetId: string | undefined, fallback: string | undefined): Promise<string> {
+  if (fallback && fallback.trim()) return fallback.trim();
+  if (!mediaAssetId) return '';
+  try {
+    const a = await prisma.mediaAsset.findUnique({ where: { id: mediaAssetId }, select: { originalFilename: true, name: true } });
+    return (a?.originalFilename || a?.name || '').trim();
+  } catch { return ''; }
+}
+
 // D3 (2026-06-13): gom mediaAssetId từ 1 ResolvedMessage media (image/video/file + album per-item)
 // để bump usageCount sau khi gửi. text/friend_request → [].
 function collectMediaAssetIds(m: ResolvedMessage): string[] {
@@ -269,17 +279,18 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
         persistContentType = 'video';
       } else if (m.messageType === 'file') {
         const caption = m.payload.caption ? await renderTemplate(m.payload.caption, ctx.contactId, ctx.assignedNickId) : '';
-        // D4 (2026-06-13): suy tên+đuôi đúng (dùng chung buildSendFileName với chat) — tránh khách
-        // nhận file .bin/không mở được khi block chứa media cũ kẹt tên hoặc filename thiếu đuôi.
+        // 2026-06-13 (Zalo mất tên file): filename block thường TRỐNG → truy tên thật từ Kho qua
+        // mediaAssetId trước khi suy đuôi (không rơi về URL-hash).
+        const realName = await resolveMediaFilename(m.payload.mediaAssetId, m.payload.filename);
         const sendName = buildSendFileName(
-          { name: m.payload.filename ?? '', originalFilename: m.payload.filename ?? null },
+          { name: realName, originalFilename: realName || null },
           { mimeType: m.payload.mimeType ?? '', publicUrl: m.payload.url },
         );
         const tmp = await downloadMediaToTemp({ url: m.payload.url, filename: sendName }, 'file');
         tmpCleanups.push(tmp.cleanup);
         const raw = await zaloOps.sendFile(ctx.assignedNickId, threadId, threadType, [tmp.path], null, caption);
         sdkResult = (raw as Record<string, unknown>) || {};
-        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'file', url: m.payload.url, filename: m.payload.filename, caption }] });
+        persistContent = JSON.stringify({ text: caption, attachments: [{ kind: 'file', url: m.payload.url, filename: sendName, caption }] });
         persistContentType = 'file';
       } else {
         continue;
