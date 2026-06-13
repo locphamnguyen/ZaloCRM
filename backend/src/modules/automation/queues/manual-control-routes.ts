@@ -668,6 +668,12 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
               currentStep = totalSteps; // hết job + không dừng/pause → đi hết chuỗi
             }
 
+            // YC3 (Đợt 2): timing 4 mốc per luồng (giờ/nextRunAt/lý do hold/etaCompleteAt).
+            const { getSequenceTimingForContact } = await import('../engine/sequence-eta-service.js');
+            const timing = await getSequenceTimingForContact({ orgId, triggerId: s.triggerId, contactId: cid })
+              .catch(() => [] as Awaited<ReturnType<typeof getSequenceTimingForContact>>);
+            const t0 = timing[0]; // 1 trigger ở đây thường 1 luồng; đa-luồng FE đọc mảng `timing`
+
             return {
               triggerId: s.triggerId,
               triggerName: meta.name ?? '',
@@ -684,6 +690,11 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
               pausedUntilMs: pending ? 0 : pauseMs, // có job thì coi như đang chạy, bỏ pause
               pausedUntil: !pending && pauseMs > 0 ? new Date(now + pauseMs).toISOString() : null,
               stopped: isStopped,
+              // YC3 timing — bao lâu nữa xong + lý do hold + khung giờ (per luồng đầu tiên).
+              etaCompleteAt: t0?.etaCompleteAt ?? null,
+              holdReason: t0?.holdReason ?? null,
+              allowedHourRange: t0?.allowedHourRange ?? null,
+              timing, // mảng đầy đủ per-luồng (đa-luồng) cho FE render nhiều badge
               // Cờ "Sale gắn tay" — KH vào luồng bằng enroll thủ công từ chat.
               isManual: meta.systemKind === 'manual_chat_followup' || !!s.enrolledById,
               enrolledByName: s.enrolledById ? (enrollerNames.get(s.enrolledById) ?? null) : null,

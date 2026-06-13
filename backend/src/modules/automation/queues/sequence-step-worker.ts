@@ -551,6 +551,7 @@ async function processJob(
         totalSteps,
         jobId: job.id,
         msgId: messageId,
+        sequenceId, // LOW#3 fix: sweeper đọc trực tiếp thay vì đoán từ CareSession khi đa-luồng
       },
     },
   });
@@ -769,7 +770,7 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
       eventType: 'sequence_step_sent',
       createdAt: { gte: since },
     },
-    select: { id: true, triggerId: true, contactId: true, detail: true, createdAt: true },
+    select: { id: true, triggerId: true, contactId: true, detail: true, metadata: true, createdAt: true },
     take: 100,
   });
 
@@ -807,7 +808,10 @@ export async function sweepMissingNextSteps(): Promise<{ recovered: number }> {
       select: { sequenceId: true, orgId: true },
     });
     if (!trigger) continue;
-    let sequenceId = trigger.sequenceId;
+    // LOW#3 fix: ưu tiên sequenceId từ metadata event (chính xác, kể cả đa-luồng);
+    // fallback trigger.sequenceId; cuối cùng CareSession active (đoán nếu data cũ).
+    const evtMeta = evt.metadata as { sequenceId?: string } | null;
+    let sequenceId = evtMeta?.sequenceId ?? trigger.sequenceId ?? null;
     if (!sequenceId) {
       const session = await prisma.careSession.findFirst({
         where: { contactId: evt.contactId, sourceTriggerId: evt.triggerId, state: 'active', sourceSequenceId: { not: null } },
