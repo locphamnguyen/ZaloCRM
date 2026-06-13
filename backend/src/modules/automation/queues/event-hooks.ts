@@ -187,6 +187,38 @@ async function resolveTriggerSequenceStepCount(triggerId: string): Promise<numbe
   }
 }
 
+/**
+ * LUẬT 4: bước dở hiện tại của TỪNG luồng khách đang chạy (map sourceSequenceId →
+ * stepIdx). Đọc CareSession active để biết các sequenceId, rồi dò job pending của mỗi
+ * (trigger, sequence, contact). Dùng cho pause-mark khi khách reply.
+ */
+export async function getPendingStepIdxBySequence(
+  triggerId: string,
+  contactId: string,
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const sessions = await prisma.careSession.findMany({
+    where: { contactId, sourceTriggerId: triggerId, state: 'active', sourceSequenceId: { not: null } },
+    select: { sourceSequenceId: true },
+  });
+  const sequenceIds = [...new Set(sessions.map((s) => s.sourceSequenceId).filter((x): x is string => !!x))];
+  if (sequenceIds.length === 0) return out;
+
+  const queue = getSequenceStepQueue();
+  for (const sequenceId of sequenceIds) {
+    const upper = await resolveSequenceStepCount(sequenceId);
+    for (let stepIdx = 0; stepIdx < upper; stepIdx++) {
+      const jobId = buildSequenceStepJobId(triggerId, sequenceId, contactId, stepIdx);
+      const job = await queue.getJob(jobId).catch(() => null);
+      if (job) {
+        out.set(sequenceId, stepIdx); // lazy-chain: tại 1 thời điểm ≤1 step pending/luồng
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 /** Đếm số step của 1 sequence cụ thể (jobId mới cần dò theo sequenceId). Default 30. */
 async function resolveSequenceStepCount(sequenceId: string): Promise<number> {
   try {

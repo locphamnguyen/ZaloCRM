@@ -729,19 +729,31 @@ export async function handleIncomingMessage(
                 let triggerName: string | null = session.triggerName ?? null;
 
                 // Phần dừng chuỗi tự động — chỉ phiên có trigger mới có gì để dừng.
+                // 2026-06-13 (LUẬT 4): KHÔNG remove job (mất tiến độ → không resume được).
+                // Thay bằng: set pause flag (worker guard chặn gửi) + ghi pausedAtStepIdx
+                // per-phiên (resume khi hết phiên). ARCH#1=B: dừng CẢ luồng của khách.
                 if (triggerId) {
                   const trigger = await prisma.automationTrigger.findUnique({
                     where: { id: triggerId },
                     select: { pauseOnActivityHours: true, name: true },
                   });
                   if (trigger?.name) triggerName = trigger.name;
-                  const { cancelPendingStepsForContact, setContactPauseFlag } = await import(
+                  const { setContactPauseFlag, getPendingStepIdxBySequence } = await import(
                     '../automation/queues/event-hooks.js'
                   );
                   await setContactPauseFlag(triggerId, careContactId, trigger?.pauseOnActivityHours ?? 24);
-                  const { removed } = await cancelPendingStepsForContact(triggerId, careContactId);
-                  if (removed > 0) {
-                    logger.info(`[message-handler] customer_reply paused + cancelled ${removed} BullMQ step(s) for contact=${careContactId}`);
+                  // Scan BullMQ 1 lần → bước dở của từng luồng (per sourceSequenceId).
+                  const stepIdxBySequence = await getPendingStepIdxBySequence(triggerId, careContactId);
+                  const { pauseSessionsOnReply } = await import(
+                    '../automation/care-session/care-session-service.js'
+                  );
+                  const { paused } = await pauseSessionsOnReply({
+                    orgId: account.orgId,
+                    contactId: careContactId,
+                    stepIdxBySequence,
+                  });
+                  if (paused > 0) {
+                    logger.info(`[message-handler] customer_reply LUẬT 4 pause-mark ${paused} phiên contact=${careContactId} (giữ tiến độ, worker guard chặn gửi)`);
                   }
                 }
 

@@ -402,6 +402,18 @@ async function processJob(
       logger.warn(`${tag} unsupported action type=${block.actionType} in sequence-step worker`);
       return { status: 'skipped', stepIdx, reason: `unsupported_action_${block.actionType}` };
     }
+    // LUẬT 4 GUARD (Codex #3 active-send race): RE-CHECK pause flag NGAY TRƯỚC send.
+    // Giữa STEP 2 (pause check đầu job) và đây có runAllGuards + DB reads — khách có thể
+    // vừa reply trong khoảng đó. Nếu pause → moveToDelayed lại, KHÔNG gửi (tránh gửi
+    // sau khi khách đã trả lời). Tiến độ giữ ở pausedAtStepIdx (message-handler đã ghi).
+    if (token) {
+      const pauseTtlNow = await redis.pttl(pauseKey);
+      if (pauseTtlNow > 0) {
+        logger.info(`${tag} LUẬT 4: KH vừa reply trước send — defer ${pauseTtlNow}ms (active-send race guard)`);
+        await job.moveToDelayed(Date.now() + pauseTtlNow, token);
+        throw new DelayedError();
+      }
+    }
     actionResult = await sendMessageHandler(ctx);
   } catch (err) {
     const classified = classifyError(err);

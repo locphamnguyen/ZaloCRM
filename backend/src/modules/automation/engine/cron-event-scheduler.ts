@@ -31,6 +31,7 @@ import { startNickWorker } from '../friend-invite/nick-worker.js';
 import {
   sweepSilentCareSessions,
   reconcileMissingSequenceStart,
+  resumePausedSequences,
 } from '../care-session/care-session-service.js';
 
 const TZ = 'Asia/Ho_Chi_Minh';
@@ -48,6 +49,7 @@ let pausedUntilSweepJob: ReturnType<typeof cron.schedule> | null = null;
 // CareSession 2026-06-07 (T6) — janitor đóng phiên im-lặng (5 phút) + reconcile (2 phút).
 let careSessionJanitorJob: ReturnType<typeof cron.schedule> | null = null;
 let careSessionReconcileJob: ReturnType<typeof cron.schedule> | null = null;
+let careSessionResumeJob: ReturnType<typeof cron.schedule> | null = null;
 let isStarted = false;
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -117,6 +119,16 @@ export async function startCronEventScheduler(): Promise<void> {
   );
   logger.info('[cron-scheduler] care-session reconcile registered (every 2 min ' + TZ + ')');
 
+  // LUẬT 4 RESUME (Sequence recode Đợt 1 2026-06-13): phiên đã closed vì im-lặng mà còn
+  // pausedAtStepIdx → re-enqueue bước dở đúng luồng → chạy tiếp. Chạy SAU janitor (mỗi
+  // 5 phút lệch nhịp) để janitor kịp đóng phiên trước khi resume quét.
+  careSessionResumeJob = cron.schedule(
+    '*/5 * * * *',
+    () => { void resumePausedSequences(); },
+    { timezone: TZ },
+  );
+  logger.info('[cron-scheduler] care-session LUẬT 4 resume registered (every 5 min ' + TZ + ')');
+
   logger.info('[cron-scheduler] started — birthday + event-log-cleanup + scheduled-trigger-activator + paused-until-sweeper + care-session-janitor + care-session-reconcile + ' + cronJobs.size + ' scheduled_cron triggers');
 }
 
@@ -127,6 +139,7 @@ export function stopCronEventScheduler(): void {
   if (pausedUntilSweepJob) { pausedUntilSweepJob.stop(); pausedUntilSweepJob = null; }
   if (careSessionJanitorJob) { careSessionJanitorJob.stop(); careSessionJanitorJob = null; }
   if (careSessionReconcileJob) { careSessionReconcileJob.stop(); careSessionReconcileJob = null; }
+  if (careSessionResumeJob) { careSessionResumeJob.stop(); careSessionResumeJob = null; }
   for (const job of cronJobs.values()) job.stop();
   cronJobs.clear();
   isStarted = false;
