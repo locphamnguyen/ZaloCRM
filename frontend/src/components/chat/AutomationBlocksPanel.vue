@@ -7,37 +7,58 @@
 -->
 <template>
   <div class="abp">
-    <!-- Search — 2026-06-13: đồng nhất style với sub-tab Tệp (Atlas + Lucide). -->
-    <div class="abp-search">
-      <span class="abp-search-box">
-        <SearchIcon :size="14" :stroke-width="1.9" />
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Tìm Khối theo tên, nội dung…"
-        />
+    <!-- 2026-06-13: CHÉP 100% layout hàng công cụ của 3 tab Ảnh/Video/Tệp (MediaTabPanel):
+         Hàng 1 Tìm + Sắp xếp (xoay vòng) + Lọc · Hàng 2 Quyền · Hàng 3 Tag (= Dự án/Tag). -->
+    <!-- Hàng 1: Tìm + Sắp xếp + Lọc -->
+    <div class="mtp-search">
+      <span class="mtp-inp">
+        <SearchIcon :size="13" :stroke-width="1.9" />
+        <input v-model="searchQuery" placeholder="Tìm Khối…" />
       </span>
-    </div>
-
-    <!-- Tabs Gần đây / Tất cả -->
-    <div class="abp-tabs">
-      <button class="abp-tab" :class="{ active: activeTab === 'recent' }" @click="activeTab = 'recent'">
-        ⚡ Gần đây <span class="abp-tab-badge">{{ recentBlocks.length }}</span>
+      <button class="mtp-sortbtn" :title="`Sắp xếp: ${sortLabel} (bấm để đổi)`" @click="cycleSort">
+        <ArrowUpDownIcon :size="12" :stroke-width="1.9" />{{ sortLabel }}
       </button>
-      <button class="abp-tab" :class="{ active: activeTab === 'all' }" @click="activeTab = 'all'">
-        📋 Tất cả <span class="abp-tab-badge">{{ allBlocks.length }}</span>
+      <button class="mtp-filtbtn" :class="{ on: showFilter }" title="Lọc theo tag" @click="showFilter = !showFilter">
+        <FilterIcon :size="13" :stroke-width="1.9" />
       </button>
     </div>
 
-    <!-- Tag filter -->
-    <div v-if="availableTags.length > 0" class="abp-tags">
+    <!-- Hàng 2: Quyền (Tất cả | Công khai | Riêng tư) -->
+    <div class="mtp-row2">
+      <span class="mtp-rlabel">Quyền</span>
+      <div class="mtp-seg">
+        <button :class="{ on: visFilter === '' }" @click="visFilter = ''">Tất cả</button>
+        <button :class="{ on: visFilter === 'public' }" @click="visFilter = 'public'">Công khai</button>
+        <button :class="{ on: visFilter === 'private' }" @click="visFilter = 'private'">Riêng tư</button>
+      </div>
+    </div>
+
+    <!-- Hàng 3: Tag dự án -->
+    <div v-if="availableTags.length" class="mtp-row3">
+      <span class="mtp-rlabel">Tag</span>
+      <button class="mtp-chip" :class="{ on: selectedTags.length === 0 }" @click="selectedTags = []">Tất cả</button>
       <button
-        v-for="tag in availableTags.slice(0, 12)"
+        v-for="tag in availableTags"
         :key="tag"
-        class="abp-tag"
-        :class="{ active: selectedTags.includes(tag) }"
+        class="mtp-chip mtp-chip--tag"
+        :class="{ on: selectedTags.includes(tag) }"
         @click="toggleTag(tag)"
-      >{{ tag }}</button>
+      >#{{ tag }}</button>
+    </div>
+
+    <!-- Lọc sâu (ẩn/hiện) — Khối: lọc theo tag (giống Tệp mở panel Thời gian/Cỡ) -->
+    <div v-if="showFilter" class="mtp-filter">
+      <div class="mtp-frow">
+        <span class="mtp-rlabel">Tag</span>
+        <button
+          v-for="tag in availableTags"
+          :key="tag"
+          class="mtp-chip mtp-chip--tag"
+          :class="{ on: selectedTags.includes(tag) }"
+          @click="toggleTag(tag)"
+        >#{{ tag }}</button>
+        <span v-if="!availableTags.length" class="mtp-rlabel">Chưa có tag</span>
+      </div>
     </div>
 
     <!-- Body -->
@@ -108,7 +129,11 @@ import type { Block } from '@/api/automation/types';
 import type { Contact } from '@/composables/use-contacts';
 import { useToast } from '@/composables/use-toast';
 import BlockPreviewDialog from '@/components/chat/BlockPreviewDialog.vue';
-import { Search as SearchIcon } from 'lucide-vue-next';
+import {
+  Search as SearchIcon,
+  ArrowUpDown as ArrowUpDownIcon,
+  Filter as FilterIcon,
+} from 'lucide-vue-next';
 
 const props = defineProps<{
   conversationId: string | null;
@@ -125,10 +150,25 @@ const loading = ref(false);
 const loadError = ref('');
 const searchQuery = ref('');
 const selectedTags = ref<string[]>([]);
-const activeTab = ref<'recent' | 'all'>('recent');
 const sendingId = ref<string | null>(null);
 const previewBlock = ref<Block | null>(null);
 let loaded = false;
+
+// 2026-06-13: đồng bộ 3 tab Ảnh/Video/Tệp — Sắp xếp xoay vòng + Lọc + Quyền.
+const showFilter = ref(false);
+const visFilter = ref<'' | 'public' | 'private'>('');
+type SortKey = 'most_used' | 'recent' | 'newest';
+const sortKey = ref<SortKey>('most_used');
+const SORT_LABELS: Record<SortKey, string> = {
+  most_used: 'Gửi nhiều',
+  recent: 'Gần nhất',
+  newest: 'Mới tạo',
+};
+const sortLabel = computed(() => SORT_LABELS[sortKey.value]);
+function cycleSort() {
+  sortKey.value =
+    sortKey.value === 'most_used' ? 'recent' : sortKey.value === 'recent' ? 'newest' : 'most_used';
+}
 
 const contactName = computed(
   () => props.contact?.fullName || (props.contact as any)?.crmName || 'KH',
@@ -144,7 +184,6 @@ async function fetchAll() {
     ]);
     allBlocks.value = all;
     recentBlocks.value = recent.filter((b) => b.actionType === 'send_message');
-    activeTab.value = recentBlocks.value.length > 0 ? 'recent' : 'all';
     loaded = true;
   } catch (e: unknown) {
     loadError.value = e instanceof Error ? e.message : String(e);
@@ -162,17 +201,43 @@ const availableTags = computed(() => {
   return Array.from(set).sort();
 });
 
+/** Khối công khai = chia sẻ tổ chức hoặc nằm thư mục công khai; còn lại = riêng tư (của chủ nick). */
+function isPublic(b: Block): boolean {
+  return b.isShared === true || b.folder?.visibility === 'public';
+}
+
 const filtered = computed(() => {
-  const source = activeTab.value === 'recent' ? recentBlocks.value : allBlocks.value;
   const q = searchQuery.value.trim().toLowerCase();
-  let list = source.filter((b) => {
+  let list = allBlocks.value.filter((b) => {
+    // Quyền (Tất cả / Công khai / Riêng tư)
+    if (visFilter.value === 'public' && !isPublic(b)) return false;
+    if (visFilter.value === 'private' && isPublic(b)) return false;
+    // Tag
     if (selectedTags.value.length > 0) {
       if (!(b.tagIds || []).some((t) => selectedTags.value.includes(t))) return false;
     }
+    // Tìm theo tên + nội dung
     if (!q) return true;
     if (b.name.toLowerCase().includes(q)) return true;
     return JSON.stringify(b.content).slice(0, 500).toLowerCase().includes(q);
   });
+
+  // Sắp xếp theo nút xoay vòng (giống 3 tab Ảnh/Video/Tệp).
+  const ts = (s?: string | null) => (s ? new Date(s).getTime() : 0);
+  list = [...list].sort((a, b) => {
+    if (sortKey.value === 'most_used') {
+      const am = a.manualSendCount || 0;
+      const bm = b.manualSendCount || 0;
+      if (bm !== am) return bm - am; // gửi nhiều lên trước
+      return ts(b.lastManualSentAt) - ts(a.lastManualSentAt);
+    }
+    if (sortKey.value === 'recent') {
+      return ts(b.lastManualSentAt) - ts(a.lastManualSentAt); // gửi gần nhất lên trước
+    }
+    return ts(b.createdAt) - ts(a.createdAt); // mới tạo lên trước
+  });
+
+  // Ưu tiên Khối của chính nick đang mở lên đầu (giữ hành vi cũ).
   if (props.ownerNickId) {
     list = [...list].sort((a, b) => {
       const am = a.ownerNickId === props.ownerNickId ? 0 : 1;
@@ -281,78 +346,58 @@ watch(
   font-size: 12px;
 }
 
-/* Search */
-/* 2026-06-13: ĐỒNG NHẤT với sub-tab Tệp (MediaTabPanel .mtp-search/.mtp-inp) — Atlas + Lucide. */
-.abp-search { padding: 9px 12px 8px; flex-shrink: 0; }
-.abp-search-box {
-  display: flex; align-items: center; gap: 6px; border: 1px solid #e7eaf0;
-  border-radius: 8px; padding: 5px 10px; color: #8b93a7;
+/* 2026-06-13: CHÉP 100% layout hàng công cụ 3 tab Ảnh/Video/Tệp (MediaTabPanel .mtp-*).
+   Token --at-* được cấp ở .airtable-scope toàn app; kèm fallback hex để chắc chắn đồng nhất. */
+.mtp-search { display: flex; gap: 5px; align-items: center; padding: 9px 12px 7px; flex-shrink: 0; }
+.mtp-inp {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 5px;
+  border: 1px solid var(--at-hairline, #e7eaf0); border-radius: 8px; padding: 5px 9px;
+  color: var(--at-hint, #8b93a7);
 }
-.abp-search-box:focus-within { border-color: #1786be; }
-.abp-search-box input {
-  flex: 1; min-width: 0; border: none; outline: none; background: transparent;
-  font: inherit; font-size: 12px; color: #141a24;
+.mtp-inp input { border: none; outline: none; font: inherit; font-size: 12px; flex: 1; min-width: 0; color: var(--at-ink, #141a24); background: transparent; }
+/* Nút Sắp xếp: gọn, không xuống dòng (Gửi nhiều/Gần nhất/Mới tạo) */
+.mtp-sortbtn {
+  flex-shrink: 0; border: 1px solid var(--at-hairline, #e7eaf0); background: #fff; border-radius: 8px;
+  padding: 6px 8px; font-size: 11px; font-weight: 600; cursor: pointer; color: var(--at-body, #374151);
+  white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; font-family: inherit;
 }
+.mtp-sortbtn:hover { border-color: var(--at-action, #1786be); color: var(--at-action, #1786be); }
+/* Nút Lọc: chỉ icon (vuông) */
+.mtp-filtbtn {
+  flex-shrink: 0; width: 30px; height: 29px; border: 1px solid var(--at-hairline, #e7eaf0); background: #fff;
+  border-radius: 8px; cursor: pointer; color: var(--at-body, #374151); display: inline-flex;
+  align-items: center; justify-content: center; font-family: inherit;
+}
+.mtp-filtbtn:hover { border-color: var(--at-action, #1786be); color: var(--at-action, #1786be); }
+.mtp-filtbtn.on { background: var(--at-action, #1786be); border-color: var(--at-action, #1786be); color: #fff; }
 
-/* Tabs */
-.abp-tabs {
-  display: flex;
-  gap: 2px;
-  padding: 0 10px;
-  border-bottom: 1px solid #eceef1;
-  background: #fafbfc;
-  flex-shrink: 0;
+/* Hàng 2 (Quyền) + Hàng 3 (Tag) — mỗi nhóm 1 dòng cuộn ngang */
+.mtp-row2, .mtp-row3 {
+  display: flex; gap: 5px; align-items: center; padding: 0 12px 7px; flex-shrink: 0;
+  overflow-x: auto; scrollbar-width: none;
 }
-.abp-tab {
-  padding: 7px 10px;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #6b7280;
-  cursor: pointer;
-  font-family: inherit;
+.mtp-row2::-webkit-scrollbar, .mtp-row3::-webkit-scrollbar { display: none; }
+.mtp-rlabel { flex-shrink: 0; font-size: 10.5px; color: var(--at-hint, #8b93a7); font-weight: 700; }
+.mtp-seg { flex-shrink: 0; display: inline-flex; border: 1px solid var(--at-hairline, #e7eaf0); border-radius: 9999px; overflow: hidden; }
+.mtp-seg button {
+  border: none; background: #fff; font-family: inherit; font-size: 11px; padding: 4px 11px;
+  cursor: pointer; color: var(--at-body, #374151); border-right: 1px solid var(--at-hairline, #e7eaf0); white-space: nowrap;
 }
-.abp-tab:hover { color: #1f2328; }
-.abp-tab.active { color: #1786be; border-bottom-color: #1786be; }
-.abp-tab-badge {
-  font-size: 9.5px;
-  background: rgba(23,134,190,0.15);
-  color: #1d4ed8;
-  padding: 0 5px;
-  border-radius: 7px;
-  margin-left: 3px;
-  font-weight: 600;
+.mtp-seg button:last-child { border-right: none; }
+.mtp-seg button.on { background: var(--at-action-soft, rgba(23,134,190,0.1)); color: var(--at-action, #1786be); font-weight: 700; }
+.mtp-chip {
+  flex-shrink: 0; border: 1px solid var(--at-hairline, #e7eaf0); background: #fff; border-radius: 9999px;
+  padding: 3px 10px; font-size: 11px; font-weight: 600; color: var(--at-body, #374151); cursor: pointer;
+  white-space: nowrap; font-family: inherit;
 }
+.mtp-chip:hover { border-color: var(--at-action, #1786be); color: var(--at-action, #1786be); }
+.mtp-chip.on { background: var(--at-action-soft, rgba(23,134,190,0.1)); border-color: var(--at-action, #1786be); color: var(--at-action, #1786be); }
+.mtp-chip--tag { color: var(--at-hint, #8b93a7); }
+.mtp-chip--tag.on { color: var(--at-action, #1786be); }
 
-/* Tags */
-.abp-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 7px 10px;
-  border-bottom: 1px solid #eceef1;
-  flex-shrink: 0;
-}
-.abp-tag {
-  background: #fff;
-  color: #6b7280;
-  border: 1px solid #e6e8eb;
-  border-radius: 10px;
-  padding: 1px 7px;
-  font-size: 10px;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-}
-.abp-tag:hover { background: #f4f5f7; }
-.abp-tag.active {
-  background: rgba(23,134,190,0.12);
-  color: #1d4ed8;
-  border-color: #93c5fd;
-  font-weight: 600;
-}
+/* Lọc sâu (Tag) */
+.mtp-filter { padding: 0 12px 8px; flex-shrink: 0; display: flex; flex-direction: column; gap: 7px; }
+.mtp-frow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
 /* Body */
 .abp-body { flex: 1; overflow-y: auto; min-height: 0; padding: 8px; }
