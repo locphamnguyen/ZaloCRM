@@ -1,0 +1,491 @@
+<!-- @dsCard group="Documents" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DESIGN.md — ZaloCRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f1f4f9;
+    --fg: #141A24;
+    --fg-mute: #6B7488;
+    --line: #d1d9e0;
+    --line-soft: #eaeef2;
+    --link: #0f6fa0;
+    --code-bg: #f1f4f9;
+    --code-inline: rgba(151,160,179,0.22);
+    --accent: #0E445A;
+    --brand-sky: #1786BE;
+    --font: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-soft); }
+  body { font-family: var(--font); color: var(--fg); -webkit-font-smoothing: antialiased; line-height: 1.6; }
+
+  .gh-header {
+    background: #ffffff; border-bottom: 1px solid var(--line);
+    padding: 12px 24px; display: flex; align-items: center; gap: 12px;
+    font-size: 14px; position: sticky; top: 0; z-index: 10;
+  }
+  .gh-mark { width: 26px; height: 26px; flex: none; }
+  .gh-crumbs { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .gh-crumbs a { color: var(--link); text-decoration: none; font-weight: 600; }
+  .gh-crumbs a:hover { text-decoration: underline; }
+  .gh-crumbs .sep { color: var(--fg-mute); }
+  .gh-crumbs .file { color: var(--fg); font-weight: 600; }
+  .gh-actions { margin-left: auto; display: flex; gap: 8px; }
+  .gh-btn {
+    padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px;
+    background: #f1f4f9; font: 600 12px/1.3 var(--font); color: var(--fg);
+    cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .gh-btn:hover { background: #e7ecf3; }
+  .gh-btn.copied { background: #d6f5e6; color: #0a7a47; border-color: transparent; }
+
+  .gh-meta {
+    background: #fff; padding: 8px 24px; border-bottom: 1px solid var(--line);
+    display: flex; gap: 16px; align-items: center; font-size: 12px;
+    color: var(--fg-mute); font-family: var(--mono);
+  }
+
+  .md-shell {
+    max-width: 1280px; margin: 0 auto; display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; padding: 32px 24px 80px;
+  }
+  @media (max-width: 1000px) { .md-shell { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  .md { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 32px 44px 56px; min-width: 0; }
+  .md h1, .md h2, .md h3, .md h4 { font-weight: 700; line-height: 1.25; letter-spacing: -0.005em; margin-top: 32px; margin-bottom: 12px; color: var(--fg); }
+  .md h1 { font-size: 32px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); margin-top: 0; }
+  .md h2 { font-size: 24px; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); margin-top: 40px; }
+  .md h3 { font-size: 20px; margin-top: 28px; }
+  .md h4 { font-size: 16px; margin-top: 22px; }
+  .md p { margin: 0 0 14px; font-size: 15px; line-height: 1.65; }
+  .md strong { font-weight: 700; color: var(--fg); }
+  .md em { font-style: italic; color: var(--fg-mute); }
+  .md ul, .md ol { margin: 0 0 14px; padding-left: 28px; }
+  .md li { margin-bottom: 4px; font-size: 15px; line-height: 1.65; }
+  .md a { color: var(--link); text-decoration: none; }
+  .md a:hover { text-decoration: underline; }
+  .md hr { border: 0; border-top: 1px solid var(--line-soft); margin: 28px 0; }
+  .md code { font-family: var(--mono); font-size: 85%; background: var(--code-inline); padding: 0.2em 0.4em; border-radius: 6px; }
+  .md pre { background: var(--code-bg); padding: 16px; border-radius: 6px; overflow-x: auto; line-height: 1.5; font-size: 13px; margin: 0 0 16px; }
+  .md pre code { background: transparent; padding: 0; font-size: 13px; }
+  .md blockquote { margin: 0 0 14px; padding: 0 16px; color: var(--fg-mute); border-left: 4px solid var(--line); }
+  .md table { border-collapse: collapse; width: 100%; margin: 0 0 16px; font-size: 14px; display: block; overflow-x: auto; }
+  .md table th, .md table td { border: 1px solid var(--line); padding: 8px 14px; text-align: left; }
+  .md table th { background: var(--bg-soft); font-weight: 700; }
+  .md table tr:nth-child(2n) td { background: #fafbfc; }
+
+  .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; border: 1px solid rgba(0,0,0,0.08); }
+
+  .toc { position: sticky; top: 80px; align-self: start; font-size: 13px; padding: 16px 0 0; }
+  .toc-label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--fg-mute); font-weight: 700; padding: 0 12px 12px; }
+  .toc ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .toc a { display: block; padding: 6px 12px; border-radius: 6px; color: var(--fg-mute); text-decoration: none; line-height: 1.4; border-left: 2px solid transparent; }
+  .toc a:hover { color: var(--accent); background: var(--bg-soft); }
+  .toc a.active { color: var(--accent); border-left-color: var(--brand-sky); font-weight: 600; }
+
+  .gh-footer { border-top: 1px solid var(--line); background: #fff; padding: 24px; font-size: 12px; color: var(--fg-mute); text-align: center; font-family: var(--mono); }
+</style>
+</head>
+<body>
+
+<div class="gh-header">
+  <!-- ZaloCRM monochrome mark -->
+  <svg class="gh-mark" viewBox="0 0 256 256" aria-hidden="true">
+    <defs><mask id="gh-m"><rect width="256" height="256" fill="#fff"/><path d="M 72 63 H 184 V 83 L 124 143 H 184 V 163 H 72 V 143 L 132 83 H 72 Z" fill="#000"/><circle cx="196" cy="48" r="18.5" fill="#000"/></mask></defs>
+    <path d="M 56 36 H 200 a 28 28 0 0 1 28 28 V 156 a 28 28 0 0 1 -28 28 H 116 L 76 224 V 184 H 56 a 28 28 0 0 1 -28 -28 V 64 a 28 28 0 0 1 28 -28 Z" fill="#0E445A" mask="url(#gh-m)"/>
+    <circle cx="196" cy="48" r="13" fill="#0E445A"/>
+  </svg>
+  <div class="gh-crumbs">
+    <a href="#">zalocrm</a>
+    <span class="sep">/</span>
+    <a href="#">zalocrm</a>
+    <span class="sep">/</span>
+    <a href="#">docs</a>
+    <span class="sep">/</span>
+    <span class="file">DESIGN.md</span>
+  </div>
+  <div class="gh-actions">
+    <button class="gh-btn" id="copy-raw">📋 Copy raw</button>
+    <button class="gh-btn" onclick="window.print()">🖨️ Print</button>
+  </div>
+</div>
+
+<div class="gh-meta">
+  <span>512 lines (446 loc) · 20.8 KB</span>
+  <span>· main</span>
+  <span>· last commit: 13/06/2026</span>
+</div>
+
+<div class="md-shell">
+  <article class="md" id="md-source">
+
+    <h1>Design System: ZaloCRM</h1>
+
+    <h2 id="s1">1. Visual Theme &amp; Atmosphere</h2>
+    <p>ZaloCRM is a workplace tool for teams that live inside customer conversations. The interface is built around one promise: <em>every message your business has ever received is one click away</em>. The visual language commits hard to <strong>concentrated calm</strong> — deep teal-navy as the dominant color, generous white space around the inbox, and an aggressive refusal to decorate. Chat moves fast; the chrome around it must not.</p>
+    <p>The typography is set in <strong>Manrope</strong> — a modern geometric grotesque with humanist details and full Vietnamese diacritics support. At display sizes (40–54px) it runs at weight 800 with tight negative tracking (-0.025em) so headlines feel structural rather than literary. At body sizes (15px) it sits at weight 500 with a comfortable 1.6 line height, calibrated to keep dense Vietnamese diacritics legible on long message threads. Mono is reserved for one job only — technical identifiers like conversation IDs, timestamps, and code tokens — set in JetBrains Mono.</p>
+    <p>The color story is monochromatic-with-a-pulse. The palette is essentially a teal-navy core (<code>#0E445A</code>, <code>#06222F</code>) and a metallic-blue accent (<code>#1786BE</code>, bright <code>#5BB8E5</code>) layered against a cool near-white paper (<code>#F7F9FC</code>). The deepest teal-navy carries the brand and the most important text; the metallic blue is rationed exclusively for interactive moments — the send button, the unread badge, the focus ring. There is no third brand color. If a screen needs visual weight, it gets there by stacking neutrals more densely, never by reaching for a new hue.</p>
+
+    <h3>Key Characteristics</h3>
+    <ul>
+      <li>Manrope ExtraBold (800) for display, regular weight (500) for body — only 3 weights in active use (500, 600, 800)</li>
+      <li>Teal-navy-first palette: <code>#0E445A</code> / <code>#06222F</code> is the dominant brand value, used for ~40% of pixels on any given screen</li>
+      <li>Single chromatic accent: Metallic Blue (<code>#1786BE</code>) reserved for primary CTAs, focus states, and unread indicators</li>
+      <li>4px spacing grid — every padding/margin is a multiple of 4 with no exceptions</li>
+      <li>Soft teal-tinted shadows instead of true black, keeping elevation in-palette</li>
+      <li>Chat-bubble metaphor everywhere — the logo, message rows, the empty state, the loading skeleton all rhyme with a rounded-square-with-tail silhouette</li>
+      <li><strong>Monochrome logo</strong>: a single ink with the Z glyph and status dot knocked out (transparent) so the mark reads as one flat stamp on any background</li>
+      <li>Vietnamese-first copy with diacritics-tested line heights; no italic for emphasis (replaced by weight 600)</li>
+      <li>Pill-shaped chips and circular avatars for high-frequency UI; rectangular cards with 14px radius for content</li>
+    </ul>
+
+    <h2 id="s2">2. Color Palette &amp; Roles</h2>
+
+    <h3>Brand</h3>
+    <ul>
+      <li><strong><span class="sw" style="background:#0E445A"></span>Teal Navy</strong> (<code>#0E445A</code> → <code>#06222F</code>): The defining color. Dark surfaces, sidebar, top-nav, primary text, outgoing bubble, logo ink. Use the gradient <code>150deg, #0E445A, #06222F</code> for large brand surfaces.</li>
+      <li><strong><span class="sw" style="background:#1786BE"></span>Metallic Blue</strong> (<code>#1786BE</code>): The interactive accent. Primary CTAs, focus rings, unread badges, avatar status dot, links. <em>The only color allowed to shout.</em></li>
+      <li><strong><span class="sw" style="background:#0B5880"></span>Blue 600 / 700</strong> (<code>#0F6FA0</code> / <code>#0B5880</code>): Hover and pressed states, link emphasis, secondary-button text. The bridge values between Metallic and Teal Navy.</li>
+      <li><strong><span class="sw" style="background:#5BB8E5"></span>Sky Bright</strong> (<code>#5BB8E5</code>): The light tint of the accent — wordmark/dot on dark, active-tab underline, decorative highlights.</li>
+      <li><strong><span class="sw" style="background:#E4F1F8"></span>Blue Soft</strong> (<code>#E4F1F8</code>): The lightest brand tint. Secondary button bg, selected-row bg, chip bg, divider on light surfaces.</li>
+    </ul>
+
+    <h3>Neutrals</h3>
+    <ul>
+      <li><strong><span class="sw" style="background:#141A24"></span>Ink</strong> (<code>#141A24</code>): Primary body text. Warmer than pure black for long-form reading.</li>
+      <li><strong><span class="sw" style="background:#475066"></span>Ink 2</strong> (<code>#475066</code>): Secondary headings, table cell content, lead paragraph.</li>
+      <li><strong><span class="sw" style="background:#6B7488"></span>Ink 3</strong> (<code>#6B7488</code>): Secondary text, description copy, the subline beneath a contact name.</li>
+      <li><strong><span class="sw" style="background:#97A0B3"></span>Ink 4</strong> (<code>#97A0B3</code>): Placeholder text, disabled icons, metadata.</li>
+      <li><strong><span class="sw" style="background:#E7EAF0"></span>Line</strong> (<code>#E7EAF0</code>): Default border on cards, inputs, table cells.</li>
+      <li><strong><span class="sw" style="background:#EEF1F6"></span>Line 2</strong> (<code>#EEF1F6</code>): Internal dividers within cards, separators between bubbles in one thread.</li>
+      <li><strong><span class="sw" style="background:#F7F9FC"></span>Surface 2</strong> (<code>#F7F9FC</code>): Secondary surface — conversation list bg, empty-state canvas.</li>
+      <li><strong><span class="sw" style="background:#F1F4F9"></span>Surface 3</strong> (<code>#F1F4F9</code>): Page background behind cards.</li>
+      <li><strong><span class="sw" style="background:#FFFFFF;box-shadow:inset 0 0 0 1px #E7EAF0"></span>White</strong> (<code>#FFFFFF</code>): Card background, primary surface, incoming bubble.</li>
+    </ul>
+
+    <h3>Semantic</h3>
+    <ul>
+      <li><strong><span class="sw" style="background:#12B76A"></span>Success</strong> (<code>#12B76A</code>): "Closed deal", "Resolved", "Delivered" — moments of completion.</li>
+      <li><strong><span class="sw" style="background:#F5A524"></span>Warning</strong> (<code>#F5A524</code>): "Awaiting reply", "SLA at risk".</li>
+      <li><strong><span class="sw" style="background:#F04438"></span>Error</strong> (<code>#F04438</code>): "Complaint", "Failed to send", destructive actions.</li>
+      <li><strong><span class="sw" style="background:#1786BE"></span>Info</strong>: Aliased to Metallic Blue (<code>#1786BE</code>) — informational chips share the brand accent intentionally.</li>
+    </ul>
+
+    <h3>Chat Bubble Colors</h3>
+    <p>The two-color bubble rule is sacred and never broken:</p>
+    <ul>
+      <li><strong>Incoming (customer):</strong> background <code>#FFFFFF</code>, text <code>#141A24</code>, border <code>#E7EAF0</code>, radius <code>4px 16px 16px 16px</code>.</li>
+      <li><strong>Outgoing (agent):</strong> background <code>#0E445A</code>, text <code>#FFFFFF</code>, no border, radius <code>16px 4px 16px 16px</code>.</li>
+    </ul>
+
+    <h2 id="s3">3. Typography Rules</h2>
+    <h3>Font Families</h3>
+    <ul>
+      <li><strong>Display &amp; Body:</strong> <code>Manrope</code>, fallback: <code>'Inter', 'Segoe UI', Helvetica, Arial, sans-serif</code>. Weights 400, 500, 600, 700, 800.</li>
+      <li><strong>Mono:</strong> <code>JetBrains Mono</code>, fallback: <code>ui-monospace, 'SF Mono', Menlo, Consolas, monospace</code>. Weights 400, 500, 600.</li>
+      <li><strong>No serif</strong>, no script, no italic. Emphasis via weight (500 → 600) or color (mute → ink), never italic.</li>
+    </ul>
+    <h3>Hierarchy</h3>
+    <table>
+      <thead><tr><th>Role</th><th>Font</th><th>Size</th><th>Weight</th><th>Line Height</th><th>Tracking</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Display Hero (H1)</td><td>Manrope</td><td>54px</td><td>800</td><td>1.06</td><td>-0.025em</td><td>Marketing hero</td></tr>
+        <tr><td>Section Heading (H2)</td><td>Manrope</td><td>34px</td><td>800</td><td>1.10</td><td>-0.02em</td><td>App page titles</td></tr>
+        <tr><td>Sub-section (H3)</td><td>Manrope</td><td>28px</td><td>700</td><td>1.20</td><td>-0.015em</td><td>Card titles</td></tr>
+        <tr><td>Card Title (H4)</td><td>Manrope</td><td>22px</td><td>700</td><td>1.30</td><td>-0.01em</td><td>Conversation header</td></tr>
+        <tr><td>Inline Heading (H5)</td><td>Manrope</td><td>18px</td><td>700</td><td>1.40</td><td>-0.005em</td><td>Group / section labels</td></tr>
+        <tr><td>Body Large</td><td>Manrope</td><td>17px</td><td>500</td><td>1.55</td><td>0</td><td>Lead paragraph</td></tr>
+        <tr><td>Body</td><td>Manrope</td><td>15px</td><td>500</td><td>1.60</td><td>0</td><td>Default text, bubbles, cells</td></tr>
+        <tr><td>Body Small</td><td>Manrope</td><td>13px</td><td>500</td><td>1.55</td><td>0</td><td>Preview lines, metadata</td></tr>
+        <tr><td>Caption</td><td>Manrope</td><td>12px</td><td>600</td><td>1.45</td><td>0.02em</td><td>Timestamps, micro labels</td></tr>
+        <tr><td>Overline</td><td>Manrope</td><td>11px</td><td>700</td><td>1.40</td><td>0.16em</td><td>UPPERCASE eyebrows</td></tr>
+        <tr><td>Mono</td><td>JetBrains Mono</td><td>13px</td><td>500</td><td>1.55</td><td>0</td><td>IDs, phones, code</td></tr>
+      </tbody>
+    </table>
+    <h3>Principles</h3>
+    <ul>
+      <li><strong>Vietnamese-first metrics</strong>: stacked diacritics (<code>ặ</code>, <code>ờ</code>, <code>ễ</code>) need vertical room. Body line-height never below 1.55.</li>
+      <li><strong>Weight as hierarchy</strong>: only four weights — 500, 600, 700, 800. 400 and 900 are not in active use.</li>
+      <li><strong>Negative tracking only at large sizes</strong>: headlines tighten to -0.025em → -0.005em. Body sits at 0 tracking.</li>
+      <li><strong>Mono is data, never decoration</strong>: only when the value is technically meaningful. Don't use mono "for vibes".</li>
+      <li><strong>Number figures</strong>: body uses proportional figures; tables/dashboards switch on <code>font-variant-numeric: tabular-nums</code>.</li>
+    </ul>
+
+    <h2 id="s4">4. Component Stylings</h2>
+
+    <h3>Logo</h3>
+    <p>The logo is <strong>monochrome</strong> — one ink for both the bubble mark and the "ZaloCRM" wordmark. The Z glyph and the status dot are knocked out of the bubble (transparent), so whatever sits behind the mark shows through the negative space.</p>
+    <ul>
+      <li>Primary ink on light backgrounds: Teal Navy <code>#0E445A</code> (or <code>#06222F</code>)</li>
+      <li>Reversed ink on dark backgrounds: White <code>#FFFFFF</code></li>
+      <li>Single-ink print / emboss / watermark: any one brand ink, no second color</li>
+      <li>The Z is optically centered in the bubble; the status dot keeps a ~2.5px transparent gap from the bubble edge</li>
+      <li>At ≤24px, ship a dedicated "solid" favicon (Z and dot filled, no knockout) so the thin negative space doesn't disappear</li>
+      <li>Never reintroduce the two-tone (navy + blue) treatment, never add a second color, never fill the knockouts</li>
+    </ul>
+
+    <h3>Buttons</h3>
+    <p><strong>Primary (Metallic)</strong> — the workhorse CTA ("Gửi tin nhắn", "Lưu nháp", "Tạo hội thoại").</p>
+    <ul>
+      <li>Background: <code>#1786BE</code> · Text: <code>#FFFFFF</code> · Radius: <code>10px</code></li>
+      <li>Padding: <code>12px 20px</code> (md) — ~40px height, hitting touch-target minimums</li>
+      <li>Font: Manrope 14px / weight 600 / no tracking</li>
+      <li>Hover: background → <code>#0F6FA0</code>. No transform, no shadow change.</li>
+      <li>Focus: <code>0 0 0 4px rgba(23,134,190,0.18)</code> ring</li>
+      <li>Disabled: <code>#E4F1F8</code> background, <code>#97A0B3</code> text, no hover</li>
+    </ul>
+    <p><strong>Secondary (Blue Soft)</strong> — second action when paired with Primary.</p>
+    <ul>
+      <li>Background: <code>#E4F1F8</code> · Text: <code>#0B5880</code> · Radius: <code>10px</code> · Hover: <code>#d3e9f5</code></li>
+    </ul>
+    <p><strong>Ghost</strong> — tertiary actions ("Huỷ", "Đóng").</p>
+    <ul>
+      <li>Background: transparent · Text: <code>#475066</code> · Border: <code>1px solid #E7EAF0</code> · Hover: <code>#F7F9FC</code></li>
+    </ul>
+    <p><strong>Semantic (Success / Error)</strong> — identical shape to Primary, only fill changes (<code>#12B76A</code> / <code>#F04438</code>).</p>
+    <p><strong>Size Scale</strong>: <code>sm</code> (7px / 14px, 12.5px text), <code>md</code> (12px / 20px, 14px text, default), <code>lg</code> (14px / 26px, 16px text). Padding is asymmetric at every size.</p>
+
+    <h3>Inputs</h3>
+    <ul>
+      <li>Padding: <code>11px 14px</code> · Radius: <code>10px</code> · Border: <code>1px solid #E7EAF0</code></li>
+      <li>Background: <code>#FFFFFF</code> · Text: <code>#141A24</code> · Placeholder: <code>#97A0B3</code></li>
+      <li>Focus: border <code>#1786BE</code> + ring <code>0 0 0 4px rgba(23,134,190,0.16)</code></li>
+      <li>Error: border <code>#F04438</code>, helper text in <code>#F04438</code></li>
+      <li>Inputs and buttons share the same ~40px height so they sit on one row without hacks</li>
+    </ul>
+
+    <h3>Cards</h3>
+    <ul>
+      <li>Background: <code>#FFFFFF</code> · Border: <code>1px solid #E7EAF0</code> · Radius: <code>14px</code></li>
+      <li>Padding: <code>28px</code> (lg) for primary content, <code>16px–22px</code> for compact cards</li>
+      <li>No shadow by default. Elevation comes from the 1px border against the <code>#F1F4F9</code> page background.</li>
+      <li>Optional floating shadow: <code>0 12px 30px rgba(14,68,90,0.14)</code></li>
+    </ul>
+
+    <h3>Chips &amp; Tags</h3>
+    <ul>
+      <li>Radius: <code>999px</code> (pill) — distinct from buttons (10px) so the role read is instant</li>
+      <li>Padding: <code>6px 13px</code> · Font: 12.5px / weight 600</li>
+      <li>5 variants: <em>neutral / info</em> (Blue Soft bg + <code>#0B5880</code> text), <em>success</em>, <em>warning</em>, <em>error</em></li>
+      <li>Optional leading dot: 7px circle in the chip's accent color</li>
+    </ul>
+
+    <h3>Chat Bubbles</h3>
+    <p>The single most repeated component. Specs are non-negotiable:</p>
+    <ul>
+      <li><strong>Incoming</strong>: <code>#FFFFFF</code> bg + <code>1px solid #E7EAF0</code> border. Radius <code>4px 16px 16px 16px</code>. Padding <code>11px 15px</code>. Text 14px / weight 500.</li>
+      <li><strong>Outgoing</strong>: <code>#0E445A</code> bg + no border. Radius <code>16px 4px 16px 16px</code>. Same padding, text white.</li>
+      <li><strong>Max width</strong>: 80% of the conversation panel.</li>
+      <li><strong>Stack spacing</strong>: 4px between bubbles from the same sender, 16px when sender changes.</li>
+      <li><strong>Meta line</strong>: 11px Ink-4, 5px below bubble. Format: <em>name · time · status</em>.</li>
+    </ul>
+
+    <h3>Avatar</h3>
+    <ul>
+      <li>Default: 42×42 circle, solid Teal Navy <code>#0E445A</code> background, initials in white 14px / weight 700</li>
+      <li>Sizes: 24, 28, 30, 42 (default), 64</li>
+      <li>Status dot: 12px circle (success/warning) with 2px white border, anchored bottom-right</li>
+      <li>Group avatars: stack 3 with -8px overlap and 2px white border each</li>
+    </ul>
+
+    <h3>Navigation (Top-nav)</h3>
+    <ul>
+      <li>Height: 54px, background gradient <code>180deg, #0E445A, #06222F</code></li>
+      <li>Brand: 26px monochrome mark (white ink) + "Zalo" white / "CRM" <code>#5BB8E5</code></li>
+      <li>Item: 12.5px text, <code>#c4cbd9</code> default, white when active</li>
+      <li>Active state: <code>rgba(91,184,229,0.16)</code> background pill + <code>2px #5BB8E5</code> bottom underline</li>
+      <li>Section labels: 11px Overline (uppercase, +0.14em) in Ink-3</li>
+    </ul>
+
+    <h2 id="s5">5. Layout Principles</h2>
+    <h3>Spacing System (4px grid)</h3>
+    <p>Every padding, margin, and gap is a multiple of 4. The named scale:</p>
+    <pre><code>space-1 = 4px      space-2 = 8px      space-3 = 12px
+space-4 = 16px     space-5 = 20px     space-6 = 24px
+space-8 = 32px     space-10 = 40px    space-12 = 48px
+space-16 = 64px    space-20 = 80px    space-24 = 96px</code></pre>
+    <p>Use <code>space-4</code> (16px) and <code>space-6</code> (24px) as defaults. <code>space-2</code> (8px) for related elements, <code>space-8</code> (32px) for grouped sections within a card, <code>space-12+</code> for separating page sections.</p>
+    <h3>Grid &amp; Container</h3>
+    <ul>
+      <li>App shell: top-nav + flexible content area, or a 268px sidebar + content for docs. No max-width on the conversation panel.</li>
+      <li>Settings / marketing pages: max-width 1000–1100px, centered with generous horizontal padding</li>
+      <li>Conversation reading width: 720px max for the message column</li>
+      <li>Card grids: 2-column at &lt;1100px, 3–4 column above for KPI tiles. Keep ≤4 per row.</li>
+    </ul>
+    <h3>Border Radius Scale</h3>
+    <table>
+      <thead><tr><th>Token</th><th>Value</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td><code>r-xs</code></td><td>4px</td><td>Inline tags, micro-pills inside bubbles</td></tr>
+        <tr><td><code>r-sm</code></td><td>6px</td><td>Small buttons, badge backgrounds</td></tr>
+        <tr><td><code>r-md</code></td><td>10px</td><td>Standard buttons, inputs, dropdowns</td></tr>
+        <tr><td><code>r-lg</code></td><td>14px</td><td>Cards, panels, modals</td></tr>
+        <tr><td><code>r-xl</code></td><td>20px</td><td>Hero cards, large promo panels</td></tr>
+        <tr><td><code>r-pill</code></td><td>999px</td><td>Chips, tags, avatar, segmented controls</td></tr>
+      </tbody>
+    </table>
+    <p>Asymmetric radii are only used on chat bubbles (the tail corner shrinks to 4px). Never elsewhere.</p>
+    <h3>Whitespace Philosophy</h3>
+    <p>The app is dense by necessity — agents handle dozens of conversations a shift. But the rhythm should breathe: 24px between cards, 16px between sections inside a card, 8px between a label and its input. We aim for <em>structured density</em>.</p>
+
+    <h2 id="s6">6. Depth &amp; Elevation</h2>
+    <table>
+      <thead><tr><th>Level</th><th>Treatment</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td>Flat (0)</td><td>No shadow, border only</td><td>Default cards, sections, nav</td></tr>
+        <tr><td>Shadow 1</td><td><code>0 1px 2px rgba(14,68,90,.06), 0 1px 1px rgba(14,68,90,.04)</code></td><td>FAB, sticky toolbars</td></tr>
+        <tr><td>Shadow 2</td><td><code>0 4px 12px rgba(14,68,90,.10), 0 1px 3px rgba(14,68,90,.06)</code></td><td>Dropdowns, popovers, tooltips</td></tr>
+        <tr><td>Shadow 3</td><td><code>0 12px 30px rgba(14,68,90,.14), 0 4px 10px rgba(14,68,90,.08)</code></td><td>Modals, overlays</td></tr>
+        <tr><td>Focus ring</td><td><code>0 0 0 4px rgba(23,134,190,.18)</code></td><td>Every keyboard-focusable element</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Shadow Philosophy</strong>: shadows are <em>teal-tinted</em>, never pure black. The base color of all shadows is <code>rgba(14, 68, 90, x)</code> — the same Teal Navy that anchors the system. Most surfaces have no shadow at all; they earn separation through a 1px border against the Surface background.</p>
+
+    <h2 id="s7">7. Do's and Don'ts</h2>
+    <h3>Do</h3>
+    <ul>
+      <li>Use Teal Navy <code>#0E445A</code> / <code>#06222F</code> as the dominant color on every screen</li>
+      <li>Reserve Metallic Blue <code>#1786BE</code> exclusively for interactive elements</li>
+      <li>Keep the logo <strong>monochrome</strong> — one ink, Z and dot knocked out. Teal-navy on light, white on dark.</li>
+      <li>Set body text in Manrope weight 500 at 15px / line-height 1.6</li>
+      <li>Snap every spacing value to the 4px grid</li>
+      <li>Use the two-color chat bubble rule: white incoming, teal-navy outgoing</li>
+      <li>Anchor card separation with a 1px <code>#E7EAF0</code> border on a <code>#F1F4F9</code> background, not shadows</li>
+      <li>Tint shadows with teal-navy (<code>rgba(14, 68, 90, x)</code>) instead of pure black</li>
+      <li>Use 10px radius on buttons/inputs, 14px on cards, 999px on chips</li>
+      <li>Show IDs, phone numbers, and timestamps in JetBrains Mono — they are <em>data</em>, not <em>copy</em></li>
+    </ul>
+    <h3>Don't</h3>
+    <ul>
+      <li>Don't reintroduce a third brand color. The budget is Teal Navy + Metallic Blue.</li>
+      <li>Don't bring back the two-tone logo or fill the Z/dot knockouts — the mark is monochrome now.</li>
+      <li>Don't use italic for emphasis — use weight 600. Italics break with Vietnamese diacritics.</li>
+      <li>Don't go below 1.55 line-height on body text.</li>
+      <li>Don't use pure black (<code>#000000</code>). Even our darkest text (<code>#141A24</code>) carries a hint of navy.</li>
+      <li>Don't apply gradients to UI surfaces. Gradients only on (1) avatar/brand surfaces and (2) marketing heroes.</li>
+      <li>Don't use heavy weights below 14px — use 600 max under 14px.</li>
+      <li>Don't add hover transforms. Hover changes color only.</li>
+      <li>Don't break the bubble color rule.</li>
+      <li>Don't use mono for "developer aesthetic". Mono = data only.</li>
+    </ul>
+
+    <h2 id="s8">8. Responsive Behavior</h2>
+    <h3>Breakpoints</h3>
+    <table>
+      <thead><tr><th>Name</th><th>Width</th><th>Key Changes</th></tr></thead>
+      <tbody>
+        <tr><td>Mobile</td><td>&lt; 640px</td><td>Top-nav collapses to bottom bar (5 icons). Single-pane. Cards full-bleed.</td></tr>
+        <tr><td>Tablet</td><td>640–1024px</td><td>Sidebar icon-only (64px). 2-pane: list + conversation.</td></tr>
+        <tr><td>Desktop</td><td>1024–1440px</td><td>Sidebar expanded (268px). 3-pane. Detail panel behind toggle.</td></tr>
+        <tr><td>Wide</td><td>&gt; 1440px</td><td>3-pane + persistent detail panel (320px). Conversation caps at 720px.</td></tr>
+      </tbody>
+    </table>
+    <h3>Touch Targets</h3>
+    <ul>
+      <li>Primary actions: minimum 44×44px</li>
+      <li>List rows on mobile: 56px tall</li>
+      <li>Icon-only buttons: 40×40px container holding a 20px icon</li>
+      <li>Send button on mobile: 48×48px Metallic-filled circle</li>
+    </ul>
+    <h3>Collapsing Strategy</h3>
+    <ul>
+      <li>Headlines: 54px → 40px (tablet) → 32px (mobile), line-height 1.06–1.15</li>
+      <li>3-column card grids → 2-column at 1100px → single column at 700px</li>
+      <li>Tables: full table at desktop → card-list view at &lt;900px</li>
+      <li>Sidebar: 268px → 64px icon → hidden on mobile (bottom nav)</li>
+      <li>Modals: centered card on desktop → bottom sheet on mobile</li>
+    </ul>
+    <h3>Density Modes</h3>
+    <p>Two density settings (persisted in localStorage):</p>
+    <ul>
+      <li><strong>Comfortable (default)</strong>: list rows 64px, card padding 28px, button padding 12px/20px</li>
+      <li><strong>Compact</strong>: list rows 48px, card padding 20px, button padding 7px/16px</li>
+    </ul>
+
+    <h2 id="s9">9. Agent Prompt Guide</h2>
+    <h3>Quick Color Reference</h3>
+    <ul>
+      <li>Primary CTA: Metallic <code>#1786BE</code> on white text, OR Teal Navy <code>#0E445A</code> on white text</li>
+      <li>Page background (light): <code>#F1F4F9</code></li>
+      <li>Card surface: <code>#FFFFFF</code> · Secondary surface: <code>#F7F9FC</code></li>
+      <li>Heading text: <code>#0E445A</code> (brand) or <code>#141A24</code> (neutral)</li>
+      <li>Body text: <code>#141A24</code> primary, <code>#6B7488</code> secondary</li>
+      <li>Border: <code>#E7EAF0</code> default, <code>#EEF1F6</code> soft</li>
+      <li>Focus ring: <code>0 0 0 4px rgba(23,134,190,0.18)</code></li>
+      <li>Card shadow (rare): <code>0 4px 12px rgba(14,68,90,0.10)</code></li>
+    </ul>
+    <h3>Example Component Prompts</h3>
+    <ul>
+      <li>"Build a conversation list row: 64px height, white background with 1px <code>#EEF1F6</code> bottom border. Left: 42px teal-navy avatar with online status dot. Middle: contact name in Manrope 14px / 700 / <code>#0E445A</code>, preview line in 13px / 500 / <code>#6B7488</code> truncated. Right: timestamp 12px Ink-4, unread badge — Metallic <code>#1786BE</code> filled circle, 18px."</li>
+      <li>"Design the message composer: white card with 1px <code>#E7EAF0</code> top border, 16px padding. Multi-line textarea no border, 14px text, placeholder <code>#97A0B3</code>. Right: 40px circular Metallic <code>#1786BE</code> button with white paper-plane icon. Above: 32px toolbar icons in <code>#6B7488</code>, hover to <code>#0E445A</code>."</li>
+      <li>"Create the empty inbox state: centered. Top: 96px monochrome ZaloCRM mark (Teal Navy <code>#0E445A</code>) at 30% opacity. Middle: H3 'Chưa có hội thoại nào' in <code>#0E445A</code>. Below: Body 15px <code>#6B7488</code>. Bottom: Metallic primary button 'Bắt đầu hội thoại mới'."</li>
+      <li>"Build a contact detail card: 320px width, white, 14px radius, 1px <code>#E7EAF0</code> border, 28px padding. Top: 64px avatar + name in H4 + Ink-4 metadata. Divider <code>#EEF1F6</code>. Then a 2-column key/value table: label 12px Caption uppercase + value 14px Ink. 12px row gap, 24px column gap."</li>
+    </ul>
+    <h3>Iteration Guide</h3>
+    <ol>
+      <li>Start every screen with a <code>#F1F4F9</code> page background and 24px outer padding</li>
+      <li>Drop content into 14px-radius white cards with <code>#E7EAF0</code> borders — never start with shadows</li>
+      <li>Pick exactly one Metallic <code>#1786BE</code> moment per screen</li>
+      <li>Set every text element using the type scale role names. If unsure, use Body 15px / weight 500</li>
+      <li>Snap all paddings/margins/gaps to the 4px grid</li>
+      <li>Validate with Vietnamese sample copy: <em>"Trần Thị Hồng đặt 2 áo phông cỡ XL màu xám tro lúc 14:32 hôm nay."</em></li>
+      <li>Test focus states with Tab. Every interactive element shows the Metallic focus ring.</li>
+      <li>Keep the logo monochrome and run the screen through the Do/Don't checklist before done</li>
+    </ol>
+
+    <hr/>
+    <p style="color:var(--fg-mute);font-size:13px;"><em>ZaloCRM Design System · v2.0 · palette HS Holding · monochrome logo · last updated 13/06/2026 · maintained by the design &amp; platform team.</em></p>
+  </article>
+
+  <nav class="toc">
+    <div class="toc-label">On this page</div>
+    <ul>
+      <li><a href="#s1">1. Visual Theme</a></li>
+      <li><a href="#s2">2. Color Palette</a></li>
+      <li><a href="#s3">3. Typography</a></li>
+      <li><a href="#s4">4. Component Stylings</a></li>
+      <li><a href="#s5">5. Layout Principles</a></li>
+      <li><a href="#s6">6. Depth &amp; Elevation</a></li>
+      <li><a href="#s7">7. Do's and Don'ts</a></li>
+      <li><a href="#s8">8. Responsive Behavior</a></li>
+      <li><a href="#s9">9. Agent Prompt Guide</a></li>
+    </ul>
+  </nav>
+</div>
+
+<footer class="gh-footer">
+  ZaloCRM · DESIGN.md · raw view simulated for comparison purposes
+</footer>
+
+<script>
+  document.getElementById('copy-raw').addEventListener('click', async (e) => {
+    const text = document.getElementById('md-source').innerText;
+    try {
+      await navigator.clipboard.writeText(text);
+      e.target.classList.add('copied');
+      const orig = e.target.textContent;
+      e.target.textContent = '✓ Copied';
+      setTimeout(() => { e.target.classList.remove('copied'); e.target.textContent = orig; }, 1100);
+    } catch (err) {}
+  });
+  const links = [...document.querySelectorAll('.toc a')];
+  const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const onScroll = () => {
+    let active = sections[0];
+    for (const s of sections) { if (s.getBoundingClientRect().top < 120) active = s; }
+    links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + (active?.id || '')));
+  };
+  document.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+</script>
+</body>
+</html>

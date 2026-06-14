@@ -1,0 +1,37 @@
+<!-- @dsCard group="Brand" -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<svg viewBox="0 0 256 256" width="{{ size }}" height="{{ size }}" style="display:block;" aria-label="ZaloCRM">
+  <defs>
+    <mask id="{{ maskId }}">
+      <rect width="256" height="256" fill="#fff"></rect>
+      <path d="M 72 63 H 184 V 83 L 124 143 H 184 V 163 H 72 V 143 L 132 83 H 72 Z" fill="#000"></path>
+      <circle cx="196" cy="48" r="18.5" fill="#000"></circle>
+    </mask>
+  </defs>
+  <path d="M 56 36 H 200 a 28 28 0 0 1 28 28 V 156 a 28 28 0 0 1 -28 28 H 116 L 76 224 V 184 H 56 a 28 28 0 0 1 -28 -28 V 64 a 28 28 0 0 1 28 -28 Z" fill="{{ ink }}" mask="{{ maskUrl }}"></path>
+  <circle cx="196" cy="48" r="13" fill="{{ ink }}"></circle>
+</svg>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:160,&quot;height&quot;:160},&quot;size&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:120,&quot;tsType&quot;:&quot;number&quot;},&quot;ink&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#0E445A&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.uid = 'zm' + Math.random().toString(36).slice(2, 9);
+  }
+  renderVals() {
+    const size = this.props.size ?? 96;
+    const ink = this.props.ink ?? '#0E445A';
+    return { size, ink, maskId: this.uid, maskUrl: 'url(#' + this.uid + ')' };
+  }
+}
+</script>
+</body>
+</html>

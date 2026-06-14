@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ZaloCRM — Logo Export (Teal-Navy)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --teal: #0E445A;
+    --deep: #06222F;
+    --metal: #1786BE;
+    --sky: #5BB8E5;
+    --ink: #141A24;
+    --paper: #F7F9FC;
+    --line: #E7EAF0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Manrope', system-ui, sans-serif;
+    background: #F1F4F9;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: 52px 32px 90px; }
+
+  header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 8px; }
+  .eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: .12em; color: var(--metal); }
+  h1 { font-size: 30px; font-weight: 800; letter-spacing: -.02em; margin: 8px 0 0; color: var(--ink); }
+  .sub { font-size: 14.5px; color: #475066; margin: 10px 0 0; max-width: 560px; line-height: 1.6; }
+  .swatch-row { display: flex; gap: 8px; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6b7488; flex-wrap: wrap; }
+  .swatch { width: 14px; height: 14px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.08); }
+
+  .section-title { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: #6b7488; font-weight: 800; margin: 44px 0 16px; display: flex; align-items: center; gap: 12px; }
+  .section-title::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: flex; flex-direction: column; }
+  .card-head { padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #eef1f6; }
+  .card-title { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: #475066; font-weight: 700; }
+  .card-meta { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #97a0b3; }
+
+  .preview {
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(45deg, #e7ecf3 25%, transparent 25%),
+      linear-gradient(-45deg, #e7ecf3 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e7ecf3 75%),
+      linear-gradient(-45deg, transparent 75%, #e7ecf3 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 30px;
+  }
+  .preview.dark {
+    background-color: var(--teal);
+    background-image:
+      linear-gradient(45deg, #0c3b4f 25%, transparent 25%),
+      linear-gradient(-45deg, #0c3b4f 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #0c3b4f 75%),
+      linear-gradient(-45deg, transparent 75%, #0c3b4f 75%);
+  }
+  .preview svg { width: 100%; height: 100%; display: block; }
+  .preview.square { aspect-ratio: 1 / 1; }
+  .preview.horiz { aspect-ratio: 1000 / 320; }
+  .preview.horiz-slogan { aspect-ratio: 1200 / 400; }
+  .preview.vert { aspect-ratio: 600 / 500; }
+  .preview.vert-slogan { aspect-ratio: 1 / 1; }
+
+  .actions { padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 8px; border-top: 1px solid #eef1f6; background: #fafbfd; }
+  button { appearance: none; border: 1px solid #d8dfeb; background: #fff; color: var(--teal); font: 600 12px/1 'Manrope', sans-serif; padding: 9px 13px; border-radius: 9px; cursor: pointer; transition: all .14s ease; }
+  button:hover { background: var(--teal); color: #fff; border-color: var(--teal); }
+  button.primary { background: var(--teal); color: #fff; border-color: var(--teal); }
+  button.primary:hover { background: var(--metal); border-color: var(--metal); }
+
+  .footer-note { margin-top: 30px; padding: 18px 22px; background: #fff; border: 1px dashed #d8dfeb; border-radius: 14px; font-size: 13.5px; color: #475066; line-height: 1.7; }
+  .footer-note b { color: var(--teal); }
+  kbd { font-family: 'JetBrains Mono', monospace; background: #eef2f7; border: 1px solid #d8dfeb; padding: 1px 6px; border-radius: 5px; font-size: 11px; }
+  .status { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #97a0b3; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <div class="eyebrow">ZALOCRM · LOGO EXPORT</div>
+      <h1>Xuất logo PNG &amp; SVG</h1>
+      <p class="sub">Teal-navy <b style="color:#0E445A">#0E445A</b> + chấm trạng thái metallic <b style="color:#1786BE">#1786BE</b>. Chữ Z &amp; khe chấm khoét rỗng — PNG xuất <b>nền trong suốt</b>, font nhúng sẵn nên wordmark luôn đúng. Slogan: <b>Mọi tin nhắn. Một màn hình.</b></p>
+      <div class="status" id="font-status">Đang nhúng font…</div>
+    </div>
+    <div class="swatch-row">
+      <span class="swatch" style="background:#0E445A"></span> Teal-navy
+      <span class="swatch" style="background:#06222F; margin-left:6px"></span> Deep
+      <span class="swatch" style="background:#1786BE; margin-left:6px"></span> Metallic
+      <span class="swatch" style="background:#5BB8E5; margin-left:6px"></span> Sky
+    </div>
+  </header>
+
+  <!-- ===== MARK ONLY ===== -->
+  <div class="section-title">Primary mark · hình vuông</div>
+  <div class="grid">
+    <div class="card" data-build="mark">
+      <div class="card-head"><div class="card-title">Mark · nền sáng</div><div class="card-meta">1024 × 1024 · PNG</div></div>
+      <div class="preview square js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1024" data-h="1024">PNG 1024</button>
+        <button class="js-btn" data-w="512" data-h="512">512</button>
+        <button class="js-btn" data-w="256" data-h="256">256</button>
+        <button class="js-btn" data-w="128" data-h="128">128</button>
+        <button class="js-btn" data-w="64" data-h="64">64</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="mark" data-inv="1">
+      <div class="card-head"><div class="card-title">Mark · trên nền teal-navy</div><div class="card-meta">PNG trắng · trong suốt</div></div>
+      <div class="preview square dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1024" data-h="1024">PNG 1024</button>
+        <button class="js-btn" data-w="512" data-h="512">512</button>
+        <button class="js-btn" data-w="256" data-h="256">256</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== HORIZONTAL — NO SLOGAN ===== -->
+  <div class="section-title">Horizontal lockup · mark + wordmark</div>
+  <div class="grid">
+    <div class="card" data-build="horiz">
+      <div class="card-head"><div class="card-title">Hai tông · nền sáng</div><div class="card-meta">1000 × 320 · PNG</div></div>
+      <div class="preview horiz js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2000" data-h="640">PNG 2000×640</button>
+        <button class="js-btn" data-w="1000" data-h="320">1000×320</button>
+        <button class="js-btn" data-w="500" data-h="160">500×160</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="horiz" data-inv="1">
+      <div class="card-head"><div class="card-title">Hai tông · nền teal-navy</div><div class="card-meta">PNG · trong suốt</div></div>
+      <div class="preview horiz dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2000" data-h="640">PNG 2000×640</button>
+        <button class="js-btn" data-w="1000" data-h="320">1000×320</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="horiz" data-mono="1">
+      <div class="card-head"><div class="card-title">Một tông · nền sáng</div><div class="card-meta">#06222F · PNG</div></div>
+      <div class="preview horiz js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2000" data-h="640">PNG 2000×640</button>
+        <button class="js-btn" data-w="1000" data-h="320">1000×320</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="horiz" data-mono="1" data-inv="1">
+      <div class="card-head"><div class="card-title">Một tông trắng · nền teal-navy</div><div class="card-meta">PNG · trong suốt</div></div>
+      <div class="preview horiz dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2000" data-h="640">PNG 2000×640</button>
+        <button class="js-btn" data-w="1000" data-h="320">1000×320</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== HORIZONTAL + SLOGAN ===== -->
+  <div class="section-title">Horizontal lockup + slogan</div>
+  <div class="grid">
+    <div class="card" data-build="horiz" data-slogan="1">
+      <div class="card-head"><div class="card-title">Có slogan · nền sáng</div><div class="card-meta">1200 × 400 · PNG</div></div>
+      <div class="preview horiz-slogan js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2400" data-h="800">PNG 2400×800</button>
+        <button class="js-btn" data-w="1200" data-h="400">1200×400</button>
+        <button class="js-btn" data-w="600" data-h="200">600×200</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="horiz" data-slogan="1" data-inv="1">
+      <div class="card-head"><div class="card-title">Có slogan · nền teal-navy</div><div class="card-meta">PNG · trong suốt</div></div>
+      <div class="preview horiz-slogan dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="2400" data-h="800">PNG 2400×800</button>
+        <button class="js-btn" data-w="1200" data-h="400">1200×400</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STACKED + SLOGAN ===== -->
+  <div class="section-title">Stacked lockup + slogan · hình vuông</div>
+  <div class="grid">
+    <div class="card" data-build="stacked">
+      <div class="card-head"><div class="card-title">Dọc + slogan · nền sáng</div><div class="card-meta">800 × 800 · PNG</div></div>
+      <div class="preview vert-slogan js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1600" data-h="1600">PNG 1600</button>
+        <button class="js-btn" data-w="800" data-h="800">800</button>
+        <button class="js-btn" data-w="400" data-h="400">400</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="stacked" data-inv="1">
+      <div class="card-head"><div class="card-title">Dọc + slogan · nền teal-navy</div><div class="card-meta">PNG · trong suốt</div></div>
+      <div class="preview vert-slogan dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1600" data-h="1600">PNG 1600</button>
+        <button class="js-btn" data-w="800" data-h="800">800</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== STACKED — NO SLOGAN ===== -->
+  <div class="section-title">Stacked lockup · mark + wordmark</div>
+  <div class="grid">
+    <div class="card" data-build="vertical">
+      <div class="card-head"><div class="card-title">Dọc · nền sáng</div><div class="card-meta">600 × 500 · PNG</div></div>
+      <div class="preview vert js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1200" data-h="1000">PNG 1200×1000</button>
+        <button class="js-btn" data-w="600" data-h="500">600×500</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+    <div class="card" data-build="vertical" data-inv="1">
+      <div class="card-head"><div class="card-title">Dọc · nền teal-navy</div><div class="card-meta">PNG · trong suốt</div></div>
+      <div class="preview vert dark js-prev"></div>
+      <div class="actions">
+        <button class="primary js-btn" data-w="1200" data-h="1000">PNG 1200×1000</button>
+        <button class="js-btn" data-w="600" data-h="500">600×500</button>
+        <button class="js-btn" data-svg="1">SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    <b>Cách dùng:</b> nhấn nút bất kỳ để tải file. PNG xuất với <b>nền trong suốt</b> — chữ Z và khe quanh chấm là vùng rỗng (lộ nền khi đặt lên màu).
+    SVG là vector, mở bằng Figma / Illustrator. Font Manrope được nhúng trực tiếp nên wordmark hiển thị đúng ở mọi nơi. Phím tắt: <kbd>D</kbd> tải mark PNG 1024.
+  </div>
+</div>
+
+<script>
+  const TEAL = '#0E445A', DEEP = '#06222F', METAL = '#1786BE', SKY = '#5BB8E5';
+  const SLOGAN_LIGHT = '#6B7488', SLOGAN_DARK = '#9FC4D6';
+  const SLOGAN = 'Mọi tin nhắn. Một màn hình.';
+  const FF = "Manrope, 'Segoe UI', Helvetica, Arial, sans-serif";
+
+  // Brand geometry (centered Z + transparent dot-gap). Holes are cut with a mask
+  // (subtractive only) so nothing fills outside the bubble — incl. above the dot.
+  const BUBBLE = 'M 56 36 H 200 a 28 28 0 0 1 28 28 V 156 a 28 28 0 0 1 -28 28 H 116 L 76 224 V 184 H 56 a 28 28 0 0 1 -28 -28 V 64 a 28 28 0 0 1 28 -28 Z';
+  const ZMONO  = 'M 72 63 H 184 V 83 L 124 143 H 184 V 163 H 72 V 143 L 132 83 H 72 Z';
+
+  let _mid = 0;
+  // Returns the <g> for the mark at a given transform with given fills.
+  function markGroup(transform, bubbleFill, dotFill) {
+    const id = 'zm' + (++_mid);
+    return `<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="256" height="256">`
+      + `<rect x="0" y="0" width="256" height="256" fill="#fff"/>`
+      + `<path d="${ZMONO}" fill="#000"/>`
+      + `<circle cx="196" cy="48" r="18.5" fill="#000"/>`
+      + `</mask></defs>`
+      + `<g transform="${transform}">`
+      + `<path d="${BUBBLE}" fill="${bubbleFill}" mask="url(#${id})"/>`
+      + `<circle cx="196" cy="48" r="13" fill="${dotFill}"/>`
+      + `</g>`;
+  }
+
+  function palette({ inverted, mono }) {
+    if (mono) {
+      return inverted
+        ? { bubble: '#ffffff', dot: '#ffffff', zalo: '#ffffff', crm: '#ffffff', slogan: SLOGAN_DARK }
+        : { bubble: DEEP, dot: DEEP, zalo: DEEP, crm: DEEP, slogan: SLOGAN_LIGHT };
+    }
+    return inverted
+      ? { bubble: '#ffffff', dot: SKY, zalo: '#ffffff', crm: SKY, slogan: SLOGAN_DARK }
+      : { bubble: TEAL, dot: METAL, zalo: TEAL, crm: METAL, slogan: SLOGAN_LIGHT };
+  }
+
+  function buildMark({ inverted } = {}) {
+    const p = palette({ inverted, mono: false });
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">`
+      + markGroup('translate(0 0)', p.bubble, p.dot)
+      + `</svg>`;
+  }
+
+  function buildHoriz({ inverted, mono, withSlogan } = {}) {
+    const p = palette({ inverted, mono });
+    if (withSlogan) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">`
+        + markGroup('translate(40 40) scale(1.25)', p.bubble, p.dot)
+        + `<g font-family="${FF}">`
+        + `<text x="350" y="198" font-size="108" font-weight="800" letter-spacing="-2" fill="${p.zalo}">Zalo<tspan fill="${p.crm}">CRM</tspan></text>`
+        + `<text x="354" y="258" font-size="34" font-weight="500" fill="${p.slogan}">${SLOGAN}</text>`
+        + `</g></svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 320" width="1000" height="320">`
+      + markGroup('translate(20 14) scale(1.15)', p.bubble, p.dot)
+      + `<g font-family="${FF}">`
+      + `<text x="312" y="205" font-size="122" font-weight="800" letter-spacing="-3" fill="${p.zalo}">Zalo<tspan fill="${p.crm}">CRM</tspan></text>`
+      + `</g></svg>`;
+  }
+
+  function buildVertical({ inverted, withSlogan } = {}) {
+    const p = palette({ inverted, mono: false });
+    if (withSlogan) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">`
+        + markGroup('translate(159 76) scale(1.1)', p.bubble, p.dot)
+        + `<g font-family="${FF}">`
+        + `<text x="300" y="430" font-size="104" font-weight="800" letter-spacing="-3" fill="${p.zalo}" text-anchor="middle">Zalo<tspan fill="${p.crm}">CRM</tspan></text>`
+        + `<text x="300" y="477" font-size="30" font-weight="500" fill="${p.slogan}" text-anchor="middle">${SLOGAN}</text>`
+        + `</g></svg>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 500" width="600" height="500">`
+      + markGroup('translate(159 55) scale(1.1)', p.bubble, p.dot)
+      + `<g font-family="${FF}">`
+      + `<text x="300" y="405" font-size="104" font-weight="800" letter-spacing="-3" fill="${p.zalo}" text-anchor="middle">Zalo<tspan fill="${p.crm}">CRM</tspan></text>`
+      + `</g></svg>`;
+  }
+
+  function buildByOpts(o) {
+    if (o.build === 'mark') return buildMark({ inverted: o.inv });
+    if (o.build === 'stacked') return buildVertical({ inverted: o.inv, withSlogan: true });
+    if (o.build === 'vertical') return buildVertical({ inverted: o.inv, withSlogan: false });
+    return buildHoriz({ inverted: o.inv, mono: o.mono, withSlogan: o.slogan });
+  }
+
+  function optsFrom(card) {
+    return { build: card.dataset.build, inv: card.dataset.inv === '1', mono: card.dataset.mono === '1', slogan: card.dataset.slogan === '1' };
+  }
+
+  function nameFor(o, ext, w, h) {
+    let n = 'zalocrm';
+    if (o.build === 'mark') n += '-mark';
+    else if (o.build === 'stacked') n += '-stacked-slogan';
+    else if (o.build === 'vertical') n += '-stacked';
+    else n += o.slogan ? '-lockup-slogan' : '-lockup';
+    if (o.mono) n += '-mono';
+    if (o.inv) n += '-white';
+    if (ext === 'png' && w) n += `-${w}x${h}`;
+    return `${n}.${ext}`;
+  }
+
+  // ===== Embed Manrope (all subsets incl. Vietnamese) as base64 so PNG/SVG render correctly =====
+  let _fontPromise = null;
+  function ensureFont() { if (!_fontPromise) _fontPromise = buildEmbeddedFontCSS(); return _fontPromise; }
+  function ab2b64(buf) {
+    let bin = ''; const bytes = new Uint8Array(buf); const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    return btoa(bin);
+  }
+  async function buildEmbeddedFontCSS() {
+    const status = document.getElementById('font-status');
+    try {
+      const cssUrl = 'https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap';
+      const css = await (await fetch(cssUrl)).text();
+      const faces = css.match(/@font-face\s*{[^}]*}/g) || [];
+      let out = '';
+      for (const face of faces) {
+        const m = face.match(/url\((https:[^)]+)\)/);
+        if (!m) { out += face; continue; }
+        try {
+          const buf = await (await fetch(m[1])).arrayBuffer();
+          out += face.replace(m[1], `data:font/woff2;base64,${ab2b64(buf)}`);
+        } catch (e) { out += face; }
+      }
+      if (status) status.textContent = 'Font đã nhúng ✓ — PNG/SVG sẵn sàng';
+      return out;
+    } catch (e) {
+      if (status) status.textContent = 'Không nhúng được font (offline) — PNG dùng font hệ thống';
+      return '';
+    }
+  }
+  async function withEmbeddedFont(svg) {
+    const css = await ensureFont();
+    if (!css) return svg;
+    return svg.replace(/(<svg[^>]*>)/, `$1<defs><style>${css}</style></defs>`);
+  }
+
+  // ===== Export =====
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  async function downloadSVG(svg, filename) {
+    const out = await withEmbeddedFont(svg);
+    downloadBlob(new Blob([out], { type: 'image/svg+xml;charset=utf-8' }), filename);
+  }
+  async function rasterize(svg, w, h, filename) {
+    const out = await withEmbeddedFont(svg);
+    const url = URL.createObjectURL(new Blob([out], { type: 'image/svg+xml;charset=utf-8' }));
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url);
+    c.toBlob((b) => { if (b) downloadBlob(b, filename); }, 'image/png');
+  }
+
+  // ===== Wire previews + buttons =====
+  document.querySelectorAll('.js-prev').forEach((el) => {
+    el.innerHTML = buildByOpts(optsFrom(el.closest('.card')));
+  });
+  document.querySelectorAll('.js-btn').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const o = optsFrom(btn.closest('.card'));
+      const svg = buildByOpts(o);
+      if (btn.dataset.svg) { await downloadSVG(svg, nameFor(o, 'svg')); }
+      else { const w = +btn.dataset.w, h = +btn.dataset.h; await rasterize(svg, w, h, nameFor(o, 'png', w, h)); }
+    });
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'd' && !e.metaKey && !e.ctrlKey) rasterize(buildMark(), 1024, 1024, 'zalocrm-mark-1024x1024.png');
+  });
+
+  ensureFont(); // pre-warm
+</script>
+</body>
+</html>
