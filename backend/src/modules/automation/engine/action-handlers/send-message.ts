@@ -26,6 +26,11 @@ import type { ActionContext, ActionResult } from '../types.js';
 import { downloadMediaToTemp } from '../../../chat/chat-media-helpers.js';
 import { sendNativeVideo } from '../../../../shared/video-processor.js';
 import { zaloPool } from '../../../zalo/zalo-pool.js';
+// Fix realtime 2026-06-15 (anh báo): tin BOT gửi không tự hiện cột 3 + preview cột 2.
+// send-message.ts lưu Message NHƯNG không emit 'chat:message' như POST handler tin tay →
+// FE không biết tới khi reload. Echo về cũng bị message-handler suppress (return null).
+// emitChatMessage = helper chuẩn (privacy redact + scope org) giống chat-routes.ts:1484.
+import { emitChatMessage } from '../../../../shared/realtime/emit-chat.js';
 // GĐ Block-media (2026-06-13): D4 vá tên file dùng chung với chat; D3 bump usageCount khi gửi media qua Block.
 import { buildSendFileName } from '../../../media/media-routes.js';
 import { bumpUsage } from '../../../media/media-service.js';
@@ -203,9 +208,10 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
   const sendStranger = allowStranger && friend.friendshipStatus !== 'accepted';
 
   // Step 2: get-or-create Conversation
+  // Lấy kèm privacyMode + ownerUserId của nick → emitChatMessage realtime đúng privacy.
   let conversation = await prisma.conversation.findUnique({
     where: { zaloAccountId_externalThreadId: { zaloAccountId: ctx.assignedNickId, externalThreadId: threadId } },
-    select: { id: true },
+    select: { id: true, zaloAccount: { select: { privacyMode: true, ownerUserId: true } } },
   });
   if (!conversation) {
     conversation = await prisma.conversation.create({
@@ -217,7 +223,7 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
         threadType: 'user',
         contactId: ctx.contactId,
       },
-      select: { id: true },
+      select: { id: true, zaloAccount: { select: { privacyMode: true, ownerUserId: true } } },
     });
   }
 
@@ -382,10 +388,41 @@ export async function sendMessageHandler(ctx: ActionContext): Promise<ActionResu
           // metadata.sender → badge "⚙️ Tự động · {sequence} · Bước N/M" trong UI chat.
           metadata: { sender: senderMeta },
         },
-        select: { id: true, content: true, contentType: true, sentAt: true },
+        select: {
+          id: true, content: true, contentType: true, sentAt: true,
+          // FIX realtime: emit cần đủ field FE render (badge tự động, phân biệt self).
+          senderType: true, senderName: true, sentVia: true, zaloMsgId: true,
+          conversationId: true, metadata: true,
+        },
       });
     } catch (err) {
       logger.error(`[send-message] persist tin ${i + 1} lỗi (Zalo đã gửi):`, err);
+    }
+
+    // FIX realtime 2026-06-15 (anh báo): EMIT 'chat:message' để cột 3 hiện tin + cột 2
+    // update preview NGAY (không cần reload). Giống POST handler tin tay. Fire-and-forget:
+    // emit lỗi KHÔNG được làm rớt việc gửi (tin đã sang Zalo + đã lưu DB rồi).
+    //
+    // CHỈ emit cho TEXT: echo text về bị message-handler suppress theo content-match (return
+    // null) → emit ở đây là DUY NHẤT, không trùng. Media (image/video/file) lưu zaloMsgId
+    // KHÔNG null → echo claim-placeholder trượt → echo-path tự insert + emit riêng; nếu emit
+    // cả ở đây sẽ ra 2 tin. Tin bám đuổi chủ yếu là text; media để echo-path xử như cũ.
+    if (lastMessageRow && persistContentType === 'text') {
+      try {
+        const io = zaloPool.getIO();
+        await emitChatMessage({
+          io,
+          orgId: ctx.orgId,
+          accountId: ctx.assignedNickId,
+          conversationId: conversation.id,
+          // zaloMsgIdNum đã serialize-safe: select không lấy BigInt → set null cho FE.
+          message: { ...lastMessageRow, zaloMsgIdNum: null },
+          privacyMode: conversation.zaloAccount?.privacyMode ?? 'sub',
+          ownerUserId: conversation.zaloAccount?.ownerUserId ?? null,
+        });
+      } catch (emitErr) {
+        logger.warn(`[send-message] emit realtime lỗi (tin vẫn đã gửi+lưu): ${(emitErr as Error)?.message}`);
+      }
     }
     sentCount++;
     // D3 (2026-06-13): gửi media qua Block thành công → bump usageCount để sale đo ảnh/file nào
