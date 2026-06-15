@@ -98,7 +98,8 @@ export interface SequenceRuntimeRules {
   maxAttemptsPerContact?: number; // mỗi KH nhận tối đa N tin của luồng (0 = không giới hạn)
   stopOnStatusIds?: string[];     // KH đạt 1 trong các trạng thái này → dừng hẳn
   // ── 4 LUẬT MỚI (recode 2026-06-14) — engine recode đọc các field này ──────
-  sendGap?: { value: number; unit: 'second' | 'minute' | 'hour' | 'day' }; // luật 2: giãn cách bước
+  // luật 2: giãn cách RANDOM [min,max] cùng đơn vị (default 15-30 phút). value=legacy cố định.
+  sendGap?: { min?: number; max?: number; value?: number; unit: 'second' | 'minute' | 'hour' | 'day' };
   reEnrollCooldownDays?: number;  // luật 3: không gắn lại cùng luồng trong N ngày (default 30)
   coordinateCareSession?: boolean; // luật 4: reply→dừng→hết phiên chạy tiếp (default true)
 }

@@ -21,9 +21,32 @@ describe('sendGapToMs — luật 2 quy đơn vị ra ms', () => {
   });
 });
 
+describe('sendGapToMs — RANDOM [min,max] (anh chốt 2026-06-15)', () => {
+  it('rand=0 → min', () => expect(sendGapToMs({ min: 15, max: 30, unit: 'minute' }, () => 0)).toBe(15 * 60_000));
+  it('rand=1 (cận trên) → ~max', () => {
+    // rand()=1 hiếm (Math.random < 1) nhưng test biên: 15 + 1*(30-15) = 30 phút.
+    expect(sendGapToMs({ min: 15, max: 30, unit: 'minute' }, () => 1)).toBe(30 * 60_000);
+  });
+  it('rand=0.5 → điểm giữa (22.5 phút)', () => {
+    expect(sendGapToMs({ min: 15, max: 30, unit: 'minute' }, () => 0.5)).toBe(Math.round(22.5 * 60_000));
+  });
+  it('min=max → cố định (không random)', () => {
+    expect(sendGapToMs({ min: 5, max: 5, unit: 'minute' }, () => 0.7)).toBe(5 * 60_000);
+  });
+  it('giá trị nằm TRONG [min,max] với rand bất kỳ', () => {
+    const ms = sendGapToMs({ min: 15, max: 30, unit: 'minute' }, () => 0.33);
+    expect(ms).toBeGreaterThanOrEqual(15 * 60_000);
+    expect(ms).toBeLessThanOrEqual(30 * 60_000);
+  });
+});
+
 describe('stepDelayMs — ưu tiên sendGap, fallback delayMinutes', () => {
-  it('có sendGap → dùng sendGap (KHÔNG dùng delayMinutes)', () => {
+  it('legacy value → dùng sendGap cố định (KHÔNG dùng delayMinutes)', () => {
     expect(stepDelayMs({ sendGap: { value: 10, unit: 'second' } }, 99)).toBe(10_000);
+  });
+  it('random min/max → pick trong khoảng (rand inject)', () => {
+    expect(stepDelayMs({ sendGap: { min: 1, max: 3, unit: 'minute' } }, 99, () => 0)).toBe(60_000);
+    expect(stepDelayMs({ sendGap: { min: 1, max: 3, unit: 'minute' } }, 99, () => 1)).toBe(180_000);
   });
   it('không sendGap → fallback delayMinutes', () => {
     expect(stepDelayMs({}, 5)).toBe(300_000);

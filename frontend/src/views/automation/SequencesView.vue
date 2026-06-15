@@ -225,7 +225,10 @@
               <div class="rule-card__body">
                 <div class="rule-row">
                   <div class="rule-input-pair rule-input-pair--gap">
-                    <input class="rule-num" :value="sendGapValue" type="number" min="0" @input="setSendGapValue(($event.target as HTMLInputElement).value)" />
+                    <span class="rule-mini-label">Từ</span>
+                    <input class="rule-num" :value="sendGapMin" type="number" min="0" @input="setSendGapMin(($event.target as HTMLInputElement).value)" />
+                    <span class="rule-mini-label">đến</span>
+                    <input class="rule-num" :value="sendGapMax" type="number" min="0" @input="setSendGapMax(($event.target as HTMLInputElement).value)" />
                     <select class="rule-select" :value="sendGapUnit" @change="setSendGapUnit(($event.target as HTMLSelectElement).value)">
                       <option value="second">giây</option>
                       <option value="minute">phút</option>
@@ -233,7 +236,7 @@
                       <option value="day">ngày</option>
                     </select>
                   </div>
-                  <p class="rule-hint">Khoảng nghỉ giữa bước này và bước kế. Chọn đơn vị từ giây đến ngày.</p>
+                  <p class="rule-hint">Mỗi bước nghỉ NGẪU NHIÊN trong khoảng {{ sendGapMin }}–{{ sendGapMax }} (giả lập tự nhiên, tránh Zalo nghi bot). Thời gian được chọn ngay khi gửi xong bước trước.</p>
                 </div>
               </div>
             </div>
@@ -504,17 +507,28 @@ function setTimeStart(v: string) { applyTimeRange(v || '00:00', timeEnd.value); 
 function setTimeEnd(v: string)   { applyTimeRange(timeStart.value, v || '23:59'); }
 
 // ── 4 LUẬT MỚI (recode 2026-06-14) — ghi đúng field BE engine đọc ──────────
-// Luật 2: sendGap { value, unit } (giây→ngày). BE: schedule-calculator.stepDelayMs.
-const sendGapValue = computed(() => editing.value?.runtimeRules.sendGap?.value ?? 1);
-const sendGapUnit = computed(() => editing.value?.runtimeRules.sendGap?.unit ?? 'hour');
-function setSendGapValue(v: string | number) {
+// Luật 2: sendGap RANDOM { min, max, unit } (default 15-30 phút). Engine pick ngẫu
+// nhiên trong [min,max] mỗi bước. Đọc legacy value (cố định) → coi min=max=value.
+type GapUnit = 'second' | 'minute' | 'hour' | 'day';
+const sendGapMin = computed(() => {
+  const g = editing.value?.runtimeRules.sendGap;
+  return g?.min ?? g?.value ?? 15;
+});
+const sendGapMax = computed(() => {
+  const g = editing.value?.runtimeRules.sendGap;
+  return g?.max ?? g?.value ?? 30;
+});
+const sendGapUnit = computed<GapUnit>(() => editing.value?.runtimeRules.sendGap?.unit ?? 'minute');
+function writeSendGap(min: number, max: number, unit: GapUnit) {
   if (!editing.value) return;
-  editing.value.runtimeRules.sendGap = { value: Math.max(0, Number(v) || 0), unit: sendGapUnit.value };
+  // min ≤ max (tự sửa nếu nhập ngược).
+  const lo = Math.max(0, min);
+  const hi = Math.max(lo, max);
+  editing.value.runtimeRules.sendGap = { min: lo, max: hi, unit };
 }
-function setSendGapUnit(u: string) {
-  if (!editing.value) return;
-  editing.value.runtimeRules.sendGap = { value: sendGapValue.value, unit: u as 'second' | 'minute' | 'hour' | 'day' };
-}
+function setSendGapMin(v: string | number) { writeSendGap(Number(v) || 0, sendGapMax.value, sendGapUnit.value); }
+function setSendGapMax(v: string | number) { writeSendGap(sendGapMin.value, Number(v) || 0, sendGapUnit.value); }
+function setSendGapUnit(u: string) { writeSendGap(sendGapMin.value, sendGapMax.value, u as GapUnit); }
 // Luật 3: reEnrollCooldownDays (default 30). BE: checkReEnrollCooldown.
 const cooldownDays = computed(() => editing.value?.runtimeRules.reEnrollCooldownDays ?? 30);
 function setCooldownDays(v: string | number) {
@@ -572,8 +586,13 @@ function openCreateDrawer() {
     enabled: false,
     steps: [],
     runtimeRules: {
+      // 4 luật mới (recode) — engine đọc các field này.
       allowedHourRange: [6, 22],
       allowedTimeRange: ['06:00', '22:00'],
+      sendGap: { min: 15, max: 30, unit: 'minute' as const }, // luật 2: random 15-30 phút
+      reEnrollCooldownDays: 30,        // luật 3
+      coordinateCareSession: true,     // luật 4
+      // legacy — giữ để không vỡ data cũ.
       randomDelayPerSend: { min: 15, max: 45 },
       perNickThrottle: true,
       crossNickRecencyDays: 30,

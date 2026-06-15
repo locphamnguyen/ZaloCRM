@@ -15,19 +15,48 @@ import type { SendGap, SequenceRuntimeRules, SequenceStep } from '../sequences/t
 
 const MS = { second: 1000, minute: 60_000, hour: 3_600_000, day: 86_400_000 } as const;
 
-/** Quy sendGap ra milliseconds. value≤0 → 0 (gửi ngay). */
-export function sendGapToMs(gap: SendGap | undefined): number {
-  if (!gap || gap.value <= 0) return 0;
-  return Math.round(gap.value * MS[gap.unit]);
+/**
+ * Quy sendGap ra milliseconds. RANDOM trong [min, max] (cùng đơn vị) — pick mỗi lần
+ * gọi (anh chốt 2026-06-15: gửi xong step N → pick ngẫu nhiên → lưu trong job step N+1).
+ * Legacy { value } → cố định. Giá trị ≤0 → 0 (gửi ngay).
+ *
+ * @param rand hàm random [0,1) — inject để test ổn định (default Math.random).
+ */
+export function sendGapToMs(gap: SendGap | undefined, rand: () => number = Math.random): number {
+  if (!gap) return 0;
+  const unitMs = MS[gap.unit];
+  // Khoảng random [min, max].
+  if (typeof gap.min === 'number' && typeof gap.max === 'number') {
+    if (gap.max <= 0) return 0;
+    const lo = Math.max(0, gap.min);
+    const hi = Math.max(lo, gap.max);
+    const picked = lo + rand() * (hi - lo); // đơn vị nguyên (vd 15..30 phút)
+    return Math.round(picked * unitMs);
+  }
+  // Legacy cố định.
+  if (typeof gap.value === 'number' && gap.value > 0) return Math.round(gap.value * unitMs);
+  return 0;
 }
 
 /**
- * Delay bước kế (ms): ưu tiên rules.sendGap (luật 2 mới); fallback step.delayMinutes
- * (data cũ chưa set sendGap). Worker dùng để enqueue bước N+1.
+ * Delay bước kế (ms): ưu tiên rules.sendGap (luật 2, random [min,max]); fallback
+ * step.delayMinutes (data cũ chưa set sendGap). Worker dùng để enqueue bước N+1.
+ *
+ * @param rand inject random để test (default Math.random).
  */
-export function stepDelayMs(rules: SequenceRuntimeRules | null | undefined, fallbackDelayMinutes: number): number {
+export function stepDelayMs(
+  rules: SequenceRuntimeRules | null | undefined,
+  fallbackDelayMinutes: number,
+  rand: () => number = Math.random,
+): number {
   const gap = rules?.sendGap;
-  if (gap && gap.value > 0) return sendGapToMs(gap);
+  if (gap) {
+    const ms = sendGapToMs(gap, rand);
+    // sendGap có cấu hình (min/max/value) → dùng kết quả random (kể cả 0 nếu min=max=0).
+    if ((typeof gap.min === 'number' && typeof gap.max === 'number') || (typeof gap.value === 'number' && gap.value > 0)) {
+      return ms;
+    }
+  }
   return Math.max(0, (fallbackDelayMinutes ?? 0) * MS.minute);
 }
 
@@ -83,8 +112,11 @@ export function etaCompleteAt(
   if (fromStepIdx >= steps.length - 1) return null; // đã ở/qua bước cuối
   let t = fromTime;
   const range = rules?.allowedHourRange;
+  // ETA dùng ĐIỂM GIỮA của khoảng random (rand=0.5) → ổn định, không nhảy mỗi lần mở
+  // panel. Thực tế mỗi step pick random riêng nên ETA là ước lượng (hiển thị "dự kiến").
+  const midRand = () => 0.5;
   for (let i = fromStepIdx + 1; i < steps.length; i++) {
-    const gapMs = stepDelayMs(rules, steps[i].delayMinutes);
+    const gapMs = stepDelayMs(rules, steps[i].delayMinutes, midRand);
     t = new Date(t.getTime() + gapMs);
     t = nextAllowedTime(t, range);
   }
