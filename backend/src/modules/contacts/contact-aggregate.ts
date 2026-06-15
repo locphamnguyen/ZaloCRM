@@ -265,7 +265,8 @@ export async function applyFriendAggregate(args: AggregateMessageInput): Promise
       // mang theo zaloDisplayName. Stub tạo bởi friend-event-handler khi
       // pending_received event đến (KH gửi mời) không có name → Contact stuck "Unknown".
       // Message đầu tiên KH gửi sau khi accept → backfill name (kèm avatar nếu thiếu).
-      if (isInbound && args.contactZaloDisplayName && conv.contactId) {
+      // GUARD blur (anh báo 2026-06-15): không backfill tên nếu display chứa ▒ (đã-blur).
+      if (isInbound && args.contactZaloDisplayName && !args.contactZaloDisplayName.includes('▒') && conv.contactId) {
         const c = await tx.contact.findUnique({
           where: { id: conv.contactId },
           select: { fullName: true, avatarUrl: true },

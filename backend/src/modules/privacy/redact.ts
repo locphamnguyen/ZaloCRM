@@ -265,3 +265,16 @@ function parseCookies(raw: string | undefined): Record<string, string> {
 
 /** Hằng số export cho test + frontend reference */
 export const PRIVACY_BLUR_TOKEN = BLUR_TOKEN;
+
+/**
+ * GUARD chống "blur ăn vào data" (anh báo 2026-06-15): tên KH bị ghi đè bằng ▒▒▒▒.
+ * Privacy blur dùng ký tự ▒ (U+2592) để CHE HIỂN THỊ. Nếu giá trị đã-blur bị LƯU NGƯỢC
+ * vào DB (vd UI gửi PATCH fullName = "▒▒▒▒" mà user thấy trên màn hình) → mất tên thật.
+ * Mọi đường ghi fullName/crmName PHẢI gọi guard này TỪ CHỐI giá trị chứa ▒.
+ *
+ * @returns true nếu giá trị BỊ NHIỄM blur (chứa ≥1 ký tự ▒) → caller phải từ chối ghi.
+ */
+export function isBlurContaminated(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return value.includes('▒'); // U+2592 — ký tự blur, KHÔNG bao giờ là tên thật hợp lệ
+}

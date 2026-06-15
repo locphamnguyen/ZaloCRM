@@ -9,6 +9,7 @@ import type { Server } from 'socket.io';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { isBlurContaminated } from '../privacy/redact.js';
 import { requireAnyGrant, requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
@@ -447,6 +448,13 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         const by = typeof body.birthYear === 'string' ? parseInt(body.birthYear, 10) : body.birthYear;
         return Number.isFinite(by) && by > 1900 && by < 2100 ? by : undefined;
       })();
+      // GUARD chống blur ăn vào data (anh báo 2026-06-15) — từ chối tạo với tên chứa ▒.
+      if (isBlurContaminated(body.fullName) || isBlurContaminated(body.crmName)) {
+        return reply.status(400).send({
+          error: 'blur_contaminated_name',
+          hint: 'Tên chứa ký tự che (▒) — không thể lưu giá trị đã làm mờ',
+        });
+      }
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -928,6 +936,15 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         } else {
           return reply.status(400).send({ error: 'statusId_invalid' });
         }
+      }
+
+      // GUARD chống "blur ăn vào data" (anh báo 2026-06-15): từ chối ghi tên chứa ▒
+      // (giá trị đã-blur bị lưu ngược). Bảo vệ tên thật KH khỏi bị BLUR_TOKEN đè.
+      if (isBlurContaminated(body.fullName) || isBlurContaminated(body.crmName)) {
+        return reply.status(400).send({
+          error: 'blur_contaminated_name',
+          hint: 'Tên chứa ký tự che (▒) — không thể lưu giá trị đã làm mờ vào dữ liệu gốc',
+        });
       }
 
       const updateData: any = {
