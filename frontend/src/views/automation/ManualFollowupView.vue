@@ -32,7 +32,7 @@
 
     <!-- stat band -->
     <div class="mf-stats">
-      <div class="mf-stat"><div class="l">Tổng KH gắn tay</div><div class="v num">{{ formatNum(counts.total) }}</div><div class="s">90 ngày gần nhất</div></div>
+      <div class="mf-stat"><div class="l">Tổng lần gắn</div><div class="v num">{{ formatNum(counts.total) }}</div><div class="s">90 ngày · mỗi lần gắn 1 dòng</div></div>
       <div class="mf-stat run"><div class="l"><span class="d run"></span> Đang chạy</div><div class="v num">{{ formatNum(counts.active) }}</div><div class="s">đang trong luồng</div></div>
       <div class="mf-stat done"><div class="l"><span class="d done"></span> Đã hoàn thành</div><div class="v num">{{ formatNum(counts.completed) }}</div><div class="s">đi hết chuỗi</div></div>
       <div class="mf-stat stop"><div class="l"><span class="d stop"></span> Đã dừng</div><div class="v num">{{ formatNum(counts.stopped) }}</div><div class="s">sale dừng / KH chặn</div></div>
@@ -65,7 +65,7 @@
           <tr>
             <th class="center sticky s1">#</th>
             <th class="sticky s2">Khách hàng</th>
-            <th>Luồng kịch bản</th>
+            <th>Luồng kịch bản <span class="th-sub">/ lần gắn</span></th>
             <th>Tiến trình</th>
             <th>Trạng thái</th>
             <th>Nick chăm</th>
@@ -78,7 +78,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(r, idx) in filteredRows" :key="r.contactId" :class="{ 'row-stop': r.state === 'stopped' }">
+          <tr v-for="(r, idx) in filteredRows" :key="r.enrollmentId" :class="{ 'row-stop': r.state === 'stopped' }">
             <td class="center num muted sticky s1">{{ idx + 1 }}</td>
             <td class="sticky s2">
               <div class="kh">
@@ -93,6 +93,7 @@
               <div class="seq">
                 <span class="mi"><v-icon size="14">mdi-message-text-outline</v-icon></span>
                 <span class="seq-name">{{ r.sequenceName || 'Luồng bám đuổi' }}</span>
+                <span class="seq-times" :title="`Lần gắn thứ ${r.enrollSeq} của luồng này cho khách`">Lần {{ r.enrollSeq }}</span>
               </div>
             </td>
             <td>
@@ -100,6 +101,7 @@
                 <div class="prog-bar"><div class="prog-fill" :class="r.state" :style="{ width: progPct(r) + '%' }" /></div>
                 <span class="prog-txt">{{ Math.min(r.totalSteps, r.currentStep || 0) }}/{{ r.totalSteps }}</span>
               </div>
+              <span v-else-if="r.progressUnknown" class="muted unk" title="Lần gắn cũ — hệ thống chưa lưu tiến độ từng bước">không rõ tiến độ</span>
               <span v-else class="muted">—</span>
             </td>
             <td><span class="badge" :class="r.state">{{ stateLabel(r.state) }}</span></td>
@@ -156,10 +158,12 @@ const router = useRouter();
 
 type State = 'active' | 'paused' | 'completed' | 'stopped';
 interface Row {
+  enrollmentId: string; enrollSeq: number; // 2026-06-15: mỗi LẦN GẮN 1 dòng (anh chốt)
   contactId: string; contactName: string; contactPhone: string | null;
   sequenceName: string | null; enrolledByName: string | null; enrollReason: string | null;
   nickName: string | null; state: State; currentStep: number | null; totalSteps: number | null;
-  enrolledAt: string; lastSentAt: string | null; nextRunAt: string | null; busy?: boolean;
+  enrolledAt: string; lastSentAt: string | null; nextRunAt: string | null;
+  progressUnknown?: boolean; busy?: boolean;
 }
 
 const FILTERS = [
@@ -336,9 +340,12 @@ thead th.sticky { z-index: 3; }
 .kh-name { font-weight: 600; color: var(--ink); }
 .kh-id { font-size: 11px; color: var(--ink-4); }
 
-.seq { display: flex; align-items: center; gap: 6px; }
+.seq { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .seq .mi { color: var(--brand); display: inline-flex; flex-shrink: 0; }
-.seq-name { color: var(--ink); }
+.seq-name { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.seq-times { flex-shrink: 0; font-size: 10.5px; font-weight: 600; color: var(--brand); background: var(--brand-soft); border-radius: var(--r-pill); padding: 1px 7px; }
+.th-sub { font-weight: 400; color: var(--ink-4); font-size: 11px; }
+.muted.unk { font-style: italic; font-size: 11px; }
 
 .prog { display: flex; align-items: center; gap: 8px; min-width: 120px; }
 .prog-bar { flex: 1; height: 5px; background: var(--surface-3); border-radius: var(--r-pill); overflow: hidden; }

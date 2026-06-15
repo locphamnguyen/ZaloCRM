@@ -153,6 +153,9 @@ async function scanPendingSequenceJobs(
 }
 
 interface ManualFollowupContact {
+  // 2026-06-15 (anh chốt): mỗi LẦN GẮN = 1 dòng (không gom-đè theo contact nữa).
+  enrollmentId: string;        // khóa duy nhất 1 dòng = contactId + thời điểm gắn (ổn định cho FE :key)
+  enrollSeq: number;           // lần gắn thứ mấy của contact+luồng này (1,2,3…) → "Lần N"
   contactId: string;
   contactName: string;
   contactPhone: string | null;
@@ -164,8 +167,23 @@ interface ManualFollowupContact {
   currentStep: number | null;
   totalSteps: number | null;
   enrolledAt: string;
-  lastSentAt: string | null;   // lần gửi bước gần nhất
-  nextRunAt: string | null;    // lần gửi tiếp (nếu đang chạy)
+  lastSentAt: string | null;   // lần gửi bước gần nhất CỦA LẦN GẮN NÀY
+  nextRunAt: string | null;    // lần gửi tiếp (chỉ lần gắn mới nhất còn job sống)
+  progressUnknown: boolean;    // đợt cũ thiếu dữ liệu (không đếm được bước) → FE "không rõ tiến độ"
+}
+
+interface EnrollmentRun {
+  contactId: string;
+  enrolledAt: Date;
+  enrolledById: string | null;
+  enrollReason: string | null;
+  sequenceName: string | null;
+  nickId: string | null;
+  currentStep: number | null;
+  totalSteps: number | null;
+  lastSentAt: Date | null;
+  isStopped: boolean;            // có manual_stop/customer_block sau lần gắn này
+  isLatestForContact: boolean;   // lần gắn mới nhất của contact → mới gán job pending + pause
 }
 
 /**
@@ -181,73 +199,65 @@ async function buildManualFollowupContacts(
   const since = new Date(Date.now() - 90 * 86400_000); // 90 ngày
   const events = await prisma.automationEventLog.findMany({
     where: { orgId, triggerId, contactId: { not: null }, createdAt: { gte: since } },
-    orderBy: { createdAt: 'desc' },
-    take: 2000,
+    orderBy: { createdAt: 'asc' }, // CŨ→MỚI: dựng từng lần gắn theo dòng thời gian
+    take: 4000,
     select: { contactId: true, nickId: true, eventType: true, detail: true, createdAt: true },
   });
 
-  // Gom theo contact.
-  const byContact = new Map<string, {
-    contactId: string;
-    latestEvent: string;
-    enrolledAt: Date;
-    currentStep: number | null;
-    totalSteps: number | null;
-    enrolledById: string | null;
-    enrollReason: string | null;
-    sequenceName: string | null;
-    nickId: string | null;
-    lastSentAt: Date | null;
-  }>();
+  // ── B1: MỖI manual_enroll = 1 LẦN GẮN (run) = 1 dòng. KHÔNG gom-đè theo contact. ──
+  // Sự kiện step/dừng ghép vào run gần nhất TRƯỚC nó (asc) → đúng lần gắn đang chạy lúc đó.
+  // Đợt cũ không có step trong khoảng → totalSteps=null → FE "không rõ tiến độ" (anh chốt).
+  const runsByContact = new Map<string, EnrollmentRun[]>();
   for (const e of events) {
     if (!e.contactId) continue;
-    let ref = byContact.get(e.contactId);
-    if (!ref) {
-      ref = {
-        contactId: e.contactId,
-        latestEvent: e.eventType,
-        enrolledAt: e.createdAt,
-        currentStep: null, totalSteps: null,
-        enrolledById: null, enrollReason: null, sequenceName: null,
-        nickId: null, lastSentAt: null,
-      };
-      byContact.set(e.contactId, ref);
-    }
     if (e.eventType === 'manual_enroll') {
-      // enrolledAt = thời điểm gắn tay (event manual_enroll), nickId chăm.
-      ref.enrolledAt = e.createdAt;
-      if (e.nickId && !ref.nickId) ref.nickId = e.nickId;
-      if (ref.enrolledById === null) {
-        const m = e.detail?.match(/^by (\S+) sequence=(.*) reason=(.*)$/s);
-        if (m) {
-          ref.enrolledById = m[1];
-          ref.sequenceName = m[2]?.trim() || null;
-          ref.enrollReason = m[3]?.trim() || null;
-        }
-      }
+      const m = e.detail?.match(/^by (\S+) sequence=(.*) reason=(.*)$/s);
+      const run: EnrollmentRun = {
+        contactId: e.contactId,
+        enrolledAt: e.createdAt,
+        enrolledById: m?.[1] ?? null,
+        sequenceName: m?.[2]?.trim() || null,
+        enrollReason: m?.[3]?.trim() || null,
+        nickId: e.nickId ?? null,
+        currentStep: null, totalSteps: null, lastSentAt: null,
+        isStopped: false, isLatestForContact: false,
+      };
+      const arr = runsByContact.get(e.contactId);
+      if (arr) arr.push(run);
+      else runsByContact.set(e.contactId, [run]);
+      continue;
     }
-    if (e.eventType === 'sequence_step_sent' && ref.lastSentAt === null) {
-      ref.lastSentAt = e.createdAt; // events desc → lần gửi mới nhất
-      if (e.nickId && !ref.nickId) ref.nickId = e.nickId;
-    }
-    const stepMatch = e.detail?.match(/step (\d+)\/(\d+)/);
-    if (stepMatch && ref.currentStep === null) {
-      ref.currentStep = parseInt(stepMatch[1], 10);
-      ref.totalSteps = parseInt(stepMatch[2], 10);
+    const arr = runsByContact.get(e.contactId);
+    if (!arr || arr.length === 0) continue; // sự kiện trước lần gắn đầu → bỏ
+    const run = arr[arr.length - 1];
+    if (e.eventType === 'sequence_step_sent') {
+      run.lastSentAt = e.createdAt; // asc → cái sau mới nhất
+      if (e.nickId && !run.nickId) run.nickId = e.nickId;
+      const sm = e.detail?.match(/step (\d+)\/(\d+)/);
+      if (sm) { run.currentStep = parseInt(sm[1], 10) + 1; run.totalSteps = parseInt(sm[2], 10); }
+    } else if (e.eventType === 'manual_stop' || e.eventType === 'customer_block') {
+      run.isStopped = true;
     }
   }
 
-  const contactIds = [...byContact.keys()];
-  if (contactIds.length === 0) return [];
+  // Đánh dấu run mới nhất của mỗi contact (chỉ nó còn job sống + pause flag).
+  const allRuns: EnrollmentRun[] = [];
+  for (const arr of runsByContact.values()) {
+    if (arr.length) arr[arr.length - 1].isLatestForContact = true;
+    for (const r of arr) allRuns.push(r);
+  }
+  if (allRuns.length === 0) return [];
 
-  // Batch: KH (tên + phone) + sale + nick.
-  const nickIds = [...new Set([...byContact.values()].map((c) => c.nickId).filter((x): x is string => !!x))];
+  const contactIds = [...runsByContact.keys()];
+
+  // ── B2: batch tên KH + sale + nick. ──
+  const nickIds = [...new Set(allRuns.map((r) => r.nickId).filter((x): x is string => !!x))];
+  const enrollerIds = [...new Set(allRuns.map((r) => r.enrolledById).filter((x): x is string => !!x))];
   const [contacts, enrollers, nicks] = await Promise.all([
     prisma.contact.findMany({ where: { id: { in: contactIds }, orgId }, select: { id: true, fullName: true, phone: true } }),
-    prisma.user.findMany({
-      where: { id: { in: [...new Set([...byContact.values()].map((c) => c.enrolledById).filter((x): x is string => !!x))] } },
-      select: { id: true, fullName: true },
-    }),
+    enrollerIds.length
+      ? prisma.user.findMany({ where: { id: { in: enrollerIds } }, select: { id: true, fullName: true } })
+      : Promise.resolve([] as { id: string; fullName: string }[]),
     nickIds.length
       ? prisma.zaloAccount.findMany({ where: { id: { in: nickIds }, orgId }, select: { id: true, displayName: true } })
       : Promise.resolve([] as { id: string; displayName: string | null }[]),
@@ -256,36 +266,56 @@ async function buildManualFollowupContacts(
   const enrollerName = new Map(enrollers.map((u) => [u.id, u.fullName]));
   const nickName = new Map(nicks.map((n) => [n.id, n.displayName]));
 
-  // Scan BullMQ 1 lần cho tất cả contact (jobId mới có sequenceId — dùng job.data).
+  // Scan BullMQ 1 lần (job pending chỉ thuộc run mới nhất của contact).
   const pendingByContact = await scanPendingSequenceJobs(triggerId, contactIds);
+  // Pause flag 1 lần / contact.
+  const pauseByContact = new Map<string, number>();
+  await Promise.all(contactIds.map(async (cid) => {
+    pauseByContact.set(cid, await getContactPauseRemaining(triggerId, cid));
+  }));
 
-  const result = await Promise.all(
-    [...byContact.values()].map(async (c): Promise<ManualFollowupContact> => {
-      const pending = pendingByContact.get(c.contactId);
-      const pauseMs = await getContactPauseRemaining(triggerId, c.contactId);
-      const isStopped = c.latestEvent === 'manual_stop' || c.latestEvent === 'customer_block';
-      const state = deriveFollowupState({ hasPendingJob: !!pending, pauseMs, isStopped, totalSteps: c.totalSteps });
-      let currentStep = c.currentStep;
-      if (pending) currentStep = pending.stepIdx + 1;
-      else if (state === 'completed' && c.totalSteps) currentStep = c.totalSteps;
-      const ct = contactMap.get(c.contactId);
-      return {
-        contactId: c.contactId,
-        contactName: ct?.fullName ?? '(KH đã xoá)',
-        contactPhone: ct?.phone ?? null,
-        sequenceName: c.sequenceName,
-        enrolledByName: c.enrolledById ? (enrollerName.get(c.enrolledById) ?? null) : null,
-        enrollReason: c.enrollReason,
-        nickName: c.nickId ? (nickName.get(c.nickId) ?? null) : null,
-        state,
-        currentStep,
-        totalSteps: c.totalSteps,
-        enrolledAt: c.enrolledAt.toISOString(),
-        lastSentAt: c.lastSentAt ? c.lastSentAt.toISOString() : null,
-        nextRunAt: pending ? pending.nextRunAt.toISOString() : null,
-      };
-    }),
-  );
+  // ── B3: dựng dòng + đánh số "Lần N" theo (contact, luồng). ──
+  const seqCounter = new Map<string, number>(); // key: contactId|sequenceName → đếm lần gắn
+  const result: ManualFollowupContact[] = [];
+  for (const r of allRuns) {
+    const seqKey = `${r.contactId}|${r.sequenceName ?? '∅'}`;
+    const enrollSeq = (seqCounter.get(seqKey) ?? 0) + 1;
+    seqCounter.set(seqKey, enrollSeq);
+
+    const pending = r.isLatestForContact ? pendingByContact.get(r.contactId) : undefined;
+    const pauseMs = r.isLatestForContact ? (pauseByContact.get(r.contactId) ?? 0) : 0;
+    // Đợt cũ thiếu dữ liệu (totalSteps=null, không phải run mới nhất, không có job) → coi là
+    // 'completed' (đã qua), KHÔNG để deriveFollowupState fallback ra 'active' gây hiểu nhầm.
+    const progressUnknown = r.totalSteps === null && !pending;
+    let state: FollowupState;
+    if (r.isStopped) state = 'stopped';
+    else if (progressUnknown && !r.isLatestForContact) state = 'completed'; // lần gắn cũ đã bị thay
+    else state = deriveFollowupState({ hasPendingJob: !!pending, pauseMs, isStopped: false, totalSteps: r.totalSteps });
+
+    let currentStep = r.currentStep;
+    if (pending) currentStep = pending.stepIdx + 1;
+    else if (state === 'completed' && r.totalSteps) currentStep = r.totalSteps;
+
+    const ct = contactMap.get(r.contactId);
+    result.push({
+      enrollmentId: `${r.contactId}-${r.enrolledAt.getTime()}`,
+      enrollSeq,
+      contactId: r.contactId,
+      contactName: ct?.fullName ?? '(KH đã xoá)',
+      contactPhone: ct?.phone ?? null,
+      sequenceName: r.sequenceName,
+      enrolledByName: r.enrolledById ? (enrollerName.get(r.enrolledById) ?? null) : null,
+      enrollReason: r.enrollReason,
+      nickName: r.nickId ? (nickName.get(r.nickId) ?? null) : null,
+      state,
+      currentStep,
+      totalSteps: r.totalSteps,
+      enrolledAt: r.enrolledAt.toISOString(),
+      lastSentAt: r.lastSentAt ? r.lastSentAt.toISOString() : null,
+      nextRunAt: pending ? pending.nextRunAt.toISOString() : null,
+      progressUnknown,
+    });
+  }
   // Mới nhất lên trước.
   result.sort((a, b) => new Date(b.enrolledAt).getTime() - new Date(a.enrolledAt).getTime());
   return result;
