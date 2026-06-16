@@ -162,9 +162,13 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getBroadcast, startBroadcast, pauseBroadcast, resumeBroadcast, cancelBroadcast, deleteBroadcast, type Broadcast, type BroadcastState } from '@/api/automation/broadcasts';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 const route = useRoute();
 const router = useRouter();
+const toast = useToast();
+const { confirm } = useConfirm();
 const bc = ref<Broadcast | null>(null);
 const tab = ref<'overview' | 'recipients' | 'history'>('overview');
 const loadError = ref('');
@@ -221,13 +225,13 @@ const contentPreview = computed(() => {
 });
 
 async function onStart() {
-  if (!confirm('Bắt đầu gửi broadcast?')) return;
-  try { await startBroadcast(bc.value!.id); await loadBc(); } catch (e: any) { alert(e?.response?.data?.error || 'Lỗi'); }
+  if (!(await confirm({ title: 'Bắt đầu gửi broadcast?', tone: 'primary', confirmText: 'Bắt đầu gửi', cancelText: 'Hủy' }))) return;
+  try { await startBroadcast(bc.value!.id); await loadBc(); } catch (e: any) { toast.error(e?.response?.data?.error || 'Có lỗi xảy ra, thử lại sau.', 5000); }
 }
-async function onPause() { if (!confirm('Tạm dừng?')) return; await pauseBroadcast(bc.value!.id); await loadBc(); }
-async function onResume() { if (!confirm('Tiếp tục?')) return; await resumeBroadcast(bc.value!.id); await loadBc(); }
-async function onCancel() { if (!confirm('Huỷ broadcast? KHÔNG thể undo.')) return; await cancelBroadcast(bc.value!.id); await loadBc(); }
-async function onDelete() { if (!confirm('Xoá draft?')) return; await deleteBroadcast(bc.value!.id); router.push('/marketing/broadcasts'); }
+async function onPause() { if (!(await confirm({ title: 'Tạm dừng broadcast?', tone: 'danger', confirmText: 'Tạm dừng', cancelText: 'Hủy' }))) return; await pauseBroadcast(bc.value!.id); await loadBc(); }
+async function onResume() { if (!(await confirm({ title: 'Tiếp tục gửi broadcast?', tone: 'primary', confirmText: 'Tiếp tục', cancelText: 'Hủy' }))) return; await resumeBroadcast(bc.value!.id); await loadBc(); }
+async function onCancel() { if (!(await confirm({ title: 'Huỷ broadcast?', message: 'KHÔNG thể hoàn tác.', tone: 'danger', confirmText: 'Huỷ broadcast', cancelText: 'Hủy' }))) return; await cancelBroadcast(bc.value!.id); await loadBc(); }
+async function onDelete() { if (!(await confirm({ title: 'Xoá draft?', tone: 'danger', confirmText: 'Xoá', cancelText: 'Hủy' }))) return; await deleteBroadcast(bc.value!.id); router.push('/marketing/broadcasts'); }
 
 onMounted(() => { loadBc(); });
 </script>

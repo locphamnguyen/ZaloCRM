@@ -262,6 +262,11 @@ import { useRouter } from 'vue-router';
 import { useCustomerLists, type CustomerListSummary, type ListStatusFilter } from '@/composables/use-customer-lists';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import CreateListModal from '@/components/automation/lists/CreateListModal.vue';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
+
+const toast = useToast();
+const { confirm } = useConfirm();
 
 // Phase Multi-Source Lead Ads 2026-05-27 — platform filter
 type PlatformFilter = 'all' | 'leadads' | 'paste';
@@ -310,7 +315,13 @@ function onCreated(payload: { id: string }) {
 }
 
 async function onArchive(id: string) {
-  if (!confirm('Lưu trữ tệp này? Tệp sẽ ẩn khỏi danh sách "Đang dùng" nhưng dữ liệu vẫn còn.')) return;
+  if (!(await confirm({
+    title: 'Lưu trữ tệp này?',
+    message: 'Tệp sẽ ẩn khỏi danh sách "Đang dùng" nhưng dữ liệu vẫn còn.',
+    tone: 'danger',
+    confirmText: 'Lưu trữ',
+    cancelText: 'Hủy',
+  }))) return;
   await archiveList(id);
 }
 
@@ -321,12 +332,18 @@ async function onUnarchive(id: string) {
 async function onRescan(id: string) {
   const result = await rescanZalo(id);
   if (result?.ok) {
-    alert(`Đã bắt đầu quét lại ${result.pendingLookup} SĐT. Refresh sau vài phút.`);
+    toast.success(`Đã bắt đầu quét lại ${result.pendingLookup} SĐT. Refresh sau vài phút.`);
   }
 }
 
 async function onDelete(id: string) {
-  if (!confirm('Xoá vĩnh viễn tệp này? Contact đã được tạo từ tệp sẽ KHÔNG bị xoá theo.')) return;
+  if (!(await confirm({
+    title: 'Xoá vĩnh viễn tệp này?',
+    message: 'Contact đã được tạo từ tệp sẽ KHÔNG bị xoá theo.',
+    tone: 'danger',
+    confirmText: 'Xoá',
+    cancelText: 'Hủy',
+  }))) return;
   await deleteList(id);
 }
 

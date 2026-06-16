@@ -180,6 +180,9 @@ import { ACTION_TYPE_LABELS, ACTION_TYPE_ICONS, type SequenceStep, type Block, t
 import { ACTION_TYPE_COLOR } from './design-tokens';
 import TimeAmountInput from '@/components/automation/TimeAmountInput.vue';
 import BlockPreviewDialog from '@/components/chat/BlockPreviewDialog.vue';
+import { useConfirm } from '@/composables/use-confirm';
+
+const { confirm } = useConfirm();
 
 const props = defineProps<{
   steps: SequenceStep[];
@@ -349,11 +352,11 @@ function updateDelay(idx: number, value: string | number) {
   newSteps[idx] = { ...newSteps[idx], delayMinutes: n };
   emitSteps(newSteps);
 }
-function removeStep(idx: number) {
+async function removeStep(idx: number) {
   // Chỉ cho phép xoá step CUỐI — xoá step giữa làm lệch tin cho KH đang chờ delay.
   // Nếu sale muốn restructure, tạo Sequence mới.
   if (idx !== props.steps.length - 1) return;
-  if (!confirm('Xoá bước cuối này?')) return;
+  if (!(await confirm({ title: 'Xoá bước cuối này?', message: 'Bước cuối sẽ bị gỡ khỏi luồng.', tone: 'danger', confirmText: 'Xoá bước', cancelText: 'Hủy' }))) return;
   emitSteps(props.steps.filter((_, i) => i !== idx));
 }
 </script>

@@ -540,8 +540,12 @@
 import { ref, computed, onMounted, watch, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 const router = useRouter();
+const toast = useToast();
+const { confirm } = useConfirm();
 
 // ============ Types (FE-side, mirrors expected BE response) ============
 
@@ -939,7 +943,7 @@ function closePanel() {
   }, 250);
 }
 
-function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'cancel' | 'restore' | 'hardDelete') {
+async function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'cancel' | 'restore' | 'hardDelete') {
   menuOpen.value = false;
   if (!activeItem.value) return;
   const id = activeItem.value.id;
@@ -950,11 +954,17 @@ function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'cancel' | 'rest
   };
   // 2026-06-05 — "Xóa" = đưa vào thùng rác (soft, cancel). KHÔNG xoá hẳn ở đây.
   if (action === 'cancel') {
-    if (!confirm(`Chuyển Mục tiêu "${name}" vào thùng rác (Đã xóa)?`)) return;
+    if (!(await confirm({
+      title: 'Chuyển vào thùng rác?',
+      message: `Mục tiêu "${name}" sẽ chuyển sang Đã xóa.`,
+      tone: 'danger',
+      confirmText: 'Chuyển vào thùng rác',
+      cancelText: 'Hủy',
+    }))) return;
     void api
       .post(`/automation/triggers/${id}/cancel`)
       .then(() => { closePanel(); void loadList(); })
-      .catch((err: unknown) => alert(`Không xoá được: ${errOf(err)}`));
+      .catch((err: unknown) => toast.error(`Không xoá được: ${errOf(err)}`, 5000));
     return;
   }
   // Khôi phục từ thùng rác → về Tạm dừng (paused), anh bấm "Bắt đầu" để chạy lại.
@@ -962,34 +972,40 @@ function panelAction(action: 'pause' | 'resume' | 'duplicate' | 'cancel' | 'rest
     void api
       .post(`/automation/triggers/${id}/restore`)
       .then(() => { closePanel(); void loadList(); })
-      .catch((err: unknown) => alert(`Không khôi phục được: ${errOf(err)}`));
+      .catch((err: unknown) => toast.error(`Không khôi phục được: ${errOf(err)}`, 5000));
     return;
   }
   // Xóa HẲN vĩnh viễn (chỉ trong thùng rác). Giữ KH trong Tệp gốc.
   if (action === 'hardDelete') {
-    if (!confirm(`Xoá HẲN "${name}" vĩnh viễn? Không khôi phục được.\n(Khách hàng vẫn giữ trong Tệp gốc.)`)) return;
+    if (!(await confirm({
+      title: `Xoá HẲN "${name}" vĩnh viễn?`,
+      message: 'Không khôi phục được. Khách hàng vẫn giữ trong Tệp gốc.',
+      tone: 'danger',
+      confirmText: 'Xoá hẳn',
+      cancelText: 'Hủy',
+    }))) return;
     void api
       .delete(`/automation/triggers/${id}`)
       .then(() => { closePanel(); void loadList(); })
-      .catch((err: unknown) => alert(`Không xoá hẳn được: ${errOf(err)}`));
+      .catch((err: unknown) => toast.error(`Không xoá hẳn được: ${errOf(err)}`, 5000));
     return;
   }
   if (action === 'pause') {
     void api
       .post(`/automation/triggers/${id}/pause`)
       .then(() => loadList())
-      .catch(() => alert('Không tạm dừng được'));
+      .catch(() => toast.error('Không tạm dừng được', 5000));
     return;
   }
   if (action === 'resume') {
     void api
       .post(`/automation/triggers/${id}/resume`)
       .then(() => loadList())
-      .catch(() => alert('Không tiếp tục được'));
+      .catch(() => toast.error('Không tiếp tục được', 5000));
     return;
   }
   if (action === 'duplicate') {
-    alert('Sao chép — Wave 4');
+    toast.success('Sao chép — Wave 4');
     return;
   }
 }

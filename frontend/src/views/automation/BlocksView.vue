@@ -235,6 +235,9 @@ import { SUPPORTED_ACTION_TYPES, type Block, type BlockFolder, type BlockActionT
 import BlockEditorDialog from '@/components/automation/phase7/BlockEditorDialog.vue';
 import { api } from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { useConfirm } from '@/composables/use-confirm';
+
+const { confirm, confirmWithReason } = useConfirm();
 
 // RBAC 2026-06-09 — Sale chỉ XEM + DÙNG Khối; tạo/sửa/xóa cần grant block.create/edit.
 const authStore = useAuthStore();
@@ -438,9 +441,15 @@ function toggleTag(tag: string) {
 }
 
 async function openTagPicker() {
-  const input = prompt('Gắn tag mới (vd #SunshineQ7):');
-  if (input?.trim()) {
-    const tag = input.trim().startsWith('#') ? input.trim() : `#${input.trim()}`;
+  const { ok, reason } = await confirmWithReason({
+    title: 'Thêm tag lọc',
+    confirmText: 'Thêm',
+    cancelText: 'Hủy',
+    reasonLabel: 'Tên tag',
+    reasonPlaceholder: 'vd #SunshineQ7',
+  });
+  if (ok && reason?.trim()) {
+    const tag = reason.trim().startsWith('#') ? reason.trim() : `#${reason.trim()}`;
     if (!selectedTags.value.includes(tag)) selectedTags.value.push(tag);
   }
 }
@@ -478,8 +487,17 @@ async function onFoldersChanged(_newFolderId: string) {
 
 async function onCardMore(block: Block, ev: MouseEvent) {
   ev.preventDefault();
-  // Phase 1 simple action menu via confirm
-  const action = prompt(`Khối "${block.name}":\n1 = Sửa\n2 = Nhân bản\n3 = ${block.archivedAt ? 'Khôi phục' : 'Lưu trữ'}\nNhập số:`);
+  // Phase 1 simple action menu
+  const { ok, reason } = await confirmWithReason({
+    title: `Khối "${block.name}"`,
+    message: `Nhập số:\n1 = Sửa\n2 = Nhân bản\n3 = ${block.archivedAt ? 'Khôi phục' : 'Lưu trữ'}`,
+    confirmText: 'Chọn',
+    cancelText: 'Hủy',
+    reasonLabel: 'Số thao tác',
+    reasonPlaceholder: '1, 2 hoặc 3',
+  });
+  if (!ok) return;
+  const action = reason?.trim();
   if (action === '1') openEdit(block);
   else if (action === '2') {
     await blocksApi.duplicateBlock(block.id);
@@ -490,7 +508,7 @@ async function onCardMore(block: Block, ev: MouseEvent) {
       await blocksApi.unarchiveBlock(block.id);
       showToast('Đã khôi phục', 'success');
     } else {
-      if (!confirm(`Lưu trữ khối "${block.name}"?`)) return;
+      if (!(await confirm({ title: `Lưu trữ khối "${block.name}"?`, message: 'Khối sẽ chuyển sang mục Đã lưu trữ, có thể khôi phục lại sau.', tone: 'danger', confirmText: 'Lưu trữ', cancelText: 'Hủy' }))) return;
       await blocksApi.archiveBlock(block.id);
       showToast('Đã lưu trữ', 'success');
     }
@@ -499,9 +517,21 @@ async function onCardMore(block: Block, ev: MouseEvent) {
 }
 
 async function createFolderInline() {
-  const name = prompt('Tên thư mục?');
-  if (!name?.trim()) return;
-  const visibility = confirm('Folder riêng tư (chỉ Anh thấy)?\nOK = Riêng tư, Hủy = Công khai (cả org dùng)') ? 'private' : 'public';
+  const { ok: nameOk, reason: name } = await confirmWithReason({
+    title: 'Tạo thư mục mới',
+    confirmText: 'Tiếp tục',
+    cancelText: 'Hủy',
+    reasonLabel: 'Tên thư mục',
+    reasonPlaceholder: 'vd Dự án Sunshine Q7',
+  });
+  if (!nameOk || !name?.trim()) return;
+  const ok = await confirm({
+    title: 'Folder riêng tư (chỉ bạn thấy)?',
+    message: 'Xác nhận = Riêng tư · Hủy = Công khai (cả tổ chức dùng)',
+    confirmText: 'Riêng tư',
+    cancelText: 'Công khai',
+  });
+  const visibility = ok ? 'private' : 'public';
   await blocksApi.createFolder({ name: name.trim(), visibility });
   loadAll();
   showToast(`Đã tạo thư mục ${visibility === 'private' ? 'riêng tư' : 'công khai'}`, 'success');

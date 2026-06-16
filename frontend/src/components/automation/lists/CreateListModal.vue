@@ -251,6 +251,9 @@ import { ref, watch, computed } from 'vue';
 // prototype pollution + ReDoS) with exceljs, lazy-imported to keep the
 // vendor bundle small for users who never open the list-import modal.
 import { useCustomerLists, type DryRunResult, type MappedRow } from '@/composables/use-customer-lists';
+import { useToast } from '@/composables/use-toast';
+
+const toast = useToast();
 
 /**
  * Read the first worksheet of an xlsx/xls/csv file into a 2D string-cell
@@ -537,7 +540,7 @@ async function onSubmit() {
       emit('update:modelValue', false);
       resetAll();
     } else {
-      alert('Tạo tệp thất bại — thử lại');
+      toast.error('Tạo tệp thất bại — thử lại', 5000);
     }
   } finally {
     submitting.value = false;

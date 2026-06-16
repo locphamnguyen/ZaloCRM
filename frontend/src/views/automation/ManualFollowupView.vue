@@ -153,6 +153,9 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
+import { useConfirm } from '@/composables/use-confirm';
+
+const { confirm, confirmWithReason } = useConfirm();
 
 const router = useRouter();
 
@@ -249,15 +252,27 @@ async function onAction(r: Row, kind: 'pause' | 'stop' | 'resume') {
   if (r.busy || !triggerId.value) return;
   const tid = triggerId.value;
   if (kind === 'pause') {
-    if (!window.confirm(`Tạm dừng 24h chuỗi bám đuổi cho "${r.contactName}"?`)) return;
+    if (!(await confirm({
+      title: `Tạm dừng 24h bám đuổi cho "${r.contactName}"?`,
+      message: 'Hết 24h luồng tự chạy lại.',
+      confirmText: 'Tạm dừng 24h',
+      cancelText: 'Hủy',
+    }))) return;
     r.busy = true;
     try { await api.post(`/automation/triggers/${tid}/contacts/${r.contactId}/pause`, { hours: 24 }); await load(); toast('Đã tạm dừng 24h'); }
     catch { toast('Lỗi tạm dừng', 'error'); } finally { r.busy = false; }
   } else if (kind === 'stop') {
-    const reason = window.prompt(`Dừng hẳn bám đuổi cho "${r.contactName}". Lý do (bắt buộc):`);
-    if (!reason || !reason.trim()) return;
+    const res = await confirmWithReason({
+      title: `Dừng hẳn bám đuổi cho "${r.contactName}"?`,
+      message: 'Luồng sẽ không gửi tin nữa cho khách này.',
+      tone: 'danger',
+      confirmText: 'Dừng hẳn',
+      reasonLabel: 'Lý do dừng',
+      reasonPlaceholder: 'VD: khách đã chốt / không quan tâm / sai đối tượng...',
+    });
+    if (!res.ok || !res.reason.trim()) return;
     r.busy = true;
-    try { await api.post(`/automation/triggers/${tid}/contacts/${r.contactId}/stop`, { reason: reason.trim() }); await load(); toast('Đã dừng hẳn'); }
+    try { await api.post(`/automation/triggers/${tid}/contacts/${r.contactId}/stop`, { reason: res.reason.trim() }); await load(); toast('Đã dừng hẳn'); }
     catch { toast('Lỗi dừng', 'error'); } finally { r.busy = false; }
   } else {
     r.busy = true;

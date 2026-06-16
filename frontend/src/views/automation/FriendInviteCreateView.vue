@@ -311,8 +311,10 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api';
+import { useToast } from '@/composables/use-toast';
 
 const router = useRouter();
+const toast = useToast();
 
 interface ListSummary { id: string; name: string; totalEntries: number; }
 interface NickSummary { id: string; displayName: string | null; status: string; dailyFriendAddCap: number; }
@@ -462,7 +464,7 @@ async function submit() {
     router.push(`/marketing/triggers/${triggerId}`);
   } catch (err: unknown) {
     const e = err as { response?: { data?: { error?: string } }; message?: string };
-    alert('Tạo Mục tiêu thất bại: ' + (e?.response?.data?.error ?? e?.message ?? 'unknown'));
+    toast.error('Tạo Mục tiêu thất bại: ' + (e?.response?.data?.error ?? e?.message ?? 'Có lỗi xảy ra, thử lại sau.'), 5000);
   } finally {
     submitting.value = false;
   }

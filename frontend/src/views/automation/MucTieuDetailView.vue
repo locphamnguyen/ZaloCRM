@@ -909,10 +909,14 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/api';
 import { formatInOrgTz } from '@/composables/use-org-timezone';
 import { useMucTieuSocket, type FriendInviteClaimedPayload } from '@/composables/use-muc-tieu-socket';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 const route = useRoute();
 const router = useRouter();
 const triggerId = route.params.id as string;
+const toast = useToast();
+const { confirm } = useConfirm();
 
 // ===================================================================
 // ============ TYPES ================================================
@@ -1555,28 +1559,35 @@ async function setEntryFilter(key: EntryFilterKey): Promise<void> {
 //   - ttlHours=24 → pausedUntil=NOW+24h, cron sweep auto-resume.
 //   - body={} → pausedUntil=NULL, pause vô hạn (user phải bấm Tiếp tục).
 async function pause24h(): Promise<void> {
-  if (!confirm('Tạm dừng Mục tiêu trong 24 giờ? Sẽ tự động tiếp tục sau khi hết hạn.')) return;
+  if (!(await confirm({
+    title: 'Tạm dừng Mục tiêu trong 24 giờ?',
+    message: 'Sẽ tự động tiếp tục sau khi hết hạn.',
+    tone: 'primary',
+    confirmText: 'Tạm dừng 24h',
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await api.post(`/automation/triggers/${triggerId}/pause`, { ttlHours: 24 });
     await load();
   } catch (err) {
     console.error('[muc-tieu-detail] pause24h failed', err);
-    alert('Không thể tạm dừng — vui lòng thử lại.');
+    toast.error('Không thể tạm dừng — vui lòng thử lại.', 5000);
   }
 }
 async function pauseForever(): Promise<void> {
-  if (
-    !confirm(
-      'Dừng vĩnh viễn Mục tiêu? Worker sẽ dừng tất cả lượt gửi mời / chuỗi cho tới khi bạn bấm "Tiếp tục".',
-    )
-  )
-    return;
+  if (!(await confirm({
+    title: 'Tạm dừng Mục tiêu?',
+    message: 'Worker sẽ dừng tất cả lượt gửi mời / chuỗi cho tới khi bạn bấm "Tiếp tục".',
+    tone: 'primary',
+    confirmText: 'Tạm dừng',
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await api.post(`/automation/triggers/${triggerId}/pause`, {});
     await load();
   } catch (err) {
     console.error('[muc-tieu-detail] pauseForever failed', err);
-    alert('Không thể tạm dừng — vui lòng thử lại.');
+    toast.error('Không thể tạm dừng — vui lòng thử lại.', 5000);
   }
 }
 async function resume(): Promise<void> {
@@ -1585,18 +1596,32 @@ async function resume(): Promise<void> {
     await load();
   } catch (err) {
     console.error('[muc-tieu-detail] resume failed', err);
-    alert('Không thể tiếp tục — vui lòng thử lại.');
+    toast.error('Không thể tiếp tục — vui lòng thử lại.', 5000);
   }
 }
 async function onCancel(): Promise<void> {
   menuOpen.value = false;
   // draft → wording "xoá" / active|paused → "dừng vĩnh viễn"
   const state = data.value?.trigger.state ?? '';
-  const msg =
+  const cancelDialog =
     state === 'draft'
-      ? 'Xoá Mục tiêu nháp này? Hành động KHÔNG quay lại được.'
-      : 'Dừng vĩnh viễn Mục tiêu? Các KH chưa gửi sẽ bị bỏ. KHÔNG quay lại được.';
-  if (!confirm(msg)) return;
+      ? {
+          title: 'Xoá Mục tiêu nháp này?',
+          message: 'Hành động KHÔNG quay lại được.',
+          confirmText: 'Xoá',
+        }
+      : {
+          title: 'Dừng vĩnh viễn Mục tiêu?',
+          message: 'Các KH chưa gửi sẽ bị bỏ. KHÔNG quay lại được.',
+          confirmText: 'Kết thúc',
+        };
+  if (!(await confirm({
+    title: cancelDialog.title,
+    message: cancelDialog.message,
+    tone: 'danger',
+    confirmText: cancelDialog.confirmText,
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await api.post(`/automation/triggers/${triggerId}/cancel`);
     if (state === 'draft') {
@@ -1606,18 +1631,24 @@ async function onCancel(): Promise<void> {
     await load();
   } catch (err) {
     console.error('[muc-tieu-detail] cancel failed', err);
-    alert('Không thể dừng Mục tiêu — vui lòng thử lại.');
+    toast.error('Không thể dừng Mục tiêu — vui lòng thử lại.', 5000);
   }
 }
 // M13 — draft → active. BE T4 2026-05-30 đã có /activate endpoint (now hoặc scheduled).
 async function onActivate(): Promise<void> {
-  if (!confirm('Kích hoạt Mục tiêu này? Worker sẽ bắt đầu gửi lời mời theo cấu hình.')) return;
+  if (!(await confirm({
+    title: 'Kích hoạt Mục tiêu này?',
+    message: 'Worker sẽ bắt đầu gửi lời mời theo cấu hình.',
+    tone: 'primary',
+    confirmText: 'Kích hoạt',
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await api.post(`/automation/triggers/${triggerId}/activate`);
     await load();
   } catch (err) {
     console.error('[muc-tieu-detail] activate failed', err);
-    alert('Không thể kích hoạt — kiểm tra cấu hình rồi thử lại.');
+    toast.error('Không thể kích hoạt — kiểm tra cấu hình rồi thử lại.', 5000);
   }
 }
 function onEdit(): void {
@@ -1628,19 +1659,19 @@ function onEdit(): void {
 }
 function onDuplicate(): void {
   menuOpen.value = false;
-  alert('Sao chép Mục tiêu — Wave 4.');
+  toast.warning('Sao chép Mục tiêu — Wave 4.');
 }
 function exportExcel(): void {
   menuOpen.value = false;
-  alert('Xuất Excel — Wave 4.');
+  toast.warning('Xuất Excel — Wave 4.');
 }
 function exportEntries(): void {
-  alert('Xuất Excel danh sách KH — Wave 4.');
+  toast.warning('Xuất Excel danh sách KH — Wave 4.');
 }
 function exportCsv(): void {
   // Defer Wave 4 — keep button discoverable for now
   console.log('[muc-tieu-detail] Export CSV log — defer Wave 4');
-  alert('Xuất CSV log — Wave 4.');
+  toast.warning('Xuất CSV log — Wave 4.');
 }
 function goLeadPool(): void {
   void router.push({
@@ -1902,7 +1933,7 @@ function exportSelected(): void {
 function markReviewed(): void {
   // Stub UI — chờ BE bổ sung trường `reviewed` trên EventLog.
   console.warn('[muc-tieu-detail] markReviewed stub — BE chưa có endpoint', selectedLogIds.value);
-  alert('Tính năng "Đánh dấu đã xem" sẽ bật khi BE bổ sung trường reviewed.');
+  toast.warning('Tính năng "Đánh dấu đã xem" sẽ bật khi BE bổ sung trường reviewed.');
 }
 function copySelectedIds(): void {
   const ids = selectedLogIds.value.join('\n');

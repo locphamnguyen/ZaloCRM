@@ -538,11 +538,13 @@ import { useZaloAccounts } from '@/composables/use-zalo-accounts';
 import NickPickerPopup, { type NickPickerAccount } from '@/components/zalo-accounts/NickPickerPopup.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 const route = useRoute();
 const router = useRouter();
 
 const toast = useToast();
+const { confirm } = useConfirm();
 const { accounts: zaloAccounts, fetchAccounts } = useZaloAccounts();
 const nickAccounts = computed(() => zaloAccounts.value as unknown as NickPickerAccount[]);
 // Sau khi tìm ra Zalo / lưu note cho 1 lead → refresh bảng + counter
@@ -698,13 +700,24 @@ function onRowClick(entryId: string, e: MouseEvent) {
 }
 
 async function onBulk(action: 'skip' | 'keep_both' | 'delete') {
-  if (action === 'delete' && !confirm(`Xoá ${selectedCount.value} entry đã chọn?`)) return;
+  if (action === 'delete' && !(await confirm({
+    title: `Xoá ${selectedCount.value} SĐT đã chọn?`,
+    tone: 'danger',
+    confirmText: 'Xoá',
+    cancelText: 'Hủy',
+  }))) return;
   const result = await bulkResolveEntries(listId.value, action);
-  if (result?.ok) alert(`Đã cập nhật ${result.affected} entries`);
+  if (result?.ok) toast.success(`Đã cập nhật ${result.affected} SĐT`);
 }
 
 async function onArchive() {
-  if (!confirm('Lưu trữ tệp này?')) return;
+  if (!(await confirm({
+    title: 'Lưu trữ tệp này?',
+    message: 'Tệp sẽ ẩn khỏi danh sách "Đang dùng" nhưng dữ liệu vẫn còn.',
+    tone: 'danger',
+    confirmText: 'Lưu trữ',
+    cancelText: 'Hủy',
+  }))) return;
   await archiveList(listId.value);
   router.push('/marketing/lists');
 }
@@ -717,7 +730,7 @@ async function onUnarchive() {
 async function onRescan() {
   const result = await rescanZalo(listId.value);
   if (result?.ok) {
-    alert(`Đã bắt đầu quét lại ${result.pendingLookup} SĐT. Refresh sau vài phút.`);
+    toast.success(`Đã bắt đầu quét lại ${result.pendingLookup} SĐT. Refresh sau vài phút.`);
     setTimeout(async () => {
       await fetchListById(listId.value);
       await fetchEntries(listId.value);
@@ -726,7 +739,13 @@ async function onRescan() {
 }
 
 async function onDelete() {
-  if (!confirm('Xoá vĩnh viễn tệp này? Contact đã được tạo sẽ KHÔNG bị xoá.')) return;
+  if (!(await confirm({
+    title: 'Xoá vĩnh viễn tệp này?',
+    message: 'Contact đã được tạo sẽ KHÔNG bị xoá.',
+    tone: 'danger',
+    confirmText: 'Xoá',
+    cancelText: 'Hủy',
+  }))) return;
   await deleteList(listId.value);
   router.push('/marketing/lists');
 }
@@ -769,7 +788,7 @@ async function commitTitle() {
   const ok = await renameList(listId.value, newName);
   savingTitle.value = false;
   editingTitle.value = false;
-  if (!ok) alert('Đổi tên thất bại');
+  if (!ok) toast.error('Đổi tên thất bại', 5000);
 }
 
 function cancelEditTitle() {
@@ -802,7 +821,7 @@ async function commitEdit() {
   savingEntryId.value = null;
   editing.value = null;
   if (!result) {
-    alert('Lưu thất bại — thử lại');
+    toast.error('Lưu thất bại — thử lại', 5000);
     return;
   }
   // Toast cảnh báo dup nếu phoneRaw đổi sang số trùng
@@ -850,7 +869,7 @@ async function onAddRow() {
       flashToast(`Đã thêm ${result.added} SĐT`);
     }
   } else {
-    alert('Thêm thất bại — thử lại');
+    toast.error('Thêm thất bại — thử lại', 5000);
   }
 }
 
@@ -883,7 +902,7 @@ async function onDeleteRow(entry: CustomerListEntry) {
   ].filter(Boolean).join(' ');
   const ok = await deleteEntry(listId.value, entry.id);
   if (!ok) {
-    alert('Xoá thất bại');
+    toast.error('Xoá thất bại', 5000);
     return;
   }
   await fetchEntries(listId.value);
@@ -920,7 +939,7 @@ async function onUndoDelete() {
   if (result?.ok) {
     flashToast(`Đã hoàn tác — entry sẽ append ở cuối list`);
   } else {
-    alert('Hoàn tác thất bại');
+    toast.error('Hoàn tác thất bại', 5000);
   }
 }
 

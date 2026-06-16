@@ -9,6 +9,8 @@
   <v-dialog
     :model-value="modelValue"
     fullscreen
+    :scrim="false"
+    content-class="bed-fs-content"
     transition="dialog-bottom-transition"
     persistent
     @update:model-value="$emit('update:modelValue', $event)"
@@ -224,6 +226,7 @@
               <div
                 v-for="(c, idx) in components"
                 :key="idx"
+                :ref="(el: any) => setStackCardRef(idx, el)"
                 class="bed-stack-card"
                 :class="{ active: activeComponentIdx === idx, 'is-text': c.kind === 'text' }"
                 @click="activeComponentIdx = idx"
@@ -475,9 +478,13 @@
               <template v-for="(c, idx) in components" :key="idx">
                 <div v-if="c.kind === 'text'" class="bed-zalo-bubble out" v-html="previewVariantHtml(c, idx)"></div>
                 <!-- previewVariantHtml hiển thị biến thể ĐANG chọn của component đó (sync card) -->
-                <div v-else-if="c.kind === 'image'" class="bed-zalo-image"></div>
+                <div v-else-if="c.kind === 'image'" class="bed-zalo-image">
+                  <img v-if="(c as any).url" :src="(c as any).url" alt="" />
+                </div>
                 <div v-else-if="c.kind === 'album'" class="bed-zalo-album">
-                  <div v-for="(_item, i) in ((c as any).items || []).slice(0, 4)" :key="i" class="bed-zalo-album-item"></div>
+                  <div v-for="(item, i) in ((c as any).items || []).slice(0, 4)" :key="i" class="bed-zalo-album-item">
+                    <img v-if="(item as any).url" :src="(item as any).url" alt="" />
+                  </div>
                 </div>
                 <div v-else-if="c.kind === 'file'" class="bed-zalo-file">
                   <v-icon size="16" color="var(--error)">mdi-file-pdf-box</v-icon>
@@ -554,6 +561,9 @@ import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
 import MediaPickerDialog from '@/components/media/MediaPickerDialog.vue';
 import { useAuthStore } from '@/stores/auth';
+import { useConfirm } from '@/composables/use-confirm';
+
+const { confirm } = useConfirm();
 
 // ── Zalo rich-format render (COPY từ chat/special-message-renderer.vue 2026-06-06) ──
 // Render {text, styles[]} → escaped HTML cho bubble preview col 3.
@@ -666,6 +676,18 @@ const greetingVariants = ref<GreetingVariant[]>([{ text: '', styles: [] }]);
 const statusId = ref<string>('');
 
 const activeComponentIdx = ref<number>(0);
+
+// YC2 (anh chốt 2026-06-16): click thành phần ở Col1 → Col2 tự CUỘN tới card đó để edit.
+// Lưu ref từng card theo index; khi activeComponentIdx đổi thì scrollIntoView card tương ứng.
+const stackCardEls = ref<Record<number, HTMLElement | null>>({});
+function setStackCardRef(idx: number, el: any) { stackCardEls.value[idx] = (el as HTMLElement) ?? null; }
+watch(activeComponentIdx, (idx) => {
+  nextTick(() => {
+    // block:'nearest' → chỉ cuộn trong .bed-stack-scroll, không giật cả trang.
+    stackCardEls.value[idx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+});
+
 // Biến thể đang chọn PER-COMPONENT (anh chốt 2026-06-06: mỗi text card có tab biến thể riêng).
 // key = index component trong components[], value = index biến thể đang active (0 = defaultVariant).
 const activeVariantIdxByComp = ref<Record<number, number>>({});
@@ -911,8 +933,8 @@ function addComponent(kind: Component['kind']) {
   activeVariantIdxByComp.value = { ...activeVariantIdxByComp.value, [newIdx]: 0 };
   markDirty();
 }
-function removeComponent(idx: number) {
-  if (!confirm('Xoá thành phần này?')) return;
+async function removeComponent(idx: number) {
+  if (!(await confirm({ title: 'Xoá thành phần này?', message: 'Thành phần sẽ bị gỡ khỏi khối.', tone: 'danger', confirmText: 'Xoá', cancelText: 'Hủy' }))) return;
   components.value.splice(idx, 1);
   // Dồn lại map biến thể active theo index mới (component sau idx tụt 1 bậc).
   const next: Record<number, number> = {};
@@ -1278,7 +1300,7 @@ async function onSave() {
 .bed-wrap {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   background: var(--surface);
   font-family: var(--font);
   color: var(--ink);
@@ -2112,7 +2134,10 @@ async function onSave() {
   border-radius: 12px;
   border-bottom-right-radius: 5px;
   align-self: flex-end;
+  overflow: hidden;
 }
+/* YC3: hiện ẢNH THẬT đã chọn ở Col2 (fallback gradient khi chưa chọn). */
+.bed-zalo-image img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bed-zalo-album {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2126,7 +2151,9 @@ async function onSave() {
 .bed-zalo-album-item {
   aspect-ratio: 1;
   background: linear-gradient(135deg, #fde68a, #f59e0b);
+  overflow: hidden;
 }
+.bed-zalo-album-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .bed-zalo-album-item:nth-child(2) { background: linear-gradient(135deg, #a7f3d0, #10b981); }
 .bed-zalo-album-item:nth-child(3) { background: linear-gradient(135deg, #bfdbfe, #3b82f6); }
 .bed-zalo-album-item:nth-child(4) { background: linear-gradient(135deg, #fbcfe8, #ec4899); }
@@ -2231,5 +2258,17 @@ async function onSave() {
   font-size: 13px;
   box-shadow: var(--sh-lg);
   z-index: 100;
+}
+</style>
+
+<!-- GLOBAL (không scoped): v-dialog teleport ra <body> nên scoped không với tới
+     .v-overlay__content. YC1 anh chốt 2026-06-16: dialog Khối CHỪA thanh nav hệ thống
+     (--smax-topnav-h = 48px) phía trên, KHÔNG đè lên. Đã tắt scrim (:scrim="false") +
+     overlay-root pointer-events:none → topnav phía dưới vẫn bấm được. -->
+<style>
+.v-overlay__content.bed-fs-content {
+  top: var(--smax-topnav-h, 48px) !important;
+  height: calc(100% - var(--smax-topnav-h, 48px)) !important;
+  max-height: calc(100% - var(--smax-topnav-h, 48px)) !important;
 }
 </style>

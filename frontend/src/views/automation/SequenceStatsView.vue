@@ -304,6 +304,9 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter, RouterLink } from 'vue-router';
 import { api } from '@/api/index';
+import { useToast } from '@/composables/use-toast';
+
+const toast = useToast();
 
 // ── Types ──
 type RangeType = '24h' | '7d' | '30d' | 'all';
@@ -637,10 +640,10 @@ async function reconcileNow(): Promise<void> {
   try {
     await api.post('/automation/sequences/stats/reconcile-counters');
     await fetchOverview();
-    window.alert('Reconcile xong. Đã refresh dữ liệu.');
+    toast.success('Reconcile xong. Đã refresh dữ liệu.');
   } catch (err) {
     console.error('[reconcile] failed', err);
-    window.alert('Lỗi reconcile. Chỉ Owner + Admin được phép.');
+    toast.error('Lỗi reconcile. Chỉ Owner + Admin được phép.', 5000);
   }
 }
 

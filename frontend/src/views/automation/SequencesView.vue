@@ -339,8 +339,10 @@ import {
   type BlockActionType,
 } from '@/api/automation/types';
 import SequenceStepEditor from '@/components/automation/phase7/SequenceStepEditor.vue';
+import { useConfirm } from '@/composables/use-confirm';
 
 const router = useRouter();
+const { confirm } = useConfirm();
 const sequences = ref<AutomationSequence[]>([]);
 const availableBlocks = ref<Block[]>([]);
 const search = ref('');
@@ -710,7 +712,13 @@ function openStats() {
 async function onDelete() {
   if (!editing.value?.id) return;
   menuOpen.value = false;
-  if (!confirm(`Xoá sequence "${editing.value.name}"? Chỉ được xoá khi chưa có campaign.`)) return;
+  if (!(await confirm({
+    title: `Xoá luồng "${editing.value.name}"?`,
+    message: 'Chỉ được xoá khi chưa có campaign.',
+    tone: 'danger',
+    confirmText: 'Xoá luồng',
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await sequencesApi.deleteSequence(editing.value.id);
     closeDrawer();

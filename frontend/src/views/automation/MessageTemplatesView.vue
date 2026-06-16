@@ -228,6 +228,11 @@ import { useAuthStore } from '@/stores/auth';
 import {
   useMessageTemplates, type MessageTemplate, type RichPayload,
 } from '@/composables/use-message-templates';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
+
+const toast = useToast();
+const { confirm } = useConfirm();
 
 const PROJECT_TAGS = ['Emerald Garden View', 'Emerald Boulevard', 'Emerald River Park', 'Monrei Sài Gòn'];
 const CATEGORIES = ['FAQ', 'Chào', 'Khơi gợi', 'Chốt'];
@@ -366,13 +371,13 @@ async function onSave() {
     editorOpen.value = false;
     await reload();
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Lưu mẫu thất bại');
+    toast.error(e?.response?.data?.error || 'Có lỗi xảy ra, thử lại sau.', 5000);
   }
 }
 
 async function onDelete() {
   if (!editingId.value) return;
-  if (!confirm('Xóa mẫu này?')) return;
+  if (!(await confirm({ title: 'Xóa mẫu này?', tone: 'danger', confirmText: 'Xóa', cancelText: 'Hủy' }))) return;
   await deleteTemplate(editingId.value);
   editorOpen.value = false;
   await reload();
@@ -388,7 +393,7 @@ async function onCreateFolder() {
     folderDialogOpen.value = false;
     await fetchFolders();
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Tạo thư mục thất bại');
+    toast.error(e?.response?.data?.error || 'Có lỗi xảy ra, thử lại sau.', 5000);
   }
 }
 

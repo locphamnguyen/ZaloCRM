@@ -299,8 +299,10 @@ import {
 } from '@/api/automation/broadcasts';
 import { listBlocks } from '@/api/automation/blocks';
 import type { Block } from '@/api/automation/types';
+import { useToast } from '@/composables/use-toast';
 
 const router = useRouter();
+const toast = useToast();
 const steps = ['Đối tượng', 'Nội dung', 'Lịch gửi', 'Xem trước & Gửi'];
 const step = ref(1);
 
@@ -429,7 +431,7 @@ async function runPreview() {
   try {
     previewData.value = await previewUnsaved({ segmentSpec: spec, sampleSize: 5 });
   } catch (e: any) {
-    alert(e?.response?.data?.error || 'Lỗi preview');
+    toast.error(e?.response?.data?.error || 'Có lỗi xảy ra, thử lại sau.', 5000);
   } finally {
     previewing.value = false;
   }
