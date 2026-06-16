@@ -93,6 +93,10 @@ export interface FriendshipInfo {
   autoTags?: string[];
   /** "Tên gợi nhớ" — alias sale đặt qua Zalo Real, sync 2-way với CRM. */
   aliasInNick?: string | null;
+  /** Avatar/tên Zalo per-nick (Friend.zaloAvatarUrl/zaloDisplayName) — header fallback
+   *  khi Contact chưa có. Trước 2026-06-16 header đọc qua cast; khai báo để patch typed. */
+  zaloAvatarUrl?: string | null;
+  zaloDisplayName?: string | null;
 }
 
 export interface Conversation {
@@ -1037,6 +1041,37 @@ export function useChat() {
   function onVisible() { wakeReconnect(); }
   function onOnline() { wakeReconnect(); }
 
+  // Fix 2026-06-16 (anh báo avatar/tên KH lệch SDK): khi dialog xem info Zalo lấy được
+  // avatar/tên mới từ SDK, patch tại chỗ conversation đang xem → header chat + dòng trong
+  // ConversationList cập nhật NGAY (cùng object reference với conversations.value, không
+  // chờ F5). BE đã persist Contact+Friend song song nên reload sau đó vẫn đúng.
+  function patchContactProfile(p: {
+    uid: string;
+    avatarUrl?: string | null;
+    displayName?: string | null;
+    gender?: number | null;
+  }) {
+    if (!p?.uid) return;
+    // SDK gender: 0=Nam, 1=Nữ, -1/khác=chưa rõ → map sang enum Contact.gender (string).
+    const genderStr = p.gender === 0 ? 'male' : p.gender === 1 ? 'female' : null;
+    for (const conv of conversations.value) {
+      if (conv.threadType !== 'user') continue;
+      // Match theo per-nick UID (externalThreadId — chính UID dialog mở) hoặc zaloUid Contact.
+      const match = conv.externalThreadId === p.uid || conv.contact?.zaloUid === p.uid;
+      if (!match) continue;
+      if (p.avatarUrl) {
+        if (conv.contact) conv.contact.avatarUrl = p.avatarUrl;
+        if (conv.friendship) conv.friendship.zaloAvatarUrl = p.avatarUrl;
+      }
+      // Chỉ vá tên Zalo per-nick (zaloDisplayName) — KHÔNG đụng fullName (tên CRM thủ công)
+      // và aliasInNick, để giữ ưu tiên hiển thị header.
+      if (p.displayName && conv.friendship) conv.friendship.zaloDisplayName = p.displayName;
+      if (genderStr && conv.contact && conv.contact.gender !== genderStr) {
+        conv.contact.gender = genderStr;
+      }
+    }
+  }
+
   function destroySocket() {
     window.removeEventListener('friend-crm-tags-changed', onFriendCrmTagsChanged);
     document.removeEventListener('visibilitychange', onVisible);
@@ -1071,6 +1106,7 @@ export function useChat() {
     fetchAiUsage,
     fetchMessages,
     selectConversation,
+    patchContactProfile,
     sendMessage,
     sendMessageTo,
     generateAiSuggestion,

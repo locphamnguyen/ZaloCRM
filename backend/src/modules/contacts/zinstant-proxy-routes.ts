@@ -613,6 +613,24 @@ export async function zinstantProxyRoutes(app: FastifyInstance): Promise<void> {
             });
             logger.info(`[user-info] refresh updated Contact ${contact.id} fields: ${Object.keys(updateData).join(',')}`);
           }
+
+          // Fix 2026-06-16 (anh báo avatar/tên KH lệch SDK): persist luôn Friend per-nick
+          // (zaloAvatarUrl/zaloDisplayName). Header chat đọc fallback từ field này, và sau
+          // reload list lấy lại từ DB → trước đây chỉ update Contact nên vẫn lệch. Chỉ
+          // update khi có accountId (nick đang xem, đã verify scope ở trên) để target đúng
+          // cặp nick × UID per-nick (zaloUidInNick = uid).
+          if (accountId && (sdkAvatar || sdkZaloName)) {
+            const friendPatch: Record<string, unknown> = {};
+            if (sdkAvatar) friendPatch.zaloAvatarUrl = sdkAvatar;
+            if (sdkZaloName) friendPatch.zaloDisplayName = sdkZaloName;
+            const fr = await prisma.friend.updateMany({
+              where: { zaloAccountId: accountId, zaloUidInNick: uid },
+              data: friendPatch,
+            });
+            if (fr.count > 0) {
+              logger.info(`[user-info] refresh updated Friend (nick ${accountId} uid ${uid}) fields: ${Object.keys(friendPatch).join(',')}`);
+            }
+          }
         } catch (updateErr) {
           logger.warn(`[user-info] Contact refresh update failed for ${uid}:`, updateErr);
         }

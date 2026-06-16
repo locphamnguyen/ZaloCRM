@@ -97,6 +97,7 @@
       @typing="onTyping"
       @refresh-thread="selectedConvId && fetchMessages(selectedConvId)"
       @switch-conversation="onSwitchToNickConv"
+      @profile-synced="patchContactProfile"
     />
 
     <!-- Folder management modal (overlay) -->
@@ -171,6 +172,7 @@ const {
   initSocket, destroySocket, getSocket,
   typingConvIds, socketConnected,
   outOfScopeCounts, clearOutOfScopeBadge,
+  patchContactProfile,
 } = useChat();
 
 const {

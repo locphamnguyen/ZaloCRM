@@ -40,13 +40,19 @@
               @click="onApplyFolder(null)"
             >
               <div class="fc-thumb-all">🌐</div>
-              <div class="fc-name">ALL — Toàn bộ</div>
-              <div class="fc-meta">{{ allAccountsCount || 0 }} nick</div>
+              <div class="fc-body">
+                <div class="fc-name">ALL — Toàn bộ</div>
+                <div class="fc-meta">
+                  <span class="nk-dot on"></span>{{ allNickCounts.online }} online
+                  <span class="nk-sep">·</span>
+                  <span class="nk-dot off"></span>{{ allNickCounts.offline }} offline
+                </div>
+              </div>
             </button>
 
-            <!-- User folders -->
+            <!-- User folders: avatar sale · tên · online/offline (sort theo last name) -->
             <button
-              v-for="folder in folders"
+              v-for="folder in sortedFolders"
               :key="`view-${folder.id}`"
               type="button"
               class="folder-card"
@@ -55,15 +61,7 @@
               :title="folder.name"
             >
               <div class="fc-thumb">
-                <template v-if="folder.members.length >= 2">
-                  <div class="av av-0" :style="memberAvatarStyle(folder.members[0], 0)">
-                    <span v-if="!folder.members[0].avatarUrl">{{ initials(folder.members[0].displayName) }}</span>
-                  </div>
-                  <div class="av av-1" :style="memberAvatarStyle(folder.members[1], 1)">
-                    <span v-if="!folder.members[1].avatarUrl">{{ initials(folder.members[1].displayName) }}</span>
-                  </div>
-                </template>
-                <template v-else-if="folder.members.length === 1">
+                <template v-if="folder.members.length >= 1">
                   <div class="single" :style="memberAvatarStyle(folder.members[0], 0)">
                     <span v-if="!folder.members[0].avatarUrl">{{ initials(folder.members[0].displayName) }}</span>
                   </div>
@@ -72,8 +70,14 @@
                   <div class="single empty">?</div>
                 </template>
               </div>
-              <div class="fc-name">{{ folder.name }}</div>
-              <div class="fc-meta">{{ folder.members.length }} nick</div>
+              <div class="fc-body">
+                <div class="fc-name">{{ folder.name }}</div>
+                <div class="fc-meta">
+                  <span class="nk-dot on"></span>{{ nickCounts(folder.members).online }} online
+                  <span class="nk-sep">·</span>
+                  <span class="nk-dot off"></span>{{ nickCounts(folder.members).offline }} offline
+                </div>
+              </div>
             </button>
           </div>
         </div>
@@ -143,7 +147,7 @@
           <div class="ml-list-label">Thư mục hiện có ({{ folders.length }})</div>
 
           <button
-            v-for="folder in folders"
+            v-for="folder in sortedFolders"
             :key="folder.id"
             type="button"
             class="ml-folder-item"
@@ -368,6 +372,34 @@ const loadingAccounts = ref(false);
 const activeTab = ref<'view' | 'manage'>('view');
 
 const folders = computed<AccountFolder[]>(() => props.filters.folders.value);
+
+// Sắp xếp theo "tên" (last name = từ cuối của tên thư mục, vd "Phạm Chí Thanh" → "Thanh").
+// Tên thư mục = fullName của owner (xem sync-by-owner) nên đây là cách sort kiểu VN.
+function lastNameKey(name: string): string {
+  const parts = (name || '').trim().split(/\s+/);
+  return (parts[parts.length - 1] || '').toLocaleLowerCase('vi');
+}
+const sortedFolders = computed<AccountFolder[]>(() =>
+  [...folders.value].sort((a, b) => {
+    const cmp = lastNameKey(a.name).localeCompare(lastNameKey(b.name), 'vi');
+    return cmp !== 0 ? cmp : (a.name || '').localeCompare(b.name || '', 'vi');
+  })
+);
+
+// Đếm nick online/offline trong 1 folder (online = status 'connected', khớp nick rows).
+function nickCounts(members: Array<{ status: string }>): { online: number; offline: number } {
+  let online = 0;
+  for (const m of members) if (m.status === 'connected') online++;
+  return { online, offline: members.length - online };
+}
+// Card ALL: gộp online/offline toàn bộ nick (ưu tiên liveStatus realtime).
+const allNickCounts = computed(() => {
+  let online = 0;
+  for (const a of accounts.value) {
+    if ((((a as any).liveStatus ?? a.status) as string) === 'connected') online++;
+  }
+  return { online, offline: accounts.value.length - online };
+});
 
 // ─── TAB 1: VIEW state ───────────────────────────────
 const viewFolderId = ref<string | null>(null);
@@ -756,27 +788,41 @@ onMounted(() => {
   gap: 6px;
 }
 
-/* Folder gridcards — fixed-size cards, flow rows */
+/* Folder gridcards — card ngang: avatar trái · tên · online/offline. Tối đa 2 dòng rồi cuộn. */
 .folder-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 8px;
+  /* 2 hàng card (60px) + gap (8px) + padding → đúng 2 dòng, còn lại cuộn dọc */
+  max-height: 136px;
+  overflow-y: auto;
+  padding: 2px 2px 6px;
 }
+.folder-grid::-webkit-scrollbar { width: 6px; }
+.folder-grid::-webkit-scrollbar-thumb { background: #D4D6DB; border-radius: 3px; }
 .folder-card {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 14px 10px;
+  justify-content: flex-start;
+  gap: 9px;
+  padding: 9px 10px;
   background: white;
   border: 1.5px solid #E4E5E9;
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.12s;
   font-family: inherit;
-  height: 124px;
+  text-align: left;
+  height: 60px;
   min-width: 0;
+}
+.fc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
 }
 .folder-card:hover {
   border-color: #D4D6DB;
@@ -791,8 +837,8 @@ onMounted(() => {
 .folder-card:focus-visible { outline: 2px solid #5E6AD2; outline-offset: 2px; }
 
 .fc-thumb {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   position: relative;
   flex-shrink: 0;
 }
@@ -812,15 +858,15 @@ onMounted(() => {
 }
 .fc-thumb .av {
   position: absolute;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
 }
 .fc-thumb .av-0 { top: 0; left: 0; }
 .fc-thumb .av-1 { bottom: 0; right: 0; }
 .fc-thumb .single {
-  width: 42px;
-  height: 42px;
-  font-size: 14px;
+  width: 36px;
+  height: 36px;
+  font-size: 13px;
   border: none;
 }
 .fc-thumb .single.empty {
@@ -828,39 +874,49 @@ onMounted(() => {
   color: #9CA3AF;
 }
 .fc-thumb-all {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: linear-gradient(135deg, #5E6AD2, #8B5CF6);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 17px;
   flex-shrink: 0;
 }
 .fc-name {
   font-size: 12.5px;
   font-weight: 600;
   color: #1F2D3D;
-  text-align: center;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
 }
 .folder-card.selected .fc-name { color: #5E6AD2; }
+/* Dòng online/offline dưới tên sale */
 .fc-meta {
-  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
   font-weight: 600;
   color: #6B7785;
-  background: #F4F4F7;
-  padding: 2px 8px;
-  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
-.folder-card.selected .fc-meta {
-  background: #5E6AD2;
-  color: white;
+.nk-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
+.nk-dot.on { background: #22C55E; }
+.nk-dot.off { background: #C4C8CF; }
+.nk-sep { color: #C9CDD4; font-weight: 700; }
 
 /* Nick search */
 .nick-search {

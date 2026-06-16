@@ -281,6 +281,9 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
+  // Fix 2026-06-16: đẩy avatar/tên mới nhất từ SDK lên parent để header + danh sách
+  // hội thoại cập nhật tức thì (không phải chờ F5).
+  'synced': [payload: { uid: string; avatarUrl: string | null; displayName: string | null; gender: number | null }];
 }>();
 
 const open = computed({
@@ -307,7 +310,15 @@ async function load(uid: string) {
     // Fetch Zalo info + CRM contact song song.
     // 2026-06-11 — truyền accountId (nick đang xem) để BE CHỈ gọi đúng nick đó thay vì
     // thử tất cả 30-50 nick (gây lag 538ms + đốt quota Zalo trên product).
-    const uiParams = props.zaloAccountId ? { params: { accountId: props.zaloAccountId } } : {};
+    // force=1: user CHỦ ĐỘNG bấm avatar/tên để xem → luôn lấy SDK mới nhất (bỏ cache
+    // server 600s) và trigger BE persist Contact+Friend. Chi phí 1 lượt getUserInfo/click
+    // (đã scope đúng nick qua accountId nên ~30ms, không đụng PERF "thử tất cả nick").
+    const uiParams = {
+      params: {
+        force: 1,
+        ...(props.zaloAccountId ? { accountId: props.zaloAccountId } : {}),
+      },
+    };
     const [zaloRes, crmRes] = await Promise.all([
       api.get(`/zalo-user-info/${uid}`, uiParams),
       api.get(`/contacts/by-zalo-uid/${uid}`).catch(() => ({ data: { contact: null } })),
@@ -315,6 +326,13 @@ async function load(uid: string) {
     info.value = zaloRes.data as ZaloUserInfo;
     crmContact.value = (crmRes.data?.contact || null) as CrmContact | null;
     crmLoaded.value = true;
+    // Đẩy avatar/tên mới lên parent → patch conversation state tại chỗ (header + list).
+    emit('synced', {
+      uid: info.value.uid || uid,
+      avatarUrl: info.value.avatarBig || info.value.avatar || null,
+      displayName: info.value.zaloName || info.value.displayName || null,
+      gender: typeof info.value.gender === 'number' ? info.value.gender : null,
+    });
   } catch (err) {
     console.error('[zalo-user-info] load error:', err);
     error.value = true;

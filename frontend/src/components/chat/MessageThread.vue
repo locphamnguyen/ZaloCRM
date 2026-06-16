@@ -821,6 +821,7 @@
       v-model="userInfoDialog"
       :uid="userInfoUid"
       :zalo-account-id="conversation?.zaloAccount?.id || ''"
+      @synced="(p) => emit('profile-synced', p)"
     />
 
     <!-- Link parent dialog -->
@@ -1037,6 +1038,9 @@ const emit = defineEmits<{
   'care-status-changed': [value: string];
   // Sprint v3 Tuần 3 Row 6.9 (2026-06-03): sale chọn nick khác → ChatView navigate.
   'switch-conversation': [convId: string];
+  // Fix 2026-06-16: dialog xem info Zalo trả avatar/tên mới từ SDK → báo ChatView patch
+  // conversation state (header + list cập nhật ngay, không chờ F5).
+  'profile-synced': [payload: { uid: string; avatarUrl: string | null; displayName: string | null; gender: number | null }];
 }>();
 
 const toast = useToast();
