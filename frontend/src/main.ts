@@ -7,6 +7,7 @@ import './assets/tokens.css';
 import './assets/main.css';
 import './assets/rbac-page.css';
 import './assets/hs-crm-theme.css'; // HS Holding redesign — load LAST để token/component HS thắng cascade (migration 2026-06-05)
+import './assets/report-kit.css'; // Module Báo cáo — design system scoped .rpt-scope (2026-06-17)
 
 const app = createApp(App);
 app.use(createPinia());

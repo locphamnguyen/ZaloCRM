@@ -53,6 +53,7 @@ import { zinstantProxyRoutes } from './modules/contacts/zinstant-proxy-routes.js
 import { dashboardRoutes } from './modules/dashboard/dashboard-routes.js';
 import { dashboardActionHubRoutes } from './modules/dashboard/dashboard-action-hub-routes.js';
 import { reportRoutes } from './modules/dashboard/report-routes.js';
+import { reportAnalyticsRoutes } from './modules/dashboard/report-analytics-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
 import { teamRoutes } from './modules/auth/team-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
@@ -269,6 +270,7 @@ async function bootstrap() {
   await app.register(dashboardRoutes);
   await app.register(dashboardActionHubRoutes);
   await app.register(reportRoutes);
+  await app.register(reportAnalyticsRoutes);
   await app.register(userRoutes);
   await app.register(teamRoutes);
   await app.register(orgRoutes);
