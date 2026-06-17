@@ -2038,8 +2038,10 @@ function entryStatusLabel(e: Entry): string {
     if (e.pauseReason === 'stopped') {
       return e.pauseStopReason ? `Đã dừng tay: ${e.pauseStopReason}` : 'Đã dừng tay';
     }
+    // FIX5 2026-06-17: KH reply → luồng TẠM DỪNG, sẽ TỰ chạy lại khi hết hold (anh chốt).
+    // Đổi copy "KH Reply" (nghe như đã dừng hẳn) → "KH trả lời · tạm dừng" cho rõ là sẽ tiếp.
     if (e.pauseReason === 'customer_reply' || qs === 'customer_reply') {
-      return `KH Reply ${pauseCountdown(e)}`;
+      return `KH trả lời · tạm dừng ${pauseCountdown(e)}`;
     }
     return `Tạm dừng ${pauseCountdown(e)}`;
   }
@@ -2079,11 +2081,20 @@ function entryStatusClass(e: Entry): string {
 
 // E1 2026-06-17 — tooltip cho chip "Đã dừng tay": ai dừng + lý do (nguồn manual_stop).
 function entryStatusTitle(e: Entry): string {
-  if (e.pauseReason !== 'stopped') return '';
-  const parts: string[] = [];
-  if (e.pauseStopByName) parts.push(`Dừng bởi ${e.pauseStopByName}`);
-  if (e.pauseStopReason) parts.push(e.pauseStopReason);
-  return parts.join(' • ');
+  if (e.pauseReason === 'stopped') {
+    const parts: string[] = [];
+    if (e.pauseStopByName) parts.push(`Dừng bởi ${e.pauseStopByName}`);
+    if (e.pauseStopReason) parts.push(e.pauseStopReason);
+    return parts.join(' • ');
+  }
+  // FIX5 2026-06-17: KH reply đang tạm dừng → hướng dẫn sale (xem tin / bấm gửi bước tiếp).
+  if (
+    e.pauseRemainingMs && e.pauseRemainingMs > 0 &&
+    (e.pauseReason === 'customer_reply' || e.queueStatus === 'customer_reply')
+  ) {
+    return 'KH đã trả lời — luồng tạm dừng, tự chạy lại khi hết giờ. Xem tin nhắn KH, hoặc bấm "Gửi bước tiếp theo" để chạy lại ngay.';
+  }
+  return '';
 }
 
 // I5 2026-06-03 — đếm ngược "còn Xh Ym" cho nhãn tạm dừng từ pauseRemainingMs (BE).

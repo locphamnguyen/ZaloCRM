@@ -485,6 +485,7 @@ export async function ensureCareSessionForStep(input: {
   nickId: string;
   ownerUserId: string;
   sequenceId: string | null;
+  enrollEpoch?: number; // FIX3 2026-06-17: epoch của job đang chạy → phiên heal cùng epoch.
 }): Promise<string | null> {
   // Có BẤT KỲ phiên nào (active HOẶC closed) cho (contact, nick, trigger) → không heal.
   const any = await prisma.careSession.findFirst({
@@ -514,6 +515,7 @@ export async function ensureCareSessionForStep(input: {
     sourceSequenceId: input.sequenceId,
     silenceDays: extractSilenceDays(closeConditions),
     closeConditions,
+    enrollEpoch: input.enrollEpoch, // FIX3: heal đúng epoch của job (không để NULL→1 lệch).
   });
   await markSequenceStartEnqueued(sessionId).catch(() => null);
   logger.info(
@@ -547,7 +549,16 @@ function extractSilenceDays(closeConditions: unknown): number {
  */
 export async function resumePausedSequences(): Promise<{ resumed: number }> {
   const { getSequenceStepQueue, buildSequenceStepJobId } = await import('../queues/queue-registry.js');
-  const stuck = await prisma.careSession.findMany({
+  const { clearContactPauseFlag } = await import('../queues/event-hooks.js');
+  const tickStart = new Date();
+  const sel = {
+    id: true, orgId: true, contactId: true, nickId: true,
+    sourceTriggerId: true, sourceSequenceId: true, pausedAtStepIdx: true,
+    lastCustomerActivityAt: true, closedAt: true, pausedUntil: true, enrollEpoch: true,
+  };
+
+  // Nhánh 1 (cũ): phiên đã CLOSED janitor_silence còn pausedAtStepIdx → chạy tiếp.
+  const closedStuck = await prisma.careSession.findMany({
     where: {
       state: 'closed',
       closedReason: 'janitor_silence', // chỉ im-lặng-tự-đóng mới chạy tiếp
@@ -555,32 +566,43 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
       sourceSequenceId: { not: null },
       sourceTriggerId: { not: null },
     },
-    select: {
-      id: true,
-      orgId: true,
-      contactId: true,
-      nickId: true,
-      sourceTriggerId: true,
-      sourceSequenceId: true,
-      pausedAtStepIdx: true,
-      lastCustomerActivityAt: true,
-      closedAt: true,
-      enrollEpoch: true,
+    select: sel,
+    take: 200,
+  });
+  // Nhánh 2 (FIX1 2026-06-17 — anh chốt): phiên ACTIVE đã HẾT HOLD (pausedUntil<=now) còn
+  // pausedAtStepIdx → TỰ chạy tiếp dù phiên chưa đóng. Trước đây đứng tới khi đóng (~7 ngày) = BUG.
+  // Reply handler đã tự bơm pausedUntil mỗi reply → pausedUntil<=now nghĩa là KH im đủ hold.
+  const activeExpired = await prisma.careSession.findMany({
+    where: {
+      state: 'active',
+      pausedAtStepIdx: { not: null },
+      pausedUntil: { lte: tickStart },
+      sourceSequenceId: { not: null },
+      sourceTriggerId: { not: null },
     },
+    select: sel,
     take: 200,
   });
 
-  if (stuck.length === 0) return { resumed: 0 };
+  const rows = [
+    ...closedStuck.map((s) => ({ ...s, kind: 'closed' as const })),
+    ...activeExpired.map((s) => ({ ...s, kind: 'active' as const })),
+  ];
+  if (rows.length === 0) return { resumed: 0 };
   const queue = getSequenceStepQueue();
   let resumed = 0;
 
-  for (const s of stuck) {
+  for (const s of rows) {
     if (!s.sourceTriggerId || !s.sourceSequenceId || s.pausedAtStepIdx == null) continue;
-    // Codex #2 (chống "close cũ hồi sinh send sau reply mới"): nếu khách có activity SAU
-    // khi phiên đóng → KHÔNG resume (khách lại đang chat, đừng gửi đè). Chỉ clear marker.
-    if (s.lastCustomerActivityAt && s.closedAt && s.lastCustomerActivityAt > s.closedAt) {
-      await prisma.careSession.update({ where: { id: s.id }, data: { pausedAtStepIdx: null } }).catch(() => null);
-      logger.info(`[care-session] resume SKIP session=${s.id} — khách có activity sau khi đóng (clear marker)`);
+    // Guard "khách đang chat" → KHÔNG gửi đè. closed: activity SAU khi đóng (Codex #2).
+    // active: activity SAU khi bắt đầu hold (lastCustomerActivityAt > pausedUntil) → reply
+    // handler đã bơm pausedUntil nên thường đã loại; đây là chốt chặn race lúc cron đọc.
+    const guardRef = s.kind === 'closed' ? s.closedAt : s.pausedUntil;
+    if (s.lastCustomerActivityAt && guardRef && s.lastCustomerActivityAt > guardRef) {
+      if (s.kind === 'closed') {
+        await prisma.careSession.update({ where: { id: s.id }, data: { pausedAtStepIdx: null } }).catch(() => null);
+      }
+      logger.info(`[care-session] resume SKIP session=${s.id} kind=${s.kind} — khách có activity mới (đừng gửi đè)`);
       continue;
     }
     try {
@@ -613,18 +635,31 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
             runtimeRules: (seq?.runtimeRules as Record<string, unknown>) ?? undefined,
             enrollEpoch: epoch,
           },
-          { jobId, delay: 0 }, // hết phiên → gửi tiếp ngay (giờ hoạt động do worker guard lo)
+          { jobId, delay: 0 }, // hết hold → gửi tiếp ngay (giờ hoạt động + throttle do worker guard lo)
         );
+      }
+      // FIX1 FOLD-1 + FIX5 (chỉ nhánh active — closed giữ nguyên hành vi cũ):
+      //   - clear cờ Redis: worker check cờ Redis TRƯỚC marker DB (sequence-step-worker:347),
+      //     không clear thì job re-defer ở gate Redis = resume vô tác dụng.
+      //   - đổi queueStatus customer_reply → processing: sale không thấy "KH Reply/đã dừng" oan
+      //     khi luồng đã chạy lại.
+      if (s.kind === 'active') {
+        await clearContactPauseFlag(s.sourceTriggerId, s.contactId).catch(() => null);
+        await prisma.triggerQueueEntry.updateMany({
+          where: { triggerId: s.sourceTriggerId, contactId: s.contactId, queueStatus: 'customer_reply' },
+          data: { queueStatus: 'processing' },
+        }).catch(() => null);
       }
       await prisma.careSession.update({ where: { id: s.id }, data: { pausedAtStepIdx: null } });
       resumed++;
+      logger.info(`[care-session] LUẬT 4 resume session=${s.id} kind=${s.kind} step=${s.pausedAtStepIdx} contact=${s.contactId}`);
     } catch (err) {
       logger.warn(`[care-session] resume failed session=${s.id}: ${(err as Error).message}`);
     }
   }
 
   if (resumed > 0) {
-    logger.info(`[care-session] LUẬT 4 resumed ${resumed} luồng (hết phiên → chạy tiếp bước dở)`);
+    logger.info(`[care-session] LUẬT 4 resumed ${resumed} luồng (closed-silence + active-hết-hold)`);
   }
   return { resumed };
 }

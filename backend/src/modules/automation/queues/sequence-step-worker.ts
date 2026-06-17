@@ -324,6 +324,9 @@ async function processJob(
       await ensureCareSessionForStep({
         orgId, triggerId, contactId, nickId, sequenceId,
         ownerUserId: nick.ownerUserId,
+        // FIX3 self-heal 2026-06-17: phiên mồ côi tạo lại PHẢI lấy epoch từ job (không mặc
+        // định NULL→1) — KH gắn-lại epoch≥2 mất phiên rồi heal về 1 sẽ lệch epoch → resume/đếm sai.
+        enrollEpoch: job.data.enrollEpoch ?? 1,
       });
     } catch (err) {
       logger.warn(`${tag} care-session self-heal failed (non-fatal): ${(err as Error).message}`);
@@ -361,16 +364,28 @@ async function processJob(
       select: { id: true, pausedUntil: true },
     });
     if (pausedSession) {
-      // FIX 2026-06-15 (anh báo "Lần gửi tiếp" trôi sai): đẩy thẳng tới ĐÚNG GIỜ HẾT HOLD
-      // (pausedUntil = lúc KH reply + pauseOnActivityHours), KHÔNG đẩy lùi cứng 1h/lần (gây
-      // job tỉnh dậy liên tục + nextRunAt trôi dần thay vì hiện "19:01 + X giờ"). Hết hold
-      // mà phiên vẫn pause (KH chưa được xử) → fallback 1h để vẫn re-check, không kẹt mãi.
       const pausedUntilMs = pausedSession.pausedUntil?.getTime() ?? 0;
-      const resumeAt = pausedUntilMs > Date.now() ? pausedUntilMs : Date.now() + 60 * 60_000;
-      await job.updateData({ ...job.data, deferReason: 'awaiting_reply' }).catch(() => {});
-      await job.moveToDelayed(resumeAt, token);
-      logger.info(`${tag} LUẬT 4: phiên active còn pausedAtStepIdx → defer tới pausedUntil=${new Date(resumeAt).toISOString()} contact=${contactId}`);
-      throw new DelayedError();
+      if (pausedUntilMs > Date.now()) {
+        // CÒN trong cửa sổ hold (KH có thể vừa reply lại → reply handler đã bơm pausedUntil) →
+        // đẩy thẳng tới ĐÚNG giờ hết hold, KHÔNG đẩy lùi cứng 1h/lần (tránh nextRunAt trôi dần).
+        await job.updateData({ ...job.data, deferReason: 'awaiting_reply' }).catch(() => {});
+        await job.moveToDelayed(pausedUntilMs, token);
+        logger.info(`${tag} LUẬT 4: còn hold → defer tới pausedUntil=${new Date(pausedUntilMs).toISOString()} contact=${contactId}`);
+        throw new DelayedError();
+      }
+      // FIX2 2026-06-17 (anh chốt): HẾT HOLD mà phiên vẫn active → RESUME, KHÔNG defer +1h vô hạn.
+      //   - clear pausedAtStepIdx TRƯỚC khi gửi (chống double-send với cron FIX1: nếu gửi xong
+      //     rồi mới clear, cron chạy đúng lúc đó sẽ enqueue lại → KH nhận trùng).
+      //   - clear cờ Redis (FOLD-1) bằng redis.del trực tiếp (tránh circular import event-hooks).
+      //   - đổi queueStatus customer_reply→processing (FIX5): sale không thấy "KH Reply/đã dừng" oan.
+      //   - KHÔNG defer → rơi xuống guard giờ-gửi/throttle bình thường rồi gửi.
+      await prisma.careSession.update({ where: { id: pausedSession.id }, data: { pausedAtStepIdx: null } }).catch(() => {});
+      await redis.del(pauseKey).catch(() => {});
+      await prisma.triggerQueueEntry.updateMany({
+        where: { triggerId, contactId, queueStatus: 'customer_reply' },
+        data: { queueStatus: 'processing' },
+      }).catch(() => {});
+      logger.info(`${tag} LUẬT 4: hết hold → RESUME (clear marker+cờ Redis, cho job chạy) contact=${contactId}`);
     }
   }
 
