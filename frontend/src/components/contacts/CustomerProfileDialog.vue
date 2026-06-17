@@ -248,30 +248,74 @@
                           </td>
                         </tr>
                       </template>
+
+                      <!-- Ngoài 36 biến (không chèn được vào tin) — cùng style bảng -->
+                      <tr class="attr-grp"><td colspan="3">🪪 Định danh Cha (ngoài biến)</td></tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Global ID</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Username</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">UID</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span class="dim">per-nick → xem bảng trên / tab "Nick chăm"</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Có Zalo?</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Lần tra cuối</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloLookupAt">{{ formatDate(cc.zaloLookupAt) }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span><span v-else class="dim">—</span></td>
+                      </tr>
+
+                      <tr class="attr-grp"><td colspan="3">⚙ Hệ thống & nguồn (ngoài biến)</td></tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Consent</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.consentStatus">{{ cc.consentStatus }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Ngày nguồn</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.sourceDate">{{ formatDate(cc.sourceDate) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Tổng lịch hẹn</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val">{{ cc.totalAppointments ?? 0 }}</td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Tạo lúc</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.createdAt">{{ formatDate(cc.createdAt) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Cập nhật</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.updatedAt">{{ formatDate(cc.updatedAt) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Liên hệ đầu</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.firstContactDate">{{ formatDate(cc.firstContactDate) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Vào pool</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val">{{ cc.pooledCount ?? 0 }} lần</td>
+                      </tr>
                     </tbody>
                   </table>
-                  <div class="attr-foot">💡 36 biến dùng chung cho ô chat · mẫu tin · Khối · Sequence. Cột giá trị lấy thật từ hồ sơ khách + nick đang chọn (khớp lúc render tin).</div>
-                </div>
-
-                <!-- Ngoài 36 biến: định danh Cha + hệ thống (không chèn được vào tin) -->
-                <div class="attr-grid">
-                  <div class="attr-card">
-                    <h4 class="attr-h"><span class="ic">🪪</span> Định danh Cha <span class="dim2">(ngoài biến)</span></h4>
-                    <div class="cpd-ar"><span class="cpd-ak">Global ID</span><span class="cpd-av"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Username</span><span class="cpd-av"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></span></div>
-                    <div class="cpd-ar dim-row"><span class="cpd-ak">UID</span><span class="cpd-av dim">per-nick → xem bảng trên / tab "Nick chăm"</span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Có Zalo?</span><span class="cpd-av"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Lần tra cuối</span><span class="cpd-av">{{ cc.zaloLookupAt ? formatDate(cc.zaloLookupAt) : '—' }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span></div>
-                  </div>
-                  <div class="attr-card">
-                    <h4 class="attr-h"><span class="ic">⚙</span> Hệ thống & nguồn <span class="dim2">(ngoài biến)</span></h4>
-                    <div class="cpd-ar"><span class="cpd-ak">Consent</span><span class="cpd-av">{{ cc.consentStatus || '—' }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Ngày nguồn</span><span class="cpd-av">{{ cc.sourceDate ? formatDate(cc.sourceDate) : '—' }}</span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Tổng lịch hẹn</span><span class="cpd-av">{{ cc.totalAppointments ?? 0 }}</span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Tạo / Cập nhật</span><span class="cpd-av">{{ cc.createdAt ? formatDate(cc.createdAt) : '—' }}<span class="dim"> · {{ cc.updatedAt ? formatDate(cc.updatedAt) : '—' }}</span></span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Liên hệ đầu</span><span class="cpd-av">{{ cc.firstContactDate ? formatDate(cc.firstContactDate) : '—' }}</span></div>
-                    <div class="cpd-ar"><span class="cpd-ak">Vào pool</span><span class="cpd-av">{{ cc.pooledCount ?? 0 }} lần</span></div>
-                  </div>
+                  <div class="attr-foot">💡 36 biến dùng chung cho ô chat · mẫu tin · Khối · Sequence. Cột giá trị lấy thật từ hồ sơ khách + nick đang chọn (khớp lúc render tin). Nhóm "ngoài biến" là thông tin hệ thống, không chèn vào tin.</div>
                 </div>
               </div>
 
@@ -982,15 +1026,10 @@ async function copyAttr(code: string) {
 .attr-card.full { grid-column: 1 / -1; }
 .attr-h { margin: 0; padding: 9px 13px; font-size: 12px; font-weight: 700; color: var(--brand-700, #0b5880); background: var(--surface-2, #f7f9fc); border-bottom: 1px solid var(--line, #e7eaf0); display: flex; align-items: center; gap: 7px; }
 .attr-h .ic { font-size: 13px; }
-/* cpd-ar/ak/av: prefix riêng, TRÁNH đụng global .av (avatar gradient) trong hs-crm-theme.css */
-.cpd-ar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 7px 13px; border-bottom: 1px solid var(--line-2, #eef1f6); font-size: 12.5px; }
-.cpd-ar:last-child { border-bottom: none; }
-.cpd-ar .cpd-ak { color: var(--ink-4, #97a0b3); font-weight: 600; flex: none; min-width: 96px; }
-.cpd-ar .cpd-av { flex: 1; min-width: 0; color: var(--ink, #141a24); text-align: right; word-break: break-word; background: none; border-radius: 0; }
-.cpd-ar .cpd-av .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
-.cpd-ar .cpd-av .dim, .cpd-ar .cpd-av.dim, .dim { color: var(--ink-4, #97a0b3); }
-.cpd-ar .cpd-av .prev, .cpd-ar .cpd-av.prev { font-style: italic; color: var(--ink-3, #6b7488); }
-.cpd-ar.dim-row .cpd-ak, .cpd-ar.dim-row .cpd-av { font-style: italic; }
+.dim { color: var(--ink-4, #97a0b3); }
+/* nhóm "ngoài biến" gộp vào bảng: mono ID + ô "không có hàm" (—) đồng nhất với .attr-* */
+.attr-val .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
+.attr-code .nocode { color: var(--ink-4, #97a0b3); font-size: 11px; }
 /* Score breakdown 4 chiều */
 .bd-row { display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 13px; }
 .bd-it { display: flex; flex-direction: column; gap: 5px; min-width: 110px; flex: 1; }
@@ -1021,7 +1060,6 @@ async function copyAttr(code: string) {
 .attr-val { padding: 6px 13px; color: var(--ink, #141a24); word-break: break-word; }
 .attr-val .av-real { font-weight: 500; }
 .attr-foot { padding: 8px 13px; font-size: 11px; color: var(--ink-4, #97a0b3); background: var(--surface-2, #f7f9fc); border-top: 1px solid var(--line, #e7eaf0); }
-.attr-h .dim2 { font-weight: 500; color: var(--ink-4, #97a0b3); font-size: 10.5px; }
 
 /* UID per-nick ở tab Nick chăm */
 .s-uid { font-family: var(--mono, monospace); font-size: 10.5px; color: var(--ink-3, #6b7488); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
