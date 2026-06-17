@@ -9,7 +9,7 @@
       <v-text-field v-model="orgName" label="Tên tổ chức / phòng khám" prepend-inner-icon="mdi-domain" :rules="[v => !!v || 'Bắt buộc']" class="mb-2" />
       <v-text-field v-model="fullName" label="Họ tên quản trị viên" prepend-inner-icon="mdi-account" :rules="[v => !!v || 'Bắt buộc']" class="mb-2" />
       <v-text-field v-model="email" label="Email đăng nhập" type="email" prepend-inner-icon="mdi-email" :rules="[v => !!v || 'Bắt buộc']" class="mb-2" />
-      <v-text-field v-model="password" label="Mật khẩu" type="password" prepend-inner-icon="mdi-lock" :rules="[v => v.length >= 6 || 'Tối thiểu 6 ký tự']" class="mb-4" />
+      <v-text-field v-model="password" label="Mật khẩu" :type="showPassword ? 'text' : 'password'" prepend-inner-icon="mdi-lock" :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'" @click:append-inner="showPassword = !showPassword" :rules="[v => v.length >= 6 || 'Tối thiểu 6 ký tự']" class="mb-4" />
       <v-btn type="submit" color="primary" block size="large" :loading="loading">Tạo tài khoản</v-btn>
     </v-form>
     <v-alert v-if="error" type="error" class="mt-4" density="compact" closable>{{ error }}</v-alert>
@@ -26,6 +26,7 @@ const orgName = ref('');
 const fullName = ref('');
 const email = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const loading = ref(false);
 const error = ref('');
 const success = ref(false);

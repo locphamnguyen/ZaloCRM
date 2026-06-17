@@ -13,7 +13,7 @@ import { ref, watch } from 'vue';
 
 const STORAGE_KEY = 'zalocrm.friends.state.v1';
 
-export type FriendKindFilter = 'all' | 'friend' | 'pending_friend' | 'chatting_stranger' | 'ghost';
+export type FriendKindFilter = 'all' | 'none' | 'friend' | 'pending_friend' | 'chatting_stranger' | 'ghost';
 export type DensityMode = 'compact' | 'normal' | 'detailed';
 
 export interface PersistedFriendsState {

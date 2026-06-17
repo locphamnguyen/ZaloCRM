@@ -8,26 +8,40 @@
     <form class="password-form" @submit.prevent="onSubmit">
       <div class="form-row">
         <label for="current-pw">Mật khẩu hiện tại</label>
-        <input
-          id="current-pw"
-          v-model="currentPassword"
-          type="password"
-          autocomplete="current-password"
-          required
-          placeholder="Nhập mật khẩu đang dùng"
-        />
+        <div class="pw-wrap">
+          <input
+            id="current-pw"
+            v-model="currentPassword"
+            :type="showCur ? 'text' : 'password'"
+            autocomplete="current-password"
+            required
+            placeholder="Nhập mật khẩu đang dùng"
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showCur ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showCur = !showCur">
+            <EyeOff v-if="showCur" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
       </div>
       <div class="form-row">
         <label for="new-pw">Mật khẩu mới</label>
-        <input
-          id="new-pw"
-          v-model="newPassword"
-          type="password"
-          autocomplete="new-password"
-          minlength="8"
-          required
-          placeholder="Tối thiểu 8 ký tự, có hoa + thường + số"
-        />
+        <div class="pw-wrap">
+          <input
+            id="new-pw"
+            v-model="newPassword"
+            :type="showNew ? 'text' : 'password'"
+            autocomplete="new-password"
+            minlength="8"
+            required
+            placeholder="Tối thiểu 8 ký tự, có hoa + thường + số"
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showNew ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showNew = !showNew">
+            <EyeOff v-if="showNew" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
       </div>
       <ul v-if="newPassword" class="pw-strength">
         <li :class="{ ok: hasLength }">{{ hasLength ? '✓' : '○' }} Ít nhất 8 ký tự</li>
@@ -37,14 +51,21 @@
       </ul>
       <div class="form-row">
         <label for="confirm-pw">Xác nhận mật khẩu</label>
-        <input
-          id="confirm-pw"
-          v-model="confirmPassword"
-          type="password"
-          autocomplete="new-password"
-          required
-          placeholder="Nhập lại mật khẩu mới"
-        />
+        <div class="pw-wrap">
+          <input
+            id="confirm-pw"
+            v-model="confirmPassword"
+            :type="showConfirm ? 'text' : 'password'"
+            autocomplete="new-password"
+            required
+            placeholder="Nhập lại mật khẩu mới"
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showConfirm ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showConfirm = !showConfirm">
+            <EyeOff v-if="showConfirm" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
         <span v-if="confirmPassword && confirmPassword !== newPassword" class="pw-mismatch">Mật khẩu xác nhận không khớp</span>
       </div>
 
@@ -71,6 +92,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
+import { Eye, EyeOff } from 'lucide-vue-next';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
 
@@ -83,6 +105,9 @@ const confirmPassword = ref('');
 const saving = ref(false);
 const error = ref('');
 const success = ref(false);
+const showCur = ref(false);
+const showNew = ref(false);
+const showConfirm = ref(false);
 
 // 2026-06-11 FIX: trước đây gọi PUT /users/:id/password (field 'password', reset
 // owner/admin) → FE gửi 'newPassword' lệch → luôn báo "tối thiểu 6 ký tự". Giờ dùng
@@ -157,6 +182,17 @@ async function onSubmit() {
   border-color: #5E6AD2;
   box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.12);
 }
+
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 40px; width: 100%; box-sizing: border-box; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; margin: 0;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ink-4, #97a0b3); border-radius: 6px;
+}
+.pw-eye:hover { color: var(--ink-2, #475066); background: rgba(0,0,0,.04); }
 
 .pw-strength {
   list-style: none;

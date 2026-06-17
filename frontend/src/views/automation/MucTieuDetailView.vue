@@ -661,7 +661,7 @@
                 <td>
                   <!-- Phase Friend Invite UI 2026-05-30 — ưu tiên derivedStatus (5 enum)
                        BE shape; fallback queueStatus cho payload cũ chưa có derivedStatus. -->
-                  <span class="estatus" :class="entryStatusClass(e)">
+                  <span class="estatus" :class="entryStatusClass(e)" :title="entryStatusTitle(e)">
                     {{ entryStatusLabel(e) }}
                   </span>
                 </td>
@@ -980,6 +980,9 @@ interface Entry {
   // I5 2026-06-03 — cờ pause per-contact (Redis) cho cột Trạng thái + đếm ngược.
   pauseRemainingMs?: number | null;
   pauseReason?: string | null;
+  // E1 2026-06-17 — KH bị Dừng tay (reason='stopped'): lý do + tên người bấm.
+  pauseStopReason?: string | null;
+  pauseStopByName?: string | null;
 }
 
 // M13 2026-06-02 — 8 safety-rule columns BE return từ GET /:id/dashboard.
@@ -2029,6 +2032,12 @@ function entryStatusLabel(e: Entry): string {
   // Pause flag (Redis): KH Reply (nhãn riêng) vs Tạm dừng (reaction/manual/nick-hold).
   // pauseRemainingMs > 0 = đang tạm dừng sẽ chạy lại → đếm ngược ở pauseCountdown().
   if (e.pauseRemainingMs && e.pauseRemainingMs > 0) {
+    // 2026-06-17 — KH bị Dừng tay (manual_stop) → reason 'stopped': pause "vĩnh viễn",
+    // KHÔNG đếm ngược (không có gì để chờ). Đặt TRƯỚC customer_reply để contact
+    // reply-rồi-bị-dừng không rớt nhầm về "KH Reply".
+    if (e.pauseReason === 'stopped') {
+      return e.pauseStopReason ? `Đã dừng tay: ${e.pauseStopReason}` : 'Đã dừng tay';
+    }
     if (e.pauseReason === 'customer_reply' || qs === 'customer_reply') {
       return `KH Reply ${pauseCountdown(e)}`;
     }
@@ -2057,6 +2066,7 @@ function entryStatusClass(e: Entry): string {
   if (qs === 'customer_block') return 'block';
   if (qs === 'skipped_no_zalo' || e.hasZalo === false) return 'no-zalo';
   if (e.pauseRemainingMs && e.pauseRemainingMs > 0) {
+    if (e.pauseReason === 'stopped') return 'stopped';
     return (e.pauseReason === 'customer_reply' || qs === 'customer_reply') ? 'reply' : 'paused';
   }
   if (qs === 'customer_reply') return 'reply';
@@ -2065,6 +2075,15 @@ function entryStatusClass(e: Entry): string {
   if (ds === 'sequence_done' || qs === 'converted_lead') return 'done';
   if (ds === 'stopped') return 'reply';
   return statusChipClass(e.queueStatus, e.hasZalo);
+}
+
+// E1 2026-06-17 — tooltip cho chip "Đã dừng tay": ai dừng + lý do (nguồn manual_stop).
+function entryStatusTitle(e: Entry): string {
+  if (e.pauseReason !== 'stopped') return '';
+  const parts: string[] = [];
+  if (e.pauseStopByName) parts.push(`Dừng bởi ${e.pauseStopByName}`);
+  if (e.pauseStopReason) parts.push(e.pauseStopReason);
+  return parts.join(' • ');
 }
 
 // I5 2026-06-03 — đếm ngược "còn Xh Ym" cho nhãn tạm dừng từ pauseRemainingMs (BE).
@@ -2735,6 +2754,8 @@ onUnmounted(() => {
 .estatus.done { background: var(--primary-bg); color: var(--primary); }
 .estatus.reply { background: var(--danger-bg); color: var(--danger); }
 .estatus.block { background: #eceef1; color: #42526e; }
+/* E1 2026-06-17 — "Đã dừng tay" (manual_stop): terminal trung tính, bold để phân biệt. */
+.estatus.stopped { background: #eceef1; color: #42526e; font-weight: 600; }
 .estatus.lead { background: var(--purple-bg); color: var(--purple); }
 .estatus.cho-crm { background: var(--warning-bg); color: #974f00; }
 .estatus.no-zalo { background: #ffebe6; color: var(--danger); }

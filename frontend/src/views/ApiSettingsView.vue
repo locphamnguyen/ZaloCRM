@@ -41,7 +41,9 @@
         <v-text-field
           v-model="webhookSecret"
           label="Secret (HMAC)"
-          type="password"
+          :type="showWebhookSecret ? 'text' : 'password'"
+          :append-inner-icon="showWebhookSecret ? 'mdi-eye-off' : 'mdi-eye'"
+          @click:append-inner="showWebhookSecret = !showWebhookSecret"
           class="mb-3"
         />
         <div class="d-flex gap-2">
@@ -110,6 +112,7 @@ const apiKey = ref('');
 const generatingKey = ref(false);
 const webhookUrl = ref('');
 const webhookSecret = ref('');
+const showWebhookSecret = ref(false);
 const saving = ref(false);
 const testing = ref(false);
 const showAiConfig = ref(false);

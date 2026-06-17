@@ -264,7 +264,7 @@ export function useFriends() {
   // DB-backed friend list — paginated read from our Friend table
   async function fetchFriendsDb(
     accountId: string,
-    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string } = {},
+    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string; statusId?: string } = {},
   ) {
     loadingDb.value = true;
     try {
@@ -275,6 +275,7 @@ export function useFriends() {
           limit: opts.limit ?? 25,
           search: opts.search ?? '',
           sortBy: opts.sortBy ?? 'recent',
+          statusId: opts.statusId ?? '',
         },
       });
       friendsDb.value = res.data?.friends ?? [];
@@ -313,7 +314,7 @@ export function useFriends() {
   // Cross-nick aggregate (FriendsView "Tất cả nick" mode).
   // Backend trả Friend rows flat từ mọi zaloAccount user có access.
   async function fetchFriendsDbAllNicks(
-    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string } = {},
+    opts: { kind?: string; page?: number; limit?: number; search?: string; sortBy?: string; statusId?: string } = {},
   ) {
     loadingDb.value = true;
     try {
@@ -324,6 +325,7 @@ export function useFriends() {
           limit: opts.limit ?? 25,
           search: opts.search ?? '',
           sortBy: opts.sortBy ?? 'recent',
+          statusId: opts.statusId ?? '',
         },
       });
       friendsDb.value = res.data?.friends ?? [];

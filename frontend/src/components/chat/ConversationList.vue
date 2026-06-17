@@ -775,24 +775,25 @@ async function fetchCounts() {
 
 async function fetchAvailableTags() {
   try {
-    const res = await api.get('/contacts', { params: { limit: '200', fields: 'tags' } });
-    const contacts: Array<{ tags?: string[] }> = Array.isArray(res.data) ? res.data : res.data.contacts || [];
-    const tagSet = new Set<string>();
-    for (const c of contacts) {
-      (c.tags || []).forEach(t => tagSet.add(t));
-    }
+    // 2026-06-17 — Nguồn chip bar chuyển từ Contact.tags (v1 legacy, anh đã migrate HẾT
+    // qua v2) sang GET /conversations/sidebar-tags: crmTags = Friend.crmTagsPerNick (mirror
+    // tag v2 manual) + zaloTags (nhãn Zalo). Khớp đúng cả 3 nguồn mà backend filter `tags`
+    // match (Contact.tags OR crmTagsPerNick OR zaloLabels) → cột 2 nhất quán với cột 1/3.
+    const { data } = await api.get('/conversations/sidebar-tags');
+    const crm: string[] = Array.isArray(data.crmTags) ? data.crmTags : [];
+    const zalo: string[] = (Array.isArray(data.zaloTags) ? data.zaloTags : [])
+      .map((z: { name?: string }) => (z?.name ?? '').toString());
     // Whitelist: bỏ tag system mặc định (Tag N), prefix auto:, độ dài < 2, hoặc rỗng.
-    // Sale chỉ thấy tag có nghĩa.
     const SYSTEM_TAG_RE = /^(Tag\s*\d+|tag\d+)$/i;
-    availableTags.value = Array.from(tagSet)
-      .filter(t => {
-        const trimmed = t.trim();
-        if (trimmed.length < 2) return false;
-        if (SYSTEM_TAG_RE.test(trimmed)) return false;
-        if (trimmed.startsWith('auto:')) return false;
-        return true;
-      })
-      .sort();
+    const set = new Set<string>();
+    for (const raw of [...zalo, ...crm]) {
+      const trimmed = (raw || '').trim();
+      if (trimmed.length < 2) continue;
+      if (SYSTEM_TAG_RE.test(trimmed)) continue;
+      if (trimmed.startsWith('auto:')) continue;
+      set.add(trimmed);
+    }
+    availableTags.value = Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
   } catch {
     /* non-critical */
   }

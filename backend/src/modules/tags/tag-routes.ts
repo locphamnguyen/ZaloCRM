@@ -40,6 +40,12 @@ import {
   recountUsage,
 } from './tag-service.js';
 
+// Tập source hợp lệ — guard cho filter ?source= (tránh enum lạ ném 500). 2026-06-17.
+const SOURCE_VALUES = new Set<TagSource>([
+  'zalo_real', 'manual_per_nick', 'auto_detect', 'auto_score', 'auto_engagement',
+  'manual_crm', 'ai_suggest', 'segment_rule', 'status', 'import',
+]);
+
 export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
@@ -47,7 +53,7 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
   // Tag definitions
   // ─────────────────────────────────────────────────────────────────────
 
-  app.get('/', async (req: FastifyRequest<{ Querystring: { scope?: string; q?: string; cursor?: string; limit?: string; recount?: string; zaloAccountId?: string } }>, reply: FastifyReply) => {
+  app.get('/', async (req: FastifyRequest<{ Querystring: { scope?: string; source?: string; q?: string; cursor?: string; limit?: string; recount?: string; zaloAccountId?: string } }>, reply: FastifyReply) => {
     const user = req.user!;
     const scope = (req.query.scope ?? 'friend') as TagScope;
     if (scope !== 'friend' && scope !== 'crm') {
@@ -61,11 +67,18 @@ export async function registerTagRoutes(app: FastifyInstance): Promise<void> {
 
     // Search tags + include ZaloAccount cho FE render slug nick-prefix + filter theo nick.
     const limit = Math.min(req.query.limit ? parseInt(req.query.limit, 10) : 20, 500);
+    // Filter theo source ngay ở DB (2026-06-17) — tránh bug: client kéo limit tag rồi mới
+    // lọc manual_per_nick; nếu zalo_real (priority 1) ≥ limit thì manual bị đẩy khỏi response.
+    const sourceFilter = req.query.source && SOURCE_VALUES.has(req.query.source as TagSource)
+      ? (req.query.source as TagSource)
+      : undefined;
+
     const tags = await prisma.tag.findMany({
       where: {
         orgId: user.orgId,
         scope,
         archivedAt: null,
+        ...(sourceFilter ? { source: sourceFilter } : {}),
         ...(req.query.zaloAccountId ? { zaloAccountId: req.query.zaloAccountId } : {}),
         ...(req.query.q
           ? {

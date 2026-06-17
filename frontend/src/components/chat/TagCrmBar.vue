@@ -86,9 +86,9 @@
           />
         </div>
 
-        <div v-if="loading && !manualTagDefs.length" class="dd-state">Đang tải…</div>
+        <div v-if="defsLoading && !manualTagDefs.length" class="dd-state">Đang tải…</div>
         <div v-else-if="!filteredDefs.length && !search" class="dd-state">
-          <p>Chưa có tag riêng nào cho nick này.</p>
+          <p>Chưa có tag thủ công nào.</p>
           <p class="dd-hint">Gõ tên tag rồi Enter để tạo mới.</p>
         </div>
         <div v-else class="dd-list">
@@ -164,6 +164,7 @@ const router = useRouter();
 const friendTags = ref<FriendTagAssignment[]>([]);
 const manualTagDefs = ref<TagV2[]>([]);
 const loading = ref(false);
+const defsLoading = ref(false); // riêng cho fetch dropdown defs (tách khỏi loadFriendTags)
 
 // Load FriendTag junction (active) cho friendId hiện tại.
 async function loadFriendTags() {
@@ -180,15 +181,21 @@ async function loadFriendTags() {
 }
 
 // Load Tag(scope=friend, source=manual_per_nick) cho dropdown picker.
+// 2026-06-17 FIX: lọc source=manual_per_nick NGAY ở server. Trước đây kéo limit tag rồi
+// mới filter ở client → nếu org có ≥200 nhãn zalo_real (priority 1) thì manual_per_nick
+// (priority 2) bị đẩy khỏi response → dropdown rỗng dù tag manual có tồn tại.
 let fetchedDefsOnce = false;
 async function loadManualTagDefs() {
   if (fetchedDefsOnce) return;
+  defsLoading.value = true;
   try {
-    const { data } = await api.get('/tags', { params: { scope: 'friend', limit: 200 } });
+    const { data } = await api.get('/tags', { params: { scope: 'friend', source: 'manual_per_nick', limit: 200 } });
     manualTagDefs.value = (data.tags || []).filter((t: TagV2) => t.source === 'manual_per_nick');
     fetchedDefsOnce = true;
   } catch (err) {
     console.warn('[TagCrmBar] loadManualTagDefs failed', err);
+  } finally {
+    defsLoading.value = false;
   }
 }
 

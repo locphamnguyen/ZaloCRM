@@ -39,7 +39,8 @@ export async function friendRoutes(app: FastifyInstance) {
       limit = '25',
       search = '',
       sortBy = 'recent',
-    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string };
+      statusId = '',
+    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string };
     const user = request.user!;
     if (!await checkAccess(request, reply, accountId, 'read')) return;
     try {
@@ -50,6 +51,8 @@ export async function friendRoutes(app: FastifyInstance) {
 
       const where: any = { zaloAccountId: accountId, orgId: user.orgId };
       if (kind && kind !== 'all') where.relationshipKind = kind;
+      // Filter theo Trạng thái KH per-nick (Friend.statusId). '' = tất cả.
+      if (statusId) where.statusId = statusId;
       if (search.trim()) {
         const q = search.trim();
         // Phone fast path: normalize input canonical → exact match phoneNormalized
@@ -118,7 +121,8 @@ export async function friendRoutes(app: FastifyInstance) {
       limit = '25',
       search = '',
       sortBy = 'recent',
-    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string };
+      statusId = '',
+    } = request.query as { kind?: string; page?: string; limit?: string; search?: string; sortBy?: string; statusId?: string };
     try {
       // Phase Zalo Account Mutation Gate 2026-05-27: migrate sang getZaloScope
       // (helper cũ getAccessibleZaloAccountIds chỉ ACL+owned, KHÔNG cascade dept.
@@ -138,6 +142,8 @@ export async function friendRoutes(app: FastifyInstance) {
         zaloAccountId: { in: accessibleIds },
       };
       if (kind && kind !== 'all') where.relationshipKind = kind;
+      // Filter theo Trạng thái KH per-nick (Friend.statusId). '' = tất cả.
+      if (statusId) where.statusId = statusId;
       if (search.trim()) {
         const q = search.trim();
         const canonicalPhone = normalizePhone(q);

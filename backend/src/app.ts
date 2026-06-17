@@ -33,6 +33,8 @@ import { chatRoutes } from './modules/chat/chat-routes.js';
 import { folderRoutes } from './modules/chat/folder-routes.js';
 import { presetRoutes } from './modules/chat/preset-routes.js';
 import { chatAttachmentRoutes } from './modules/chat/chat-attachment-routes.js';
+import { deviceRoutes } from './modules/devices/device-routes.js';
+import { configRoutes } from './modules/config/config-routes.js';
 import { mediaRoutes } from './modules/media/media-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { statusRoutes } from './modules/contacts/status-routes.js';
@@ -53,6 +55,7 @@ import { zinstantProxyRoutes } from './modules/contacts/zinstant-proxy-routes.js
 import { dashboardRoutes } from './modules/dashboard/dashboard-routes.js';
 import { dashboardActionHubRoutes } from './modules/dashboard/dashboard-action-hub-routes.js';
 import { reportRoutes } from './modules/dashboard/report-routes.js';
+import { reportAnalyticsRoutes } from './modules/dashboard/report-analytics-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
 import { teamRoutes } from './modules/auth/team-routes.js';
 import { orgRoutes } from './modules/auth/org-routes.js';
@@ -232,6 +235,8 @@ async function bootstrap() {
   await app.register(folderRoutes);
   await app.register(presetRoutes);
   await app.register(chatAttachmentRoutes);
+  await app.register(deviceRoutes);
+  await app.register(configRoutes);
   await app.register(mediaRoutes);
   await app.register(contactRoutes);
   await app.register(statusRoutes);
@@ -269,6 +274,7 @@ async function bootstrap() {
   await app.register(dashboardRoutes);
   await app.register(dashboardActionHubRoutes);
   await app.register(reportRoutes);
+  await app.register(reportAnalyticsRoutes);
   await app.register(userRoutes);
   await app.register(teamRoutes);
   await app.register(orgRoutes);

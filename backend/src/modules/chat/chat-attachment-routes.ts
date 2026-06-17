@@ -23,12 +23,12 @@ import { logger } from '../../shared/utils/logger.js';
 // 2026-06-11 — createMediaMessage gộp 4 block message.create lặp (DRY, eng review E4).
 import { getUserFullName, createMediaMessage } from './chat-helpers.js';
 
-const IMAGE_MAX = 100 * 1024 * 1024;
-const VIDEO_MAX = 500 * 1024 * 1024;
-const FILE_MAX = 1024 * 1024 * 1024;
-const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-const ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/webm'];
-const ALLOWED_FILE = [
+export const IMAGE_MAX = 100 * 1024 * 1024;
+export const VIDEO_MAX = 500 * 1024 * 1024;
+export const FILE_MAX = 1024 * 1024 * 1024;
+export const ALLOWED_IMAGE = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+export const ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/webm'];
+export const ALLOWED_FILE = [
   'application/pdf',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',

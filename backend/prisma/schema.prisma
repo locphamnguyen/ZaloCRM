@@ -295,6 +295,8 @@ model User {
   aiSuggestionsApplied      AiSuggestionApplied[]
   // Phase 2 bảo mật 2026-06-08 — refresh token rotation
   refreshTokens             RefreshToken[]
+  // Mobile App 2026-06-15 — thiết bị nhận push (FCM/APNs)
+  devices                   Device[]
   // Phase FB Lead Ads "Form" 2026-06-09 — round-robin chia lead cho sale.
   customerListAssignments   CustomerListSaleAssignment[]
   // Phase Media Library 2026-06-11 — kho phương tiện (owner + người tạo).
@@ -836,6 +838,9 @@ model Message {
   // automationStepIndex = bước thứ mấy trong sequence (1,2,3...) cho per-step funnel M10.
   automationTaskId    String?   @map("automation_task_id")
   automationStepIndex Int?      @map("automation_step_index")
+  // Mobile App 2026-06-15 (BE-3) — idempotency: uuid app tự sinh, gửi 1 lần / 1 tin.
+  // Dedup TRƯỚC khi gửi sang Zalo (zaloMsgId chỉ có SAU khi Zalo trả về → quá muộn cho retry).
+  clientEchoId        String?   @map("client_echo_id")
   createdAt           DateTime  @default(now()) @map("created_at")
 
   conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -843,6 +848,8 @@ model Message {
   reactions    MessageReaction[]
 
   @@unique([conversationId, zaloMsgId])
+  // BE-3 idempotency — 1 echoId duy nhất / conversation. Multiple NULL cho phép (tin cũ).
+  @@unique([conversationId, clientEchoId])
   @@index([conversationId, albumKey])
   // Composite index cho sort theo Zalo Snowflake — primary order khi list messages.
   @@index([conversationId, zaloMsgIdNum(sort: Desc)])
@@ -913,6 +920,25 @@ model SystemNotifyRecipient {
   @@index([orgId, status])
   @@index([senderZaloAccountId, status])
   @@map("system_notify_recipients")
+}
+
+// Mobile App 2026-06-15 (BE-1) — thiết bị đăng ký nhận push notification.
+// 1 fcmToken = 1 hàng (unique). userId/orgId lấy từ JWT, KHÔNG nhận từ body.
+// deviceId ổn định theo máy (đổi token vẫn giữ) — dùng dọn token cũ cùng máy.
+model Device {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  orgId      String   @map("org_id")
+  fcmToken   String   @unique @map("fcm_token") // token Google FCM / Apple APNs
+  platform   String   // 'ios' | 'android'
+  deviceId   String   @map("device_id") // định danh máy (ổn định)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("devices")
 }
 
 model SystemNotification {

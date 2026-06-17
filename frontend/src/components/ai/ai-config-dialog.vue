@@ -28,7 +28,9 @@
         <v-text-field
           v-model="local.apiKey"
           label="API key"
-          type="password"
+          :type="showApiKey ? 'text' : 'password'"
+          :append-inner-icon="showApiKey ? 'mdi-eye-off' : 'mdi-eye'"
+          @click:append-inner="showApiKey = !showApiKey"
           autocomplete="off"
           :placeholder="currentProvider?.hasKey ? '•••• (để trống = giữ key hiện tại)' : 'Dán API key của provider'"
           hint="Key được mã hoá khi lưu. Để trống xoá key sẽ quay về cấu hình .env."
@@ -100,6 +102,7 @@ const modelOptions = ref<ProviderModel[]>([]);
 const loadingModels = ref(false);
 const modelsError = ref('');
 const savingProvider = ref(false);
+const showApiKey = ref(false);
 
 const local = reactive({ provider: 'openai', model: '', maxDaily: 500, enabled: true, baseUrl: '', apiKey: '' });
 

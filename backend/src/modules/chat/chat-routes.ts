@@ -1424,13 +1424,22 @@ export async function chatRoutes(app: FastifyInstance) {
     // 2026-05-21: thêm `styles` cho Zalo RTF (bold/italic/underline/strikethrough).
     // Format: [{st: 'b'|'i'|'u'|'s', start: number, len: number}, ...]
     // FE extract từ Tiptap editor JSON, BE pass thẳng vào api.sendMessage.
-    const { content, replyMessageId, styles } = request.body as {
+    const { content, replyMessageId, styles, echoId: echoIdRaw, clientMessageId } = request.body as {
       content: string;
       replyMessageId?: string;
       styles?: Array<{ st: string; start: number; len: number }>;
+      echoId?: string;
+      clientMessageId?: string;
     };
 
     if (!content?.trim()) return reply.status(400).send({ error: 'Content required' });
+
+    // 2026-06-15 IDEMPOTENCY: app outbox offline retry → khách nhận tin trùng.
+    // echoId (uuid app tự sinh) dedup TRƯỚC khi gửi Zalo. Field chính `echoId`,
+    // fallback `clientMessageId` cho app cũ. Null khi không gửi → backward compat.
+    const echoId = (typeof echoIdRaw === 'string' && echoIdRaw.trim())
+      ? echoIdRaw.trim()
+      : (typeof clientMessageId === 'string' && clientMessageId.trim() ? clientMessageId.trim() : null);
 
     const conversation = await prisma.conversation.findFirst({
       where: { id, orgId: user.orgId },
@@ -1540,6 +1549,23 @@ export async function chatRoutes(app: FastifyInstance) {
     }
 
     try {
+      // 2026-06-15 IDEMPOTENCY pre-check: nếu echoId đã tồn tại cho conversation này
+      // → tin đã gửi Zalo thành công ở lần trước (app retry vì mất response). KHÔNG
+      // gửi lại → trả về tin cũ (cùng shape) kèm echoId, coi như success.
+      if (echoId) {
+        const existing = await prisma.message.findUnique({
+          where: { conversationId_clientEchoId: { conversationId: id, clientEchoId: echoId } },
+          include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+        });
+        if (existing) {
+          return {
+            ...existing,
+            zaloMsgIdNum: existing.zaloMsgIdNum?.toString() ?? null,
+            echoId,
+          };
+        }
+      }
+
       const threadId = conversation.externalThreadId || '';
       // zca-js sendMessage(message, threadId, type) — type: 0=User, 1=Group
       const threadType = conversation.threadType === 'group' ? 1 : 0;
@@ -1592,27 +1618,50 @@ export async function chatRoutes(app: FastifyInstance) {
       // optimistic, KHÔNG cần đợi reload page.
       // Include repliedBy relation trong response → defense in depth nếu
       // FE đọc theo repliedBy.fullName.
-      const message = await prisma.message.create({
-        data: {
-          id: randomUUID(),
-          conversationId: id,
-          zaloMsgId: zaloMsgId || null,
-          zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
-          senderType: 'self',
-          senderUid: conversation.zaloAccount.zaloUid || '',
-          senderName: 'Staff',
-          content: persistedContent,
-          contentType: persistedContentType,
-          quote: quote ?? undefined,
-          sentAt: new Date(),
-          repliedByUserId: user.id,
-          sentVia: 'user',
-          metadata: {
-            sender: { kind: 'user_crm', name: await getUserFullName(user.id) },
+      let message;
+      try {
+        message = await prisma.message.create({
+          data: {
+            id: randomUUID(),
+            conversationId: id,
+            zaloMsgId: zaloMsgId || null,
+            zaloMsgIdNum: zaloMsgId && /^\d+$/.test(zaloMsgId) ? BigInt(zaloMsgId) : null,
+            senderType: 'self',
+            senderUid: conversation.zaloAccount.zaloUid || '',
+            senderName: 'Staff',
+            content: persistedContent,
+            contentType: persistedContentType,
+            quote: quote ?? undefined,
+            sentAt: new Date(),
+            repliedByUserId: user.id,
+            sentVia: 'user',
+            // 2026-06-15 IDEMPOTENCY: lưu echoId để dedup retry lần sau (null nếu app cũ).
+            clientEchoId: echoId,
+            metadata: {
+              sender: { kind: 'user_crm', name: await getUserFullName(user.id) },
+            },
           },
-        },
-        include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
-      });
+          include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+        });
+      } catch (createErr) {
+        // 2026-06-15 IDEMPOTENCY RACE: 2 request cùng echoId chạy ~đồng thời → create
+        // thứ 2 ném P2002 (unique violation conversationId_clientEchoId). Đã gửi Zalo
+        // rồi nhưng tin đã được request kia lưu → query lại tin đó & trả về, KHÔNG 500.
+        if (echoId && (createErr as { code?: string })?.code === 'P2002') {
+          const winner = await prisma.message.findUnique({
+            where: { conversationId_clientEchoId: { conversationId: id, clientEchoId: echoId } },
+            include: { repliedBy: { select: { id: true, fullName: true, email: true } } },
+          });
+          if (winner) {
+            return {
+              ...winner,
+              zaloMsgIdNum: winner.zaloMsgIdNum?.toString() ?? null,
+              echoId,
+            };
+          }
+        }
+        throw createErr;
+      }
 
       await prisma.conversation.update({
         where: { id },
@@ -1635,7 +1684,9 @@ export async function chatRoutes(app: FastifyInstance) {
 
       // FIX 2026-05-21: BigInt zaloMsgIdNum không serialize được trong socket.io + JSON.
       // Cast trước khi emit + return.
-      const safeMessage = { ...message, zaloMsgIdNum: message.zaloMsgIdNum?.toString() ?? null };
+      // 2026-06-15 IDEMPOTENCY: kèm echoId vào response + socket payload (chat:message)
+      // để app khớp tin optimistic. null khi app cũ không gửi echoId.
+      const safeMessage = { ...message, zaloMsgIdNum: message.zaloMsgIdNum?.toString() ?? null, echoId };
       const io = (app as any).io as Server;
       // PRIVACY 2026-06-11: redact server-side + scope org (emit-chat). Nick main →
       // room org nhận bản mờ, chính chủ đã unlock nhận bản thật ở room riêng.
@@ -1647,6 +1698,9 @@ export async function chatRoutes(app: FastifyInstance) {
         message: safeMessage,
         privacyMode: conversation.zaloAccount.privacyMode,
         ownerUserId: conversation.zaloAccount.ownerUserId,
+        // 2026-06-15 IDEMPOTENCY: echoId ở top-level payload (ngoài message) để app
+        // khớp tin optimistic kể cả khi message bị redact (nick Riêng tư).
+        ...(echoId ? { extra: { echoId } } : {}),
       });
 
       return safeMessage;

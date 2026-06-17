@@ -1484,32 +1484,47 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
     // "🔶 Tạm dừng (còn Xh Ym)" + đếm ngược; pauseReason để phân biệt KH Reply vs
     // Tạm dừng. Reason suy từ event log gần nhất của contact (customer_reply /
     // customer_reaction_negative / manual_pause). Best-effort: lỗi Redis → bỏ qua.
-    const pauseByContact = new Map<string, { remainingMs: number; reason: string }>();
+    const pauseByContact = new Map<
+      string,
+      { remainingMs: number; reason: string; stopReason: string | null; stopByName: string | null }
+    >();
     if (contactIds.length > 0) {
       // Lấy event log gần nhất liên quan pause cho từng contact (1 query gộp).
+      // 2026-06-17 — thêm 'manual_stop': KH bị Dừng tay set pause "vĩnh viễn"
+      // (24×365h) nhưng trước đây KHÔNG nằm trong set này → dashboard rớt về nhãn cũ
+      // (KH Reply) + in thẳng đồng hồ ~8760h. Nay manual_stop → reason 'stopped'
+      // (đồng bộ semantics manual-control-routes). KHÔNG thêm customer_block: đã
+      // short-circuit "KH Block" ở FE trước nhánh pause → map reason cho block là data chết.
       const pauseEvents = await prisma.automationEventLog.findMany({
         where: {
           triggerId: trigger.id,
           contactId: { in: contactIds },
-          eventType: { in: ['customer_reply', 'customer_reaction_negative', 'manual_pause', 'nick_hold_reset'] },
+          eventType: {
+            in: ['customer_reply', 'customer_reaction_negative', 'manual_pause', 'nick_hold_reset', 'manual_stop'],
+          },
         },
         orderBy: { createdAt: 'desc' },
-        select: { contactId: true, eventType: true },
+        select: { contactId: true, eventType: true, detail: true },
       });
-      const reasonByContact = new Map<string, string>();
+      // first-wins-newest: manual_stop (mới) thắng customer_reply (cũ) cho cùng contact.
+      const reasonByContact = new Map<string, { reason: string; detail: string | null }>();
       for (const ev of pauseEvents) {
         if (ev.contactId && !reasonByContact.has(ev.contactId)) {
-          reasonByContact.set(ev.contactId, ev.eventType);
+          const reason = ev.eventType === 'manual_stop' ? 'stopped' : ev.eventType;
+          reasonByContact.set(ev.contactId, { reason, detail: ev.detail ?? null });
         }
       }
+      const rawByContact = new Map<string, { remainingMs: number; reason: string; detail: string | null }>();
       await Promise.all(
         contactIds.map(async (cid) => {
           try {
             const remainingMs = await getContactPauseRemaining(trigger.id, cid);
             if (remainingMs > 0) {
-              pauseByContact.set(cid, {
+              const r = reasonByContact.get(cid);
+              rawByContact.set(cid, {
                 remainingMs,
-                reason: reasonByContact.get(cid) ?? 'manual_pause',
+                reason: r?.reason ?? 'manual_pause',
+                detail: r?.detail ?? null,
               });
             }
           } catch {
@@ -1517,6 +1532,37 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
           }
         }),
       );
+      // E1 2026-06-17 — với reason 'stopped', parse detail "by <uid>, reason: <text>"
+      // (event-hooks onManualStop) → lý do + người bấm; resolve uid→user.fullName (1 query gộp).
+      const stopByUserId = new Map<string, string>(); // cid → byUserId
+      const stopReasonByContact = new Map<string, string | null>();
+      for (const [cid, v] of rawByContact) {
+        if (v.reason !== 'stopped' || !v.detail) continue;
+        const m = v.detail.match(/^by\s+([^,]+),\s*reason:\s*([\s\S]*)$/);
+        if (m) {
+          const uid = m[1].trim();
+          if (uid) stopByUserId.set(cid, uid);
+          stopReasonByContact.set(cid, m[2].trim() || null);
+        }
+      }
+      const userNameById = new Map<string, string>();
+      const uniqueUserIds = [...new Set(stopByUserId.values())];
+      if (uniqueUserIds.length > 0) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: uniqueUserIds } },
+          select: { id: true, fullName: true },
+        });
+        for (const u of users) userNameById.set(u.id, u.fullName);
+      }
+      for (const [cid, v] of rawByContact) {
+        const uid = stopByUserId.get(cid);
+        pauseByContact.set(cid, {
+          remainingMs: v.remainingMs,
+          reason: v.reason,
+          stopReason: stopReasonByContact.get(cid) ?? null,
+          stopByName: uid ? userNameById.get(uid) ?? uid : null,
+        });
+      }
     }
 
     const entries = entriesRaw.map((e) => {
@@ -1576,6 +1622,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         //   nick_hold_reset → 🔶 Tạm dừng. null = không pause.
         pauseRemainingMs: e.contactId ? pauseByContact.get(e.contactId)?.remainingMs ?? null : null,
         pauseReason: e.contactId ? pauseByContact.get(e.contactId)?.reason ?? null : null,
+        // E1 2026-06-17 — lý do dừng + tên người bấm (chỉ có khi reason='stopped').
+        pauseStopReason: e.contactId ? pauseByContact.get(e.contactId)?.stopReason ?? null : null,
+        pauseStopByName: e.contactId ? pauseByContact.get(e.contactId)?.stopByName ?? null : null,
         // Wave 3 Day 5 — ISO string cho FE timeline sort + "cập nhật lần cuối" column.
         updatedAt: e.updatedAt.toISOString(),
       };

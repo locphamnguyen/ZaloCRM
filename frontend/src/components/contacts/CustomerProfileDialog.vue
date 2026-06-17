@@ -200,6 +200,125 @@
                   </div>
                 </div>
               </div>
+
+              <!-- ════ P2: Bảng attribute đầy đủ (read-only, xem 360°) ════ -->
+              <div v-if="!isCreate" class="cpd-attr">
+                <!-- Lead score breakdown 4 chiều -->
+                <div v-if="hasScoreBd" class="attr-card full">
+                  <h4 class="attr-h"><span class="ic">📊</span> Lead Score — {{ Math.round((c?.displayLeadScore ?? c?.leadScore) || 0) }}/100 (4 chiều)</h4>
+                  <div class="bd-row">
+                    <div v-for="b in scoreBd" :key="b.key" class="bd-it">
+                      <div class="bd-l">{{ b.label }} <b>{{ Math.round(b.val) }}</b></div>
+                      <div class="bd-t"><i :style="{ width: Math.min(100, b.val) + '%', background: b.color }"></i></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Bảng biến cá nhân hóa: Nhãn | hàm {code} (bấm copy) | giá trị thật của khách -->
+                <div class="attr-tablewrap">
+                  <div class="attr-tbhead">
+                    <h4 class="attr-h"><span class="ic">🧬</span> Biến cá nhân hóa — bấm <code class="hh">{mã}</code> để copy chèn tin</h4>
+                    <label v-if="friends.length" class="attr-nicksel" title="Biến ● đổi giá trị theo nick này">
+                      Nick:
+                      <select v-model="attrNickId" class="cpd-in sm">
+                        <option :value="null">— Nick chính —</option>
+                        <option v-for="f in sortedFriends" :key="f.id" :value="f.id">
+                          {{ friendName(f) }}<span v-if="(f as any).zaloUidInNick"> · {{ (f as any).zaloUidInNick }}</span>
+                        </option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <table class="attr-tb">
+                    <colgroup><col class="c-lbl" /><col class="c-code" /><col class="c-val" /></colgroup>
+                    <thead>
+                      <tr><th>Thuộc tính</th><th>Hàm gọi</th><th>Giá trị của khách này</th></tr>
+                    </thead>
+                    <tbody>
+                      <template v-for="g in attrGroups" :key="g.group">
+                        <tr class="attr-grp"><td colspan="3">{{ g.group }}</td></tr>
+                        <tr v-for="it in g.items" :key="it.code" class="attr-itrow">
+                          <td class="attr-lbl">{{ it.label }}<span v-if="it.pernick" class="pn-dot" title="Đổi theo nick đang chọn">●</span></td>
+                          <td class="attr-code">
+                            <button type="button" class="codechip" :title="'Copy ' + it.code" @click="copyAttr(it.code)">{{ it.code }}</button>
+                          </td>
+                          <td class="attr-val">
+                            <span v-if="it.value" class="av-real">{{ it.value }}</span>
+                            <span v-else class="dim">— trống —</span>
+                          </td>
+                        </tr>
+                      </template>
+
+                      <!-- Ngoài 36 biến (không chèn được vào tin) — cùng style bảng -->
+                      <tr class="attr-grp"><td colspan="3">🪪 Định danh Cha (ngoài biến)</td></tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Global ID</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloGlobalId" class="mono">{{ cc.zaloGlobalId }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Username</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloUsername" class="mono">{{ cc.zaloUsername }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">UID</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span class="dim">per-nick → xem bảng trên / tab "Nick chăm"</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Có Zalo?</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span class="zpill" :class="zaloPillClass">{{ zaloPillText }}</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Lần tra cuối</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.zaloLookupAt">{{ formatDate(cc.zaloLookupAt) }}<span v-if="cc.zaloLookupAttempts" class="dim"> · {{ cc.zaloLookupAttempts }} lần</span></span><span v-else class="dim">—</span></td>
+                      </tr>
+
+                      <tr class="attr-grp"><td colspan="3">⚙ Hệ thống & nguồn (ngoài biến)</td></tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Consent</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.consentStatus">{{ cc.consentStatus }}<span v-if="cc.consentSource" class="dim"> · {{ cc.consentSource }}</span></span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Ngày nguồn</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.sourceDate">{{ formatDate(cc.sourceDate) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Tổng lịch hẹn</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val">{{ cc.totalAppointments ?? 0 }}</td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Tạo lúc</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.createdAt">{{ formatDate(cc.createdAt) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Cập nhật</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.updatedAt">{{ formatDate(cc.updatedAt) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Liên hệ đầu</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val"><span v-if="cc.firstContactDate">{{ formatDate(cc.firstContactDate) }}</span><span v-else class="dim">—</span></td>
+                      </tr>
+                      <tr class="attr-itrow">
+                        <td class="attr-lbl">Vào pool</td>
+                        <td class="attr-code"><span class="nocode">—</span></td>
+                        <td class="attr-val">{{ cc.pooledCount ?? 0 }} lần</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div class="attr-foot">💡 36 biến dùng chung cho ô chat · mẫu tin · Khối · Sequence. Cột giá trị lấy thật từ hồ sơ khách + nick đang chọn (khớp lúc render tin). Nhóm "ngoài biến" là thông tin hệ thống, không chèn vào tin.</div>
+                </div>
+              </div>
+
               <div v-if="!isCreate" class="cpd-aggnote">
                 💡 Field gắn nhãn <span class="agg">tổng hợp</span> tự cập nhật từ các nick chăm (tab "Nick chăm").
                 Thông tin cá nhân sửa trực tiếp tại đây, lưu vào hồ sơ tổng.
@@ -229,6 +348,7 @@
                   </div>
                   <div class="s-r s-r2">
                     <span class="s-sale">Sale <b>{{ ownerName(f) }}</b></span>
+                    <span v-if="(f as any).zaloUidInNick" class="s-uid" :title="'UID Zalo của KH nhìn từ nick này'">🆔 {{ (f as any).zaloUidInNick }}</span>
                     <span v-if="f.statusRef" class="chip" :style="{ background: (f.statusRef.color || '#5a6478') + '22', color: f.statusRef.color || '#5a6478' }">{{ f.statusRef.name }}</span>
                     <span v-for="tag in friendTags(f)" :key="tag" class="ftag ft-manual">{{ tag }}</span>
                     <span class="s-meta">
@@ -309,6 +429,7 @@ import { useToast } from '@/composables/use-toast';
 import { formatRecentDateTime, cleanPreview } from '@/composables/use-contacts';
 import PrivateBlur from '@/components/privacy/PrivateBlur.vue';
 import TagCrmBar from '@/components/chat/TagCrmBar.vue';
+import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
 import type { Contact } from '@/composables/use-contacts';
 
 const props = withDefaults(defineProps<{
@@ -339,6 +460,19 @@ type TabKey = 'overview' | 'nicks' | 'timeline' | 'notes';
 const activeTab = ref<TabKey>('overview');
 
 const c = ref<Contact | null>(null);
+// P2 Hồ sơ — cast gọn để bind các attribute read-only (field có sẵn từ API full-row).
+const cc = computed<Record<string, any>>(() => (c.value ?? {}) as any);
+// Lead score breakdown 4 chiều (engagement/intent/fit/velocity) từ aggregateBreakdown.
+const scoreBd = computed(() => {
+  const b = cc.value.aggregateBreakdown || {};
+  return [
+    { key: 'engagement', label: 'Tương tác', val: Number(b.engagement ?? 0), color: '#1786be' },
+    { key: 'intent',     label: 'Ý định mua', val: Number(b.intent ?? 0),     color: '#ec4899' },
+    { key: 'fit',        label: 'Phù hợp',    val: Number(b.fit ?? 0),        color: '#12b76a' },
+    { key: 'velocity',   label: 'Tốc độ',     val: Number(b.velocity ?? 0),   color: '#f5a524' },
+  ];
+});
+const hasScoreBd = computed(() => scoreBd.value.some((x) => x.val > 0));
 const loading = ref(false);
 const error = ref<string | null>(null);
 const saving = ref(false);
@@ -702,6 +836,90 @@ function formatVnPhone(phone: string | null | undefined): string {
   if (s.length === 10) return s.slice(0, 4) + ' ' + s.slice(4, 7) + ' ' + s.slice(7);
   return phone;
 }
+
+// ════════ P4: Bảng biến cá nhân hóa (per-khách) ════════
+// Map 36 biến {code} → giá trị THẬT của khách đang xem. Mirror đúng resolveVars
+// (BE render-template.ts) để giá trị khớp với lúc render tin. Biến per-nick
+// đổi theo nick chọn ở selector (mặc định nick chính / đang chăm).
+const attrNickId = ref<string | null>(null);
+const attrFriend = computed<any | null>(() => {
+  const list = friends.value;
+  if (!list.length) return null;
+  const id = attrNickId.value || activeFriendId.value;
+  return list.find((f) => f.id === id) || list[0] || null;
+});
+
+function firstWordU(s: string) { const p = (s || '').trim().split(/\s+/).filter(Boolean); return p[0] || ''; }
+function lastWordU(s: string) { const p = (s || '').trim().split(/\s+/).filter(Boolean); return p.length ? p[p.length - 1] : ''; }
+const KB_LABEL_U: Record<string, string> = {
+  friend: 'Đã kết bạn', pending_friend: 'Đã gửi mời', chatting_stranger: 'Đang nhắn lạ', ghost: 'Đã ngắt', none: 'Người lạ',
+};
+
+// Giá trị từng biến — keyed theo code KHÔNG ngoặc ({name}→name). '' = trống.
+const attrValues = computed<Record<string, string>>(() => {
+  const ct: any = c.value || {};
+  const f: any = attrFriend.value || null;
+  const fullName = (ct.fullName ?? '').trim();
+  const crmFull = ((f?.aliasInNick ?? '').trim()) || fullName;
+  const age = ct.birthYear ? String(new Date().getFullYear() - ct.birthYear) : (ageOf.value != null ? String(ageOf.value) : '');
+  const fmt = (iso: any) => (iso ? formatDate(iso) : '');
+  return {
+    gender: ct.gender === 'female' ? 'Chị' : ct.gender === 'male' ? 'Anh' : 'Anh Chị',
+    name: lastWordU(fullName) || 'Anh Chị',
+    name_full: fullName || 'Anh Chị',
+    name_first: firstWordU(fullName),
+    crm_full: crmFull || 'Anh Chị',
+    crm_first: firstWordU(crmFull) || 'Anh Chị',
+    crm_last: lastWordU(crmFull) || 'Anh Chị',
+    phone: ct.phone ?? '',
+    email: ct.email ?? '',
+    facebook: ct.socialFacebook ?? '',
+    tiktok: ct.socialTiktok ?? '',
+    age,
+    occupation: ct.occupation ?? '',
+    province: ct.province ?? '',
+    district: ct.district ?? '',
+    ward: ct.ward ?? '',
+    address: ct.addressLine ?? '',
+    income: ct.incomeRange ?? '',
+    status: ct.statusRef?.name ?? ct.displayStatus?.name ?? '',
+    nick_status: f?.statusRef?.name ?? '',
+    source: ct.source ?? '',
+    next_appt: fmt(ct.nextAppointment),
+    score: ct.leadScore != null ? String(ct.leadScore) : '',
+    first_active: fmt(ct.firstContactDate),
+    last_active: fmt(ct.lastActivity ?? ct.lastInteractionAt),
+    last_message: (ct.lastInboundPreview ?? '').trim(),
+    last_inbound: fmt(ct.lastInboundAt),
+    last_outbound: fmt(ct.lastOutboundAt),
+    last_interaction: fmt(ct.lastInteractionAt),
+    msg_count: f ? `${f.totalInbound ?? 0}/${f.totalOutbound ?? 0}` : '',
+    uid: f?.zaloUidInNick ?? '',
+    nick_name: f?.zaloAccount?.displayName ?? f?.zaloDisplayName ?? '',
+    kb_status: f ? (KB_LABEL_U[f.relationshipKind] ?? '') : '',
+    became_friend: fmt(f?.becameFriendAt),
+    sale: lastWordU(f?.zaloAccount?.owner?.fullName ?? '') || '',
+    sale_full: f?.zaloAccount?.owner?.fullName ?? '',
+  };
+});
+
+// Gom 36 biến theo nhóm `cat` (giữ thứ tự catalog); pernick → 1 nhóm riêng.
+const attrGroups = computed(() => {
+  const order: string[] = [];
+  const map: Record<string, Array<{ code: string; label: string; value: string; pernick: boolean }>> = {};
+  for (const v of TEMPLATE_VARIABLES) {
+    const grp = v.cat === 'pernick' ? 'Theo nick đang chọn' : (v.cat || 'Khác');
+    if (!map[grp]) { map[grp] = []; order.push(grp); }
+    const key = v.code.replace(/[{}]/g, '');
+    map[grp].push({ code: v.code, label: v.label, value: attrValues.value[key] ?? '', pernick: v.cat === 'pernick' });
+  }
+  return order.map((g) => ({ group: g, items: map[g] }));
+});
+
+async function copyAttr(code: string) {
+  try { await navigator.clipboard.writeText(code); toast.success(`Đã copy ${code}`); }
+  catch { toast.warning(`Copy thủ công: ${code}`); }
+}
 </script>
 
 <style scoped>
@@ -800,6 +1018,51 @@ function formatVnPhone(phone: string | null | undefined): string {
 .tag-add-in { border: 1px dashed var(--smax-grey-300); border-radius: 9px; padding: 1px 8px; font-size: 11px; width: 80px; font-family: inherit; }
 .tag-add-in:focus { outline: none; border-color: var(--smax-primary); }
 .cpd-aggnote { margin-top: 14px; font-size: 11.5px; color: var(--smax-grey-700); background: #f7f9fc; border: 1px solid var(--smax-grey-200); border-radius: 7px; padding: 9px 13px; }
+
+/* ── P2 Hồ sơ: bảng attribute đầy đủ (HS theme) ── */
+.cpd-attr { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.attr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.attr-card { border: 1px solid var(--line, #e7eaf0); border-radius: var(--r-md, 10px); overflow: hidden; background: var(--surface, #fff); }
+.attr-card.full { grid-column: 1 / -1; }
+.attr-h { margin: 0; padding: 9px 13px; font-size: 12px; font-weight: 700; color: var(--brand-700, #0b5880); background: var(--surface-2, #f7f9fc); border-bottom: 1px solid var(--line, #e7eaf0); display: flex; align-items: center; gap: 7px; }
+.attr-h .ic { font-size: 13px; }
+.dim { color: var(--ink-4, #97a0b3); }
+/* nhóm "ngoài biến" gộp vào bảng: mono ID + ô "không có hàm" (—) đồng nhất với .attr-* */
+.attr-val .mono { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11.5px; color: var(--ink-2, #475066); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
+.attr-code .nocode { color: var(--ink-4, #97a0b3); font-size: 11px; }
+/* Score breakdown 4 chiều */
+.bd-row { display: flex; gap: 16px; flex-wrap: wrap; padding: 12px 13px; }
+.bd-it { display: flex; flex-direction: column; gap: 5px; min-width: 110px; flex: 1; }
+.bd-l { font-size: 11px; color: var(--ink-3, #6b7488); font-weight: 600; display: flex; justify-content: space-between; }
+.bd-l b { font-family: var(--mono, monospace); color: var(--ink, #141a24); }
+.bd-t { height: 6px; border-radius: 3px; background: var(--line, #e7eaf0); overflow: hidden; }
+.bd-t i { display: block; height: 100%; border-radius: 3px; transition: width .3s; }
+
+/* ════ P4: Bảng biến cá nhân hóa (Nhãn | {code} | giá trị thật) ════ */
+.attr-tablewrap { border: 1px solid var(--line, #e7eaf0); border-radius: var(--r-md, 10px); overflow: hidden; background: var(--surface, #fff); }
+.attr-tbhead { display: flex; align-items: center; gap: 10px; background: var(--surface-2, #f7f9fc); border-bottom: 1px solid var(--line, #e7eaf0); padding-right: 12px; }
+.attr-tbhead .attr-h { flex: 1; border-bottom: 0; background: none; }
+.attr-h .hh { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 10.5px; background: var(--brand-soft, #e4f1f8); color: var(--brand-700, #0b5880); padding: 0 5px; border-radius: 4px; }
+.attr-nicksel { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-3, #6b7488); font-weight: 600; white-space: nowrap; }
+.cpd-in.sm { height: 28px; padding: 0 8px; font-size: 12px; border: 1px solid var(--line, #e7eaf0); border-radius: 6px; background: var(--surface, #fff); color: var(--ink, #141a24); max-width: 200px; }
+.attr-tb { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.attr-tb col.c-lbl { width: 34%; } .attr-tb col.c-code { width: 26%; } .attr-tb col.c-val { width: 40%; }
+.attr-tb thead th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-4, #97a0b3); font-weight: 700; padding: 7px 13px; border-bottom: 1px solid var(--line, #e7eaf0); background: var(--surface, #fff); }
+.attr-grp td { background: var(--surface-3, #f1f4f9); color: var(--ink-3, #6b7488); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; padding: 5px 13px; }
+.attr-itrow { border-bottom: 1px solid var(--line-2, #eef1f6); }
+.attr-itrow:hover { background: var(--surface-2, #f7f9fc); }
+.attr-lbl { padding: 6px 13px; color: var(--ink-2, #475066); font-weight: 600; }
+.pn-dot { color: var(--brand, #1786be); font-size: 8px; margin-left: 5px; vertical-align: 1px; }
+.attr-code { padding: 5px 13px; }
+.codechip { font-family: var(--mono, 'Roboto Mono', monospace); font-size: 11px; color: var(--brand-700, #0b5880); background: var(--brand-soft, #e4f1f8); border: 1px solid transparent; border-radius: 5px; padding: 2px 7px; cursor: pointer; transition: background .12s, border-color .12s; }
+.codechip:hover { background: var(--brand, #1786be); color: #fff; border-color: var(--brand, #1786be); }
+.codechip:active { transform: translateY(1px); }
+.attr-val { padding: 6px 13px; color: var(--ink, #141a24); word-break: break-word; }
+.attr-val .av-real { font-weight: 500; }
+.attr-foot { padding: 8px 13px; font-size: 11px; color: var(--ink-4, #97a0b3); background: var(--surface-2, #f7f9fc); border-top: 1px solid var(--line, #e7eaf0); }
+
+/* UID per-nick ở tab Nick chăm */
+.s-uid { font-family: var(--mono, monospace); font-size: 10.5px; color: var(--ink-3, #6b7488); background: var(--surface-3, #f1f4f9); padding: 1px 6px; border-radius: 5px; }
 
 /* Nick strip (lai ①+② đã chốt) */
 .deck-head { font-size: 11px; text-transform: uppercase; color: var(--smax-grey-700); font-weight: 700; margin-bottom: 9px; }

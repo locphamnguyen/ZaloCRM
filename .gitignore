@@ -40,3 +40,6 @@ frontend/public/mockups/
 frontend/.capture-submit.js
 CLAUDE.md
 _chat_ui_backups/
+
+# Firebase service account & secrets (KHÔNG commit)
+secrets/

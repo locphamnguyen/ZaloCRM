@@ -103,8 +103,8 @@ void ONE_WEEK_AGO;
 <style scoped>
 .smart-hints {
   padding: 8px 20px 0;
-  background: #fff;
-  border-bottom: 1px solid #e4e8ef;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
 }
 .hint-row {
   display: flex;
@@ -114,16 +114,16 @@ void ONE_WEEK_AGO;
 }
 .hint-chip {
   display: inline-flex; align-items: center; gap: 6px;
-  background: #fef3c7; color: #78350f;
+  background: var(--warning-soft); color: #78350f;
   border: 1px solid #fbbf24;
-  padding: 4px 10px; border-radius: 12px;
+  padding: 4px 10px; border-radius: var(--r-pill);
   font-size: 11.5px; font-weight: 600;
   cursor: pointer; font-family: inherit;
 }
 .hint-chip:hover { background: #fde68a; }
-.hint-chip.success { background: #dcfce7; color: #166534; border-color: #4ade80; }
+.hint-chip.success { background: var(--success-soft); color: #166534; border-color: #4ade80; }
 .hint-chip.success:hover { background: #bbf7d0; }
-.hint-chip.danger { background: #fee2e2; color: #991b1b; border-color: #f87171; }
+.hint-chip.danger { background: var(--error-soft); color: #991b1b; border-color: #f87171; }
 .hint-chip.danger:hover { background: #fecaca; }
 .hint-chip.info { background: #dbeafe; color: #1e40af; border-color: #60a5fa; }
 .hint-chip.info:hover { background: #bfdbfe; }

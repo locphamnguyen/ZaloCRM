@@ -26,12 +26,19 @@
 
             <div class="fb-form-row">
               <label>FB App Secret</label>
-              <input
-                v-model="form.appSecret"
-                type="password"
-                autocomplete="new-password"
-                :placeholder="config?.hasAppSecret ? '•••••••• (đã lưu — để trống nếu giữ nguyên)' : 'App Secret'"
-              />
+              <div class="pw-wrap">
+                <input
+                  v-model="form.appSecret"
+                  :type="showAppSecret ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  :placeholder="config?.hasAppSecret ? '•••••••• (đã lưu — để trống nếu giữ nguyên)' : 'App Secret'"
+                />
+                <button type="button" class="pw-eye" tabindex="-1"
+                        :aria-label="showAppSecret ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                        @click="showAppSecret = !showAppSecret">
+                  <EyeOff v-if="showAppSecret" :size="17" /><Eye v-else :size="17" />
+                </button>
+              </div>
               <div class="fb-form-hint">Meta App Dashboard → Settings → Basic → App Secret (Show).</div>
             </div>
 
@@ -45,12 +52,19 @@
 
             <div class="fb-form-row">
               <label>Token Encryption Key</label>
-              <input
-                v-model="form.tokenEncKey"
-                type="password"
-                autocomplete="new-password"
-                :placeholder="config?.hasTokenEncKey ? '•••••••• (đã lưu — để trống nếu giữ nguyên)' : '64 ký tự hex'"
-              />
+              <div class="pw-wrap">
+                <input
+                  v-model="form.tokenEncKey"
+                  :type="showTokenEncKey ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  :placeholder="config?.hasTokenEncKey ? '•••••••• (đã lưu — để trống nếu giữ nguyên)' : '64 ký tự hex'"
+                />
+                <button type="button" class="pw-eye" tabindex="-1"
+                        :aria-label="showTokenEncKey ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                        @click="showTokenEncKey = !showTokenEncKey">
+                  <EyeOff v-if="showTokenEncKey" :size="17" /><Eye v-else :size="17" />
+                </button>
+              </div>
               <div class="fb-form-hint">
                 Sinh bằng <code>openssl rand -hex 32</code> (64 ký tự hex) để mã hoá access token.
               </div>
@@ -72,6 +86,7 @@
 
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue';
+import { Eye, EyeOff } from 'lucide-vue-next';
 import { useToast } from '@/composables/use-toast';
 import { getConfig, putConfig, type FacebookConfigDto } from '@/api/facebook-api';
 
@@ -86,6 +101,8 @@ const loading = ref(false);
 const saving = ref(false);
 const errorMsg = ref('');
 const config = ref<FacebookConfigDto | null>(null);
+const showAppSecret = ref(false);
+const showTokenEncKey = ref(false);
 
 const form = reactive({
   appId: '',
@@ -179,6 +196,16 @@ watch(
   font-family: inherit;
 }
 .fb-form-hint { font-size: 11.5px; color: #6b7280; }
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 40px; width: 100%; box-sizing: border-box; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; margin: 0;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ink-4, #97a0b3); border-radius: 6px;
+}
+.pw-eye:hover { color: var(--ink-2, #475066); background: rgba(0,0,0,.04); }
 .fb-form-hint code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-family: monospace; color: #0f172a; }
 .fb-form-err {
   background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;

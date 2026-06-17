@@ -12,6 +12,7 @@ import { detectContentType, extractAlbumInfo, updateContactAvatar } from './zalo
 import { handleFriendEvent } from './friend-event-handler.js';
 import { consumeIfExpected as consumeReactionEcho } from '../chat/reaction-echo-cache.js';
 import { emitChatMessage } from '../../shared/realtime/emit-chat.js';
+import { notifyNewInboundMessage } from '../push/push-service.js';
 
 // Map Zalo Reactions enum code → display emoji (cùng map với chat-operations-routes)
 const ZALO_REACTION_DISPLAY: Record<string, string> = {
@@ -679,6 +680,22 @@ export function attachZaloListener(ctx: ListenerContext): void {
           privacyMode: accInfo?.privacyMode ?? 'sub',
           ownerUserId: accInfo?.ownerUserId ?? null,
         });
+
+        // Push mobile (FCM/APNs) — CHỈ tin KHÁCH gửi đến (inbound). Tin tự gửi/self bỏ qua.
+        // Fire-and-forget: push fail KHÔNG được ảnh hưởng nhận/lưu/emit tin.
+        if (!message.isSelf) {
+          void notifyNewInboundMessage({
+            orgId: result.orgId,
+            conversationId: result.conversationId,
+            zaloAccountId: accountId,
+            privacyMode: accInfo?.privacyMode ?? 'sub',
+            ownerUserId: accInfo?.ownerUserId ?? null,
+            message: result.message,
+            senderName,
+          }).catch((err) =>
+            logger.error(`[zalo:${accountId}] push notify error:`, err),
+          );
+        }
       }
     } catch (err) {
       logger.error(`[zalo:${accountId}] Message handler error:`, err);

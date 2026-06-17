@@ -85,11 +85,11 @@
         />
 
         <div class="stats">
-          <div class="stat good">🟢 Đã KB: <strong>{{ friendCounts.friend ?? 0 }}</strong></div>
-          <div class="stat warn">🟡 Đang chờ: <strong>{{ friendCounts.pending_friend ?? 0 }}</strong></div>
-          <div class="stat">🔵 Đang nhắn lạ: <strong>{{ friendCounts.chatting_stranger ?? 0 }}</strong></div>
-          <div class="stat">⚪ Đã ngắt: <strong>{{ friendCounts.ghost ?? 0 }}</strong></div>
-          <div v-if="silentCount > 0" class="stat bad">⚠ Im lặng &gt; 7d: <strong>{{ silentCount }}</strong></div>
+          <div class="stat good"><span class="sdot ok"></span>Đã KB: <strong>{{ friendCounts.friend ?? 0 }}</strong></div>
+          <div class="stat warn"><span class="sdot warn"></span>Đang chờ: <strong>{{ friendCounts.pending_friend ?? 0 }}</strong></div>
+          <div class="stat"><span class="sdot info"></span>Đang nhắn lạ: <strong>{{ friendCounts.chatting_stranger ?? 0 }}</strong></div>
+          <div class="stat"><span class="sdot mut"></span>Đã ngắt: <strong>{{ friendCounts.ghost ?? 0 }}</strong></div>
+          <div v-if="silentCount > 0" class="stat bad"><span class="sdot err"></span>Im lặng &gt; 7d: <strong>{{ silentCount }}</strong></div>
           <div class="spacer-flex" />
           <span class="density-label">Hiển thị:</span>
           <div class="density-toggle">
@@ -158,14 +158,8 @@
       initial-tab="nicks"
     />
 
-    <!-- Persistent restore toast -->
-    <div v-if="state.restoredFromStorage.value" class="toast" @click.self="state.dismissRestoreToast()">
-      ✓ Đã khôi phục nick
-      <b>{{ restoredNickLabel }}</b>
-      + filter từ phiên trước.
-      <a href="#" @click.prevent="onResetAll">Đặt lại</a>
-      <button class="toast-close" @click="state.dismissRestoreToast()">✕</button>
-    </div>
+    <!-- 2026-06-17 (anh chốt): bỏ toast khôi phục — vẫn nhớ view gần nhất qua localStorage/URL,
+         chỉ không thông báo ra UI. -->
   </div>
 </template>
 
@@ -298,11 +292,6 @@ const silentCount = computed(() => {
   return friendsDb.value.filter(f => f.lastInteractionAt && now - new Date(f.lastInteractionAt).getTime() >= SEVEN).length;
 });
 
-const restoredNickLabel = computed(() => {
-  if (stateRaw.restoredNickId.value === 'all') return 'Tất cả nick';
-  const a = accounts.value.find(x => x.id === stateRaw.restoredNickId.value);
-  return a?.displayName || 'Nick';
-});
 
 // ─── Pagination derived ───
 const totalPages = computed(() => Math.max(1, Math.ceil(friendsDbTotal.value / pagination.limit)));
@@ -339,6 +328,7 @@ async function fetch() {
       limit: pagination.limit,
       search: searchInput.value || undefined,
       sortBy: sortBy.value,
+      statusId: state.careStatus.value || undefined,
     });
     return;
   }
@@ -348,6 +338,7 @@ async function fetch() {
     limit: pagination.limit,
     search: searchInput.value || undefined,
     sortBy: sortBy.value,
+    statusId: state.careStatus.value || undefined,
   });
 }
 
@@ -383,8 +374,7 @@ function onKindChange(v: FriendKindFilter) {
 function onCareChange(v: string) {
   state.careStatus.value = v;
   pagination.page = 1;
-  // TODO: pass careStatus to fetchFriendsDb khi backend hỗ trợ filter theo statusRef
-  fetch();
+  fetch();  // statusId truyền trong fetch() (backend filter theo Friend.statusId)
 }
 
 async function onSync() {
@@ -491,16 +481,6 @@ function nickInitials(name?: string | null): string {
   return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function onResetAll() {
-  stateRaw.reset();
-  searchInput.value = '';
-  selected.value = new Set();
-  pagination.page = 1;
-  if (accounts.value.length) {
-    stateRaw.selectedNickId.value = accounts.value[0].id;
-    fetch();
-  }
-}
 
 // ─── Watchers ───
 watch(() => stateRaw.density.value, () => {
@@ -540,7 +520,7 @@ onMounted(async () => {
 <style scoped>
 .friends-page {
   height: calc(100vh - var(--smax-topnav-h, 52px));
-  background: #f5f7fb;
+  background: var(--surface-2);
   display: flex; flex-direction: column;
   overflow: hidden;
 }
@@ -567,18 +547,18 @@ onMounted(async () => {
 }
 
 .page-head {
-  padding: 12px 20px 8px;
-  background: #fff;
-  border-bottom: 1px solid #e4e8ef;
+  padding: 12px 22px 8px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   display: flex; align-items: center; gap: 12px;
   flex-wrap: wrap;
 }
-.page-head h1 { margin: 0; font-size: 18px; font-weight: 700; color: #1a2433; }
+.page-head h1 { margin: 0; font-size: 18px; font-weight: 800; color: var(--ink); }
 
 .active-nick {
   display: inline-flex; align-items: center; gap: 6px;
-  background: #e8f0fe; color: #2f6ee5;
-  padding: 3px 10px; border-radius: 14px;
+  background: var(--brand-soft); color: var(--brand-700);
+  padding: 3px 10px; border-radius: var(--r-pill);
   font-weight: 600; font-size: 12px;
 }
 .active-nick .av {
@@ -594,70 +574,82 @@ onMounted(async () => {
 .spacer { flex: 1; }
 
 .head-search {
-  padding: 7px 12px;
-  border: 1px solid #cdd4df; border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
   width: 280px; font-size: 13px;
+  color: var(--ink);
   font-family: inherit;
+  transition: border-color .12s, box-shadow .12s;
 }
-.head-search:focus { outline: none; border-color: #2f6ee5; box-shadow: 0 0 0 3px #e8f0fe; }
+.head-search:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 12px; border-radius: 7px; border: 1px solid #cdd4df;
-  background: #fff; color: #1a2433;
-  font-weight: 600; font-size: 12px;
+  padding: 7px 13px; border-radius: var(--r-sm); border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink-2);
+  font-weight: 600; font-size: 12.5px;
   cursor: pointer; font-family: inherit;
+  transition: all .12s;
 }
-.btn:hover { background: #f9fafc; }
-.btn.primary { background: #2f6ee5; color: #fff; border-color: #2f6ee5; }
-.btn.primary:hover:not(:disabled) { background: #2356b8; }
+.btn:hover { background: var(--surface-3); color: var(--ink); }
+.btn.primary { background: var(--brand); color: #fff; border-color: var(--brand); box-shadow: var(--sh-xs); }
+.btn.primary:hover:not(:disabled) { background: var(--brand-600); }
 .btn:disabled { opacity: .6; cursor: not-allowed; }
 
 .stats {
-  padding: 8px 20px;
-  background: #f9fafc;
-  border-bottom: 1px solid #e4e8ef;
+  padding: 9px 22px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
   display: flex; gap: 16px; align-items: center;
-  font-size: 12px; color: #5b6573;
+  font-size: 12.5px; color: var(--ink-2);
 }
-.stats .stat strong { color: #1a2433; }
-.stats .stat.good strong { color: #16a34a; }
-.stats .stat.warn strong { color: #d97706; }
-.stats .stat.bad strong { color: #dc2626; }
+.stats .stat { display: inline-flex; align-items: center; gap: 6px; }
+.stats .stat strong { color: var(--ink); font-weight: 700; }
+.stats .stat.good strong { color: var(--success); }
+.stats .stat.warn strong { color: var(--warning); }
+.stats .stat.bad strong { color: var(--error); }
+.sdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
+.sdot.ok { background: var(--success); }
+.sdot.warn { background: var(--warning); }
+.sdot.info { background: var(--info); }
+.sdot.mut { background: var(--ink-4); }
+.sdot.err { background: var(--error); }
 .spacer-flex { flex: 1; }
 
-.density-label { font-size: 11px; }
+.density-label { font-size: 11px; color: var(--ink-3); }
 .density-toggle {
   display: inline-flex;
-  background: #fff; border: 1px solid #e4e8ef;
-  border-radius: 6px; padding: 1px;
+  background: var(--surface-3); border: 1px solid var(--line);
+  border-radius: var(--r-sm); padding: 2px;
 }
 .density-toggle button {
-  padding: 3px 8px;
+  padding: 4px 9px;
   background: transparent; border: none;
-  border-radius: 4px;
-  font-size: 11px; color: #5b6573;
+  border-radius: 6px;
+  font-size: 11.5px; font-weight: 600; color: var(--ink-3);
   cursor: pointer; font-family: inherit;
 }
 .density-toggle button.active {
-  background: #2f6ee5; color: #fff; font-weight: 600;
+  background: var(--surface); color: var(--brand-700); box-shadow: var(--sh-xs);
 }
 
 .pag {
-  padding: 8px 20px;
-  background: #fff;
-  border-top: 1px solid #e4e8ef;
+  padding: 9px 22px;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
   display: flex; align-items: center; gap: 8px;
-  font-size: 12px; color: #5b6573;
+  font-size: 12.5px; color: var(--ink-2);
 }
 .pag button {
-  padding: 4px 10px;
-  border: 1px solid #e4e8ef; background: #fff;
-  border-radius: 5px; cursor: pointer; font-size: 12px;
+  padding: 5px 11px;
+  border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--r-sm); cursor: pointer; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-2);
   font-family: inherit;
+  transition: all .12s;
 }
-.pag button:hover:not(:disabled) { background: #f9fafc; }
-.pag button.primary { background: #2f6ee5; color: #fff; border-color: #2f6ee5; }
+.pag button:hover:not(:disabled) { background: var(--surface-3); }
+.pag button.primary { background: var(--brand); color: #fff; border-color: var(--brand); }
 .pag button:disabled { opacity: .4; cursor: not-allowed; }
 
 .toast {

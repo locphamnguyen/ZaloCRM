@@ -33,9 +33,11 @@
           <v-text-field
             v-model="password"
             label="Mật khẩu"
-            type="password"
+            :type="showPassword ? 'text' : 'password'"
             variant="outlined"
             prepend-inner-icon="mdi-lock-outline"
+            :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
+            @click:append-inner="showPassword = !showPassword"
             required
             autocomplete="current-password"
             placeholder="Nhập mật khẩu"
@@ -71,6 +73,7 @@ const SAMPLE_PHONE = '0901 234 567';
 
 const identifier = ref('');
 const password = ref('');
+const showPassword = ref(false);
 const loading = ref(false);
 const error = ref('');
 const router = useRouter();

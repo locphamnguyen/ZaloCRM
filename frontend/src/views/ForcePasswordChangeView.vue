@@ -30,24 +30,38 @@
 
       <form @submit.prevent="handleSubmit" class="fpc-form">
         <label class="fpc-label">Mật khẩu admin giao</label>
-        <input
-          v-model="currentPassword"
-          type="password"
-          class="fpc-input"
-          placeholder="••••••••"
-          autocomplete="current-password"
-          required
-        />
+        <div class="pw-wrap">
+          <input
+            v-model="currentPassword"
+            :type="showCur ? 'text' : 'password'"
+            class="fpc-input"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showCur ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showCur = !showCur">
+            <EyeOff v-if="showCur" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
 
         <label class="fpc-label">Mật khẩu mới</label>
-        <input
-          v-model="newPassword"
-          type="password"
-          class="fpc-input"
-          placeholder="••••••••"
-          autocomplete="new-password"
-          required
-        />
+        <div class="pw-wrap">
+          <input
+            v-model="newPassword"
+            :type="showNew ? 'text' : 'password'"
+            class="fpc-input"
+            placeholder="••••••••"
+            autocomplete="new-password"
+            required
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showNew ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showNew = !showNew">
+            <EyeOff v-if="showNew" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
 
         <div class="fpc-strength" v-if="newPassword">
           <div class="fpc-strength-row" :class="{ ok: hasLength }">
@@ -69,15 +83,22 @@
         </div>
 
         <label class="fpc-label">Nhập lại mật khẩu mới</label>
-        <input
-          v-model="confirmPassword"
-          type="password"
-          class="fpc-input"
-          :class="{ 'fpc-input-error': confirmPassword && confirmPassword !== newPassword }"
-          placeholder="••••••••"
-          autocomplete="new-password"
-          required
-        />
+        <div class="pw-wrap">
+          <input
+            v-model="confirmPassword"
+            :type="showConfirm ? 'text' : 'password'"
+            class="fpc-input"
+            :class="{ 'fpc-input-error': confirmPassword && confirmPassword !== newPassword }"
+            placeholder="••••••••"
+            autocomplete="new-password"
+            required
+          />
+          <button type="button" class="pw-eye" tabindex="-1"
+                  :aria-label="showConfirm ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'"
+                  @click="showConfirm = !showConfirm">
+            <EyeOff v-if="showConfirm" :size="17" /><Eye v-else :size="17" />
+          </button>
+        </div>
         <div v-if="confirmPassword && confirmPassword !== newPassword" class="fpc-mismatch">
           Mật khẩu nhập lại không khớp
         </div>
@@ -104,6 +125,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
+import { Eye, EyeOff } from 'lucide-vue-next';
 import { api } from '@/api/index';
 import { useAuthStore } from '@/stores/auth';
 import { fetchPublicBranding } from '@/api/public-branding';
@@ -133,6 +155,9 @@ const newPassword = ref('');
 const confirmPassword = ref('');
 const submitting = ref(false);
 const error = ref('');
+const showCur = ref(false);
+const showNew = ref(false);
+const showConfirm = ref(false);
 
 const hasLength = computed(() => newPassword.value.length >= 8);
 const hasUpper = computed(() => /[A-Z]/.test(newPassword.value));
@@ -272,6 +297,17 @@ async function handleSubmit() {
 .fpc-input-error {
   border-color: var(--error, #ef4444);
 }
+
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 40px; width: 100%; box-sizing: border-box; }
+.pw-eye {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; margin: 0;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ink-4, #97a0b3); border-radius: 6px;
+}
+.pw-eye:hover { color: var(--ink-2, #475066); background: rgba(0,0,0,.04); }
 
 .fpc-strength {
   background: var(--brand-softer, #f2f8fc);

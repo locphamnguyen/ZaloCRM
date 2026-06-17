@@ -33,9 +33,18 @@
               <v-icon icon="mdi-chart-box-outline" size="16" class="ic-svg" />Báo cáo<span class="caret">▾</span>
             </button>
           </template>
-          <v-list density="compact" min-width="200">
-            <v-list-item to="/analytics" title="Phân tích" prepend-icon="mdi-chart-line" />
-            <v-list-item to="/reports" title="Báo cáo tổng hợp" prepend-icon="mdi-chart-bar" />
+          <!-- Module Báo cáo 7 màn (2026-06-17) — liệt kê trực tiếp cho dễ vào. -->
+          <v-list density="compact" min-width="236">
+            <v-list-subheader>Báo cáo</v-list-subheader>
+            <v-list-item to="/reports/tong-quan"  title="Tổng quan điều hành"   prepend-icon="mdi-view-dashboard-outline" />
+            <v-list-item to="/reports/nick"        title="Vận hành Nick Zalo"    prepend-icon="mdi-cellphone-link" />
+            <v-list-item to="/reports/sale"        title="Hiệu suất Sale & Team" prepend-icon="mdi-account-tie-outline" />
+            <v-list-item to="/reports/pipeline"    title="Pipeline & Lead Pool"  prepend-icon="mdi-filter-variant" />
+            <v-list-item to="/reports/automation"  title="Automation & Chăm sóc" prepend-icon="mdi-cog-sync-outline" />
+            <v-list-item to="/reports/engagement"  title="Engagement KH"         prepend-icon="mdi-fire" />
+            <v-list-item to="/reports/audit"       title="Audit & Sức khỏe HT"   prepend-icon="mdi-shield-check-outline" />
+            <v-divider />
+            <v-list-item to="/analytics" title="Phân tích nâng cao" prepend-icon="mdi-chart-line" />
           </v-list>
         </v-menu>
 
