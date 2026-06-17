@@ -462,22 +462,32 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
         return { error: 'Mục tiêu không tồn tại' };
       }
 
-      // FIX review #2 (MED): chặn advance khi đang chờ-khách-reply (luật 4) — không gửi đè.
-      // Đồng thời LẤY enrollEpoch của phiên active để promote ĐÚNG lần gắn (bỏ job mồ côi).
+      // LẤY enrollEpoch của phiên active để promote ĐÚNG lần gắn (bỏ job mồ côi).
       const activeSession = await prisma.careSession.findFirst({
         where: { orgId, contactId: cid, sourceSequenceId: sequenceId, state: 'active' },
         orderBy: { openedAt: 'desc' },
-        select: { id: true, pausedAtStepIdx: true, enrollEpoch: true },
+        select: { id: true, pausedAtStepIdx: true, enrollEpoch: true, nickId: true },
       });
-      if (activeSession?.pausedAtStepIdx != null) {
-        reply.code(409);
-        return { error: 'Khách vừa trả lời — luồng đang tạm dừng chờ hết phiên. Không gửi bước tiếp lúc này.' };
-      }
       if (!activeSession) {
         reply.code(409);
         return { error: 'Luồng này không còn chạy cho khách (đã xong hoặc đã dừng).' };
       }
       const activeEpoch = activeSession.enrollEpoch ?? 1;
+      // 2026-06-17 (anh chốt): nút "Gửi bước tiếp theo ngay" là SALE CHỦ Ý gửi → KHÔNG chặn khi
+      // đang reply-pause nữa (trước đây 409 "Khách vừa trả lời… không gửi" → nút vô tác dụng).
+      // Thay vào: RESUME ngay (override hold) — clear pausedAtStepIdx + cờ Redis + queueStatus,
+      // để worker KHÔNG re-defer job khi promote (worker check cờ Redis + marker DB trước khi gửi).
+      const wasPausedStep = activeSession.pausedAtStepIdx; // bước đang hold (enqueue lại nếu job đã huỷ)
+      if (wasPausedStep != null) {
+        const { clearContactPauseFlag } = await import('./event-hooks.js');
+        await prisma.careSession.update({ where: { id: activeSession.id }, data: { pausedAtStepIdx: null } }).catch(() => null);
+        await clearContactPauseFlag(tid, cid).catch(() => null);
+        await prisma.triggerQueueEntry.updateMany({
+          where: { triggerId: tid, contactId: cid, queueStatus: 'customer_reply' },
+          data: { queueStatus: 'processing' },
+        }).catch(() => null);
+        logger.info(`[advance] sale gửi tiếp ngay khi đang reply-pause → RESUME contact=${cid} step=${wasPausedStep}`);
+      }
 
       // FIX bug anh báo 2026-06-15: promote CHỈ job ĐÚNG EPOCH của phiên active.
       // Trước đây prefix = `{tid}-{seq}-` KHÔNG có epoch → promote CẢ job mồ côi epoch cũ
@@ -500,6 +510,36 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
           promotedJobRefs.push(job);
         } catch (err) {
           logger.warn(`[advance] promote job ${job.id} failed: ${(err as Error).message}`);
+        }
+      }
+
+      // Nếu KHÔNG promote được job nào NHƯNG vừa resume reply-pause (job có thể đã bị huỷ bởi
+      // onCustomerReply) → enqueue LẠI bước dở để gửi ngay (tránh orphan: đã clear marker mà
+      // không có job nào chạy → KH kẹt). 2026-06-17.
+      if (promoted === 0 && wasPausedStep != null) {
+        const { buildSequenceStepJobId } = await import('./queue-registry.js');
+        const seq = await prisma.automationSequence.findUnique({
+          where: { id: sequenceId },
+          select: { steps: true, runtimeRules: true },
+        });
+        const steps = Array.isArray(seq?.steps) ? (seq!.steps as unknown[]) : [];
+        if (wasPausedStep < steps.length) {
+          const jobId = buildSequenceStepJobId(tid, sequenceId, cid, wasPausedStep, activeEpoch);
+          if (!(await queue.getJob(jobId))) {
+            await queue.add(
+              'sequence-step',
+              {
+                triggerId: tid, contactId: cid, sequenceId, nickId: activeSession.nickId,
+                orgId, stepIdx: wasPausedStep, totalSteps: steps.length,
+                runtimeRules: (seq?.runtimeRules as Record<string, unknown>) ?? undefined,
+                enrollEpoch: activeEpoch,
+              },
+              { jobId, delay: 0 },
+            );
+          }
+          const fresh = await queue.getJob(jobId);
+          if (fresh) { promoted = 1; promotedJobRefs.push(fresh); }
+          logger.info(`[advance] job đã huỷ → enqueue lại bước ${wasPausedStep} contact=${cid}`);
         }
       }
 

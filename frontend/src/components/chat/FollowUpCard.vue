@@ -169,7 +169,7 @@ const badgeLabel = computed(() => BADGE[props.card.state] ?? '');
 const HOLD_LABEL: Record<string, string> = {
   out_of_hours: '🌙 Ngoài giờ hoạt động — chờ tới giờ gửi',
   nick_offline: '📴 Nick đang offline — chờ nick kết nối lại',
-  waiting_reply: '💬 Khách vừa trả lời — tạm dừng chờ hết phiên',
+  waiting_reply: '💬 Khách vừa trả lời — tạm dừng, tự chạy lại khi hết giờ (hoặc bấm gửi ngay)',
 };
 const holdLabel = computed(() => {
   const r = props.card.holdReason;

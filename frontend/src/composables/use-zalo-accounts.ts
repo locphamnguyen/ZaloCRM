@@ -3,7 +3,7 @@
  * - CRUD operations via REST API
  * - Real-time QR login flow via Socket.IO
  */
-import { ref, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { api } from '@/api/index';
 import { Socket } from 'socket.io-client';
 import { createAppSocket } from '@/api/socket';
@@ -251,7 +251,15 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
     });
   }
 
-  onUnmounted(() => { socket?.disconnect(); });
+  // Quyền truy cập nick đổi (BE bắn qua socket use-chat → window event) → refetch nick list
+  // để nick bị gỡ rớt khỏi cột 1 NGAY. Decoupled qua window để không phụ thuộc socket nào mount.
+  function onAccessChanged() { fetchAccounts(); }
+  onMounted(() => window.addEventListener('zalo-access-changed', onAccessChanged));
+
+  onUnmounted(() => {
+    socket?.disconnect();
+    window.removeEventListener('zalo-access-changed', onAccessChanged);
+  });
 
   return {
     accounts, loading, adding, deleting,

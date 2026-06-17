@@ -970,4 +970,148 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
       return reply.status(500).send({ error: 'Failed to fetch audit report' });
     }
   });
+
+  // 9. GET /api/v1/reports/crm-usage — mức độ dùng CRM của sale (anh chốt 2026-06-17):
+  // thời gian dùng/ngày (ƯỚC TÍNH từ sessionize ActivityLog), module dùng nhiều, xếp hạng
+  // dùng CRM HIỆU QUẢ = kết quả (chốt + lịch hẹn xong) ÷ giờ dùng. Login (security) neo phiên.
+  app.get('/api/v1/reports/crm-usage', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      if (!(await gateReportAccess(request, reply))) return;
+      const { orgId } = request.user!;
+      const query = request.query as QueryParams;
+      const { from: dF, to: dT } = defaultDateRange();
+      const from = query.from || dF;
+      const to = query.to || dT;
+      const { start, end } = dateBounds(from, to);
+      const todayStart = new Date(new Date().toISOString().split('T')[0] + 'T00:00:00.000Z');
+
+      // category → tên module hiển thị. security/system/admin = phụ trợ (vẫn tính giờ, không là "module chính").
+      const MODULE_MAP: Record<string, string> = {
+        customer_info: 'Khách hàng', tags_crm: 'Gắn thẻ', status_care: 'Trạng thái & Chăm sóc',
+        appointment: 'Lịch hẹn', interaction: 'Tương tác', score: 'Chấm điểm', tags_zalo: 'Nhãn Zalo',
+        automation: 'Automation', security: 'Đăng nhập', system: 'Hệ thống', admin: 'Quản trị',
+      };
+      const AUX = new Set(['security', 'system', 'admin']);
+
+      // Sale list + phòng ban.
+      const users = await prisma.user.findMany({
+        where: { orgId, isActive: true },
+        select: { id: true, fullName: true, departmentMember: { select: { department: { select: { name: true } } } } },
+      });
+      const userMap = new Map(users.map((u) => [u.id, {
+        name: u.fullName || '—', deptName: u.departmentMember?.department?.name || 'Chưa phân phòng',
+      }]));
+      const saleIds = users.map((u) => u.id);
+
+      // Sự kiện hoạt động (timeline + module count). Bao gồm cả security (login) để neo phiên.
+      const events = saleIds.length === 0 ? [] : await prisma.activityLog.findMany({
+        where: { orgId, actorType: 'user', userId: { in: saleIds }, createdAt: { gte: start, lt: end } },
+        select: { userId: true, category: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+        take: 100000,
+      });
+
+      // Kết quả (chốt + lịch hẹn hoàn thành) để tính hiệu quả.
+      const terminal = await prisma.status.findMany({ where: { orgId, isTerminal: true }, select: { id: true, name: true } });
+      const wonIds = terminal.filter((s) => (s.name || '').includes('Chốt')).map((s) => s.id);
+      const closedFilter = wonIds.length > 0 ? wonIds : terminal.map((s) => s.id);
+      const outcomes = await Promise.all(saleIds.map(async (uid) => {
+        const [closed, apptDone] = await Promise.all([
+          prisma.contact.count({ where: { orgId, mergedInto: null, assignedUserId: uid, statusId: { in: closedFilter } } }),
+          prisma.appointment.count({ where: { orgId, assignedUserId: uid, status: 'completed', appointmentDate: { gte: start, lt: end } } }),
+        ]);
+        return { uid, closed, apptDone };
+      }));
+      const outcomeMap = new Map(outcomes.map((o) => [o.uid, o]));
+
+      // Gom theo sale: timestamps + category counts.
+      const TZ = 7 * 3600_000, GAP = 30 * 60_000, FLOOR = 5 * 60_000;
+      const perUser = new Map<string, { ts: number[]; cats: Map<string, number> }>();
+      const moduleTotals = new Map<string, number>();
+      for (const e of events) {
+        if (!e.userId) continue;
+        let u = perUser.get(e.userId);
+        if (!u) { u = { ts: [], cats: new Map() }; perUser.set(e.userId, u); }
+        u.ts.push(e.createdAt.getTime());
+        const cat = e.category || 'system';
+        u.cats.set(cat, (u.cats.get(cat) || 0) + 1);
+        if (!AUX.has(cat)) moduleTotals.set(cat, (moduleTotals.get(cat) || 0) + 1);
+      }
+
+      // Sessionize: phiên = chuỗi sự kiện cách nhau ≤30 phút; giờ dùng = tổng (cuối-đầu) mỗi phiên,
+      // sàn 5 phút/phiên. activeDays = số ngày (giờ VN) có hoạt động.
+      function estimate(ts: number[]): { activeMs: number; activeDays: number } {
+        if (!ts.length) return { activeMs: 0, activeDays: 0 };
+        const days = new Set<string>();
+        let activeMs = 0, sessStart = ts[0], prev = ts[0];
+        for (let i = 0; i < ts.length; i++) {
+          const t = ts[i];
+          days.add(new Date(t + TZ).toISOString().slice(0, 10));
+          if (i > 0 && t - prev > GAP) { activeMs += Math.max(FLOOR, prev - sessStart); sessStart = t; }
+          prev = t;
+        }
+        activeMs += Math.max(FLOOR, prev - sessStart);
+        return { activeMs, activeDays: days.size };
+      }
+
+      let totalActions = 0;
+      const bySaleRaw = saleIds.map((uid) => {
+        const u = perUser.get(uid);
+        const info = userMap.get(uid)!;
+        const ts = u?.ts ?? [];
+        const actions = ts.length;
+        totalActions += actions;
+        const { activeMs, activeDays } = estimate(ts);
+        const activeHours = activeMs / 3600_000;
+        const avgActiveMinPerDay = activeDays > 0 ? Math.round(activeMs / 60_000 / activeDays) : 0;
+        // module chính (loại phụ trợ).
+        let topModule = '—', topN = 0;
+        for (const [cat, n] of (u?.cats ?? new Map<string, number>())) {
+          if (AUX.has(cat)) continue;
+          if (n > topN) { topN = n; topModule = MODULE_MAP[cat] || cat; }
+        }
+        const oc = outcomeMap.get(uid) || { closed: 0, apptDone: 0 };
+        const results = oc.closed + oc.apptDone * 0.5;
+        const effRaw = activeHours > 0 ? results / Math.max(activeHours, 0.5) : 0;
+        const closesPerHour = activeHours > 0 ? Math.round((results / activeHours) * 100) / 100 : 0;
+        return {
+          userId: uid, name: info.name, deptName: info.deptName,
+          activeDays, avgActiveMinPerDay, actions, topModule,
+          results, closed: oc.closed, apptDone: oc.apptDone, closesPerHour, effRaw,
+        };
+      }).filter((s) => s.actions > 0);
+
+      // effScore 0–100 chuẩn hoá theo sale tốt nhất.
+      const maxEff = Math.max(0.0001, ...bySaleRaw.map((s) => s.effRaw));
+      const bySale = bySaleRaw
+        .map(({ effRaw, ...s }) => ({ ...s, effScore: Math.round((effRaw / maxEff) * 100) }))
+        .sort((a, b) => b.effScore - a.effScore || b.results - a.results);
+
+      // Module usage org-wide.
+      const moduleTotalSum = Array.from(moduleTotals.values()).reduce((a, b) => a + b, 0) || 1;
+      const moduleUsage = Array.from(moduleTotals.entries())
+        .map(([cat, n]) => ({ module: cat, label: MODULE_MAP[cat] || cat, actions: n, pct: Math.round((n / moduleTotalSum) * 1000) / 10 }))
+        .sort((a, b) => b.actions - a.actions);
+
+      // KPIs.
+      const activeSalesToday = new Set(
+        events.filter((e) => e.createdAt >= todayStart).map((e) => e.userId),
+      ).size;
+      const withTime = bySale.filter((s) => s.activeDays > 0);
+      const avgActiveMinPerDay = withTime.length > 0
+        ? Math.round(withTime.reduce((a, s) => a + s.avgActiveMinPerDay, 0) / withTime.length) : 0;
+      const topModule = moduleUsage[0]?.label || '—';
+
+      return {
+        from, to,
+        kpis: { activeSalesToday, avgActiveMinPerDay, totalActions, topModule },
+        bySale,
+        moduleUsage,
+        note: 'Thời gian dùng là ƯỚC TÍNH từ nhịp thao tác trên CRM (chưa có tracking phiên chính xác).',
+      };
+    } catch (err) {
+      logger.error('[reports] CRM-usage error:', err);
+      return reply.status(500).send({ error: 'Failed to fetch CRM usage report' });
+    }
+  });
 }

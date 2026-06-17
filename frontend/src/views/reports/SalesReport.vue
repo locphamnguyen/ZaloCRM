@@ -206,6 +206,100 @@
           </div>
         </div>
       </div>
+
+      <!-- ===== MỨC ĐỘ DÙNG CRM (anh bổ sung 2026-06-17) ===== -->
+      <div v-if="usage" class="usage-divider">
+        <v-icon icon="mdi-monitor-dashboard" size="18" /> Mức độ dùng CRM
+        <span class="usage-divider-note">đo theo nhịp thao tác thực tế</span>
+      </div>
+
+      <div v-if="usage" class="grid g-4" style="margin-bottom:14px">
+        <div class="kpi">
+          <div class="top"><span class="label">Sale dùng hôm nay</span><span class="kic"><v-icon icon="mdi-account-clock-outline" size="18" /></span></div>
+          <div class="val">{{ fmt(usage.kpis.activeSalesToday) }}</div>
+        </div>
+        <div class="kpi accent-ok">
+          <div class="top"><span class="label">Thời gian dùng TB / ngày</span><span class="kic"><v-icon icon="mdi-timer-outline" size="18" /></span></div>
+          <div class="val">{{ fmtDur(usage.kpis.avgActiveMinPerDay) }}<span class="u">ước tính</span></div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="label">Tổng thao tác</span><span class="kic"><v-icon icon="mdi-gesture-tap" size="18" /></span></div>
+          <div class="val">{{ fmt(usage.kpis.totalActions) }}</div>
+        </div>
+        <div class="kpi">
+          <div class="top"><span class="label">Module dùng nhiều nhất</span><span class="kic"><v-icon icon="mdi-view-grid-outline" size="18" /></span></div>
+          <div class="val" style="font-size:18px;line-height:1.3">{{ usage.kpis.topModule }}</div>
+        </div>
+      </div>
+
+      <div v-if="usage" class="grid g-2">
+        <!-- Xếp hạng dùng CRM hiệu quả -->
+        <div class="card">
+          <div class="card-h">
+            <div class="t"><v-icon icon="mdi-medal-outline" size="18" /> Xếp hạng dùng CRM hiệu quả</div>
+            <div class="meta">kết quả ÷ giờ dùng · {{ rangeLabel }}</div>
+          </div>
+          <div class="card-b" style="padding:0">
+            <table v-if="usage.bySale.length" class="tbl">
+              <thead>
+                <tr>
+                  <th style="width:36px">#</th>
+                  <th>Sale</th>
+                  <th class="num">Giờ / ngày</th>
+                  <th class="num">Thao tác</th>
+                  <th>Module chính</th>
+                  <th class="num">KQ / giờ</th>
+                  <th style="width:150px">Hiệu quả</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, i) in usage.bySale" :key="s.userId" :style="i < 3 ? 'background:var(--rk-brand-softer)' : ''">
+                  <td class="b" :class="{ muted: i >= 3 }" :style="i < 3 ? 'color:var(--rk-brand-700)' : ''">{{ i + 1 }}</td>
+                  <td>
+                    <div class="cellname">
+                      <span class="av" :style="{ background: avColor(s.name) }">{{ initials(s.name) }}</span>
+                      <div>{{ s.name }}<div class="sub">{{ s.deptName || '—' }}</div></div>
+                    </div>
+                  </td>
+                  <td class="num">{{ fmtDur(s.avgActiveMinPerDay) }}</td>
+                  <td class="num">{{ fmt(s.actions) }}</td>
+                  <td><span class="pill brand">{{ s.topModule }}</span></td>
+                  <td class="num b">{{ fmtPct(s.closesPerHour) }}</td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div class="bar" :class="scoreClass(s.effScore)" style="flex:1"><i :style="{ width: clampPct(s.effScore) + '%' }"></i></div>
+                      <span class="b" style="font-variant-numeric:tabular-nums">{{ fmt(s.effScore) }}</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-else class="rk-empty">Chưa có dữ liệu dùng CRM trong kỳ này.</div>
+          </div>
+        </div>
+
+        <!-- Module dùng nhiều -->
+        <div class="card">
+          <div class="card-h">
+            <div class="t"><v-icon icon="mdi-shape-outline" size="18" /> Module dùng nhiều</div>
+            <div class="meta">toàn đội · {{ rangeLabel }}</div>
+          </div>
+          <div class="card-b">
+            <div v-if="usage.moduleUsage.length" class="mod-list">
+              <div v-for="m in usage.moduleUsage" :key="m.module" class="mod-row">
+                <div class="mod-nm">{{ m.label }}</div>
+                <div class="bar brand" style="flex:1"><i :style="{ width: Math.max(3, m.pct) + '%' }"></i></div>
+                <div class="mod-vv">{{ fmt(m.actions) }} <span class="muted">· {{ fmtPct(m.pct) }}%</span></div>
+              </div>
+            </div>
+            <div v-else class="rk-empty">Chưa có hoạt động được ghi nhận.</div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="usage?.note" class="usage-note">
+        <v-icon icon="mdi-information-outline" size="14" /> {{ usage.note }}
+      </div>
     </template>
 
     <!-- EMPTY -->
@@ -253,6 +347,21 @@ interface SalesData {
   responseBuckets: Bucket[];
 }
 
+// Mức độ dùng CRM (endpoint #9 /reports/crm-usage)
+interface UsageSale {
+  userId: string; name: string; deptName: string;
+  activeDays: number; avgActiveMinPerDay: number; actions: number;
+  topModule: string; closesPerHour: number; effScore: number;
+}
+interface ModuleUsage { module: string; label: string; actions: number; pct: number }
+interface CrmUsageData {
+  from: string; to: string;
+  kpis: { activeSalesToday: number; avgActiveMinPerDay: number; totalActions: number; topModule: string };
+  bySale: UsageSale[];
+  moduleUsage: ModuleUsage[];
+  note: string;
+}
+
 const ranges = [
   { key: '7d', label: '7 ngày', days: 7 },
   { key: '30d', label: '30 ngày', days: 30 },
@@ -260,6 +369,7 @@ const ranges = [
 ] as const;
 
 const data = ref<SalesData | null>(null);
+const usage = ref<CrmUsageData | null>(null);
 const loading = ref(true);
 const range = ref<string>('30d');
 
@@ -278,11 +388,18 @@ async function load() {
   loading.value = true;
   try {
     const { from, to } = dateRange();
-    const res = await api.get('/reports/sales-performance', { params: { from, to } });
-    data.value = res.data;
+    const [perf, use] = await Promise.allSettled([
+      api.get('/reports/sales-performance', { params: { from, to } }),
+      api.get('/reports/crm-usage', { params: { from, to } }),
+    ]);
+    data.value = perf.status === 'fulfilled' ? perf.value.data : null;
+    usage.value = use.status === 'fulfilled' ? use.value.data : null;
+    if (perf.status === 'rejected') console.error('[SalesReport] sales-performance failed', perf.reason);
+    if (use.status === 'rejected') console.error('[SalesReport] crm-usage failed', use.reason);
   } catch (e) {
     console.error('[SalesReport] load failed', e);
     data.value = null;
+    usage.value = null;
   } finally {
     loading.value = false;
   }
@@ -298,6 +415,13 @@ function fmt(n: number | null | undefined): string {
 }
 function fmtPct(n: number | null | undefined): string {
   return n == null ? '0' : new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 }).format(n);
+}
+// phút → "Xh Ym" (cho thời gian dùng CRM)
+function fmtDur(min: number | null | undefined): string {
+  const m = Math.round(Number(min) || 0);
+  if (m <= 0) return '0m';
+  const h = Math.floor(m / 60), r = m % 60;
+  return h > 0 ? (r > 0 ? `${h}h ${r}m` : `${h}h`) : `${r}m`;
 }
 
 function clampPct(n: number | null | undefined): number {
@@ -341,3 +465,15 @@ function avColor(name: string): string {
   return AV_COLORS[h % AV_COLORS.length];
 }
 </script>
+
+<style scoped>
+.usage-divider { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700;
+  color: var(--rk-brand-700, #0b5880); margin: 20px 0 14px; padding-top: 14px; border-top: 1px dashed var(--rk-hairline, #e6e9ef); }
+.usage-divider :deep(.v-icon) { color: var(--rk-brand, #1786be); }
+.usage-divider-note { font-size: 12px; font-weight: 500; color: var(--rk-faint, #97a0ac); margin-left: 2px; }
+.mod-list { display: flex; flex-direction: column; gap: 11px; }
+.mod-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.mod-nm { width: 150px; flex: none; font-weight: 600; color: var(--rk-ink, #1f2d3d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod-vv { width: 100px; flex: none; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--rk-ink, #1f2d3d); }
+.usage-note { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--rk-muted, #6b7785); font-style: italic; }
+</style>

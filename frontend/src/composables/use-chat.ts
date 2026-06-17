@@ -975,6 +975,14 @@ export function useChat() {
       fetchConversations({ bypassCache: true });
     });
 
+    // Quyền truy cập nick đổi (grant/đổi/gỡ) — BE bắn tới user bị ảnh hưởng.
+    // Refetch hội thoại (re-scope theo nick được phép) → nick bị gỡ rớt khỏi cột 2 NGAY,
+    // không cần F5. Phát window event để cột 1 (nick list) cũng refetch.
+    socket.on('zalo:access-changed', (data: { zaloAccountId: string; action: string; permission: string | null }) => {
+      fetchConversations({ bypassCache: true });
+      window.dispatchEvent(new CustomEvent('zalo-access-changed', { detail: data }));
+    });
+
     // ─── WAVE 1 — KH đang gõ tin nhắn ─────────────────────────────────────
     // SDK fire mỗi ~2s khi KH còn gõ. Auto-clear sau 5s không có event mới
     // (timer per conv, reset mỗi lần nhận event mới — tránh nháy).
