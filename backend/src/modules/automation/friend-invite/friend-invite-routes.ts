@@ -117,32 +117,38 @@ async function getTaskProgressForTrigger(
     );
   }
 
-  // ── 2) AutomationEventLog groupBy contactId → MAX(createdAt) cho eventType=sequence_step_sent ──
-  // Đây là "Lần gửi gần nhất". sequence-step-worker.ts L356-366 ghi event này
-  // sau mỗi lần gửi thành công.
+  // ── 2) AutomationEventLog → "Lần gửi gần nhất" + BƯỚC ĐÃ GỬI (fallback currentStepIdx) ──
+  // sequence-step-worker ghi 'sequence_step_sent' detail "step N/M" (N 0-based) sau mỗi
+  // lần gửi. 2026-06-17 FIX: KH không còn job BullMQ pending (xong chuỗi / bị dừng / KH
+  // reply → job huỷ / chuỗi khựng) thì section 1 KHÔNG set currentStepIdx → trước đây
+  // FE hiện "0/16" dù KH đã tới bước N. Suy currentStepIdx từ bước gửi gần nhất trong
+  // event log (DISTINCT ON contact_id: 1 dòng mới nhất/contact → hiệu quả, không kéo cả bảng).
   try {
-    const sentGroups = await prisma.automationEventLog.groupBy({
-      by: ['contactId'],
-      where: {
-        triggerId,
-        eventType: 'sequence_step_sent',
-        contactId: { not: null },
-      },
-      _max: { createdAt: true },
-    });
-    for (const g of sentGroups) {
-      if (!g.contactId) continue;
-      const lastSentAt = g._max.createdAt ?? null;
-      const existing = byContact.get(g.contactId);
+    const sentRows = await prisma.$queryRaw<Array<{ contact_id: string; detail: string | null; created_at: Date }>>`
+      SELECT DISTINCT ON (contact_id) contact_id, detail, created_at
+      FROM automation_event_log
+      WHERE trigger_id = ${triggerId}
+        AND event_type = 'sequence_step_sent'
+        AND contact_id IS NOT NULL
+      ORDER BY contact_id, created_at DESC
+    `;
+    for (const row of sentRows) {
+      if (!row.contact_id) continue;
+      const m = row.detail?.match(/step (\d+)\//);
+      const stepIdx = m ? parseInt(m[1], 10) : null;
+      const lastSentAt = row.created_at ?? null;
+      const existing = byContact.get(row.contact_id);
       if (existing) {
         existing.lastSentAt = lastSentAt;
+        // Job live (section 1) ưu tiên cho bước SẮP gửi; chỉ fallback từ log khi null.
+        if (existing.currentStepIdx === null && stepIdx !== null) {
+          existing.currentStepIdx = stepIdx;
+        }
       } else {
-        // Có history gửi nhưng queue empty cho contact này → sequence likely
-        // hoàn tất (hết step) hoặc job đã complete. nextRunAt=null, state=null
-        // để derive logic rơi về fallback (friendAccepted → phase1_done hoặc
-        // queueStatus chi phối).
-        byContact.set(g.contactId, {
-          currentStepIdx: null,
+        // Không còn job pending → dùng bước gửi gần nhất làm "Bước hiện tại"
+        // (thay vì null → "0/16"). state=null để derive logic giữ nguyên hành vi cũ.
+        byContact.set(row.contact_id, {
+          currentStepIdx: stepIdx,
           state: null,
           lastSentAt,
           nextRunAt: null,
@@ -151,7 +157,7 @@ async function getTaskProgressForTrigger(
     }
   } catch (err) {
     logger.warn(
-      `[friend-invite] getTaskProgressForTrigger event_log groupBy failed trigger=${triggerId}: ${(err as Error).message}`,
+      `[friend-invite] getTaskProgressForTrigger event_log scan failed trigger=${triggerId}: ${(err as Error).message}`,
     );
   }
 
