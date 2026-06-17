@@ -297,6 +297,191 @@
         </div>
       </div>
 
+      <!-- 1) LINE CHART — Thời gian dùng CRM theo ngày -->
+      <div v-if="usage?.dailySeries?.length" class="card" style="margin-top:14px">
+        <div class="card-h">
+          <div class="t"><v-icon icon="mdi-chart-line" size="18" /> Thời gian dùng CRM theo ngày</div>
+          <div class="meta">phút hoạt động / ngày · top {{ usage.dailySeries.length }} sale · {{ rangeLabel }}</div>
+        </div>
+        <div class="card-b">
+          <div v-if="usage.days.length" class="lc-wrap">
+            <svg class="lc-svg" :viewBox="`0 0 ${LC.w} ${LC.h}`" preserveAspectRatio="none" role="img">
+              <!-- gridlines + Y labels -->
+              <g class="lc-grid">
+                <line
+                  v-for="t in lineYTicks" :key="'gl' + t.v"
+                  :x1="LC.padL" :x2="LC.w - LC.padR" :y1="t.y" :y2="t.y"
+                />
+                <text
+                  v-for="t in lineYTicks" :key="'yl' + t.v"
+                  class="lc-ylab" :x="LC.padL - 6" :y="t.y + 3" text-anchor="end"
+                >{{ t.label }}</text>
+              </g>
+              <!-- X date labels -->
+              <text
+                v-for="(t, i) in lineXTicks" :key="'xl' + i"
+                class="lc-xlab" :x="t.x" :y="LC.h - 10" text-anchor="middle"
+              >{{ t.label }}</text>
+              <!-- series -->
+              <polyline
+                v-for="p in linePolys" :key="'ln' + p.name"
+                class="lc-line" :points="p.pts" :stroke="p.color"
+              />
+            </svg>
+            <div class="lc-legend">
+              <span v-for="p in linePolys" :key="'lg' + p.name" class="lc-li">
+                <i class="lc-sw" :style="{ background: p.color }"></i>{{ p.name }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="rk-empty">Chưa có dữ liệu theo ngày.</div>
+        </div>
+      </div>
+
+      <!-- 2) HEATMAP — Giờ vàng -->
+      <div v-if="usage?.hourHeat?.cells?.length" class="card" style="margin-top:14px">
+        <div class="card-h">
+          <div class="t"><v-icon icon="mdi-clock-time-four-outline" size="18" /> Giờ vàng (hoạt động theo giờ × thứ)</div>
+          <div class="meta">đậm = nhiều thao tác · {{ rangeLabel }}</div>
+        </div>
+        <div class="card-b">
+          <div class="hh">
+            <div class="hh-grid">
+              <template v-for="(wd, d) in WEEKDAYS" :key="'hr' + d">
+                <div class="hh-rl">{{ wd }}</div>
+                <div
+                  v-for="h in HOURS" :key="'hc' + d + '-' + h"
+                  class="hh-c" :class="'hl' + heatLevel(d, h)"
+                  :title="`${wd} · ${h}h · ${fmt(heatCount(d, h))} thao tác`"
+                ></div>
+              </template>
+              <!-- hour axis -->
+              <div class="hh-rl"></div>
+              <div
+                v-for="h in HOURS" :key="'hx' + h"
+                class="hh-hx"
+              >{{ h % 6 === 0 ? h : '' }}</div>
+            </div>
+          </div>
+          <div class="hh-foot">
+            <span class="muted">ít</span>
+            <i class="hh-c hl0"></i><i class="hh-c hl1"></i><i class="hh-c hl2"></i><i class="hh-c hl3"></i><i class="hh-c hl4"></i>
+            <span class="muted">nhiều</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3) QUADRANT — Nỗ lực vs Kết quả -->
+      <div v-if="usage?.bySale?.length" class="card" style="margin-top:14px">
+        <div class="card-h">
+          <div class="t"><v-icon icon="mdi-chart-scatter-plot" size="18" /> Nỗ lực vs Kết quả</div>
+          <div class="meta">giờ dùng CRM × số chốt · {{ rangeLabel }}</div>
+        </div>
+        <div class="card-b">
+          <div class="qd-wrap">
+            <svg class="qd-svg" :viewBox="`0 0 ${QC.w} ${QC.h}`" preserveAspectRatio="xMidYMid meet" role="img">
+              <!-- frame -->
+              <rect
+                class="qd-frame"
+                :x="QC.padL" :y="QC.padT"
+                :width="QC.w - QC.padL - QC.padR" :height="QC.h - QC.padT - QC.padB"
+              />
+              <!-- median split lines -->
+              <line class="qd-med" :x1="quadX(quadMedX)" :x2="quadX(quadMedX)" :y1="QC.padT" :y2="QC.h - QC.padB" />
+              <line class="qd-med" :x1="QC.padL" :x2="QC.w - QC.padR" :y1="quadY(quadMedY)" :y2="quadY(quadMedY)" />
+              <!-- quadrant labels -->
+              <text class="qd-ql" :x="QC.w - QC.padR - 6" :y="QC.padT + 14" text-anchor="end">Chăm &amp; hiệu quả</text>
+              <text class="qd-ql" :x="QC.padL + 6" :y="QC.padT + 14" text-anchor="start">Hiệu quả cao</text>
+              <text class="qd-ql" :x="QC.w - QC.padR - 6" :y="QC.h - QC.padB - 6" text-anchor="end">Cần kèm</text>
+              <text class="qd-ql" :x="QC.padL + 6" :y="QC.h - QC.padB - 6" text-anchor="start">Ít hoạt động</text>
+              <!-- dots -->
+              <g v-for="(d, i) in quadDots" :key="'qd' + i">
+                <title>{{ d.title }}</title>
+                <circle class="qd-dot" :cx="d.cx" :cy="d.cy" r="9" :fill="d.color" />
+                <text class="qd-dl" :x="d.cx" :y="d.cy + 3" text-anchor="middle">{{ d.label }}</text>
+              </g>
+              <!-- axis labels -->
+              <text class="qd-ax" :x="(QC.w + QC.padL - QC.padR) / 2" :y="QC.h - 4" text-anchor="middle">Giờ dùng CRM →</text>
+              <text class="qd-ax" :x="12" :y="(QC.h - QC.padB + QC.padT) / 2" text-anchor="middle"
+                :transform="`rotate(-90 12 ${(QC.h - QC.padB + QC.padT) / 2})`">Số chốt →</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4) FUNNEL per sale — Phễu hoạt động → chốt -->
+      <div v-if="usage?.funnel?.length" class="card" style="margin-top:14px">
+        <div class="card-h">
+          <div class="t"><v-icon icon="mdi-filter-variant" size="18" /> Phễu hoạt động → chốt</div>
+          <div class="meta">Tin gửi → KH phản hồi → Lịch hẹn → Chốt · top {{ usage.funnel.length }} · {{ rangeLabel }}</div>
+        </div>
+        <div class="card-b">
+          <div class="fn-legend">
+            <span><i class="fn-sw s0"></i>Tin gửi</span>
+            <span><i class="fn-sw s1"></i>KH phản hồi</span>
+            <span><i class="fn-sw s2"></i>Lịch hẹn</span>
+            <span><i class="fn-sw s3"></i>Chốt</span>
+          </div>
+          <div class="fn-list">
+            <div v-for="f in usage.funnel" :key="f.userId" class="fn-row">
+              <div class="cellname fn-nm">
+                <span class="av" :style="{ background: avColor(f.name) }">{{ initials(f.name) }}</span>
+                <div>{{ f.name }}</div>
+              </div>
+              <div class="fn-bars">
+                <div class="fn-seg s0" :style="{ width: funnelPct(f.sent, f.sent) + '%' }" :title="`Tin gửi: ${fmt(f.sent)}`">{{ fmt(f.sent) }}</div>
+                <div class="fn-seg s1" :style="{ width: funnelPct(f.replied, f.sent) + '%' }" :title="`KH phản hồi: ${fmt(f.replied)}`">{{ fmt(f.replied) }}</div>
+                <div class="fn-seg s2" :style="{ width: funnelPct(f.appts, f.sent) + '%' }" :title="`Lịch hẹn: ${fmt(f.appts)}`">{{ fmt(f.appts) }}</div>
+                <div class="fn-seg s3" :style="{ width: funnelPct(f.closed, f.sent) + '%' }" :title="`Chốt: ${fmt(f.closed)}`">{{ fmt(f.closed) }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5) PERIOD COMPARE — So sánh kỳ này vs kỳ trước -->
+      <div v-if="usage?.compare?.length" class="card" style="margin-top:14px">
+        <div class="card-h">
+          <div class="t"><v-icon icon="mdi-compare-horizontal" size="18" /> So sánh kỳ này vs kỳ trước</div>
+          <div class="meta">top {{ usage.compare.length }} · {{ rangeLabel }} vs kỳ liền trước</div>
+        </div>
+        <div class="card-b" style="padding:0">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Sale</th>
+                <th class="num">Thao tác</th>
+                <th class="num">Δ thao tác</th>
+                <th class="num">Giờ TB / ngày</th>
+                <th class="num">Δ giờ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in usage.compare" :key="c.userId">
+                <td>
+                  <div class="cellname">
+                    <span class="av" :style="{ background: avColor(c.name) }">{{ initials(c.name) }}</span>
+                    <div>{{ c.name }}</div>
+                  </div>
+                </td>
+                <td class="num">{{ fmt(c.actions) }}</td>
+                <td class="num">
+                  <span class="pill" :class="deltaClass(c.dActions)">
+                    <v-icon :icon="deltaIcon(c.dActions)" size="12" /> {{ fmt(Math.abs(c.dActions)) }}
+                  </span>
+                </td>
+                <td class="num">{{ fmtDur(c.avgMin) }}</td>
+                <td class="num">
+                  <span class="pill" :class="deltaClass(c.dAvgMin)">
+                    <v-icon :icon="deltaIcon(c.dAvgMin)" size="12" /> {{ fmtDur(Math.abs(c.dAvgMin)) }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <div v-if="usage?.note" class="usage-note">
         <v-icon icon="mdi-information-outline" size="14" /> {{ usage.note }}
       </div>
@@ -352,14 +537,29 @@ interface UsageSale {
   userId: string; name: string; deptName: string;
   activeDays: number; avgActiveMinPerDay: number; actions: number;
   topModule: string; closesPerHour: number; effScore: number;
+  activeHours: number; closed: number;
 }
 interface ModuleUsage { module: string; label: string; actions: number; pct: number }
+interface DailyPoint { date: string; min: number }
+interface DailySeries { userId: string; name: string; color: string; points: DailyPoint[] }
+interface HeatCell { d: number; h: number; count: number }
+interface FunnelRow { userId: string; name: string; sent: number; replied: number; appts: number; closed: number }
+interface CompareRow {
+  userId: string; name: string;
+  actions: number; prevActions: number; dActions: number;
+  avgMin: number; prevAvgMin: number; dAvgMin: number;
+}
 interface CrmUsageData {
   from: string; to: string;
   kpis: { activeSalesToday: number; avgActiveMinPerDay: number; totalActions: number; topModule: string };
   bySale: UsageSale[];
   moduleUsage: ModuleUsage[];
   note: string;
+  dailySeries: DailySeries[];
+  days: string[];
+  hourHeat: { max: number; cells: HeatCell[] };
+  funnel: FunnelRow[];
+  compare: CompareRow[];
 }
 
 const ranges = [
@@ -464,6 +664,140 @@ function avColor(name: string): string {
   for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
   return AV_COLORS[h % AV_COLORS.length];
 }
+
+// ============ Mức độ dùng CRM — biểu đồ bổ sung ============
+
+// ---- 1) LINE CHART: thời gian dùng theo ngày ----
+const LC = { w: 900, h: 260, padL: 46, padR: 16, padT: 16, padB: 30 };
+// trục Y dùng phút; trục X = index ngày
+const lineMaxMin = computed(() => {
+  const series = usage.value?.dailySeries ?? [];
+  let mx = 1;
+  for (const s of series) for (const p of s.points) if (p.min > mx) mx = p.min;
+  return mx;
+});
+function lineX(idx: number): number {
+  const n = usage.value?.days.length ?? 0;
+  const span = LC.w - LC.padL - LC.padR;
+  if (n <= 1) return LC.padL + span / 2;
+  return LC.padL + (idx / (n - 1)) * span;
+}
+function lineY(min: number): number {
+  const span = LC.h - LC.padT - LC.padB;
+  const r = Math.max(0, Math.min(1, min / lineMaxMin.value));
+  return LC.padT + (1 - r) * span;
+}
+// điểm polyline cho từng series
+const linePolys = computed(() =>
+  (usage.value?.dailySeries ?? []).map((s) => ({
+    name: s.name,
+    color: s.color,
+    pts: s.points.map((p, i) => `${lineX(i).toFixed(1)},${lineY(p.min).toFixed(1)}`).join(' '),
+  })),
+);
+// 3 mốc trục Y (0 / giữa / max) — label dạng giờ/phút
+const lineYTicks = computed(() => {
+  const mx = lineMaxMin.value;
+  return [0, Math.round(mx / 2), mx].map((v) => ({ v, y: lineY(v), label: fmtDur(v) }));
+});
+// ~6-7 nhãn ngày rải đều trên trục X
+const lineXTicks = computed(() => {
+  const days = usage.value?.days ?? [];
+  const n = days.length;
+  if (!n) return [] as { x: number; label: string }[];
+  const want = Math.min(7, n);
+  const step = n <= 1 ? 1 : (n - 1) / (want - 1);
+  const out: { x: number; label: string }[] = [];
+  const seen = new Set<number>();
+  for (let k = 0; k < want; k++) {
+    const i = Math.round(k * step);
+    if (seen.has(i)) continue;
+    seen.add(i);
+    out.push({ x: lineX(i), label: shortDate(days[i]) });
+  }
+  return out;
+});
+function shortDate(iso: string): string {
+  // "2026-06-17" → "17/06"
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}` : (iso || '');
+}
+
+// ---- 2) HEATMAP giờ × thứ ----
+const WEEKDAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+// lookup d|h → count
+const heatLookup = computed(() => {
+  const map = new Map<string, number>();
+  for (const c of usage.value?.hourHeat?.cells ?? []) map.set(`${c.d}|${c.h}`, c.count);
+  return map;
+});
+function heatLevel(d: number, h: number): number {
+  const max = usage.value?.hourHeat?.max ?? 0;
+  const v = heatLookup.value.get(`${d}|${h}`) ?? 0;
+  if (max <= 0 || v <= 0) return 0;
+  const r = v / max;
+  if (r > 0.75) return 4;
+  if (r > 0.5) return 3;
+  if (r > 0.25) return 2;
+  return 1;
+}
+function heatCount(d: number, h: number): number {
+  return heatLookup.value.get(`${d}|${h}`) ?? 0;
+}
+
+// ---- 3) QUADRANT: nỗ lực (giờ) vs kết quả (chốt) ----
+const QC = { w: 520, h: 360, padL: 44, padR: 20, padT: 18, padB: 36 };
+const quadMaxX = computed(() =>
+  Math.max(1, ...(usage.value?.bySale ?? []).map((s) => s.activeHours || 0)),
+);
+const quadMaxY = computed(() =>
+  Math.max(1, ...(usage.value?.bySale ?? []).map((s) => s.closed || 0)),
+);
+function median(vals: number[]): number {
+  const a = [...vals].sort((x, y) => x - y);
+  if (!a.length) return 0;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
+const quadMedX = computed(() => median((usage.value?.bySale ?? []).map((s) => s.activeHours || 0)));
+const quadMedY = computed(() => median((usage.value?.bySale ?? []).map((s) => s.closed || 0)));
+function quadX(v: number): number {
+  const span = QC.w - QC.padL - QC.padR;
+  return QC.padL + Math.max(0, Math.min(1, v / quadMaxX.value)) * span;
+}
+function quadY(v: number): number {
+  const span = QC.h - QC.padT - QC.padB;
+  return QC.padT + (1 - Math.max(0, Math.min(1, v / quadMaxY.value))) * span;
+}
+const quadDots = computed(() =>
+  (usage.value?.bySale ?? []).map((s) => ({
+    name: s.name,
+    label: initials(s.name),
+    color: avColor(s.name),
+    cx: quadX(s.activeHours || 0),
+    cy: quadY(s.closed || 0),
+    title: `${s.name} · ${fmtDur((s.activeHours || 0) * 60)} · ${fmt(s.closed)} chốt`,
+  })),
+);
+
+// ---- 4) FUNNEL per sale: chuẩn hoá theo sent ----
+function funnelPct(value: number, sent: number): number {
+  if (!sent || sent <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / sent) * 100));
+}
+
+// ---- 5) COMPARE Δ helpers ----
+function deltaClass(d: number): string {
+  if (d > 0) return 'ok';
+  if (d < 0) return 'danger';
+  return '';
+}
+function deltaIcon(d: number): string {
+  if (d > 0) return 'mdi-arrow-up';
+  if (d < 0) return 'mdi-arrow-down';
+  return 'mdi-minus';
+}
 </script>
 
 <style scoped>
@@ -476,4 +810,52 @@ function avColor(name: string): string {
 .mod-nm { width: 150px; flex: none; font-weight: 600; color: var(--rk-ink, #1f2d3d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mod-vv { width: 100px; flex: none; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--rk-ink, #1f2d3d); }
 .usage-note { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--rk-muted, #6b7785); font-style: italic; }
+
+/* 1) LINE CHART */
+.lc-wrap { width: 100%; }
+.lc-svg { width: 100%; height: auto; display: block; }
+.lc-grid line { stroke: var(--rk-hairline, #e6e9ef); stroke-width: 1; }
+.lc-ylab, .lc-xlab { font-size: 10.5px; fill: var(--rk-faint, #97a0ac); font-weight: 600; }
+.lc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lc-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; }
+.lc-li { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--rk-ink, #1f2d3d); }
+.lc-sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; flex: none; }
+
+/* 2) HEATMAP */
+.hh { overflow-x: auto; }
+.hh-grid { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 3px; align-items: center; min-width: 560px; }
+.hh-rl { font-size: 11.5px; font-weight: 600; color: var(--rk-ink, #1f2d3d); }
+.hh-c { aspect-ratio: 1; border-radius: 3px; background: #eef1f6; }
+.hh-c.hl0 { background: #eef1f6; } .hh-c.hl1 { background: #d7ecf7; } .hh-c.hl2 { background: #9fd3ec; }
+.hh-c.hl3 { background: #4fb0e0; } .hh-c.hl4 { background: var(--rk-brand, #1786be); }
+.hh-hx { font-size: 10px; color: var(--rk-faint, #97a0ac); font-weight: 600; text-align: center; }
+.hh-foot { display: flex; align-items: center; gap: 4px; margin-top: 12px; font-size: 11px; }
+.hh-foot .hh-c { width: 14px; height: 14px; aspect-ratio: auto; flex: none; }
+.hh-foot .muted { margin: 0 4px; }
+
+/* 3) QUADRANT */
+.qd-wrap { width: 100%; max-width: 560px; margin: 0 auto; }
+.qd-svg { width: 100%; height: auto; display: block; }
+.qd-frame { fill: var(--rk-surface-2, #f8fafc); stroke: var(--rk-hairline, #e6e9ef); stroke-width: 1; }
+.qd-med { stroke: var(--rk-faint, #97a0ac); stroke-width: 1; stroke-dasharray: 4 4; }
+.qd-ql { font-size: 10px; fill: var(--rk-faint, #97a0ac); font-weight: 600; }
+.qd-dot { stroke: #fff; stroke-width: 1.5; opacity: .92; }
+.qd-dl { font-size: 9px; fill: #fff; font-weight: 700; pointer-events: none; }
+.qd-ax { font-size: 10.5px; fill: var(--rk-muted, #6b7785); font-weight: 700; }
+
+/* 4) FUNNEL per sale */
+.fn-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-bottom: 14px; font-size: 11.5px; color: var(--rk-muted, #6b7785); }
+.fn-legend span { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.fn-sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.fn-sw.s0 { background: var(--rk-brand-700, #0b5880); } .fn-sw.s1 { background: var(--rk-brand, #1786be); }
+.fn-sw.s2 { background: #4fb0e0; } .fn-sw.s3 { background: #9fd3ec; }
+.fn-list { display: flex; flex-direction: column; gap: 10px; }
+.fn-row { display: flex; align-items: center; gap: 12px; }
+.fn-nm { width: 170px; flex: none; }
+.fn-nm > div { font-size: 12.5px; font-weight: 600; color: var(--rk-ink, #1f2d3d); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fn-bars { flex: 1; display: flex; align-items: stretch; gap: 2px; height: 26px; min-width: 0; }
+.fn-seg { height: 100%; min-width: 22px; display: flex; align-items: center; justify-content: center; border-radius: 5px;
+  font-size: 11px; font-weight: 700; color: #fff; overflow: hidden; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fn-seg.s0 { background: var(--rk-brand-700, #0b5880); } .fn-seg.s1 { background: var(--rk-brand, #1786be); }
+.fn-seg.s2 { background: #4fb0e0; } .fn-seg.s3 { background: #9fd3ec; color: var(--rk-brand-700, #0b5880); }
 </style>
