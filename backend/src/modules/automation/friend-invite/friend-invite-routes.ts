@@ -67,21 +67,16 @@ async function getTaskProgressForTrigger(
   try {
     const queue = getSequenceStepQueue();
     const jobs = await queue.getJobs(['delayed', 'waiting', 'active'], 0, 5000);
-    const prefix = `${triggerId}-`;
     for (const job of jobs) {
-      if (!job.id || !job.id.startsWith(prefix)) continue;
-      // FIX 2026-06-17: jobId đổi từ 2026-06-13 sang
-      //   `${triggerId}-${sequenceId}-${contactId}-e${epoch}-${stepIdx}` (queue-registry buildSequenceStepJobId).
-      // Parser CŨ tách `${triggerId}-${contactId}-${stepIdx}` → lấy NHẦM
-      // contactId = `${sequenceId}-${contactId}-e${epoch}` → không khớp KH nào →
-      // dashboard hiện "0/16" + "Đã xong"/"—" oan cho MỌI KH đang chạy (cả 3 cột sai).
-      // Tách từ ĐUÔI `-e<epoch>-<stepIdx>`; contactId = UUID 36 ký tự ngay trước "-e".
-      const tail = job.id.match(/-e\d+-(\d+)$/);
-      if (!tail || tail.index === undefined) continue; // jobId format lạ/cũ → bỏ
-      const stepIdx = parseInt(tail[1], 10);
-      const head = job.id.slice(0, tail.index); // `${triggerId}-${sequenceId}-${contactId}`
-      const contactId = head.slice(-36); // contactId là UUID 36 ký tự cuối head
-      if (!Number.isFinite(stepIdx) || !/^[0-9a-f-]{36}$/i.test(contactId)) continue;
+      // FIX4 2026-06-17: đọc THẲNG job.data (triggerId/contactId/stepIdx) thay vì parse chuỗi
+      // jobId. jobId đã đổi format nhiều lần (thêm sequenceId+epoch 2026-06-13) → parse chuỗi
+      // mong manh + phải đoán contactId 36 ký tự. job.data có sẵn các field → robust, không phụ
+      // thuộc format jobId. (Thay parser chuỗi cũ 3c8eecc; gỡ trùng với cách 67794e5 agent kia.)
+      const d = job.data as { triggerId?: string; contactId?: string; stepIdx?: number } | undefined;
+      if (!d || d.triggerId !== triggerId) continue; // chỉ job của trigger này
+      const contactId = d.contactId;
+      const stepIdx = d.stepIdx;
+      if (!contactId || typeof stepIdx !== 'number' || !Number.isFinite(stepIdx)) continue;
 
       // job.timestamp = ms epoch khi enqueue; job.opts.delay = ms delay.
       // nextRunAt = timestamp + delay (cho delayed jobs). active/waiting → now-ish.
