@@ -1232,6 +1232,110 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
     },
   );
 
+  // ── GET followup-history — LỊCH SỬ CHI TIẾT 1 luồng bám đuổi (anh chốt office-hours 2026-06-18) ──
+  // Ghép tin BƯỚC-GỬI THẬT (content + ảnh/file đính kèm, lọc theo metadata.sender.sequenceId) +
+  // CareSessionEvent (reply/reaction/pause/close) → 1 timeline tăng dần. Read-only, org-scope (xem
+  // lịch sử luồng sale khác được — chỉ THAO TÁC mới khoá theo owner).
+  app.get<{
+    Params: { cid: string };
+    Querystring: { triggerId?: string; sequenceId?: string };
+  }>(
+    '/api/v1/contacts/:cid/followup-history',
+    { preHandler: authMiddleware },
+    async (request, reply) => {
+      const { cid } = request.params;
+      const { triggerId, sequenceId } = request.query;
+      const orgId = request.user!.orgId;
+      if (!triggerId) { reply.code(400); return { error: 'Thiếu triggerId' }; }
+
+      // 1) Resolve phiên (nick + sessionId). Ưu tiên khớp sequence; fallback theo trigger.
+      const session = await prisma.careSession.findFirst({
+        where: {
+          orgId, contactId: cid, sourceTriggerId: triggerId,
+          ...(sequenceId ? { sourceSequenceId: sequenceId } : {}),
+        },
+        orderBy: { openedAt: 'desc' },
+        select: { id: true, nickId: true, sourceSequenceId: true, state: true, sourceType: true },
+      });
+      const seqId = sequenceId || session?.sourceSequenceId || null;
+
+      // 2) Tin bước-gửi THẬT: messages automation của (contact × nick), lọc sequenceId qua
+      //    metadata.sender.sequenceId (M11). Trạng thái: seen(2 tick) > delivered(1 tick) > sent.
+      type Item = {
+        kind: string; at: string; stepIdx?: number | null; content?: string | null;
+        contentType?: string; attachments?: unknown; status?: string; text?: string | null; emoji?: string | null;
+      };
+      const items: Item[] = [];
+      if (session?.nickId) {
+        const conv = await prisma.conversation.findFirst({
+          where: { orgId, contactId: cid, zaloAccountId: session.nickId },
+          select: { id: true },
+        });
+        if (conv) {
+          const msgs = await prisma.message.findMany({
+            where: {
+              conversationId: conv.id,
+              senderType: 'self',
+              sentVia: 'automation',
+              ...(seqId ? { metadata: { path: ['sender', 'sequenceId'], equals: seqId } } : {}),
+            },
+            orderBy: { sentAt: 'asc' },
+            take: 100,
+            select: {
+              content: true, contentType: true, attachments: true, sentAt: true,
+              deliveredAt: true, seenAt: true, automationStepIndex: true,
+            },
+          });
+          for (const m of msgs) {
+            items.push({
+              kind: 'step',
+              at: m.sentAt.toISOString(),
+              stepIdx: m.automationStepIndex,
+              content: m.content,
+              contentType: m.contentType,
+              attachments: m.attachments,
+              status: m.seenAt ? 'seen' : m.deliveredAt ? 'delivered' : 'sent',
+            });
+          }
+        }
+      }
+
+      // 3) Sự kiện phiên (reply/reaction/pause/close/notified...).
+      if (session?.id) {
+        const evs = await prisma.careSessionEvent.findMany({
+          where: { sessionId: session.id },
+          orderBy: { createdAt: 'asc' },
+          take: 200,
+          select: { eventType: true, payload: true, createdAt: true },
+        });
+        for (const e of evs) {
+          const p = (e.payload ?? {}) as Record<string, unknown>;
+          items.push({
+            kind: e.eventType,
+            at: e.createdAt.toISOString(),
+            text: typeof p.text === 'string' ? p.text : (typeof p.content === 'string' ? p.content : null),
+            emoji: typeof p.emoji === 'string' ? p.emoji : null,
+          });
+        }
+      }
+
+      // 4) Trộn + sort tăng dần theo thời gian.
+      const timeline = items.sort((a, b) => a.at.localeCompare(b.at));
+      return {
+        contactId: cid,
+        flow: {
+          triggerId,
+          sequenceId: seqId,
+          nickId: session?.nickId ?? null,
+          state: session?.state ?? null,
+          sourceType: session?.sourceType ?? null,
+          stepsSent: items.filter((i) => i.kind === 'step').length,
+        },
+        timeline,
+      };
+    },
+  );
+
   // ── GET manual-followup/summary (system row trong trang Mục tiêu) ──────────
   // Đếm KH gắn tay theo trạng thái cho card "Bám đuổi khách hàng thủ công".
   app.get(

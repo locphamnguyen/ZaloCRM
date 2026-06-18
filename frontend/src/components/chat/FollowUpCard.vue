@@ -88,6 +88,16 @@
         <span v-if="card.nickName && card.enrolledBy"> · </span>
         <span v-if="card.enrolledBy">Sale: {{ card.enrolledBy }}</span>
       </div>
+
+      <!-- Xem lịch sử chi tiết bước (active/paused — completed/stopped đã có nút riêng).
+           Ai cũng xem được (read), không khoá theo owner. -->
+      <button
+        v-if="card.state === 'active' || card.state === 'paused'"
+        class="fc-histlink" @click="emit('action', 'history')"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" /><path d="M12 7v5l4 2" /></svg>
+        Xem lịch sử các bước đã gửi
+      </button>
     </div>
 
     <!-- ETA dự kiến xong (chỉ active, chỉ khi BE trả etaCompleteAt) -->
@@ -378,6 +388,14 @@ function formatRemaining(ms: number): string {
 .fc-line.accent .mi { color: var(--brand); }
 .fc-line.warn { color: #92400e; font-weight: 500; }
 .fc-line.warn .mi { color: var(--warning); }
+
+.fc-histlink {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 5px; align-self: flex-start;
+  background: transparent; border: 0; padding: 2px 0; cursor: pointer;
+  font-size: 11px; font-weight: 500; color: var(--brand-700); font-family: inherit;
+}
+.fc-histlink:hover { text-decoration: underline; }
+.fc-histlink svg { flex-shrink: 0; }
 
 .fc-eta {
   display: flex; align-items: center; gap: 5px; margin-top: 8px;

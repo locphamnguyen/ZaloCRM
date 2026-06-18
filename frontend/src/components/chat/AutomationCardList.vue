@@ -157,6 +157,14 @@
       @confirm="runConfirmedAction"
       @cancel="confirmOpen = false"
     />
+
+    <!-- Lịch sử chi tiết bám đuổi (office-hours 2026-06-18) -->
+    <FollowUpHistoryDialog
+      :open="historyOpen"
+      :contact-id="props.contactId"
+      :card="historyCard"
+      @close="historyOpen = false"
+    />
   </div>
 </template>
 
@@ -165,6 +173,7 @@ import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { api } from '@/api/index';
 import FollowUpCard, { type FollowUpCardData } from './FollowUpCard.vue';
 import ConfirmActionModal from './ConfirmActionModal.vue';
+import FollowUpHistoryDialog from './FollowUpHistoryDialog.vue';
 import { useToast } from '@/composables/use-toast';
 
 const toastSvc = useToast();
@@ -420,7 +429,8 @@ async function onAction(
     return;
   }
   if (kind === 'history') {
-    toast('Lịch sử chi tiết các bước đã gửi đang phát triển — sẽ có sớm.');
+    historyCard.value = card;
+    historyOpen.value = true;
     return;
   }
 
@@ -453,6 +463,9 @@ async function onAction(
 const confirmOpen = ref(false);
 const confirmKind = ref<'pause' | 'stop'>('pause');
 const confirmCard = ref<AutomationStatusCard | null>(null);
+// Lịch sử chi tiết bám đuổi (nút "Xem lịch sử") — office-hours 2026-06-18.
+const historyOpen = ref(false);
+const historyCard = ref<AutomationStatusCard | null>(null);
 const confirmBusy = ref(false);
 
 const confirmConfig = computed(() => {

@@ -26,7 +26,10 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
-          <div class="afm-sub">Chọn 1 kịch bản có sẵn để bắt đầu chăm khách này</div>
+          <div class="afm-sub">
+            <template v-if="step === 1">Bước 1/2 · Chọn 1 kịch bản có sẵn để bắt đầu chăm khách này</template>
+            <template v-else>Bước 2/2 · Ghi chú lý do gắn luồng (để quản lý audit được)</template>
+          </div>
         </div>
 
         <!-- Body -->
@@ -38,6 +41,8 @@
           </div>
 
           <template v-else>
+            <!-- ══ BƯỚC 1: chọn luồng + nick ══ -->
+            <template v-if="step === 1">
             <!-- Sequence picker -->
             <div class="afm-field">
               <label class="afm-label">Chọn luồng kịch bản <span class="afm-req">*</span></label>
@@ -87,17 +92,33 @@
               </div>
             </div>
 
-            <!-- Reason -->
-            <div class="afm-field">
-              <label class="afm-label">Lý do bám đuổi <span class="afm-req">*</span></label>
-              <textarea
-                v-model="reason"
-                class="afm-reason"
-                placeholder="VD: KH hỏi giá Emerald GV, cần chăm tiếp tới khi đặt lịch xem nhà…"
-                rows="3"
-              />
-              <div class="afm-help">Bắt buộc nhập để quản lý audit được lý do bám đuổi thủ công.</div>
-            </div>
+            </template>
+
+            <!-- ══ BƯỚC 2: popup ghi chú lý do (next-step) ══ -->
+            <template v-else>
+              <!-- recap luồng + nick đã chọn ở bước 1 -->
+              <div class="afm-recap">
+                <span class="afm-recap-ic">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                </span>
+                <div class="afm-recap-info">
+                  <div class="afm-recap-nm">{{ selectedSeqName }}</div>
+                  <div class="afm-recap-meta">{{ selectedSeqMeta }}<template v-if="nickName"> · Nick {{ nickName }}</template></div>
+                </div>
+              </div>
+
+              <!-- Reason -->
+              <div class="afm-field">
+                <label class="afm-label">Lý do bám đuổi <span class="afm-req">*</span></label>
+                <textarea
+                  v-model="reason"
+                  class="afm-reason"
+                  placeholder="VD: KH hỏi giá Emerald GV, cần chăm tiếp tới khi đặt lịch xem nhà…"
+                  rows="3"
+                />
+                <div class="afm-help">Bắt buộc nhập để quản lý audit được lý do bám đuổi thủ công.</div>
+              </div>
+            </template>
 
             <!-- Error -->
             <div v-if="error" class="afm-error">
@@ -107,13 +128,25 @@
           </template>
         </div>
 
-        <!-- Footer -->
+        <!-- Footer — bước 1: Hủy / Tiếp tục · bước 2: Quay lại / Xác nhận -->
         <div class="afm-foot">
-          <button class="afm-btn ghost" :disabled="submitting" @click="onClose">Hủy</button>
-          <button class="afm-btn primary" :disabled="!canSubmit || submitting" @click="onSubmit">
-            <svg v-if="!submitting" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" /></svg>
-            {{ submitting ? 'Đang bắt đầu...' : submitButtonText }}
-          </button>
+          <template v-if="step === 1">
+            <button class="afm-btn ghost" @click="onClose">Hủy</button>
+            <button class="afm-btn primary" :disabled="!canNext" @click="goNext">
+              {{ canNext ? 'Tiếp tục' : 'Chọn luồng' }}
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+          </template>
+          <template v-else>
+            <button class="afm-btn ghost" :disabled="submitting" @click="step = 1">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+              Quay lại
+            </button>
+            <button class="afm-btn primary" :disabled="!canSubmit || submitting" @click="onSubmit">
+              <svg v-if="!submitting" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" /></svg>
+              {{ submitting ? 'Đang bắt đầu...' : 'Xác nhận bắt đầu bám đuổi' }}
+            </button>
+          </template>
         </div>
       </div>
     </div>
@@ -208,17 +241,25 @@ const reason = ref('');
 const submitting = ref(false);
 const error = ref<string | null>(null);
 
+// ── 2 bước (anh chốt 2026-06-18: ghi chú lý do là NEXT-STEP, không nằm cùng màn phải cuộn) ──
+//   bước 1 = chọn luồng + nick · bước 2 = popup nhập ghi chú → Xác nhận / Quay lại.
+const step = ref<1 | 2>(1);
+const canNext = computed(() => !!selectedSequenceId.value && !!props.nickId);
+function goNext(): void {
+  if (!canNext.value) return;
+  error.value = null;
+  step.value = 2;
+}
+const selectedSeq = computed(() => sequences.value.find((s) => s.id === selectedSequenceId.value) ?? null);
+const selectedSeqName = computed(() => selectedSeq.value?.name ?? 'Luồng đã chọn');
+const selectedSeqMeta = computed(() =>
+  selectedSeq.value ? `${selectedSeq.value.stepCount} bước · ${selectedSeq.value.estLabel}` : '',
+);
+
 // ── Computed ──
 const canSubmit = computed(
   () => !!selectedSequenceId.value && !!props.nickId && reason.value.trim().length > 0,
 );
-
-const submitButtonText = computed(() => {
-  if (!selectedSequenceId.value) return 'Chọn Sequence';
-  const seq = sequences.value.find((s) => s.id === selectedSequenceId.value);
-  if (!seq) return 'Bắt đầu bám đuổi';
-  return `Bắt đầu bám đuổi ${seq.stepCount} bước`;
-});
 
 // ── Fetch sequences ──
 async function fetchSequences(): Promise<void> {
@@ -425,6 +466,19 @@ onMounted(() => {
 }
 .afm-nick-ic { color: var(--brand-700); display: inline-flex; flex-shrink: 0; }
 .afm-nick-nm { font-weight: 600; color: var(--ink); }
+
+/* Recap luồng đã chọn (bước 2) */
+.afm-recap {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  background: var(--brand-soft); border-radius: var(--r-sm); padding: 10px 12px;
+}
+.afm-recap-ic {
+  width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; background: var(--surface);
+  color: var(--brand); display: inline-flex; align-items: center; justify-content: center;
+}
+.afm-recap-info { min-width: 0; }
+.afm-recap-nm { font-size: 13px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.afm-recap-meta { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
 
 /* Reason */
 .afm-reason {
