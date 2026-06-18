@@ -818,14 +818,83 @@ export async function onManualResume(input: {
   contactId: string;
   byUserId: string;
 }): Promise<void> {
-  await clearContactPauseFlag(input.triggerId, input.contactId);
+  const { orgId, triggerId, contactId, byUserId } = input;
+  await clearContactPauseFlag(triggerId, contactId);
+
+  // 2026-06-18 FIX (anh báo nút "Tiếp tục ngay" KHÔNG gửi gì): reply-pause (LUẬT 4) dừng chuỗi
+  // bằng careSession.pausedAtStepIdx + pausedUntil + moveToDelayed job tới +pauseHours; worker
+  // gác bằng pausedAtStepIdx. Trước đây resume CHỈ clear cờ Redis → pausedAtStepIdx vẫn set +
+  // job vẫn delayed tới +24h → bấm xong im ru. Nay mirror đúng logic /advance: clear gate phiên
+  // + PROMOTE job delayed về chạy NGAY (enqueue lại nếu job đã mất), cho MỌI luồng active của KH.
+  const queue = getSequenceStepQueue();
+  const sessions = await prisma.careSession.findMany({
+    where: { orgId, contactId, sourceTriggerId: triggerId, state: 'active', sourceSequenceId: { not: null } },
+    select: { id: true, sourceSequenceId: true, pausedAtStepIdx: true, enrollEpoch: true, nickId: true },
+  });
+  let resumed = 0;
+  if (sessions.length > 0) {
+    const delayed = await queue.getJobs(['delayed'], 0, 5000);
+    for (const s of sessions) {
+      const sequenceId = s.sourceSequenceId as string;
+      const epoch = s.enrollEpoch ?? 1;
+      const heldStep = s.pausedAtStepIdx;
+      // Mở khoá phiên: worker hết re-defer + hạ pausedUntil.
+      await prisma.careSession.update({
+        where: { id: s.id },
+        data: { pausedAtStepIdx: null, pausedUntil: null },
+      }).catch(() => null);
+      // Promote job delayed ĐÚNG (contact, sequence, epoch) → delayed → waiting (chạy ngay).
+      let promoted = 0;
+      for (const job of delayed) {
+        const d = job.data as { contactId?: string; sequenceId?: string; enrollEpoch?: number };
+        if (d?.contactId !== contactId || d?.sequenceId !== sequenceId) continue;
+        if ((d?.enrollEpoch ?? 1) !== epoch) continue;
+        try { await job.promote(); promoted++; }
+        catch (err) { logger.warn(`[manual-resume] promote job ${job.id} failed: ${(err as Error).message}`); }
+      }
+      // Job đã mất (path remove cũ) + biết bước dở → enqueue lại để gửi ngay (tránh KH kẹt).
+      if (promoted === 0 && heldStep != null) {
+        const seq = await prisma.automationSequence.findUnique({
+          where: { id: sequenceId },
+          select: { steps: true, runtimeRules: true },
+        });
+        const steps = Array.isArray(seq?.steps) ? (seq!.steps as unknown[]) : [];
+        if (heldStep < steps.length) {
+          const jobId = buildSequenceStepJobId(triggerId, sequenceId, contactId, heldStep, epoch);
+          if (!(await queue.getJob(jobId))) {
+            await queue.add('sequence-step', {
+              triggerId, contactId, sequenceId, nickId: s.nickId, orgId,
+              stepIdx: heldStep, totalSteps: steps.length,
+              runtimeRules: (seq?.runtimeRules as Record<string, unknown>) ?? undefined,
+              enrollEpoch: epoch,
+            }, { jobId, delay: 0 });
+            promoted = 1;
+            logger.info(`[manual-resume] job đã mất → enqueue lại bước ${heldStep} contact=${contactId} seq=${sequenceId}`);
+          }
+        }
+      }
+      if (promoted > 0) resumed++;
+    }
+    // Bỏ chip "🛑 KH reply" trên FE (queueStatus về processing).
+    await prisma.triggerQueueEntry.updateMany({
+      where: { triggerId, contactId, queueStatus: 'customer_reply' },
+      data: { queueStatus: 'processing' },
+    }).catch(() => null);
+    // Cho lần chặn kế ghi log lại (đồng nhất /advance).
+    try {
+      const { clearBlockMarker } = await import('../shared/block-logger.js');
+      await clearBlockMarker(triggerId, contactId);
+    } catch { /* ignore */ }
+  }
+
   await prisma.automationEventLog.create({
     data: {
-      orgId: input.orgId,
-      triggerId: input.triggerId,
-      contactId: input.contactId,
+      orgId,
+      triggerId,
+      contactId,
       eventType: 'manual_resume',
-      detail: `by ${input.byUserId}`,
+      detail: `by ${byUserId} (resumed ${resumed})`,
     },
   });
+  logger.info(`[manual-resume] contact=${contactId} trigger=${triggerId} → resumed ${resumed} luồng`);
 }

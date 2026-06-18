@@ -439,6 +439,7 @@ async function onAction(
         `/automation/triggers/${card.triggerId}/contacts/${props.contactId}/resume`,
       );
       await fetchStatus();
+      toast('Đã tiếp tục luồng — hệ thống đang gửi bước kế tiếp cho khách');
     } catch (err) {
       console.error('[resume] failed', err);
       toast('Lỗi tiếp tục — thử lại sau', 'error');
