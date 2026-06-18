@@ -550,6 +550,8 @@ function extractSilenceDays(closeConditions: unknown): number {
 export async function resumePausedSequences(): Promise<{ resumed: number }> {
   const { getSequenceStepQueue, buildSequenceStepJobId } = await import('../queues/queue-registry.js');
   const { clearContactPauseFlag } = await import('../queues/event-hooks.js');
+  // NV-1 (2026-06-18): xoá khoá block khi luồng chạy lại → đợt chặn mới được ghi log lại.
+  const { clearBlockMarker } = await import('../shared/block-logger.js');
   const tickStart = new Date();
   const sel = {
     id: true, orgId: true, contactId: true, nickId: true,
@@ -650,6 +652,8 @@ export async function resumePausedSequences(): Promise<{ resumed: number }> {
           data: { queueStatus: 'processing' },
         }).catch(() => null);
       }
+      // NV-1: luồng chạy lại → xoá khoá block (cả 2 nhánh) để đợt chặn mới ghi log lại.
+      await clearBlockMarker(s.sourceTriggerId, s.contactId);
       await prisma.careSession.update({ where: { id: s.id }, data: { pausedAtStepIdx: null } });
       resumed++;
       logger.info(`[care-session] LUẬT 4 resume session=${s.id} kind=${s.kind} step=${s.pausedAtStepIdx} contact=${s.contactId}`);

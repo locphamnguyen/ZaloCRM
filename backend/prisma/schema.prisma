@@ -2585,6 +2585,10 @@ model AutomationEventLog {
   // Cả hai cùng tồn tại để backward compat — code mới dùng detail, code Wave 3 dùng summary.
   summary       String?  @db.Text
   detail        String?
+  // 2026-06-18 Observability "vì sao không gửi": phân loại blocker (quota_message_exhausted,
+  // quota_friend_exhausted, outside_hour_window, nick_offline, sequence_disabled...) để lọc
+  // nhanh + tách "hết quota tin" khỏi lỗi gửi thường (eventType quá chung). NULL cho event cũ.
+  category      String?  @map("category")
   metadata      Json?
   createdAt     DateTime @default(now()) @map("created_at")
 
@@ -2592,6 +2596,8 @@ model AutomationEventLog {
 
   // Luồng Mục Tiêu M3 indexes
   @@index([triggerId, contactId, eventType], map: "idx_automation_event_log_trigger_contact_type")
+  // 2026-06-18 Observability: lọc theo lý do (category) trong 1 trigger
+  @@index([triggerId, category, createdAt(sort: Desc)], map: "idx_event_log_trigger_category_time")
   @@index([eventType, createdAt(sort: Desc)], map: "idx_automation_event_log_type_created")
   @@index([orgId, eventType, createdAt(sort: Desc)], map: "idx_automation_event_log_org_type_created")
   @@index([contactId, createdAt(sort: Desc)], map: "idx_automation_event_log_contact_created")

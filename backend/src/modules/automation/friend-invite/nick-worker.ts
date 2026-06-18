@@ -27,6 +27,59 @@ import { claimNextEntry, markEntrySent, releaseEntryFailed } from './pool-query.
 import { logEvent } from './event-log-service.js';
 import { checkMultiNickThreshold } from '../queues/worker-guards.js';
 import { getBullMQRedis } from '../queues/redis-connection.js';
+// Observability "vì sao không gửi" 2026-06-18 — nhãn lý do (T6 hết lượt kết bạn) + ghi blocker.
+import { resolveBlockReason } from '../shared/block-reason-catalog.js';
+import { logBlockOnce } from '../shared/block-logger.js';
+
+// ── T6 Observability (2026-06-18): "nick hết lượt kết bạn hôm nay" ─────────
+// Sự kiện cấp-nick (không gắn 1 khách). Ghi cho các trigger đang chờ kết bạn
+// (queued_for_pickup) trong org, dedup 1 lần/nick/trigger/ngày qua Redis SET NX
+// tới nửa đêm VN (cap reset 00:00). Best-effort, không throw vào worker.
+function secondsToVNMidnight(): number {
+  const now = new Date();
+  const vnNow = new Date(now.getTime() + 7 * 3600_000);
+  const vnMid = new Date(vnNow);
+  vnMid.setUTCDate(vnMid.getUTCDate() + 1);
+  vnMid.setUTCHours(0, 0, 0, 0);
+  const utcMidMs = vnMid.getTime() - 7 * 3600_000;
+  return Math.max(60, Math.ceil((utcMidMs - now.getTime()) / 1000));
+}
+
+async function logFriendQuotaExhausted(
+  nickId: string,
+  orgId: string,
+  nickName: string | null,
+): Promise<void> {
+  try {
+    const triggers = await prisma.triggerQueueEntry.findMany({
+      where: { orgId, queueStatus: 'queued_for_pickup' },
+      select: { triggerId: true },
+      distinct: ['triggerId'],
+      take: 50,
+    });
+    if (triggers.length === 0) return;
+    const redis = getBullMQRedis();
+    const info = resolveBlockReason('quota_friend_exhausted');
+    const ttl = secondsToVNMidnight();
+    for (const t of triggers) {
+      if (!t.triggerId) continue;
+      const ok = await redis.set(`evtlog:fquota:${nickId}:${t.triggerId}`, '1', 'EX', ttl, 'NX');
+      if (ok !== 'OK') continue; // đã ghi cho trigger này hôm nay rồi
+      void logEvent({
+        orgId,
+        triggerId: t.triggerId,
+        nickId,
+        eventType: 'friend_quota_exhausted',
+        eventPriority: 'warning',
+        summary: nickName ? `${info.label} (nick ${nickName})` : info.label,
+        category: info.category,
+        metadata: { reason: 'quota_friend_exhausted', hint: info.hint },
+      });
+    }
+  } catch (err) {
+    logger.warn(`[nick-worker] logFriendQuotaExhausted failed nick=${nickId}: ${(err as Error).message}`);
+  }
+}
 
 // 2026-06-03 Sprint v3 Tuần 3 Row 2.2: socket emit "claimed" event mỗi khi nick
 // pick entry để Mục tiêu Detail dashboard surface UI "KH X → nick Y đang xử lý".
@@ -378,6 +431,9 @@ async function runTick(nickId: string): Promise<void> {
     logger.debug(
       `[nick-worker] ${nickId} hit daily cap ${worker.todayCount}/${nick.dailyFriendAddCap}, skip tick`,
     );
+    // T6 (2026-06-18): ghi "nick hết lượt kết bạn hôm nay" cho các trigger đang chờ kết bạn
+    // (1 lần/nick/trigger/ngày) → sale thấy lý do trên monitor thay vì luồng đứng im.
+    void logFriendQuotaExhausted(nickId, worker.orgId, nick.displayName ?? null);
     return;
   }
 
@@ -435,6 +491,11 @@ async function runTick(nickId: string): Promise<void> {
         await prisma.triggerQueueEntry.update({
           where: { triggerId_customerListEntryId: { triggerId: entry.triggerId, customerListEntryId: entry.id } },
           data: { queueStatus: 'skipped_friend_cap', lockedAt: null, claimedByNickId: null },
+        });
+        // 2026-06-18: ghi "bỏ qua vì khách đã có nhiều nick add" lên monitor (chống flood).
+        void logBlockOnce({
+          orgId: trigger.orgId, triggerId: entry.triggerId, contactId: entry.contactId,
+          nickId, reason: mnGuard.reason ?? 'multi_nick',
         });
         logger.info(
           `[nick-worker] ${nickId} entry=${entry.id} skipped_friend_cap reason=${mnGuard.reason} threshold=${trigger.multiNickThreshold}`,

@@ -484,8 +484,13 @@
                     @click.stop
                   >
                     <option :value="''" disabled>— Chọn Luồng kịch bản —</option>
-                    <option v-for="s in sequences" :key="s.id" :value="s.id">
-                      {{ s.name }} ({{ stepCount(s) }} bước)
+                    <option
+                      v-for="s in sequences"
+                      :key="s.id"
+                      :value="s.id"
+                      :disabled="s.enabled === false"
+                    >
+                      {{ s.name }} ({{ stepCount(s) }} bước){{ s.enabled === false ? ' — đang TẮT' : '' }}
                     </option>
                   </select>
                   <div v-if="isEditMode" class="safety-help" style="margin-top: 4px;">
@@ -1093,6 +1098,8 @@ const TRIGGER_ERROR_VN: Record<string, string> = {
   listId_required: 'Chưa chọn tệp khách hàng.',
   nickIds_required: 'Chưa chọn nick gửi mời.',
   successorSequenceId_required: 'Chưa chọn chuỗi kịch bản bám đuổi.',
+  sequence_disabled: 'Kịch bản bám đuổi đang TẮT — hãy bật kịch bản trước khi gắn vào Mục tiêu.',
+  sequence_not_found: 'Không tìm thấy kịch bản bám đuổi.',
   greetingTemplate_required: 'Chưa nhập nội dung "Lời mời kết bạn".',
   greetingTemplate_too_long: '"Lời mời kết bạn" quá dài — tối đa 200 ký tự.',
   greetingTemplate_missing_name:
@@ -1145,7 +1152,7 @@ interface NickSummary {
   friendCap?: number;     // trần lời mời/ngày (override per-nick ?? org default friend_action)
 }
 interface SequenceStep { delayMinutes?: number; name?: string; label?: string; messageTemplate?: string; blockId?: string; }
-interface SequenceSummary { id: string; name: string; steps: SequenceStep[] | unknown; }
+interface SequenceSummary { id: string; name: string; steps: SequenceStep[] | unknown; enabled?: boolean; }
 
 interface PreviewAllocation {
   nickId: string;

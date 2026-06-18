@@ -332,7 +332,7 @@
               <tr v-for="u in team?.perUser ?? []" :key="u.userId">
                 <td>
                   <div class="at-tname">
-                    <span class="at-tname__av" :style="avBg(u.userId)">{{ initials(u.fullName) }}</span>
+                    <Avatar :src="u.avatarUrl" :name="u.fullName" :size="26" :gradient-seed="u.userId" />
                     {{ firstName(u.fullName) }}
                     <span v-if="u.userId === team?.topUser?.userId" class="at-name-tag"><Star :size="9" :stroke-width="2.5" /> Top</span>
                     <span v-if="u.hasPrivateNick" class="at-name-lock"><Lock :size="10" :stroke-width="2" />{{ u.privateNickCount }}</span>
@@ -658,6 +658,11 @@ function onOutsideClick(e: MouseEvent) {
 .dh-v4 {
   max-width: 1366px;
   margin: 0 auto;
+  /* App khoá cuộn cấp trang (main.css overflow:hidden) → dashboard PHẢI tự cuộn,
+     không thì nội dung tràn không kéo xuống được (anh báo 2026-06-17). */
+  height: calc(100vh - var(--smax-topnav-h, 48px));
+  overflow-y: auto;
+  padding-bottom: 32px;
   /* Score line màu theo 3 hệ điểm */
   --lead-c: #d97706;
   --eng-c: #2563eb;

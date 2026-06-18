@@ -138,6 +138,9 @@
             <span class="mon-chip" :class="{ active: monitorFilter === 't23h' }" @click="monitorFilter = 't23h'">
               <v-icon size="13">mdi-clock-alert-outline</v-icon> T+23h <span class="mon-chip-count">{{ monitorChipCounts.t23h }}</span>
             </span>
+            <span class="mon-chip" :class="{ active: monitorFilter === 'blocked' }" @click="monitorFilter = 'blocked'" title="Vì sao bước không gửi được: hết quota, ngoài giờ, nick offline, kịch bản tắt...">
+              <v-icon size="13">mdi-progress-alert</v-icon> Bị chặn/hoãn <span class="mon-chip-count">{{ monitorChipCounts.blocked }}</span>
+            </span>
             <button class="sound-toggle" :class="{ on: soundEnabled }" @click="toggleSound" :title="soundEnabled ? 'Tắt âm' : 'Bật âm cảnh báo'">
               <v-icon size="14">{{ soundEnabled ? 'mdi-bell-ring-outline' : 'mdi-bell-off-outline' }}</v-icon>
               {{ soundEnabled ? 'Âm: BẬT' : 'Âm: Tắt' }}
@@ -664,6 +667,10 @@
                   <span class="estatus" :class="entryStatusClass(e)" :title="entryStatusTitle(e)">
                     {{ entryStatusLabel(e) }}
                   </span>
+                  <!-- Observability 2026-06-18 — "vì sao chưa gửi": câu tiếng Việt + gợi ý -->
+                  <div v-if="entryBlockLine(e)" class="block-why" :title="entryBlockLine(e) || ''">
+                    <v-icon size="12">mdi-progress-alert</v-icon> {{ entryBlockLine(e) }}
+                  </div>
                 </td>
                 <td class="col-update">
                   <!-- ĐÃ GỬI (tin đã tới khách) — icon ✅ + bước + mốc giờ -->
@@ -983,6 +990,10 @@ interface Entry {
   // E1 2026-06-17 — KH bị Dừng tay (reason='stopped'): lý do + tên người bấm.
   pauseStopReason?: string | null;
   pauseStopByName?: string | null;
+  // Observability 2026-06-18 "vì sao chưa gửi": câu + gợi ý + nhóm lý do (server gắn sẵn).
+  blockReason?: string | null;
+  blockHint?: string | null;
+  blockCategory?: string | null;
 }
 
 // M13 2026-06-02 — 8 safety-rule columns BE return từ GET /:id/dashboard.
@@ -1082,7 +1093,7 @@ let lastMonitorSince: string | null = null;
 // ── Sprint v3 (2026-06-03) — Monitor filter + sound toggle ──
 // Chip filter 6 nhóm: tất cả / KH cần cứu / Lead / KH trả lời / Chặn / T+23h.
 // Sound toggle: localStorage per user, mặc định tắt. 3 âm Web Audio sin/sin/vuông.
-type MonitorFilter = 'all' | 'rescue' | 'lead' | 'reply' | 'block' | 't23h';
+type MonitorFilter = 'all' | 'rescue' | 'lead' | 'reply' | 'block' | 't23h' | 'blocked';
 const monitorFilter = ref<MonitorFilter>('all');
 const soundEnabled = ref<boolean>(
   (typeof localStorage !== 'undefined' && localStorage.getItem('mt:monitor:sound') === '1') || false,
@@ -1147,6 +1158,13 @@ function eventClass(type: string): MonitorFilter[] {
   if (type === 'nick_hold_reset' || type === 'campaign_timeout') cl.push('rescue', 't23h');
   if (type === 'notification_sent') cl.push('t23h');
   if (type === 'nick_disconnected') cl.push('rescue');
+  // Observability 2026-06-18 — nhóm "Bị chặn/hoãn": vì sao bước không gửi được.
+  if (
+    type === 'sequence_step_blocked' || type === 'sequence_step_skipped' ||
+    type === 'friend_quota_exhausted' || type === 'sequence_step_failed'
+  ) {
+    cl.push('blocked');
+  }
   return cl;
 }
 
@@ -1159,7 +1177,7 @@ const monitorFilteredEvents = computed(() => {
 const monitorChipCounts = computed(() => {
   const counts: Record<MonitorFilter, number> = {
     all: monitorEvents.value.length,
-    rescue: 0, lead: 0, reply: 0, block: 0, t23h: 0,
+    rescue: 0, lead: 0, reply: 0, block: 0, t23h: 0, blocked: 0,
   };
   for (const ev of monitorEvents.value) {
     for (const c of eventClass(ev.type)) {
@@ -2097,6 +2115,19 @@ function entryStatusTitle(e: Entry): string {
   return '';
 }
 
+// Observability 2026-06-18 — dòng "vì sao chưa gửi" dưới chip trạng thái. Server gắn sẵn câu
+// (blockReason) + gợi ý (blockHint). Ẩn khi đã có nhãn riêng (dừng tay / KH reply awaiting_reply)
+// để khỏi trùng lặp.
+function entryBlockLine(e: Entry): string | null {
+  if (!e.blockReason) return null;
+  if (e.pauseReason === 'stopped') return null;
+  const isReplyPause =
+    !!(e.pauseRemainingMs && e.pauseRemainingMs > 0) &&
+    (e.pauseReason === 'customer_reply' || e.queueStatus === 'customer_reply');
+  if (isReplyPause && e.blockCategory === 'awaiting_reply') return null; // đã có nhãn "KH trả lời · tạm dừng"
+  return e.blockHint ? `${e.blockReason} · ${e.blockHint}` : e.blockReason;
+}
+
 // I5 2026-06-03 — đếm ngược "còn Xh Ym" cho nhãn tạm dừng từ pauseRemainingMs (BE).
 function pauseCountdown(e: Entry): string {
   const ms = e.pauseRemainingMs ?? 0;
@@ -2487,6 +2518,11 @@ function phaseLabel(type: string): string {
     skipped_no_zalo: 'Bỏ qua: no-Zalo',
     skipped_recency: 'Bỏ qua: recency',
     failed_send: 'Lỗi gửi',
+    // Observability 2026-06-18 — "vì sao không gửi".
+    sequence_step_blocked: 'Bị hoãn',
+    sequence_step_skipped: 'Bỏ qua bước',
+    sequence_step_failed: 'Lỗi gửi',
+    friend_quota_exhausted: 'Hết lượt KB',
   };
   return map[type] ?? type;
 }
@@ -2521,6 +2557,11 @@ function phaseMdi(type: string): string {
     skipped_no_zalo: 'mdi-skip-next-outline',
     skipped_recency: 'mdi-skip-next-outline',
     failed_send: 'mdi-alert-outline',
+    // Observability 2026-06-18.
+    sequence_step_blocked: 'mdi-progress-alert',
+    sequence_step_skipped: 'mdi-skip-next-outline',
+    sequence_step_failed: 'mdi-alert-outline',
+    friend_quota_exhausted: 'mdi-account-clock-outline',
   };
   return map[type] ?? 'mdi-circle-small';
 }
@@ -2761,6 +2802,13 @@ onUnmounted(() => {
   padding: 2px 8px; border-radius: 4px;
   font-size: 12px; font-weight: 500; white-space: nowrap;
 }
+/* Observability 2026-06-18 — dòng "vì sao chưa gửi" dưới chip trạng thái (mảnh, cam nhạt). */
+.block-why {
+  display: flex; align-items: center; gap: 3px;
+  margin-top: 3px; font-size: 11px; line-height: 1.3;
+  color: #974f00; max-width: 220px;
+}
+.block-why .v-icon { color: #c77700; }
 .estatus.running { background: var(--success-bg); color: #157f3c; }
 .estatus.done { background: var(--primary-bg); color: var(--primary); }
 .estatus.reply { background: var(--danger-bg); color: var(--danger); }

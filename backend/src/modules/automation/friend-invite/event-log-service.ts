@@ -50,7 +50,14 @@ export type EventType =
   | 'soft_fail_escalated'
   // P2 Wave 4 2026-06-03 — cron sweep flip 'paused'→'active' khi pausedUntil đến hạn.
   // Phân biệt với 'scheduled_activated' (draft→active first time).
-  | 'auto_resumed';
+  | 'auto_resumed'
+  // Observability "vì sao không gửi" 2026-06-18 — worker HOÃN 1 bước (defer): hết giờ,
+  // nick nghỉ tay, nick offline, KH đang reply-pause. category mang lý do cụ thể.
+  | 'sequence_step_blocked'
+  // 2026-06-18 — bước bị BỎ QUA hẳn (không gửi): kịch bản tắt, khách nhiều nick, mới add gần đây.
+  | 'sequence_step_skipped'
+  // 2026-06-18 — nick hết lượt kết bạn trong ngày (friend-add cap).
+  | 'friend_quota_exhausted';
 
 export interface LogEventInput {
   orgId: string;
@@ -61,6 +68,12 @@ export interface LogEventInput {
   eventType: EventType;
   eventPriority?: EventPriority;
   summary: string;
+  // Observability 2026-06-18: phân loại lý do blocker (quota_message_exhausted,
+  // outside_hour_window, sequence_disabled...) để lọc nhanh + tách "hết quota tin".
+  category?: string | null;
+  // Optional kỹ thuật detail (dual-write khi vừa cần summary tiếng Việt vừa cần
+  // chuỗi máy đọc cho sweeper/stats).
+  detail?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -100,6 +113,8 @@ export async function logEvent(input: LogEventInput): Promise<void> {
         eventType: input.eventType,
         eventPriority: input.eventPriority ?? 'info',
         summary,
+        category: input.category ?? null,
+        detail: input.detail ?? null,
         // Prisma JSON nullable: dùng Prisma.JsonNull để insert null thay vì undefined.
         metadata: input.metadata == null
           ? Prisma.JsonNull

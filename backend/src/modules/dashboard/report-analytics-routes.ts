@@ -1024,47 +1024,83 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
       }));
       const outcomeMap = new Map(outcomes.map((o) => [o.uid, o]));
 
-      // Gom theo sale: timestamps + category counts.
+      // Thêm dữ liệu cho phễu (C: tin gửi → KH phản hồi → lịch hẹn → chốt) + so sánh kỳ (D).
+      const periodMs = end.getTime() - start.getTime();
+      const prevStart = new Date(start.getTime() - periodMs);
+      const [prevEvents, sentRows, apptGroups, repliedGroups] = await Promise.all([
+        saleIds.length === 0
+          ? Promise.resolve([] as Array<{ userId: string | null; createdAt: Date }>)
+          : prisma.activityLog.findMany({
+            where: { orgId, actorType: 'user', userId: { in: saleIds }, createdAt: { gte: prevStart, lt: start } },
+            select: { userId: true, createdAt: true }, orderBy: { createdAt: 'asc' }, take: 100000,
+          }),
+        prisma.$queryRaw<Array<{ uid: string; sent: bigint }>>`
+          SELECT za.owner_user_id AS uid, COUNT(*) AS sent
+          FROM messages m
+          JOIN conversations c ON c.id = m.conversation_id
+          JOIN zalo_accounts za ON za.id = c.zalo_account_id
+          WHERE c.org_id = ${orgId} AND m.sender_type = 'self' AND za.owner_user_id IS NOT NULL
+            AND m.sent_at >= ${start} AND m.sent_at < ${end}
+          GROUP BY za.owner_user_id`,
+        prisma.appointment.groupBy({ by: ['assignedUserId'], where: { orgId, appointmentDate: { gte: start, lt: end } }, _count: true }),
+        prisma.contact.groupBy({ by: ['assignedUserId'], where: { orgId, mergedInto: null, lastInboundAt: { gte: start, lt: end } }, _count: true }),
+      ]);
+      const sentBySale = new Map(sentRows.map((r) => [r.uid, Number(r.sent)]));
+      const apptBySale = new Map(apptGroups.map((g) => [g.assignedUserId, g._count]));
+      const repliedBySale = new Map(repliedGroups.map((g) => [g.assignedUserId, g._count]));
+
+      // Gom theo sale theo NGÀY (giờ VN); sessionize TỪNG NGÀY (phiên không vắt nửa đêm) →
+      // vừa ra giờ dùng/ngày (line chart) vừa tổng. Đồng thời dựng hourHeat (thứ × giờ).
       const TZ = 7 * 3600_000, GAP = 30 * 60_000, FLOOR = 5 * 60_000;
-      const perUser = new Map<string, { ts: number[]; cats: Map<string, number> }>();
+      const dayKey = (ms: number) => new Date(ms + TZ).toISOString().slice(0, 10);
+      function dayActiveMs(ts: number[]): number {
+        if (!ts.length) return 0;
+        let ms = 0, sStart = ts[0], prev = ts[0];
+        for (let i = 1; i < ts.length; i++) {
+          if (ts[i] - prev > GAP) { ms += Math.max(FLOOR, prev - sStart); sStart = ts[i]; }
+          prev = ts[i];
+        }
+        return ms + Math.max(FLOOR, prev - sStart);
+      }
+
+      const perUser = new Map<string, { byDay: Map<string, number[]>; cats: Map<string, number> }>();
       const moduleTotals = new Map<string, number>();
+      const heat = new Map<string, number>();
+      let heatMax = 0;
       for (const e of events) {
         if (!e.userId) continue;
         let u = perUser.get(e.userId);
-        if (!u) { u = { ts: [], cats: new Map() }; perUser.set(e.userId, u); }
-        u.ts.push(e.createdAt.getTime());
+        if (!u) { u = { byDay: new Map(), cats: new Map() }; perUser.set(e.userId, u); }
+        const ms = e.createdAt.getTime();
+        const dk = dayKey(ms);
+        const arr = u.byDay.get(dk); if (arr) arr.push(ms); else u.byDay.set(dk, [ms]);
         const cat = e.category || 'system';
         u.cats.set(cat, (u.cats.get(cat) || 0) + 1);
         if (!AUX.has(cat)) moduleTotals.set(cat, (moduleTotals.get(cat) || 0) + 1);
+        const local = new Date(ms + TZ);
+        const hk = `${(local.getUTCDay() + 6) % 7}-${local.getUTCHours()}`; // d: 0=T2..6=CN
+        const hv = (heat.get(hk) || 0) + 1; heat.set(hk, hv); if (hv > heatMax) heatMax = hv;
       }
 
-      // Sessionize: phiên = chuỗi sự kiện cách nhau ≤30 phút; giờ dùng = tổng (cuối-đầu) mỗi phiên,
-      // sàn 5 phút/phiên. activeDays = số ngày (giờ VN) có hoạt động.
-      function estimate(ts: number[]): { activeMs: number; activeDays: number } {
-        if (!ts.length) return { activeMs: 0, activeDays: 0 };
-        const days = new Set<string>();
-        let activeMs = 0, sessStart = ts[0], prev = ts[0];
-        for (let i = 0; i < ts.length; i++) {
-          const t = ts[i];
-          days.add(new Date(t + TZ).toISOString().slice(0, 10));
-          if (i > 0 && t - prev > GAP) { activeMs += Math.max(FLOOR, prev - sessStart); sessStart = t; }
-          prev = t;
-        }
-        activeMs += Math.max(FLOOR, prev - sessStart);
-        return { activeMs, activeDays: days.size };
-      }
+      // Trục ngày liên tục cho line chart.
+      const dayList: string[] = [];
+      for (let t = start.getTime(); t < end.getTime(); t += 86400_000) dayList.push(dayKey(t));
 
       let totalActions = 0;
       const bySaleRaw = saleIds.map((uid) => {
         const u = perUser.get(uid);
         const info = userMap.get(uid)!;
-        const ts = u?.ts ?? [];
-        const actions = ts.length;
+        let actions = 0, activeMs = 0;
+        const dayMs = new Map<string, number>();
+        for (const [dk, ts] of (u?.byDay ?? new Map<string, number[]>())) {
+          actions += ts.length;
+          const m = dayActiveMs(ts.sort((a, b) => a - b));
+          dayMs.set(dk, m); activeMs += m;
+        }
         totalActions += actions;
-        const { activeMs, activeDays } = estimate(ts);
-        const activeHours = activeMs / 3600_000;
+        const activeDays = dayMs.size;
+        const activeHours = Math.round((activeMs / 3600_000) * 10) / 10;
         const avgActiveMinPerDay = activeDays > 0 ? Math.round(activeMs / 60_000 / activeDays) : 0;
-        // module chính (loại phụ trợ).
         let topModule = '—', topN = 0;
         for (const [cat, n] of (u?.cats ?? new Map<string, number>())) {
           if (AUX.has(cat)) continue;
@@ -1076,16 +1112,61 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
         const closesPerHour = activeHours > 0 ? Math.round((results / activeHours) * 100) / 100 : 0;
         return {
           userId: uid, name: info.name, deptName: info.deptName,
-          activeDays, avgActiveMinPerDay, actions, topModule,
-          results, closed: oc.closed, apptDone: oc.apptDone, closesPerHour, effRaw,
+          activeDays, avgActiveMinPerDay, activeHours, actions, topModule,
+          results, closed: oc.closed, apptDone: oc.apptDone, closesPerHour, effRaw, dayMs,
         };
       }).filter((s) => s.actions > 0);
 
-      // effScore 0–100 chuẩn hoá theo sale tốt nhất.
+      // effScore + bySale (bỏ field nội bộ).
       const maxEff = Math.max(0.0001, ...bySaleRaw.map((s) => s.effRaw));
       const bySale = bySaleRaw
-        .map(({ effRaw, ...s }) => ({ ...s, effScore: Math.round((effRaw / maxEff) * 100) }))
+        .map(({ effRaw, dayMs, ...s }) => ({ ...s, effScore: Math.round((effRaw / maxEff) * 100) }))
         .sort((a, b) => b.effScore - a.effScore || b.results - a.results);
+
+      // (#1) Line chart: giờ dùng/ngày, mỗi sale 1 đường. Top 8 sale (nhiều giờ nhất) cho dễ đọc.
+      const PALETTE = ['#1786be', '#7a4fb0', '#b0734f', '#4fb09a', '#b04f6e', '#5b8def', '#d39237', '#157f3c'];
+      const dailySeries = [...bySaleRaw].sort((a, b) => b.activeHours - a.activeHours).slice(0, 8).map((s, i) => ({
+        userId: s.userId, name: s.name, color: PALETTE[i % PALETTE.length],
+        points: dayList.map((d) => ({ date: d, min: Math.round((s.dayMs.get(d) || 0) / 60_000) })),
+      }));
+
+      // (A) hourHeat (thứ × giờ).
+      const hourHeat = {
+        max: heatMax,
+        cells: Array.from(heat.entries()).map(([k, count]) => {
+          const [d, h] = k.split('-').map(Number); return { d, h, count };
+        }),
+      };
+
+      // (C) phễu hoạt động → chốt / sale.
+      const funnel = bySaleRaw.map((s) => ({
+        userId: s.userId, name: s.name,
+        sent: sentBySale.get(s.userId) || 0,
+        replied: repliedBySale.get(s.userId) || 0,
+        appts: apptBySale.get(s.userId) || 0,
+        closed: s.closed,
+      })).sort((a, b) => b.sent - a.sent).slice(0, 8);
+
+      // (D) so sánh kỳ trước: actions + giờ dùng TB.
+      const prevPerUser = new Map<string, Map<string, number[]>>();
+      for (const e of prevEvents) {
+        if (!e.userId) continue;
+        let m = prevPerUser.get(e.userId); if (!m) { m = new Map(); prevPerUser.set(e.userId, m); }
+        const ms = e.createdAt.getTime(); const dk = dayKey(ms);
+        const arr = m.get(dk); if (arr) arr.push(ms); else m.set(dk, [ms]);
+      }
+      const compare = bySaleRaw.map((s) => {
+        let pAct = 0, pMs = 0, pDays = 0;
+        for (const [, ts] of (prevPerUser.get(s.userId) ?? new Map<string, number[]>())) {
+          pAct += ts.length; pMs += dayActiveMs(ts.sort((a, b) => a - b)); pDays++;
+        }
+        const prevAvgMin = pDays > 0 ? Math.round(pMs / 60_000 / pDays) : 0;
+        return {
+          userId: s.userId, name: s.name,
+          actions: s.actions, prevActions: pAct, dActions: s.actions - pAct,
+          avgMin: s.avgActiveMinPerDay, prevAvgMin, dAvgMin: s.avgActiveMinPerDay - prevAvgMin,
+        };
+      }).sort((a, b) => b.actions - a.actions).slice(0, 10);
 
       // Module usage org-wide.
       const moduleTotalSum = Array.from(moduleTotals.values()).reduce((a, b) => a + b, 0) || 1;
@@ -1094,9 +1175,7 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
         .sort((a, b) => b.actions - a.actions);
 
       // KPIs.
-      const activeSalesToday = new Set(
-        events.filter((e) => e.createdAt >= todayStart).map((e) => e.userId),
-      ).size;
+      const activeSalesToday = new Set(events.filter((e) => e.createdAt >= todayStart).map((e) => e.userId)).size;
       const withTime = bySale.filter((s) => s.activeDays > 0);
       const avgActiveMinPerDay = withTime.length > 0
         ? Math.round(withTime.reduce((a, s) => a + s.avgActiveMinPerDay, 0) / withTime.length) : 0;
@@ -1105,8 +1184,7 @@ export async function reportAnalyticsRoutes(app: FastifyInstance): Promise<void>
       return {
         from, to,
         kpis: { activeSalesToday, avgActiveMinPerDay, totalActions, topModule },
-        bySale,
-        moduleUsage,
+        bySale, moduleUsage, dailySeries, days: dayList, hourHeat, funnel, compare,
         note: 'Thời gian dùng là ƯỚC TÍNH từ nhịp thao tác trên CRM (chưa có tracking phiên chính xác).',
       };
     } catch (err) {

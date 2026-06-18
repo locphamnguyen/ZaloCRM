@@ -66,14 +66,14 @@ export async function startCronEventScheduler(): Promise<void> {
   logger.info('[cron-scheduler] birthday job registered (daily 08:00 ' + TZ + ')');
 
   // Wave 3 Day 5 — AutomationEventLog cleanup daily 03:00 VN (UTC 20:00 prev day).
-  // Retention 30 ngày, gọi cleanupOldEvents(30) — xem
+  // 2026-06-18 (anh chốt): nới retention 30 → 60 ngày để truy ca cũ hơn (observability blocker-log).
   // friend-invite/event-log-service.ts. Fire-and-forget; lỗi swallow internally.
   eventLogCleanupJob = cron.schedule(
     '0 3 * * *',
-    () => { void cleanupOldEvents(30); },
+    () => { void cleanupOldEvents(60); },
     { timezone: TZ },
   );
-  logger.info('[cron-scheduler] event-log cleanup job registered (daily 03:00 ' + TZ + ', retention 30d)');
+  logger.info('[cron-scheduler] event-log cleanup job registered (daily 03:00 ' + TZ + ', retention 60d)');
 
   // Scheduled_cron — load all enabled triggers, register each
   await reloadAllScheduledCronTriggers();

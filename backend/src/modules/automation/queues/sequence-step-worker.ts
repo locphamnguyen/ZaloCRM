@@ -48,6 +48,9 @@ import { classifyError } from './error-classify.js';
 import { sendMessageHandler } from '../engine/action-handlers/send-message.js';
 import { stepDelayMs, nextAllowedTime } from '../engine/schedule-calculator.js';
 import type { ActionContext } from '../engine/types.js';
+// Observability "vì sao không gửi" 2026-06-18 — ghi lý do blocker có chống flood + xoá khoá khi resume.
+import { logBlockOnce, clearBlockMarker } from '../shared/block-logger.js';
+import { resolveBlockReason } from '../shared/block-reason-catalog.js';
 
 export interface SequenceStepJobData {
   triggerId: string;
@@ -224,6 +227,13 @@ async function processJob(
 ): Promise<SequenceStepResult> {
   const { triggerId, contactId, sequenceId, nickId, orgId, stepIdx, totalSteps } = job.data;
   const tag = `[seq-step job=${job.id}]`;
+  // Observability 2026-06-18: ghi "vì sao không gửi" lên monitor (chống flood qua logBlockOnce).
+  const logBlocked = (reason: string, nextRunAt?: Date | null): void => {
+    void logBlockOnce({
+      orgId, triggerId, contactId, nickId, reason,
+      nextRunAt: nextRunAt ?? null, extra: { stepIdx },
+    });
+  };
 
   // ── STEP 1: Load Sequence + Trigger + Nick ──
   const [sequence, trigger, nick] = await Promise.all([
@@ -251,8 +261,8 @@ async function processJob(
     }),
   ]);
 
-  if (!sequence) return { status: 'skipped', stepIdx, reason: 'sequence_not_found' };
-  if (!sequence.enabled) return { status: 'skipped', stepIdx, reason: 'sequence_disabled' };
+  if (!sequence) { logBlocked('sequence_not_found'); return { status: 'skipped', stepIdx, reason: 'sequence_not_found' }; }
+  if (!sequence.enabled) { logBlocked('sequence_disabled'); return { status: 'skipped', stepIdx, reason: 'sequence_disabled' }; }
   if (!trigger) return { status: 'skipped', stepIdx, reason: 'trigger_not_found' };
   // 2026-06-02 — intentional asymmetry vs welcome-probe-worker L48-56 (which ignores
   // trigger.state for working-hours lookup so welcome can fire on completed triggers):
@@ -302,6 +312,7 @@ async function processJob(
     const delayMs = 30 * 60 * 1000;
     // 2026-06-15: ghi lý do hoãn để nút "Gửi bước tiếp ngay" báo cho sale câu dễ hiểu.
     await job.updateData({ ...job.data, deferReason: 'nick_offline' }).catch(() => {});
+    logBlocked('nick_offline', new Date(Date.now() + delayMs));
     await job.moveToDelayed(Date.now() + delayMs, token);
     logger.info(
       `${tag} nick=${nickId} status=${nick.status} — hold 30 phút (Sprint v3 sticky 24h)`,
@@ -309,6 +320,7 @@ async function processJob(
     throw new DelayedError();
   }
   if (nick.status !== 'connected') {
+    logBlocked(`nick_${nick.status}`);
     return { status: 'skipped', stepIdx, reason: `nick_${nick.status}` };
   }
 
@@ -335,6 +347,7 @@ async function processJob(
 
   const steps = await loadSequenceSteps(sequence.id); // 2026-06-04 dual-read
   if (stepIdx >= steps.length) {
+    logBlocked('step_out_of_range');
     return { status: 'skipped', stepIdx, reason: 'step_out_of_range' };
   }
   const step = steps[stepIdx];
@@ -350,6 +363,7 @@ async function processJob(
   if (pauseTtl > 0 && token) {
     const resumeAt = Date.now() + pauseTtl;
     await job.updateData({ ...job.data, deferReason: 'awaiting_reply' }).catch(() => {});
+    logBlocked('awaiting_reply', new Date(resumeAt));
     await job.moveToDelayed(resumeAt, token);
     logger.info(`${tag} paused contact ${contactId} (redis flag), defer ${pauseTtl}ms`);
     throw new DelayedError();
@@ -369,6 +383,7 @@ async function processJob(
         // CÒN trong cửa sổ hold (KH có thể vừa reply lại → reply handler đã bơm pausedUntil) →
         // đẩy thẳng tới ĐÚNG giờ hết hold, KHÔNG đẩy lùi cứng 1h/lần (tránh nextRunAt trôi dần).
         await job.updateData({ ...job.data, deferReason: 'awaiting_reply' }).catch(() => {});
+        logBlocked('awaiting_reply', new Date(pausedUntilMs));
         await job.moveToDelayed(pausedUntilMs, token);
         logger.info(`${tag} LUẬT 4: còn hold → defer tới pausedUntil=${new Date(pausedUntilMs).toISOString()} contact=${contactId}`);
         throw new DelayedError();
@@ -381,11 +396,13 @@ async function processJob(
       //   - KHÔNG defer → rơi xuống guard giờ-gửi/throttle bình thường rồi gửi.
       await prisma.careSession.update({ where: { id: pausedSession.id }, data: { pausedAtStepIdx: null } }).catch(() => {});
       await redis.del(pauseKey).catch(() => {});
+      // NV-1: xoá khoá block để đợt chặn MỚI sau khi chạy lại được ghi log lại (không bị nuốt).
+      await clearBlockMarker(triggerId, contactId, { redis });
       await prisma.triggerQueueEntry.updateMany({
         where: { triggerId, contactId, queueStatus: 'customer_reply' },
         data: { queueStatus: 'processing' },
       }).catch(() => {});
-      logger.info(`${tag} LUẬT 4: hết hold → RESUME (clear marker+cờ Redis, cho job chạy) contact=${contactId}`);
+      logger.info(`${tag} LUẬT 4: hết hold → RESUME (clear marker+cờ Redis+block, cho job chạy) contact=${contactId}`);
     }
   }
 
@@ -415,9 +432,12 @@ async function processJob(
       // "quota_capped (...)" → rút MÃ đầu (trước khoảng trắng) để nút advance báo đúng câu.
       const deferReason = (guard.reason ?? '').split(' ')[0] || 'unknown';
       await job.updateData({ ...job.data, deferReason }).catch(() => {});
+      logBlocked(guard.reason ?? 'unknown', new Date(guard.deferUntilMs));
       await job.moveToDelayed(guard.deferUntilMs, token);
       throw new DelayedError();
     }
+    // Skip hẳn (recency/multi_nick — không có deferUntilMs): ghi lý do bỏ qua.
+    logBlocked(guard.reason ?? 'unknown');
     return { status: 'skipped', stepIdx, reason: guard.reason };
   }
 
@@ -429,10 +449,12 @@ async function processJob(
 
   if (!block) {
     logger.warn(`${tag} block ${step.blockId} not found, skipping step`);
+    logBlocked('block_not_found');
     return { status: 'skipped', stepIdx, reason: 'block_not_found' };
   }
   if (block.archivedAt) {
     logger.warn(`${tag} block ${step.blockId} archived, skipping step`);
+    logBlocked('block_archived');
     return { status: 'skipped', stepIdx, reason: 'block_archived' };
   }
 
@@ -469,6 +491,7 @@ async function processJob(
     // worker riêng + update_status không cần queue).
     if (block.actionType !== 'send_message') {
       logger.warn(`${tag} unsupported action type=${block.actionType} in sequence-step worker`);
+      logBlocked(`unsupported_action_${block.actionType}`);
       return { status: 'skipped', stepIdx, reason: `unsupported_action_${block.actionType}` };
     }
     // FIX review-epoch #3 (LỖI 3 — active job mồ côi sau gắn lại): nếu job này thuộc lần
@@ -506,6 +529,7 @@ async function processJob(
         const deferMs = pauseTtlNow > 0 ? pauseTtlNow : 60 * 60_000;
         logger.info(`${tag} LUẬT 4: KH vừa reply trước send — defer ${deferMs}ms (active-send race guard)`);
         await job.updateData({ ...job.data, deferReason: 'awaiting_reply' }).catch(() => {});
+        logBlocked('awaiting_reply', new Date(Date.now() + deferMs));
         await job.moveToDelayed(Date.now() + deferMs, token);
         throw new DelayedError();
       }
@@ -526,7 +550,10 @@ async function processJob(
       `${tag} action failed code=${actionResult.errorCode} msg=${actionResult.errorMessage} classified=${classified.classification}`,
     );
 
-    // Log event
+    // Log event — Observability 2026-06-18: ca RATE_LIMITED (hết 200 tin/ngày, ca e7ade24c)
+    // gắn summary tiếng Việt + category để lọc/gắn-nhãn; GIỮ detail nguyên cho sweeper/stats parse.
+    const isQuotaMsg = actionResult.errorCode === 'RATE_LIMITED';
+    const failInfo = isQuotaMsg ? resolveBlockReason('RATE_LIMITED') : null;
     await prisma.automationEventLog.create({
       data: {
         orgId,
@@ -534,6 +561,9 @@ async function processJob(
         contactId,
         nickId,
         eventType: 'sequence_step_failed',
+        eventPriority: isQuotaMsg ? 'warning' : 'info',
+        summary: failInfo ? failInfo.label : `Lỗi gửi (${actionResult.errorCode ?? 'unknown'})`,
+        category: failInfo ? failInfo.category : null,
         detail: `step ${stepIdx}/${totalSteps} code=${actionResult.errorCode} msg=${(actionResult.errorMessage ?? '').slice(0, 200)}`,
       },
     });
@@ -766,13 +796,23 @@ export async function enqueueSequenceStart(input: {
   });
 
   if (!seq || !seq.enabled) {
+    // 2026-06-18 (ca 1c76de9b): kịch bản bám đuổi tắt/không tìm thấy lúc KHỞI ĐỘNG → ghi rõ
+    // lên monitor thay vì chỉ warn kỹ thuật (sale không biết vì sao bám đuổi không chạy).
     logger.warn(`[sequence-step] cannot start — sequence ${input.sequenceId} disabled/not found`);
+    void logBlockOnce({
+      orgId: input.orgId, triggerId: input.triggerId, contactId: input.contactId,
+      nickId: input.nickId, reason: seq ? 'sequence_disabled' : 'sequence_not_found',
+    });
     return;
   }
 
   const steps = await loadSequenceSteps(input.sequenceId); // 2026-06-04 dual-read
   if (steps.length === 0) {
     logger.warn(`[sequence-step] sequence ${input.sequenceId} has 0 steps`);
+    void logBlockOnce({
+      orgId: input.orgId, triggerId: input.triggerId, contactId: input.contactId,
+      nickId: input.nickId, reason: 'step_out_of_range',
+    });
     return;
   }
 

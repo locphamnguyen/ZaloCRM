@@ -116,6 +116,7 @@ export interface TeamUser {
   userId: string;
   fullName: string;
   email: string;
+  avatarUrl: string | null;
   departmentName: string | null;
   deptRole: string | null;
   hasPrivateNick: boolean;

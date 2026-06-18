@@ -539,6 +539,14 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
           id: true,
           fullName: true,
           email: true,
+          avatarUrl: true,
+          // Avatar nick Zalo làm fallback nếu user chưa có ảnh hồ sơ — "avatar đúng nick & sale".
+          zaloAccounts: {
+            where: { archivedAt: null },
+            select: { avatarUrl: true },
+            orderBy: { lastConnectedAt: { sort: 'desc', nulls: 'last' } },
+            take: 1,
+          },
           departmentMember: {
             select: {
               deptRole: true,
@@ -595,6 +603,7 @@ export async function dashboardActionHubRoutes(app: FastifyInstance): Promise<vo
             userId: u.id,
             fullName: u.fullName,
             email: u.email,
+            avatarUrl: u.avatarUrl ?? u.zaloAccounts[0]?.avatarUrl ?? null,
             departmentName: u.departmentMember?.department.name ?? null,
             deptRole: u.departmentMember?.deptRole ?? null,
             hasPrivateNick: privateCount > 0,

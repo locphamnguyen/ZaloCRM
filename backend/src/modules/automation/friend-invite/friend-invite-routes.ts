@@ -23,6 +23,8 @@ import {
 import { listMucTieuForOrg } from './muc-tieu-list-service.js';
 import { getSequenceStepQueue } from '../queues/queue-registry.js';
 import { getContactPauseRemaining } from '../queues/event-hooks.js';
+// Observability "vì sao không gửi" 2026-06-18 — dịch deferReason → câu cho per-row dashboard.
+import { resolveBlockReason } from '../shared/block-reason-catalog.js';
 
 const BASE = '/api/v1/automation/triggers';
 
@@ -41,6 +43,11 @@ interface TaskProgress {
   state: string | null;
   lastSentAt: Date | null;
   nextRunAt: Date | null;
+  // Observability 2026-06-18 "vì sao chưa gửi": nhãn + gợi ý + lý do (category) cho mỗi khách.
+  // Nguồn: deferReason của job đang hoãn (live) HOẶC block-event mới nhất (khách đã skip hẳn).
+  blockReason: string | null; // nhãn tiếng Việt, vd "Hết 200 tin/ngày"
+  blockHint: string | null; // gợi ý, vd "Tự chạy lại 00:00"
+  blockCategory: string | null; // mã nhóm để FE tô màu/lọc
 }
 interface TaskProgressCacheEntry {
   expiresAt: number;
@@ -72,7 +79,7 @@ async function getTaskProgressForTrigger(
       // jobId. jobId đã đổi format nhiều lần (thêm sequenceId+epoch 2026-06-13) → parse chuỗi
       // mong manh + phải đoán contactId 36 ký tự. job.data có sẵn các field → robust, không phụ
       // thuộc format jobId. (Thay parser chuỗi cũ 3c8eecc; gỡ trùng với cách 67794e5 agent kia.)
-      const d = job.data as { triggerId?: string; contactId?: string; stepIdx?: number } | undefined;
+      const d = job.data as { triggerId?: string; contactId?: string; stepIdx?: number; deferReason?: string } | undefined;
       if (!d || d.triggerId !== triggerId) continue; // chỉ job của trigger này
       const contactId = d.contactId;
       const stepIdx = d.stepIdx;
@@ -83,6 +90,8 @@ async function getTaskProgressForTrigger(
       const delayMs = job.opts?.delay ?? 0;
       const ts = job.timestamp ?? now;
       const nextRunAt = new Date(ts + delayMs);
+      // "Vì sao chưa gửi" (live): job đang hoãn có deferReason → dịch ra câu qua catalog (KHÔNG query thêm).
+      const dInfo = d.deferReason ? resolveBlockReason(d.deferReason) : null;
       // Synthesize task state cho deriveKHFinalState: active→running, else queued.
       // BullMQ không expose `getState` synchronously trên job object trả từ
       // getJobs (cần await job.getState()). Để tránh N×Redis-roundtrip, em treat
@@ -98,6 +107,9 @@ async function getTaskProgressForTrigger(
           state: synthState,
           lastSentAt: null,
           nextRunAt,
+          blockReason: dInfo ? dInfo.label : null,
+          blockHint: dInfo ? dInfo.hint : null,
+          blockCategory: dInfo ? dInfo.category : null,
         });
       } else {
         // Cùng contact có nhiều jobs (edge: race sweeper) → pick EARLIEST
@@ -105,6 +117,11 @@ async function getTaskProgressForTrigger(
         if (!existing.nextRunAt || nextRunAt < existing.nextRunAt) {
           existing.nextRunAt = nextRunAt;
           existing.currentStepIdx = stepIdx;
+          if (dInfo) {
+            existing.blockReason = dInfo.label;
+            existing.blockHint = dInfo.hint;
+            existing.blockCategory = dInfo.category;
+          }
         }
       }
     }
@@ -149,12 +166,54 @@ async function getTaskProgressForTrigger(
           state: null,
           lastSentAt,
           nextRunAt: null,
+          blockReason: null,
+          blockHint: null,
+          blockCategory: null,
         });
       }
     }
   } catch (err) {
     logger.warn(
       `[friend-invite] getTaskProgressForTrigger event_log scan failed trigger=${triggerId}: ${(err as Error).message}`,
+    );
+  }
+
+  // ── 3) Block-event mới nhất/khách (HN-1: 1 truy vấn GỘP, KHÔNG N+1) ──
+  // "Vì sao chưa gửi" cho khách đã SKIP hẳn (kịch bản tắt / nhiều nick / mới add) — không còn job
+  // pending để đọc deferReason (section 1). Lấy block-event mới nhất (category IS NOT NULL) mỗi khách.
+  // CHỈ set khi: (a) chưa có blockReason live từ section 1, và (b) block mới hơn lần gửi gần nhất
+  // (khách chưa tiến tiếp sau khi bị chặn) → tránh hiện lý do cũ đã hết.
+  try {
+    const blockRows = await prisma.$queryRaw<Array<{ contact_id: string; summary: string | null; category: string | null; metadata: Record<string, unknown> | null; created_at: Date }>>`
+      SELECT DISTINCT ON (contact_id) contact_id, summary, category, metadata, created_at
+      FROM automation_event_log
+      WHERE trigger_id = ${triggerId}
+        AND category IS NOT NULL
+        AND contact_id IS NOT NULL
+      ORDER BY contact_id, created_at DESC
+    `;
+    for (const row of blockRows) {
+      if (!row.contact_id || !row.category) continue;
+      const existing = byContact.get(row.contact_id);
+      // (a) đã có lý do live từ job đang hoãn → giữ (chân lý mới hơn).
+      if (existing?.blockReason) continue;
+      // (b) đã gửi SAU khi bị chặn → lý do cũ, bỏ.
+      if (existing?.lastSentAt && existing.lastSentAt > row.created_at) continue;
+      const hint = typeof row.metadata?.hint === 'string' ? row.metadata.hint : null;
+      if (existing) {
+        existing.blockReason = row.summary ?? null;
+        existing.blockHint = hint;
+        existing.blockCategory = row.category;
+      } else {
+        byContact.set(row.contact_id, {
+          currentStepIdx: null, state: null, lastSentAt: null, nextRunAt: null,
+          blockReason: row.summary ?? null, blockHint: hint, blockCategory: row.category,
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      `[friend-invite] getTaskProgressForTrigger block scan failed trigger=${triggerId}: ${(err as Error).message}`,
     );
   }
 
@@ -502,6 +561,13 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
       select: { id: true, enabled: true },
     });
     if (!sequence) return reply.status(404).send({ error: 'sequence_not_found' });
+    // 2026-06-18 (khép TODO sequence-disabled-guard): KHÔNG cho gắn kịch bản bám đuổi đang TẮT
+    // vào Mục tiêu — nếu không bám đuổi sẽ âm thầm không chạy (ca 1c76de9b). FE báo lỗi rõ.
+    if (!sequence.enabled)
+      return reply.status(400).send({
+        error: 'sequence_disabled',
+        message: 'Kịch bản bám đuổi đang TẮT — bật kịch bản trước khi gắn vào Mục tiêu.',
+      });
 
     // ── Wave 4 #C 2026-06-02 — Map safetyRules (wizard B3) → 8 schema columns.
     // Mọi field optional. Nếu missing/invalid → dùng default schema (đọc 2046-2061).
@@ -1416,6 +1482,9 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         state: string | null;
         lastSentAt: Date | null;
         nextRunAt: Date | null;
+        blockReason: string | null;
+        blockHint: string | null;
+        blockCategory: string | null;
       }
     >();
     // Project xuống chỉ những contact thuộc page hiện tại (entriesRaw đã paginate).
@@ -1628,6 +1697,11 @@ export async function friendInviteRoutes(app: FastifyInstance): Promise<void> {
         // E1 2026-06-17 — lý do dừng + tên người bấm (chỉ có khi reason='stopped').
         pauseStopReason: e.contactId ? pauseByContact.get(e.contactId)?.stopReason ?? null : null,
         pauseStopByName: e.contactId ? pauseByContact.get(e.contactId)?.stopByName ?? null : null,
+        // Observability 2026-06-18 "vì sao chưa gửi": câu tiếng Việt + gợi ý + nhóm lý do.
+        // Nguồn: deferReason job đang hoãn (live) hoặc block-event mới nhất (khách skip hẳn).
+        blockReason: task?.blockReason ?? null,
+        blockHint: task?.blockHint ?? null,
+        blockCategory: task?.blockCategory ?? null,
         // Wave 3 Day 5 — ISO string cho FE timeline sort + "cập nhật lần cuối" column.
         updatedAt: e.updatedAt.toISOString(),
       };

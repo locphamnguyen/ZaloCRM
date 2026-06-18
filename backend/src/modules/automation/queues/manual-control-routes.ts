@@ -480,8 +480,11 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
       const wasPausedStep = activeSession.pausedAtStepIdx; // bước đang hold (enqueue lại nếu job đã huỷ)
       if (wasPausedStep != null) {
         const { clearContactPauseFlag } = await import('./event-hooks.js');
+        // NV-1 (2026-06-18): sale bấm gửi ngay → xoá khoá block để lần chặn kế ghi log lại.
+        const { clearBlockMarker } = await import('../shared/block-logger.js');
         await prisma.careSession.update({ where: { id: activeSession.id }, data: { pausedAtStepIdx: null } }).catch(() => null);
         await clearContactPauseFlag(tid, cid).catch(() => null);
+        await clearBlockMarker(tid, cid);
         await prisma.triggerQueueEntry.updateMany({
           where: { triggerId: tid, contactId: cid, queueStatus: 'customer_reply' },
           data: { queueStatus: 'processing' },
