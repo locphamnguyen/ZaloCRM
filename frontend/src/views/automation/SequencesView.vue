@@ -58,6 +58,14 @@
               <div v-else class="sd sd-empty">Không có mô tả</div>
             </div>
             <button
+              v-if="seq.steps.length"
+              class="seq-preview-btn"
+              title="Xem trước tin nhắn luồng sẽ gửi"
+              @click.stop="openPreview(seq)"
+            >
+              <v-icon size="14">mdi-eye-outline</v-icon> Xem trước
+            </button>
+            <button
               class="toggle"
               :class="{ on: seq.enabled }"
               :title="seq.enabled ? 'Đang chạy — bấm để tắt' : 'Đang tắt — bấm để bật'"
@@ -322,6 +330,15 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Xem trước tin nhắn luồng (2026-06-18) — chọn 1-2 KH trong dialog -->
+    <SequencePreviewDialog
+      v-if="previewSeq"
+      :visible="!!previewSeq"
+      :sequence-id="previewSeq.id"
+      :sequence-name="previewSeq.name"
+      @close="previewSeq = null"
+    />
   </div>
 </template>
 
@@ -340,6 +357,13 @@ import {
 } from '@/api/automation/types';
 import SequenceStepEditor from '@/components/automation/phase7/SequenceStepEditor.vue';
 import { useConfirm } from '@/composables/use-confirm';
+import SequencePreviewDialog from '@/components/chat/SequencePreviewDialog.vue';
+
+// Xem trước tin nhắn luồng (2026-06-18) — chọn 1-2 KH trong dialog.
+const previewSeq = ref<{ id: string; name: string } | null>(null);
+function openPreview(seq: { id: string; name: string }) {
+  previewSeq.value = { id: seq.id, name: seq.name };
+}
 
 const router = useRouter();
 const { confirm } = useConfirm();
@@ -749,6 +773,23 @@ function onDocClick() {
 </script>
 
 <style scoped>
+/* Nút Xem trước trên card luồng (2026-06-18) */
+.seq-preview-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+  border: 1px solid var(--brand, #1786be);
+  background: #fff;
+  color: var(--brand, #1786be);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.seq-preview-btn:hover { background: var(--brand-soft, #e7f3fb); }
 .seq-page {
   width: 100%;
   background: var(--surface-2);

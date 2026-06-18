@@ -129,12 +129,19 @@
         </div>
       </section>
 
-      <!-- Add new CTA -->
-      <button class="acl-cta acl-cta--soft" @click="$emit('add-flow')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-        Gắn thêm luồng bám đuổi
-      </button>
     </template>
+
+    <!-- 2026-06-18: nút "+ Add" NỔI gim góc dưới-phải cột — luôn thấy dù nhiều luồng, khỏi cuộn.
+         Hover xổ chữ. Hiện khi ĐÃ có ≥1 card (empty-state đã có nút lớn riêng). -->
+    <button
+      v-if="cards.length"
+      class="acl-fab"
+      title="Gắn thêm luồng bám đuổi"
+      @click="$emit('add-flow')"
+    >
+      <svg class="acl-fab-ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+      <span class="acl-fab-lb">Gắn luồng bám đuổi</span>
+    </button>
 
     <!-- Modal xác nhận pause/stop (thay window.confirm/prompt — anh chốt 2026-06-15) -->
     <ConfirmActionModal
@@ -771,6 +778,37 @@ defineExpose({ refetch: fetchStatus });
   box-shadow: none;
 }
 .acl-cta--soft:hover { background: #d4e8f4; }
+
+/* ── FAB "+ Add" nổi gim góc dưới-phải (2026-06-18) ── */
+.acl-fab {
+  position: sticky;
+  bottom: 14px;
+  align-self: flex-end;
+  margin-top: 6px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 46px;
+  padding: 0 13px;
+  max-width: 46px; /* gập: chỉ thấy icon + */
+  overflow: hidden;
+  border: 0;
+  border-radius: 23px;
+  background: var(--brand);
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(23, 134, 190, 0.42);
+  transition: max-width 0.22s ease, box-shadow 0.15s;
+}
+.acl-fab:hover { max-width: 240px; box-shadow: 0 8px 22px rgba(23, 134, 190, 0.5); }
+.acl-fab-ic { flex-shrink: 0; }
+.acl-fab-lb { opacity: 0; transition: opacity 0.18s; }
+.acl-fab:hover .acl-fab-lb { opacity: 1; }
 
 svg { display: block; }
 </style>

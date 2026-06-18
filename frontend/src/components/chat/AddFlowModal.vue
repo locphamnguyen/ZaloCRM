@@ -62,8 +62,17 @@
                 <span class="afm-opt-info">
                   <span class="afm-opt-nm">{{ seq.name }}</span>
                   <span v-if="seq.description" class="afm-opt-ds">{{ seq.description }}</span>
-                  <span class="afm-opt-steps">{{ seq.stepCount }} bước</span>
+                  <span class="afm-opt-metarow">
+                    <span class="afm-opt-steps">{{ seq.stepCount }} bước</span>
+                    <span class="afm-opt-tag"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> {{ seq.estLabel }}</span>
+                    <span class="afm-opt-tag">{{ seq.rulesLabel }}</span>
+                  </span>
+                  <span class="afm-opt-start">▸ Bắt đầu ngay khi KH được gắn vào luồng</span>
                 </span>
+                <button type="button" class="afm-preview-btn" title="Xem trước tin nhắn sẽ gửi" @click="openPreview(seq, $event)">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Xem trước
+                </button>
               </button>
             </div>
 
@@ -108,12 +117,23 @@
         </div>
       </div>
     </div>
+
+    <!-- Xem trước tin nhắn luồng (2026-06-18) — dùng KH đang chat -->
+    <SequencePreviewDialog
+      v-if="previewSeq"
+      :visible="!!previewSeq"
+      :sequence-id="previewSeq.id"
+      :sequence-name="previewSeq.name"
+      :initial-contacts="[{ id: contactId, name: contactName }]"
+      @close="previewSeq = null"
+    />
   </Teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { api } from '@/api/index';
+import SequencePreviewDialog from './SequencePreviewDialog.vue';
 
 // ── Props ──
 const props = defineProps<{
@@ -134,6 +154,49 @@ interface SequenceOption {
   name: string;
   description?: string | null;
   stepCount: number;
+  estLabel: string;   // dự kiến hoàn thành (≈)
+  rulesLabel: string; // giờ gửi + giãn cách
+}
+
+// ── Xem trước (2026-06-18): mở SequencePreviewDialog cho luồng + KH đang chat ──
+const previewSeq = ref<{ id: string; name: string } | null>(null);
+function openPreview(seq: SequenceOption, ev: Event): void {
+  ev.stopPropagation(); // không chọn radio khi bấm Xem trước
+  previewSeq.value = { id: seq.id, name: seq.name };
+}
+
+// ── Tính "dự kiến hoàn thành" (≈, bỏ qua né-ngoài-giờ) + "luật" từ runtimeRules ──
+function avgGapMinutes(rules: any): number {
+  const g = rules?.sendGap;
+  if (!g) return 0;
+  const unitMin = g.unit === 'hour' ? 60 : g.unit === 'second' ? 1 / 60 : g.unit === 'day' ? 1440 : 1;
+  if (typeof g.min === 'number' && typeof g.max === 'number') return ((g.min + g.max) / 2) * unitMin;
+  if (typeof g.value === 'number') return g.value * unitMin;
+  return 0;
+}
+function estLabelOf(steps: any[], rules: any): string {
+  if (!Array.isArray(steps) || steps.length <= 1) return 'ngay (1 bước)';
+  const gap = avgGapMinutes(rules);
+  let totalMin = 0;
+  for (let i = 1; i < steps.length; i++) totalMin += gap > 0 ? gap : (steps[i]?.delayMinutes ?? 0);
+  if (totalMin <= 0) return 'vài phút';
+  if (totalMin < 60) return `≈ ${Math.round(totalMin)} phút`;
+  if (totalMin < 1440) return `≈ ${(totalMin / 60).toFixed(1)} giờ`;
+  return `≈ ${(totalMin / 1440).toFixed(1)} ngày`;
+}
+function rulesLabelOf(rules: any): string {
+  const parts: string[] = [];
+  const tr = rules?.allowedTimeRange;
+  const hr = rules?.allowedHourRange;
+  if (Array.isArray(tr) && tr.length === 2) parts.push(`Giờ gửi ${tr[0]}–${tr[1]}`);
+  else if (Array.isArray(hr) && hr.length === 2) parts.push(`Giờ gửi ${hr[0]}h–${hr[1]}h`);
+  const g = rules?.sendGap;
+  if (g) {
+    const unit = g.unit === 'hour' ? 'giờ' : g.unit === 'second' ? 'giây' : 'phút';
+    if (typeof g.min === 'number' && typeof g.max === 'number' && g.min !== g.max) parts.push(`giãn ${g.min}–${g.max} ${unit}`);
+    else if (g.value != null) parts.push(`giãn ${g.value} ${unit}`);
+  }
+  return parts.join(' · ') || 'mặc định';
 }
 
 // ── State ──
@@ -165,19 +228,25 @@ async function fetchSequences(): Promise<void> {
         id: string;
         name: string;
         description?: string | null;
-        steps: unknown[];
+        steps: any[];
+        runtimeRules?: any;
         enabled: boolean;
       }>;
     }>('/automation/sequences?enabled=true');
 
     sequences.value = (res.data.sequences ?? [])
       .filter((s) => s.enabled)
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        stepCount: Array.isArray(s.steps) ? s.steps.length : 0,
-      }));
+      .map((s) => {
+        const steps = Array.isArray(s.steps) ? s.steps : [];
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          stepCount: steps.length,
+          estLabel: estLabelOf(steps, s.runtimeRules),
+          rulesLabel: rulesLabelOf(s.runtimeRules),
+        };
+      });
 
     // Auto-select sequence đầu tiên
     if (sequences.value.length > 0 && !selectedSequenceId.value) {
@@ -328,11 +397,25 @@ onMounted(() => {
   font-size: 11px; color: var(--ink-3); margin-top: 2px; line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.afm-opt-metarow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; align-items: center; }
 .afm-opt-steps {
   font-family: var(--mono); font-size: 10.5px; color: var(--ink-2);
   background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px;
-  margin-top: 5px; align-self: flex-start;
 }
+.afm-opt-tag {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; color: var(--ink-2);
+  background: var(--surface-3); border-radius: var(--r-pill); padding: 1px 7px;
+}
+.afm-opt-tag svg { display: block; }
+.afm-opt-start { font-size: 10.5px; color: #157f3c; margin-top: 5px; }
+.afm-preview-btn {
+  flex-shrink: 0; align-self: center; display: inline-flex; align-items: center; gap: 4px;
+  border: 1px solid var(--brand, #1786be); background: var(--surface); color: var(--brand, #1786be);
+  border-radius: var(--r-sm); padding: 4px 9px; font-size: 11px; font-weight: 600; cursor: pointer;
+  font-family: inherit;
+}
+.afm-preview-btn:hover { background: var(--brand-soft, #e7f3fb); }
+.afm-preview-btn svg { display: block; }
 
 /* Nick */
 .afm-nick {

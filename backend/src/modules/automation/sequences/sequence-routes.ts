@@ -25,9 +25,12 @@ import {
   validateRuntimeRules,
   DEFAULT_RUNTIME_RULES,
   type SequenceStep,
+  type SequenceRuntimeRules,
 } from './types.js';
 import { checkBlockReferences } from './block-refs.js';
 import { getOwnerScope, applyOwnerScope } from '../../rbac/owner-scope.js';
+// 2026-06-18 — Xem trước Sequence: tính giờ gửi từng bước (delay + né ngoài giờ).
+import { stepDelayMs, nextAllowedTime, resolveWindowMinutes } from '../engine/schedule-calculator.js';
 
 // 2026-06-04 — Khối Phase 1: sync JSON steps → sequence_steps FK table.
 // Worker dual-read (sequence-step-worker.ts loadSequenceSteps): ưu tiên FK table,
@@ -55,6 +58,31 @@ async function syncSequenceStepsTable(sequenceId: string, steps: SequenceStep[])
 }
 
 const BASE = '/api/v1/automation/sequences';
+
+// ── Helper cho Xem trước Sequence (2026-06-18) ──────────────────────────────
+function genderToViLabel(gender: string | null | undefined): string {
+  if (gender === 'female') return 'Chị';
+  if (gender === 'male') return 'Anh';
+  return 'Anh/Chị';
+}
+/** Câu mô tả khung giờ gửi, vd "8:00–22:00" hoặc "cả ngày". */
+function windowLabelOf(rules: SequenceRuntimeRules): string {
+  const w = resolveWindowMinutes(rules);
+  if (!w) return 'cả ngày';
+  const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+  return `${fmt(w.startMin)}–${fmt(w.endMin)}`;
+}
+/** Câu mô tả giãn cách giữa 2 bước, vd "30–60 phút" / "1 giờ". */
+function gapLabelOf(rules: SequenceRuntimeRules): string {
+  const g = rules.sendGap;
+  if (!g) return '—';
+  const unit = g.unit === 'hour' ? 'giờ' : g.unit === 'second' ? 'giây' : 'phút';
+  if (typeof g.min === 'number' && typeof g.max === 'number' && g.min !== g.max) {
+    return `${g.min}–${g.max} ${unit}`;
+  }
+  const v = (g.value ?? g.min ?? g.max);
+  return v != null ? `${v} ${unit}` : '—';
+}
 
 export async function sequenceRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -118,6 +146,89 @@ export async function sequenceRoutes(app: FastifyInstance): Promise<void> {
       : [];
 
     return { ...sequence, blocks };
+  });
+
+  // ── 2026-06-18 — XEM TRƯỚC tin nhắn Sequence sẽ gửi cho 1-2 KH ──────────────
+  // Trả raw block (FE tái dùng logic render bong bóng) + GIỜ GỬI cụ thể từng bước
+  // (giả lập enroll TỪ BÂY GIỜ: cộng dồn delay + né ngoài giờ, qua ngày thì sang mai).
+  app.post(`${BASE}/:id/preview`, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as { contactIds?: string[] };
+    const contactIds = (Array.isArray(body.contactIds) ? body.contactIds : []).slice(0, 2);
+    if (contactIds.length === 0) return reply.status(400).send({ error: 'contactIds_required' });
+
+    const sequence = await prisma.automationSequence.findFirst({
+      where: { id, orgId: user.orgId },
+      select: { id: true, name: true, steps: true, runtimeRules: true },
+    });
+    if (!sequence) return reply.status(404).send({ error: 'sequence_not_found' });
+    const rules = (sequence.runtimeRules ?? {}) as SequenceRuntimeRules;
+
+    // Steps (dual-read: FK table ưu tiên, fallback JSON — như worker).
+    let steps = (await prisma.sequenceStep.findMany({
+      where: { sequenceId: id }, orderBy: { stepOrder: 'asc' },
+      select: { blockId: true, delayMinutes: true },
+    })).map((r) => ({ blockId: r.blockId, delayMinutes: r.delayMinutes }));
+    if (steps.length === 0) {
+      steps = (Array.isArray(sequence.steps) ? (sequence.steps as unknown as SequenceStep[]) : [])
+        .map((s) => ({ blockId: s.blockId, delayMinutes: s.delayMinutes ?? 0 }));
+    }
+    steps = steps.filter((s) => !!s.blockId);
+    if (steps.length === 0) return reply.status(400).send({ error: 'sequence_empty' });
+
+    // Blocks (content) + contacts.
+    const blockIds = Array.from(new Set(steps.map((s) => s.blockId as string)));
+    const [blocks, contacts] = await Promise.all([
+      prisma.block.findMany({
+        where: { id: { in: blockIds }, orgId: user.orgId },
+        select: { id: true, name: true, actionType: true, content: true, archivedAt: true },
+      }),
+      prisma.contact.findMany({
+        where: { id: { in: contactIds }, orgId: user.orgId },
+        select: { id: true, fullName: true, crmName: true, gender: true },
+      }),
+    ]);
+    const blockById = new Map(blocks.map((b) => [b.id, b]));
+    const saleRow = await prisma.user.findUnique({ where: { id: user.id }, select: { fullName: true } });
+    const saleName = saleRow?.fullName ?? 'Sale';
+
+    // Per contact: cộng dồn giờ gửi + đính kèm block + vars (FE render + thay biến).
+    const now = new Date();
+    const previewContacts = contacts.map((c) => {
+      const name = c.fullName ?? c.crmName ?? 'bạn';
+      const vars = { name, gender: genderToViLabel(c.gender), sale: saleName };
+      let t = now;
+      const stepsOut = steps.map((s, idx) => {
+        const gapMs = stepDelayMs(rules, s.delayMinutes ?? 0, () => 0.5);
+        t = nextAllowedTime(new Date(t.getTime() + gapMs), rules);
+        const block = s.blockId ? blockById.get(s.blockId) ?? null : null;
+        return {
+          stepIdx: idx,
+          delayMinutes: s.delayMinutes ?? 0,
+          sendAt: t.toISOString(),
+          block, // raw — FE parse content thành bong bóng
+        };
+      });
+      return {
+        contactId: c.id,
+        name,
+        vars,
+        steps: stepsOut,
+        etaCompleteAt: stepsOut.length ? stepsOut[stepsOut.length - 1].sendAt : null,
+      };
+    });
+
+    return {
+      sequence: {
+        id: sequence.id,
+        name: sequence.name,
+        totalSteps: steps.length,
+        windowLabel: windowLabelOf(rules),
+        gapLabel: gapLabelOf(rules),
+      },
+      contacts: previewContacts,
+    };
   });
 
   // Create sequence
