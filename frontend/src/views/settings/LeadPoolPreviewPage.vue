@@ -555,8 +555,10 @@ function idleClass(d: number | null): string {
 .qlp-flow-title { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }
 .qlp-flow-title .badge { background: #1786be; color: white; padding: 1px 7px; border-radius: 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; }
 .qlp-flow-title .muted { color: var(--text-3); font-weight: 500; }
-.qlp-flow-row { display: grid; grid-template-columns: repeat(4, 1fr) 32px repeat(2, 1fr); gap: 0; align-items: center; }
-.qlp-flow-row .step { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 8px; background: white; border: 1px solid var(--border); border-radius: 8px; }
+/* 2026-06-19 (anh báo ô "Tự trả về pool" to hơn): stretch để MỌI ô cao bằng nhau (theo ô
+   nhiều chữ nhất) thay vì center làm ô ngắn co lại → hết lệch size. */
+.qlp-flow-row { display: grid; grid-template-columns: repeat(4, 1fr) 32px repeat(2, 1fr); gap: 0; align-items: stretch; }
+.qlp-flow-row .step { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px 8px; background: white; border: 1px solid var(--border); border-radius: 8px; }
 .qlp-flow-row .step .ic { font-size: 18px; }
 .qlp-flow-row .step .lab { font-size: 11px; font-weight: 700; color: var(--text-1); text-align: center; line-height: 1.2; }
 .qlp-flow-row .step .dt { font-size: 10px; color: var(--text-3); text-align: center; line-height: 1.3; }
@@ -564,7 +566,7 @@ function idleClass(d: number | null): string {
 .qlp-flow-row .step.cooldown .lab { color: #92400E; }
 .qlp-flow-row .step.returned { background: #FEE2E2; border-color: #FCA5A5; }
 .qlp-flow-row .step.returned .lab { color: var(--danger); }
-.qlp-flow-row .arrow { font-size: 18px; color: var(--text-mute); text-align: center; font-weight: 700; }
+.qlp-flow-row .arrow { font-size: 18px; color: var(--text-mute); text-align: center; font-weight: 700; align-self: center; }
 
 /* ─────────── KPI ROW ─────────── */
 .qlp-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 10px; }
