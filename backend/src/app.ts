@@ -92,6 +92,7 @@ import { careSessionRoutes } from './modules/automation/care-session/care-sessio
 import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
 import { startWelcomeProbeWorker, stopWelcomeProbeWorker } from './modules/automation/friend-invite/welcome-probe-worker.js';
 import { bootstrapFriendInviteWorkers, stopAllNickWorkers, setNickWorkerIO } from './modules/automation/friend-invite/nick-worker.js';
+import { initTelegramBridge } from './modules/integrations/providers/telegram-bridge/index.js';
 import { broadcastRoutes } from './modules/automation/broadcasts/broadcast-routes.js';
 import { webhookRoutes as automationWebhookRoutes } from './modules/automation/webhooks/webhook-routes.js';
 // Tệp khách hàng (CustomerList) — Phase 7 audience layer
@@ -480,6 +481,13 @@ async function bootstrap() {
         await bootstrapFriendInviteWorkers();
       } catch (err) {
         logger.error('[friend-invite] bootstrap workers failed (non-fatal):', err);
+      }
+
+      // 2026-06-19 — Cầu Telegram (Phase 1): subscribe bridge-bus, mirror tin Zalo→Telegram.
+      try {
+        initTelegramBridge();
+      } catch (err) {
+        logger.error('[telegram-bridge] init failed (non-fatal):', err);
       }
     }
   } catch (err) {

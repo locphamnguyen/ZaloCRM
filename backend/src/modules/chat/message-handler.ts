@@ -4,6 +4,7 @@
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { publishMessagePersisted } from '../../shared/bridge-bus.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../automation/automation-service.js';
@@ -411,6 +412,10 @@ export async function handleIncomingMessage(
     }
 
     await updateConversationAfterMessage(conversation.id, sentAt, msg.isSelf);
+
+    // 2026-06-18 — Cầu Telegram (Phase 0): phát sự kiện hậu-commit để bridge mirror sang
+    // Telegram. Fire-and-forget; subscriber (Phase 1) tự lọc nick bắc cầu + chống lặp theo msgId.
+    publishMessagePersisted({ messageId: message.id, conversationId: conversation.id });
 
     // Update Contact aggregate fields (last*, total*) — fire-and-forget,
     // best-effort. Skipped for group threads inside the helper.
