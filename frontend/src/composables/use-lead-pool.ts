@@ -64,7 +64,8 @@ export interface LeadPayload {
   recentNotes: Array<any>;
   recentAppointments: Array<any>;
   insights: { daysIdle: number | null; noShowCount: number; acceptedFriendCount: number; totalMessages: number; hadHotMoment: boolean };
-  suggestedOpenings: string[];
+  // 2026-06-19 (C): câu chào kèm định dạng {text, styles} → preview + gửi-thẳng có màu/đậm.
+  suggestedOpenings: Array<{ text: string; styles: Array<{ st: string; start: number; len: number }> }>;
 }
 
 const eligibility = ref<Eligibility | null>(null);

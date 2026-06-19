@@ -131,10 +131,10 @@
           </div>
         </div>
 
-        <!-- Suggestion 1 dòng + copy -->
-        <div v-if="primarySuggestion" class="lrm-suggestion">
+        <!-- Suggestion 1 dòng + copy + gửi thẳng (2026-06-19: render màu/đậm) -->
+        <div v-if="primarySuggestion.text" class="lrm-suggestion">
           <span class="lrm-suggestion-icon">💡</span>
-          <span class="lrm-suggestion-text">{{ primarySuggestion }}</span>
+          <span class="lrm-suggestion-text" v-html="primarySuggestionHtml"></span>
           <button
             v-if="(props.lead?.suggestedOpenings?.length ?? 0) > 1"
             class="lrm-suggestion-copy"
@@ -146,6 +146,15 @@
           <button class="lrm-suggestion-copy" :class="{ 'is-copied': copiedFlag }" @click="copySuggestion">
             <span>{{ copiedFlag ? '✓' : '📋' }}</span>
             <span>{{ copiedFlag ? 'Đã copy' : 'Copy' }}</span>
+          </button>
+          <button
+            class="lrm-suggestion-send"
+            :disabled="sendingGreeting || !directChatNickId"
+            :title="directChatNickId ? 'Gửi câu chào này (có màu/đậm) thẳng tới khách qua Zalo' : 'Chưa có nick sẵn sàng để gửi'"
+            @click="sendGreetingDirect"
+          >
+            <span>{{ sendingGreeting ? '⏳' : '📤' }}</span>
+            <span>{{ sendingGreeting ? 'Đang gửi…' : 'Gửi thẳng' }}</span>
           </button>
         </div>
 
@@ -412,6 +421,7 @@
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '@/api/index';
+import { applyRichFormat } from '@/composables/use-rich-format';
 import { useLeadPool, type LeadPayload } from '@/composables/use-lead-pool';
 
 const props = defineProps<{ lead: LeadPayload | null }>();
@@ -592,15 +602,18 @@ const contactFirstName = computed(() => {
 // Phase Lead Pool FIFO 2026-06-15 — câu chào lấy từ list suggestedOpenings (BE đã render
 // 8 biến). Nút Random đổi câu khác trong list. Index xoay vòng.
 const suggestionIndex = ref(0);
-const primarySuggestion = computed(() => {
-  const list = props.lead?.suggestedOpenings ?? [];
-  if (list.length > 0) return list[suggestionIndex.value % list.length] ?? '';
-  // Fallback nếu BE không trả list (sale chưa có nick) — câu cơ bản.
+type Suggestion = { text: string; styles: Array<{ st: string; start: number; len: number }> };
+const primarySuggestion = computed<Suggestion>(() => {
+  const list = (props.lead?.suggestedOpenings ?? []) as Suggestion[];
+  if (list.length > 0) return list[suggestionIndex.value % list.length] ?? { text: '', styles: [] };
+  // Fallback nếu BE không trả list (sale chưa có nick) — câu cơ bản (text trơn).
   const contactName = contactFirstName.value;
   const gender = zaloProfile.value?.gender;
   const xnq = gender === 0 ? 'Anh' : gender === 1 ? 'Chị' : 'anh/chị';
-  return contactName ? `Chào ${xnq} ${contactName}, em là sale chăm sóc tài khoản của mình ạ.` : '';
+  return { text: contactName ? `Chào ${xnq} ${contactName}, em là sale chăm sóc tài khoản của mình ạ.` : '', styles: [] };
 });
+// HTML có màu/đậm cho preview (đồng bộ cách Khối render styles).
+const primarySuggestionHtml = computed(() => applyRichFormat(primarySuggestion.value.text, primarySuggestion.value.styles || []));
 function randomSuggestion() {
   const list = props.lead?.suggestedOpenings ?? [];
   if (list.length <= 1) return;
@@ -674,12 +687,40 @@ function formatDate(iso: string | Date | null | undefined) {
 }
 
 async function copySuggestion() {
-  if (!primarySuggestion.value) return;
+  if (!primarySuggestion.value.text) return;
   try {
-    await navigator.clipboard.writeText(primarySuggestion.value);
+    await navigator.clipboard.writeText(primarySuggestion.value.text);
     copiedFlag.value = true;
     setTimeout(() => { copiedFlag.value = false; }, 1800);
   } catch { /* silent */ }
+}
+
+// 2026-06-19 (C): GỬI THẲNG câu chào (có màu/đậm) qua Zalo — open-chat lấy conversationId
+// rồi POST /conversations/:id/messages kèm styles (Zalo nhận format, khác copy-dán mất màu).
+const sendingGreeting = ref(false);
+async function sendGreetingDirect() {
+  const sug = primarySuggestion.value;
+  const nickId = directChatNickId.value;
+  if (sendingGreeting.value || !sug.text || !nickId || !props.lead) return;
+  sendingGreeting.value = true;
+  clearMessages();
+  try {
+    const { data } = await api.post(`/lead-pool/${props.lead.leadRequestId}/open-chat`, { zaloAccountId: nickId });
+    if (!data?.canChat || !data.conversationId) {
+      actionError.value = data?.message || 'Chưa mở được hội thoại để gửi. Thử "Mở chat" rồi gửi tay.';
+      return;
+    }
+    await api.post(`/conversations/${data.conversationId}/messages`, {
+      content: sug.text,
+      styles: sug.styles && sug.styles.length ? sug.styles : undefined,
+    });
+    actionInfo.value = '✓ Đã gửi câu chào (có màu) tới khách. Mở chat để tiếp tục...';
+    setTimeout(() => { router.push({ path: `/chat/${data.conversationId}` }); emit('close'); }, 800);
+  } catch (err: any) {
+    actionError.value = err?.response?.data?.error || 'Gửi câu chào thất bại. Thử lại hoặc copy gửi tay.';
+  } finally {
+    sendingGreeting.value = false;
+  }
 }
 
 function onOpenContactPage() {
@@ -735,6 +776,8 @@ function resolveDirectChatNickId(): string | null {
   return null;
 }
 
+// 2026-06-19 (C): nick id sẵn sàng để gửi thẳng câu chào (computed cho template).
+const directChatNickId = computed<string | null>(() => resolveDirectChatNickId());
 // Tên nick để hiển thị trên nút "Mở chat Zalo" — null = cần popup chọn
 const directChatNickName = computed<string | null>(() => {
   if (!props.lead?.hasZaloFromMyNick) return null;
@@ -764,7 +807,7 @@ async function onPickNick(zaloAccountId: string) {
     // nick mới → upsert Friend + Conversation stub. Sale chỉ cần chọn nick là xong.
     const { data } = await api.post(`/lead-pool/${props.lead.leadRequestId}/open-chat`, { zaloAccountId });
     if (data?.canChat && data.conversationId) {
-      const draft = primarySuggestion.value;
+      const draft = primarySuggestion.value.text;
       router.push({
         path: `/chat/${data.conversationId}`,
         query: draft ? { draft: draft.slice(0, 600) } : undefined,
@@ -993,6 +1036,13 @@ onBeforeUnmount(() => {
 .lrm-suggestion-copy { background: #F59E0B; color: white; border: none; border-radius: 7px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; transition: background 0.15s; }
 .lrm-suggestion-copy:hover { background: #D97706; }
 .lrm-suggestion-copy.is-copied { background: #10B981; }
+/* 2026-06-19 (C) — nút Gửi thẳng câu chào (có màu) */
+.lrm-suggestion-send { background: #1786be; color: white; border: none; border-radius: 7px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; transition: background 0.15s; }
+.lrm-suggestion-send:hover:not(:disabled) { background: #126699; }
+.lrm-suggestion-send:disabled { opacity: 0.5; cursor: not-allowed; }
+/* preview câu chào có format — đảm bảo bold/màu render trong span */
+.lrm-suggestion-text :deep(strong) { font-weight: 700; }
+.lrm-suggestion-text :deep(em) { font-style: italic; }
 
 /* 4 actions compact */
 .lrm-actions-wrap { position: relative; }

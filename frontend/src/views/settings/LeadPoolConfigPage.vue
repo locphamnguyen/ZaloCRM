@@ -215,11 +215,11 @@
             <!-- Phase FIFO 2026-06-15: editor HTML format (đậm/màu) giống Block/Tin nhắn mẫu. -->
             <RichTextEditor
               :ref="(el: any) => setEditorRef(idx, el)"
-              :model-value="form.greetingTemplates[idx]"
+              :model-value="form.greetingTemplates[idx]?.text || ''"
               :show-toolbar="true"
               :submit-on-enter="false"
               placeholder="Vd: Chào {gender} {crm_first}, em {sale} đây ạ. {gender} còn quan tâm dự án không?"
-              @update:model-value="(v: string) => onTemplateInput(idx, v)"
+              @update:model-value="() => onTemplateInput(idx)"
             />
             <div class="lpc-varbar">
               <span class="lpc-varbar-label"><v-icon size="13">mdi-cursor-text</v-icon> Chèn biến:</span>
@@ -255,7 +255,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import { api } from '@/api/index';
 import RichTextEditor from '@/components/chat/rich-text-editor.vue';
 import { TEMPLATE_VARIABLES } from '@/constants/template-variables';
@@ -312,9 +312,16 @@ const form = ref({
   noteMinLength: 20,
   cooldownAfterNoteDays: 30,
   selfReclaimLockDays: 7,
-  greetingTemplates: [] as string[],
+  greetingTemplates: [] as Array<{ text: string; styles: Array<{ st: string; start: number; len: number }> }>,
   sourceListIds: [] as string[],
 });
+
+// Chuẩn hoá template về {text,styles} (chấp nhận string cũ).
+function normGreeting(raw: any): { text: string; styles: any[] } {
+  if (typeof raw === 'string') return { text: raw, styles: [] };
+  if (raw && typeof raw === 'object') return { text: String(raw.text ?? ''), styles: Array.isArray(raw.styles) ? raw.styles : [] };
+  return { text: '', styles: [] };
+}
 
 function applyMinutesPreset(value: number) {
   form.value.autoReturnAfterMinutes = value;
@@ -342,9 +349,15 @@ async function fetchConfig() {
       noteMinLength: data.noteMinLength,
       cooldownAfterNoteDays: data.cooldownAfterNoteDays ?? 30,
       selfReclaimLockDays: data.selfReclaimLockDays ?? 7,
-      greetingTemplates: Array.isArray(data.greetingTemplates) ? data.greetingTemplates : [],
+      greetingTemplates: Array.isArray(data.greetingTemplates) ? data.greetingTemplates.map(normGreeting) : [],
       sourceListIds: Array.isArray(data.sourceListIds) ? data.sourceListIds : [],
     };
+    // Đổ format có sẵn vào editor sau khi render (styles được khôi phục, không chỉ text trơn).
+    await nextTick();
+    for (const [idxStr, ed] of Object.entries(editorRefs.value)) {
+      const tpl = form.value.greetingTemplates[Number(idxStr)];
+      if (ed?.applyRichPayload && tpl) ed.applyRichPayload({ text: tpl.text, styles: tpl.styles });
+    }
   } catch (err: any) {
     saveError.value = err?.response?.data?.error || 'Load config thất bại';
     saveStatus.value = 'error';
@@ -372,33 +385,43 @@ function setEditorRef(idx: number, el: any) {
   if (el) editorRefs.value[idx] = el; else delete editorRefs.value[idx];
 }
 let tplSaveTimer: ReturnType<typeof setTimeout> | null = null;
-function onTemplateInput(idx: number, val: string) {
-  form.value.greetingTemplates[idx] = val;
+// 2026-06-19 (C): lấy {text,styles} từ editor (giữ định dạng) thay vì chỉ text trơn.
+function syncTemplateFromEditor(idx: number) {
+  const ed = editorRefs.value[idx];
+  if (ed?.getRichPayload) {
+    const p = ed.getRichPayload();
+    form.value.greetingTemplates[idx] = { text: p.text ?? '', styles: Array.isArray(p.styles) ? p.styles : [] };
+  }
+}
+function onTemplateInput(idx: number) {
+  syncTemplateFromEditor(idx);
   // Debounce lưu (RichTextEditor không có @blur như textarea cũ).
   if (tplSaveTimer) clearTimeout(tplSaveTimer);
   tplSaveTimer = setTimeout(() => onSaveTemplates(), 800);
 }
 function insertVar(idx: number, code: string) {
   const ed = editorRefs.value[idx];
-  if (ed?.insertText) { ed.insertText(code); }
-  else { form.value.greetingTemplates[idx] = (form.value.greetingTemplates[idx] || '') + code; }
+  if (ed?.insertText) { ed.insertText(code); syncTemplateFromEditor(idx); }
+  else if (form.value.greetingTemplates[idx]) { form.value.greetingTemplates[idx].text += code; }
 }
 
 function addTemplate() {
   if (form.value.greetingTemplates.length >= 10) return;
-  form.value.greetingTemplates.push('');
+  form.value.greetingTemplates.push({ text: '', styles: [] });
 }
 function removeTemplate(idx: number) {
   form.value.greetingTemplates.splice(idx, 1);
   onSaveTemplates();
 }
 function seedDefaultTemplates() {
-  form.value.greetingTemplates = [...DEFAULT_GREETING_SEEDS];
+  form.value.greetingTemplates = DEFAULT_GREETING_SEEDS.map((t) => ({ text: t, styles: [] as any[] }));
   onSaveTemplates();
 }
 async function onSaveTemplates() {
-  // Trim + bỏ rỗng trước khi gửi BE (BE validate y vậy)
-  const cleaned = form.value.greetingTemplates.map((s) => s.trim()).filter((s) => s.length > 0);
+  // Trim + bỏ câu rỗng trước khi gửi BE (BE chuẩn hoá y vậy).
+  const cleaned = form.value.greetingTemplates
+    .map((g) => ({ text: (g.text || '').trim(), styles: g.styles || [] }))
+    .filter((g) => g.text.length > 0);
   saveStatus.value = '';
   try {
     await api.patch('/lead-pool/config', { greetingTemplates: cleaned });

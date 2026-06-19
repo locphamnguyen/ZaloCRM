@@ -47,12 +47,39 @@ interface PoolConfig {
   // Sale khác vẫn xin được ngay. Chống spam loop xin-trả-xin lại cùng KH.
   selfReclaimLockDays: number;
   // 2026-05-28 — array template câu chào. Empty → service fallback DEFAULT_GREETING_TEMPLATES.
-  // 2026-06-19: mỗi câu là MARKUP string (text-formatter: **đậm** {red}…{/red}) → preview +
-  // gửi-thẳng render màu/đậm (formatMessage). Câu plain cũ vẫn chạy (không markup = text trơn).
-  greetingTemplates: string[];
+  // 2026-06-19 (C): mỗi câu = {text, styles} (Zalo-native, như Khối) → preview + gửi-thẳng có
+  // màu/đậm. Tương thích ngược: câu cũ lưu string → coi như {text, styles:[]} (text trơn).
+  greetingTemplates: GreetingTemplate[];
   // 2026-06-19 (D) — pool chỉ lấy lead từ các tệp KH này (customer_list ids). Rỗng = lấy
   // MỌI tệp có shareable_to_pool=true (hành vi cũ). Chỉ áp khi nguồn 'customer_list' đang bật.
   sourceListIds: string[];
+}
+
+// 2026-06-19 (C) — câu chào có định dạng (đồng bộ Khối: {st,start,len}).
+export interface GreetingStyle { st: string; start: number; len: number }
+export interface GreetingTemplate { text: string; styles: GreetingStyle[] }
+
+/** Chuẩn hoá 1 template: chấp nhận string cũ HOẶC {text,styles} mới → {text,styles}. */
+function normalizeGreeting(raw: unknown): GreetingTemplate | null {
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    return t ? { text: t.slice(0, 500), styles: [] } : null;
+  }
+  if (raw && typeof raw === 'object') {
+    const o = raw as { text?: unknown; styles?: unknown };
+    const text = typeof o.text === 'string' ? o.text.trim().slice(0, 500) : '';
+    if (!text) return null;
+    const styles = Array.isArray(o.styles)
+      ? (o.styles as unknown[]).filter((s): s is GreetingStyle =>
+          !!s && typeof (s as any).st === 'string' && typeof (s as any).start === 'number' && typeof (s as any).len === 'number')
+      : [];
+    return { text, styles };
+  }
+  return null;
+}
+function normalizeGreetingList(raw: unknown): GreetingTemplate[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeGreeting).filter((g): g is GreetingTemplate => !!g).slice(0, 10);
 }
 
 // Bounds cho auto-return: 30 phút (rotate nhanh) → 7 ngày (10080 phút)
@@ -102,7 +129,7 @@ export async function getOrCreateConfig(orgId: string): Promise<PoolConfig> {
       noteMinLength: Math.max(5, Math.min(500, existing.noteMinLength)),
       cooldownAfterNoteDays: Math.max(0, Math.min(365, existing.cooldownAfterNoteDays)),
       selfReclaimLockDays: Math.max(0, Math.min(365, (existing as any).selfReclaimLockDays ?? 7)),
-      greetingTemplates: safeStringArray(existing.greetingTemplates, []).slice(0, 10).map((s) => s.slice(0, 500)),
+      greetingTemplates: normalizeGreetingList(existing.greetingTemplates),
       sourceListIds: safeStringArray((existing as any).sourceListIds, []),
     };
   }
@@ -178,14 +205,8 @@ export async function updateConfig(orgId: string, patch: Partial<PoolConfig>): P
     }
   }
   if (Array.isArray(patch.greetingTemplates)) {
-    // Validate: ≤10 templates, mỗi câu ≤500 ký tự, trim + bỏ rỗng.
-    const cleaned = patch.greetingTemplates
-      .filter((s): s is string => typeof s === 'string')
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .slice(0, 10)
-      .map((s) => s.slice(0, 500));
-    data.greetingTemplates = cleaned;
+    // 2026-06-19 (C): chấp nhận string cũ HOẶC {text,styles} mới → chuẩn hoá {text,styles}.
+    data.greetingTemplates = normalizeGreetingList(patch.greetingTemplates);
   }
 
   await prisma.leadPoolConfig.update({ where: { orgId }, data });
@@ -650,7 +671,7 @@ async function buildLeadPayload(
   saleFullName: string | null = null,
   saleUserId: string | null = null,
   autoLookup: AutoLookupResult | null = null,
-  greetingTemplates: string[] = [],
+  greetingTemplates: GreetingTemplate[] = [],
 ) {
   const contact = await prisma.contact.findUnique({
     where: { id: contactId },
@@ -769,16 +790,27 @@ export const DEFAULT_GREETING_TEMPLATES: string[] = [
 async function buildSuggestedOpenings(
   contactId: string,
   assignedNickId: string | null,
-  templates: string[] = [],
-): Promise<string[]> {
-  const list = templates.length > 0 ? templates : DEFAULT_GREETING_TEMPLATES;
+  templates: GreetingTemplate[] = [],
+): Promise<Array<{ text: string; styles: GreetingStyle[] }>> {
+  const list: GreetingTemplate[] = templates.length > 0
+    ? templates
+    : DEFAULT_GREETING_TEMPLATES.map((t) => ({ text: t, styles: [] as GreetingStyle[] }));
   if (!assignedNickId) {
-    // Không có nick → không resolve được per-nick. Trả template thô (sale tự điền tay).
-    return list;
+    // Không có nick → chưa thay biến được, trả text thô (giữ styles cho preview).
+    return list.map((g) => ({ text: g.text, styles: g.styles }));
   }
-  const { renderTemplate } = await import('../automation/blocks/render-template.js');
+  // 2026-06-19 (C): thay biến + DỊCH offset styles theo độ dài giá trị thật (tái dùng máy của Khối).
+  const { renderTemplateDetailed, shiftStylesForRender } = await import('../automation/blocks/render-template.js');
   return Promise.all(
-    list.map((tpl) => renderTemplate(tpl, contactId, assignedNickId).catch(() => tpl)),
+    list.map(async (g) => {
+      try {
+        const { rendered, values } = await renderTemplateDetailed(g.text, contactId, assignedNickId);
+        const shifted = g.styles.length ? (shiftStylesForRender(g.text, g.styles, values) ?? []) : [];
+        return { text: rendered, styles: shifted as GreetingStyle[] };
+      } catch {
+        return { text: g.text, styles: g.styles };
+      }
+    }),
   );
 }
 
@@ -1126,7 +1158,7 @@ export async function requestLead(args: { orgId: string; userId: string }) {
     return null;
   });
 
-  const greetingTemplates = Array.isArray(config.greetingTemplates) ? (config.greetingTemplates as string[]) : [];
+  const greetingTemplates = Array.isArray(config.greetingTemplates) ? config.greetingTemplates : [];
   const payload = await buildLeadPayload(result.contactId, saleUser?.fullName ?? null, args.userId, autoLookup, greetingTemplates);
   if (!payload) {
     // Contact bị xoá trong khoảnh khắc giữa TX và buildPayload — Codex LOW fix.
@@ -2972,7 +3004,7 @@ export async function getLeadPayload(args: { userId: string; orgId: string; lead
     return null;
   });
 
-  const greetingTemplates = Array.isArray(config.greetingTemplates) ? (config.greetingTemplates as string[]) : [];
+  const greetingTemplates = Array.isArray(config.greetingTemplates) ? config.greetingTemplates : [];
   const payload = await buildLeadPayload(lr.contactId, saleUser?.fullName ?? null, args.userId, autoLookup, greetingTemplates);
   if (!payload) throw new LeadPoolError(404, 'contact_not_found', 'Contact không tồn tại');
 
