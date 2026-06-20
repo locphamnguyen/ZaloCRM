@@ -206,6 +206,9 @@ onMounted(() => {
 });
 
 watch(() => props.friendId, () => {
+  // Xoá tag của nick cũ NGAY trước khi nạp tag mới — tránh hiện chip nick trước đó
+  // trong ~100-300ms chờ API /friends/{id}/tags (hiện trống/skeleton thay vì sai).
+  friendTags.value = [];
   loadFriendTags();
 });
 
