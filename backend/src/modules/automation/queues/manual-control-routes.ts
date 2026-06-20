@@ -25,6 +25,7 @@ import {
 import { enqueueSequenceStart } from './sequence-step-worker.js';
 import { getSequenceStepQueue, sequenceStepContactPrefix } from './queue-registry.js';
 import { getOwnerScope } from '../../rbac/owner-scope.js';
+import { followMergedInto } from '../../contacts/resolve-contact.js';
 
 /**
  * Get-or-create system trigger "Bám đuổi khách hàng thủ công" cho 1 org.
@@ -906,10 +907,19 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
       const orgId = request.user!.orgId;
       const now = Date.now();
 
+      // FIX 2026-06-20 (dedup merge): KH có thể đã bị GỘP. Lấy hồ sơ ROOT + mọi hồ sơ đã
+      // mergedInto=root → event log đã re-point về root (merge-service), nhưng JOB bám đuổi
+      // in-flight còn key theo contactId secondary (tới khi worker re-key) → tra theo CẢ list.
+      const root = (await followMergedInto(cid)).id;
+      const mergedSecondaries = await prisma.contact.findMany({
+        where: { mergedInto: root, orgId }, select: { id: true },
+      });
+      const contactIds = [root, ...mergedSecondaries.map((m) => m.id)];
+
       // ── 1) Event log 30 ngày → gom theo trigger (latestEvent + step N/M) ──
       const since = new Date(now - 30 * 86400_000);
       const events = await prisma.automationEventLog.findMany({
-        where: { contactId: cid, orgId, createdAt: { gte: since } },
+        where: { contactId: { in: contactIds }, orgId, createdAt: { gte: since } },
         orderBy: { createdAt: 'desc' },
         take: 200,
         select: { triggerId: true, eventType: true, detail: true, createdAt: true },
@@ -990,9 +1000,8 @@ export async function registerManualControlRoutes(app: FastifyInstance): Promise
       //       sequenceId → scan per-trigger (1 contact), gom vào map theo triggerId. ──
       const pendingByTrigger = new Map<string, { stepIdx: number; nextRunAt: Date; sequenceId: string }>();
       for (const tid of triggerIds) {
-        const m = await scanPendingSequenceJobs(tid, [cid]);
-        const hit = m.get(cid);
-        if (hit) pendingByTrigger.set(tid, hit);
+        const m = await scanPendingSequenceJobs(tid, contactIds);
+        for (const c of contactIds) { const hit = m.get(c); if (hit) { pendingByTrigger.set(tid, hit); break; } }
       }
 
       // ── 4) Derive state per trigger + build cards (chỉ trigger còn sống) ──

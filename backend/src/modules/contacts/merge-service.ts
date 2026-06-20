@@ -76,16 +76,33 @@ export async function mergeContacts(
       data: { contactId: primaryId },
     });
 
+    // FIX 2026-06-20 (dedup globalId↔phone): re-point ĐỦ bám đuổi + lịch sử của secondary
+    // → primary, nếu không gộp xong luồng/log/note "mồ côi" dưới hồ sơ cũ (tab Follow-up
+    // trống, bám đuổi kẹt). 6 bảng append-only / không unique-trên-contactId → an toàn updateMany.
+    await tx.automationEventLog.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    await tx.careSession.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    await tx.triggerQueueEntry.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    await tx.note.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    await tx.friendRequestOutbox.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    await tx.customerListEntry.updateMany({ where: { contactId: { in: secondaryIds } }, data: { contactId: primaryId } });
+    // DEFER (unique-trên-contactId → cần dedup-on-conflict, không phải symptom): ContactEngagementDaily,
+    // ContactTag, ContactAccess. + history ít quan trọng: FriendshipAttempt/AiSuggestionApplied/LeadRequest/LeadPoolDistribution.
+
+    // FIX 2026-06-20 (dedup): đánh dấu secondary mergedInto + clear phone_normalized TRƯỚC khi
+    // update primary. partial unique `contacts_org_phone_normalized_alive_unique`
+    // (WHERE merged_into IS NULL AND phone_normalized IS NOT NULL): primary (gốc-Zalo, không phone)
+    // KẾ THỪA phone của secondary khi secondary CÒN alive → 2 alive cùng phone_normalized → P2002.
+    // Đánh dấu merged trước → secondary rời partial-index → primary lấy phone tự do. (Null
+    // phone_normalized trên stub sau merge = convention, xem migration 20260529100000 dòng 122.)
+    await tx.contact.updateMany({
+      where: { id: { in: secondaryIds } },
+      data: { mergedInto: primaryId, phoneNormalized: null },
+    });
+
     // Update primary with merged data
     const updatedPrimary = await tx.contact.update({
       where: { id: primaryId },
       data: { ...mergedScalars, tags: mergedTags, metadata: mergedMeta as Prisma.InputJsonValue },
-    });
-
-    // Mark secondaries as merged
-    await tx.contact.updateMany({
-      where: { id: { in: secondaryIds } },
-      data: { mergedInto: primaryId },
     });
 
     // Audit log

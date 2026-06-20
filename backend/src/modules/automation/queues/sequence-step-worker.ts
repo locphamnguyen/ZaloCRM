@@ -46,6 +46,7 @@ import {
 } from './worker-guards.js';
 import { classifyError } from './error-classify.js';
 import { sendMessageHandler } from '../engine/action-handlers/send-message.js';
+import { followMergedInto } from '../../contacts/resolve-contact.js';
 import { stepDelayMs, nextAllowedTime } from '../engine/schedule-calculator.js';
 import type { ActionContext } from '../engine/types.js';
 // Observability "vì sao không gửi" 2026-06-18 — ghi lý do blocker có chống flood + xoá khoá khi resume.
@@ -229,7 +230,11 @@ async function processJob(
   job: Job<SequenceStepJobData, SequenceStepResult>,
   token?: string,
 ): Promise<SequenceStepResult> {
-  const { triggerId, contactId, sequenceId, nickId, orgId, stepIdx, totalSteps } = job.data;
+  const { triggerId, contactId: rawContactId, sequenceId, nickId, orgId, stepIdx, totalSteps } = job.data;
+  // FIX 2026-06-20 (dedup merge): nếu KH đã bị GỘP vào hồ sơ khác, dùng hồ sơ ROOT (primary)
+  // cho mọi query/log/Message + jobId bước kế. Job key theo contactId CŨ (secondary) → nếu
+  // không follow, ghi/đọc hồ sơ mồ côi (tab Follow-up trống, careSession không thấy). depth≤5.
+  const contactId = (await followMergedInto(rawContactId)).id;
   const tag = `[seq-step job=${job.id}]`;
   // Observability 2026-06-18: ghi "vì sao không gửi" lên monitor (chống flood qua logBlockOnce).
   const logBlocked = (reason: string, nextRunAt?: Date | null): void => {

@@ -265,7 +265,7 @@ export async function resolveOrCreateContact(input: ResolveContactInput): Promis
  * Walk mergedInto chain to find the alive root Contact. Bounded depth=5 to
  * avoid infinite loops on cyclic data.
  */
-async function followMergedInto(contactId: string): Promise<{ id: string; orgId: string }> {
+export async function followMergedInto(contactId: string): Promise<{ id: string; orgId: string }> {
   let currentId = contactId;
   for (let depth = 0; depth < 5; depth++) {
     const row = await prisma.contact.findUnique({
