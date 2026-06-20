@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div ref="container" class="pull-to-refresh" @touchstart="onTouchStart" @touchmove="onTouchMove" @touchend="onTouchEnd">
     <div v-if="pulling" class="d-flex justify-center py-2">

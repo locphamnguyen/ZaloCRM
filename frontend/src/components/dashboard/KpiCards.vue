@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-row>
     <v-col v-for="card in cards" :key="card.title" cols="6" sm="4" md="2">

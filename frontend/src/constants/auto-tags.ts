@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * auto-tags.ts — Shared display map cho 9 auto-tags Phase 6+ (Friend.autoTags).
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * profile-operations.ts — Profile management service wrapping zca-js API calls.
  * Provides updateProfile, avatar CRUD, online status, last-online.

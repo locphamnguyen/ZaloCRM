@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Auth routes — setup, login, profile, refresh, logout.
  * Registered as a Fastify plugin via app.register(authRoutes).

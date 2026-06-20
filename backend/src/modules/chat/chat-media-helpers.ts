@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * chat-media-helpers.ts — tiện ích tải media (URL → file tmp) + extract msgId,
  * dùng chung cho forward-media (chat-operations-routes) VÀ gửi Khối vào hội thoại

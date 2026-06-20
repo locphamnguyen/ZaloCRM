@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- M53 2026-05-30: AI suggestion card — hiện dưới bubble AI nếu có entities.
        Sale tick từng field rồi bấm Áp dụng. Default UN-checked tránh AI hallucinate. -->

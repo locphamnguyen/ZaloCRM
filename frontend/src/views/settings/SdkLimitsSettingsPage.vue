@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   SdkLimitsSettingsPage — Cài đặt "Trần an toàn SDK Zalo" (2026-06-18).
   DỜI từ trang Tài khoản Zalo sang module Cài đặt (chỉ admin) — sale quản nick KHÔNG còn

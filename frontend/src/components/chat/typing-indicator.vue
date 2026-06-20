@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div v-if="typers.length > 0" class="typing-indicator d-flex align-center pa-1 px-3">
     <span class="text-caption text-grey-darken-1">{{ label }}</span>

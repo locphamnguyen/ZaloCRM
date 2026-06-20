@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- 2026-06-09 (anh chốt): Nhật ký kiểm soát — ai làm gì với nhân viên (đổi quyền,
        reset mật khẩu, vô hiệu, bàn giao KH). Đọc ActivityLog category='admin'. -->

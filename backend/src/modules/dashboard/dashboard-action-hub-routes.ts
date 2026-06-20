@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * dashboard-action-hub-routes.ts — Dashboard redesign 2026-05-29.
  *

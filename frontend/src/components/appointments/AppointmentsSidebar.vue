@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="apt-sidebar">
     <!-- Nguồn (đẩy lên trên) — 3-tab segmented -->
@@ -252,7 +254,7 @@ function fmtTime(a: Appointment): string {
 </script>
 
 <style scoped>
-@import '@/components/automation/phase7/airtable.css';
+@import '@/assets/airtable.css';
 
 .apt-sidebar {
   background: var(--at-surface-soft);

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * webhook-log.service.ts — Outbox pattern + idempotency (Eng review Issue 2, 3, 6).
  *

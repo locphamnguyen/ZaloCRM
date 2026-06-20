@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * media.ts — API client cho Kho phương tiện (Phase Media Library 2026-06-11).
  */

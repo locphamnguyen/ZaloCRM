@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * reaction-echo-cache.ts — In-memory cache để phân biệt SDK self-echo vs genuine app reaction.
  *

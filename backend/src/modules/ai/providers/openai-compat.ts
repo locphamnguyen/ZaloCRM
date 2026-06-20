@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Shared handler for OpenAI-compatible chat/completions API.
  * Works with: OpenAI, Qwen (dashscope compat mode), Kimi (Moonshot).

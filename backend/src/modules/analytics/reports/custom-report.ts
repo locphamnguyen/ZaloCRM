@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * custom-report.ts — Execute user-defined report from predefined metrics.
  * Supports 6 metrics, 5 groupBy options, optional filters.

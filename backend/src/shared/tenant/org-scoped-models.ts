@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * org-scoped-models.ts — Phase 1a (Bảo mật xác thực 2026-06-07)
  *

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   PipelineReport — Pipeline & Lead Pool (2026-06-17).
   Fetch song song /reports/pipeline (#4) + /reports/lead-pool (#5). report-kit classes (scope .rpt-scope ở ReportsShell).

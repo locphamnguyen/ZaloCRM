@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <svg :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" class="uptime-sparkline" preserveAspectRatio="none">
     <polyline

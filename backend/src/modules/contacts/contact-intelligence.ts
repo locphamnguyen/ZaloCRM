@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * contact-intelligence.ts — Cron wrapper for daily contact intelligence.
  * Runs lead scoring at 02:30 UTC (09:30 Vietnam time).

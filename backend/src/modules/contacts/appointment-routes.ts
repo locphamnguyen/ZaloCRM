@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * appointment-routes.ts — REST API for appointment management.
  * Supports list, detail, create, update, delete, today, and upcoming endpoints.

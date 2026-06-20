@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * public-api-routes.ts — External REST API authenticated via API key (X-Api-Key header).
  * Provides read/write access to contacts, conversations, appointments, and message sending.

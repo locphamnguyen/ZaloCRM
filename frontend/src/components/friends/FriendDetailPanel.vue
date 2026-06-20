@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <Teleport to="body">
     <div v-if="friend" class="panel-overlay" @click="$emit('close')" />

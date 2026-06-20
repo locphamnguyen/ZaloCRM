@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * config-routes.ts — Client config endpoint.
  * GET /api/v1/config (auth) trả về MIME whitelist + size limit upload để FE/mobile

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 // use-rich-format.ts — render text + Zalo style marks ({st,start,len}) → HTML.
 // 2026-06-07 — tách từ special-message-renderer.vue để BlockPreviewDialog (xem trước Khối)
 // dùng CHUNG logic render rich-text (đậm/nghiêng/gạch/màu/cỡ) giống bubble chat thật.

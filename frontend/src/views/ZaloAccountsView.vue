@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="za-page">
     <!-- TOP BAR -->
@@ -34,7 +36,9 @@
       >
         Quản lý nick
       </button>
+      <!-- Open-core: tab "Riêng tư" chỉ hiện ở bản Extension; Community ẩn (code vẫn ở source). -->
       <button
+        v-if="isExtension"
         class="za-tab"
         :class="{ active: activeTab === 'privacy' }"
         @click="setTab('privacy')"
@@ -252,6 +256,9 @@ import OwnerReassignDrawer from '@/components/zalo-accounts/OwnerReassignDrawer.
 import NickGridCards from '@/components/zalo-accounts/NickGridCards.vue';
 import ConnectNickWizard from '@/components/zalo-accounts/ConnectNickWizard.vue';
 import PrivacyNicksTab from '@/components/zalo-accounts/PrivacyNicksTab.vue';
+// Open-core: edition flag (true in Extension, false in Community). Privacy code
+// stays in the Community source — only the tab is hidden via this flag.
+import { isExtension } from '@ee/edition';
 import InternalContactSetupPage from '@/components/zalo-accounts/InternalContactSetupPage.vue';
 import ZaloAccessDialog from '@/components/settings/ZaloAccessDialog.vue';
 import { api } from '@/api/index';
@@ -337,7 +344,8 @@ const canManageZalo = computed(() => authStore.canAccess('zalo_account', 'edit')
 // GỠ 2026-06-10 (CEO-review): bỏ 'internal-contact' khỏi tab hợp lệ — URL hack
 // ?tab=internal-contact sẽ rơi về 'manage'. Cơ chế setup thủ công đã gỡ.
 type TabKey = 'manage' | 'privacy' | 'internal-contact';
-const VALID_TABS: TabKey[] = ['manage', 'privacy'];
+// Community edition: 'privacy' not a valid tab → ?tab=privacy falls back to 'manage'.
+const VALID_TABS: TabKey[] = isExtension ? ['manage', 'privacy'] : ['manage'];
 const activeTab = ref<TabKey>(VALID_TABS.includes(route.query.tab as TabKey) ? (route.query.tab as TabKey) : 'manage');
 function setTab(t: TabKey) {
   activeTab.value = t;

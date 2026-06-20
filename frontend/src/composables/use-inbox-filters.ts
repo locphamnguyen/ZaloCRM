@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-inbox-filters.ts — Composable cho Phase 6+ Inbox Triage Filter (Cột 1 + Cột 2).
  *

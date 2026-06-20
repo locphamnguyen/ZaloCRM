@@ -1,213 +1,62 @@
-# ZaloCRM — hsholding Edition
+# ZaloCRM v3.4 — Quản lý nhiều tài khoản Zalo cá nhân
 
-> **Fork repository** của [locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM) — phát triển song song với upstream, thêm các module phục vụ nghiệp vụ nội bộ HS Holding (Lead Scoring, popup edit khách hàng nâng cao, fix performance chat).
+Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, gửi ảnh/video/audio/file qua MinIO/S3/R2, cầu **Zalo ↔ Telegram** 2 chiều, luồng bám đuổi tự động (follow-up sequence), bể lead, Facebook Lead Ingestion, AI assistant, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
 
-**Fork:** [https://github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM)
-**Upstream gốc:** [https://github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM)
-
----
-
-## 📊 So sánh với upstream locphamnguyen
-
-| | locphamnguyen (upstream) | hsholding (fork này) |
-|---|---|---|
-| **Latest release** | v3.1.2 (`5a47da9`, 2026-05-15) | v3.1.2 + 6 commit Phase 6 + flicker fix |
-| **Stable tag** | `v3.1.2` | `stable-2026-05-18` |
-| **Branch chính** | `main` | `feat/phase-6-lead-scoring` |
-| **Lead Scoring** | ❌ Không có | ✅ Module đầy đủ (scoring engine + auto-tag + stuck detection) |
-| **Popup edit KH** | Cơ bản | ✅ Header avatar + progress bar + tab Friends + webhook events |
-| **Alias 2-way sync** | ❌ | ✅ Friend.aliasInNick sync Zalo Real ↔ CRM |
-| **Flicker cột 2 chat** | Có | ✅ Đã fix triệt để (FLIP animation + 4 root cause) |
-| **Tên cột "Tên gợi nhớ"** | "Tên CRM/Nick KH" | ✅ Đổi sang "Tên gợi nhớ" + reorder columns |
-| **Tab "Ghi chú"** | Mix lẫn activity | ✅ Chỉ trả notes thuần |
-
-### Đã đồng bộ từ upstream
-
-Toàn bộ commits của locphamnguyen đến `v3.1.2` đều có trong fork này. Merge base = `5a47da9` (`release: v3.1.2 — timeline realtime, zalo-tag auto-sync, perf fixes`). Không có commit upstream nào fork thiếu.
-
----
-
-## 🌳 Trạng thái branches
-
-### Trên GitHub fork (`locphamnguyen/ZaloCRM`)
-
-| Branch | Vai trò | Trạng thái vs `upstream-mirror` |
-|---|---|---|
-| **`main`** (default) | **Core stable** — production branch, deploy từ đây | +7 commits ahead |
-| `upstream-mirror` | Read-only mirror locphamnguyen v3.1.2 (= `origin/main`) | = upstream |
-| `feat/ui-phase5` | WIP popup edit + alias sync (chưa merge vào main) | +5 / -41 (cần rebase) |
-
-### Tag stable để restore
-
-```bash
-# Khôi phục về bản chốt ổn định bất cứ lúc nào:
-git remote add fork https://github.com/locphamnguyen/ZaloCRM.git
-git fetch fork --tags
-git checkout stable-2026-05-18
-# hoặc tạo branch mới từ tag:
-git checkout -b restore-2026-05-18 stable-2026-05-18
-```
-
-`stable-2026-05-18` = `main` HEAD = `01dc870` (locphamnguyen v3.1.2 + Lead Scoring + flicker fix + fork README).
-
----
-
-## 🎯 Tính năng riêng của fork hsholding
-
-### Phase 6 — Lead Scoring system (6 commits, ~5,917 dòng code)
-
-**Backend** (`backend/src/modules/scoring/`):
-- `score-engine.ts` — Signal detect + apply + decay
-- `signal-detector.ts` — Phát hiện inbound/outbound/meeting signal
-- `auto-tag.ts` — 7 auto tag (cold-lead / warm-lead / hot-lead / etc.) real-time + cron
-- `stuck-detection.ts` — Cron phát hiện KH đình trệ
-- `stage-promotion.ts` — Logic chuyển stage tự động
-- `decay-cron.ts` — Auto decay điểm theo thời gian
-- `scoring-routes.ts` — Admin API routes
-- `seed-defaults.ts` — Config mặc định + types
-
-**Frontend**:
-- `ScoreBreakdownModal.vue` — Popup giải thích chi tiết điểm số (Explainability UI)
-- `StuckLeadsView.vue` — Dashboard KH đình trệ
-- `ScoringSettingsView.vue` — Cài đặt scoring (signal weights, thresholds, decay rate)
-- `use-scoring.ts` — Composable
-- Nav menu thêm 2 trang: `/scoring/settings`, `/scoring/stuck-leads`
-
-### UI/UX improvements (branch `feat/ui-phase5`, chưa merge)
-
-- **Popup edit khách hàng refactor** — Header avatar + chips + progress bar + action strip + tab Friends + Nâng cao toggle (incomeRange, social, preferredLang) + webhook outbound events
-- **2-way alias sync** — `Friend.aliasInNick` sync Zalo Real ↔ CRM, polling từng đoạn pagination 200 friend/page
-- **Tên cột Khách hàng** — Đổi "Tên CRM/Nick KH" → "Tên gợi nhớ" + reorder cột (Ảnh KH → Tên Zalo+UID → Tên gợi nhớ)
-- **Auto-scroll selected conv** — Khi nav từ Contacts/Groups → tự scroll cột 2 tới conv đang chọn
-- **Fix tab "Ghi chú"** — Chỉ trả notes thuần, không mix activity
-
-### Performance fixes
-
-- **Flicker cột 2 chat triệt để** (commit `8f50e1e`) — Fix 4 root cause:
-  1. `behavior: smooth → auto` cho `scrollSelectedIntoView` (bỏ glide 200-500ms)
-  2. Bỏ `watch(selectedIndex)` — reorder do socket không kéo auto-scroll
-  3. Loading indicator guard — chỉ show "Đang tải…" khi list rỗng (initial), bỏ ±57px oscillation khi background re-fetch
-  4. `<TransitionGroup>` + FLIP animation 0.25s — reorder do tin mới đến glide mượt thay vì instant jump
-- Đo đạc: 5 phút quan sát sau fix → **0 layoutShift, 0 scrollHeight oscillation, 0 childList DOM remove/add**
-
-- **Message order fix** (commit `891dd61`, có ở branch `feat/ui-phase5`) — `insertMessageSorted` binary search by sentAt, xử lý socket non-chronological delivery (old_messages backfill reverse)
-
----
-
-## 🔄 Workflow phát triển song song với locphamnguyen
-
-> 📖 **Hướng dẫn đầy đủ** (push, PR upstream, sync update, setup máy mới, cheat sheet): [docs/HUONG-DAN-GIT-WORKFLOW.md](docs/HUONG-DAN-GIT-WORKFLOW.md)
-
-
-Mô hình 3-nhánh trên fork:
-
-```
-origin/main (locphamnguyen)     ← READ ONLY (upstream gốc)
-        │
-        │ git fetch + git merge --ff-only
-        ▼
-upstream-mirror                 ← Mirror sạch của locphamnguyen, để review trước khi merge
-        │
-        │ review diff + chọn lọc merge vào main
-        ▼
-main (= fork/main, default)     ← CORE STABLE — deploy từ đây
-        │
-        │ checkout làm việc
-        ▼
-feat/xxx                        ← Test riêng local, chỉ push khi ổn định
-```
-
-### Setup 2 remote (lần đầu)
-
-```bash
-git clone https://github.com/locphamnguyen/ZaloCRM.git
-cd ZaloCRM
-git remote rename origin fork                                       # đổi origin → fork cho rõ
-git remote add origin https://github.com/locphamnguyen/ZaloCRM.git  # thêm upstream gốc
-git remote -v   # verify
-```
-
-### Review upstream trước khi merge vào core
-
-```bash
-git fetch origin
-git checkout upstream-mirror
-git merge --ff-only origin/main          # Update mirror (chỉ fast-forward, an toàn)
-git log main..upstream-mirror --oneline  # Xem commits mới
-git diff main..upstream-mirror --stat    # Xem files thay đổi
-# Đọc kỹ + quyết định khi nào sẵn sàng merge:
-git checkout main
-git merge upstream-mirror                # Merge cả batch (linear nếu main chưa diverge)
-# HOẶC cherry-pick từng commit anh muốn:
-git cherry-pick <hash1> <hash2>
-git push fork main
-git push fork upstream-mirror
-```
-
-### Phát triển feature riêng (test local trước, push sau)
-
-```bash
-git checkout main
-git pull fork main                        # Lấy main mới nhất
-git checkout -b feat/abc                  # Branch mới từ main
-# code + commit local — test docker thoải mái:
-docker compose up -d --build
-# Khi ổn → merge vào main:
-git checkout main
-git merge feat/abc                        # hoặc squash merge nếu muốn linear
-git push fork main
-git branch -d feat/abc                    # Xoá branch sau khi merge
-```
-
-### Sync upstream-mirror khi locphamnguyen có release mới
-
-```bash
-git fetch origin
-git checkout upstream-mirror
-git merge --ff-only origin/main           # mirror = upstream latest
-git push fork upstream-mirror
-# Sau đó review + quyết định merge vào main như mục trên
-```
-
----
-
-## 🏷️ Tags & restore points
-
-| Tag | Commit | Mô tả |
-|---|---|---|
-| `stable-2026-05-18` | `8f50e1e` | **Bản chốt hiện tại** — v3.1.2 + Phase 6 + flicker fix |
-| `v3.1.2` | `5a47da9` | Upstream release từ locphamnguyen (2026-05-15) |
-| `v3.1.1` | — | Upstream |
-| `v3.1.0` | — | Upstream |
-| `v3.0` / `v2.x` / `v1.0.0` | — | Upstream history |
-
----
-
-## ⚠️ Nội dung phía dưới = README gốc của upstream locphamnguyen (giữ nguyên để tham khảo)
-
----
-
-# ZaloCRM v3.0 — Quản lý nhiều tài khoản Zalo cá nhân
-
-Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, gửi ảnh/video/file qua MinIO, AI assistant, workflow tự động, tích hợp đa nền tảng, analytics nâng cao, PWA mobile.
-
-**GitHub (upstream):** [https://github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM)
+**Mã nguồn mở:** [github.com/locphamnguyen/ZaloCRM](https://github.com/locphamnguyen/ZaloCRM) — phát hành theo **AGPL-3.0** (dual-license thương mại).
 
 ## Ảnh chụp giao diện
 
-| Dashboard | Tin nhắn |
+| Dashboard | Facebook Lead |
 |---|---|
-| ![Dashboard](docs/user-guide-images/02-dashboard.png) | ![Tin nhắn](docs/user-guide-images/03-chat.png) |
+| ![Dashboard v3.3](docs/release-images/v3.3/01-dashboard-v33.png) | ![Facebook Lead Ingestion](docs/release-images/v3.3/02-facebook-lead-ingestion.png) |
 
-| Bạn bè | Khách hàng |
+| Zalo Accounts | Chat media |
 |---|---|
-| ![Bạn bè](docs/user-guide-images/04-friends.png) | ![Khách hàng](docs/user-guide-images/05-contacts.png) |
+| ![Zalo Accounts](docs/release-images/v3.3/03-zalo-accounts-redesign.png) | ![Chat media forward](docs/release-images/v3.3/07-chat-media-forward.png) |
+
+| Privacy PIN | RBAC / Tệp khách hàng |
+|---|---|
+| ![Privacy PIN](docs/release-images/v3.3/04-privacy-pin.png) | ![Customer Lists](docs/release-images/v3.3/06-customer-lists.png) |
 
 > 📖 Xem hướng dẫn sử dụng đầy đủ tại [docs/HUONG-DAN-NGUOI-DUNG.md](docs/HUONG-DAN-NGUOI-DUNG.md).
+> 📣 Changelog đầy đủ (mọi phiên bản): [CHANGELOG.md](CHANGELOG.md).
 
 ## Tính năng
 
-### Mới trong v3.0
+### Mới trong v3.4
+- **Cầu Zalo ↔ Telegram** — Mirror tin nhắn **2 chiều** (vào/ra) giữa Zalo và Telegram, kèm **media** (ảnh/video/audio/file, giữ tên file gốc), realtime + badge chống lặp
+- **Luồng bám đuổi (follow-up sequence) — recode toàn bộ** — 4 luật (giãn cách random + **jitter** từng bước, cooldown, pause/guard/resume), **Luật 4** tự giữ/hoãn theo giờ cấu hình khi khách trả lời, ETA timing 4 mốc, nút "gửi bước tiếp ngay"
+- **Bể Lead (lead-pool) — rebuild** — chia lead round-robin + 2 ca làm việc + 4 màn quản trị + tab "Tổng quan v2" (phân tích sale, lọc lead rác)
+- **Chuông "đang theo dõi"** sau tên khách trong chat + **Phạm vi làm việc** (scope thành điều kiện load hội thoại)
+- **AI** — quản lý API key + model provider per-org ngay trên giao diện
+- **Public REST API** (X-API-Key) + tài liệu API (vi/en) + Postman collection
+- **Mã nguồn mở AGPL-3.0** — relicense sang AGPL-3.0 (copyleft + §13 SaaS), dual-license thương mại, kèm CONTRIBUTING + DCO
+
+### Mới trong v3.3
+- **Facebook Lead Ingestion** — Kết nối Meta OAuth/page, webhook verify + HMAC, queue lead, tự khám phá form và tự tạo Customer List theo page/form
+- **Media forward đầy đủ** — Chuyển tiếp hình ảnh, video, audio trong chat thay vì chỉ chuyển tiếp text
+- **Inbound media mirror** — Ảnh/video khách gửi đến được mirror/backfill từ Zalo CDN sang MinIO/S3/R2 để CRM kiểm soát file tốt hơn
+- **Cloudflare R2 support** — `.env.example` có block R2, dùng chung cấu hình S3-compatible với MinIO/Amazon S3
+- **Env parser chắc hơn** — Secret/password có ký tự `#` không còn bị hiểu nhầm là comment khi đọc `.env`
+- **Video thumbnail + drag/drop** — Sửa thumbnail video và khôi phục kéo thả file/hình/video vào màn hình chat
+- **Privacy/RBAC/Zalo redesign** — Privacy PIN V2, RBAC phòng ban, Zalo Accounts metrics/status, reaction/read receipt/typing dots
+- **Fix issues #24/#25** — Fallback JSON lỗi từ `getFriendOnlines` và nhận diện message type `webchat`
+
+### v3.2 (21/05/2026)
+- **Bot-Auto framework** — Blocks, Sequences, Triggers, Broadcasts, Lists, engine gửi bằng Zalo SDK thật
+- **Lead Scoring** — Signal detector, auto-decay, 7 auto tag, stuck lead dashboard, scoring settings
+- **Customer Lists** — Import CSV/Excel, column mapping, inline edit, undo delete, 2-axis status
+- **UI redesigns** — Appointments, Friends, Zalo Accounts, Settings layout, Bot-Auto top-level tab
+- **Touch profile + alias sync** — Bổ sung thông tin khách từ SDK và đồng bộ alias Zalo Real ↔ CRM
+
+### v3.1 (04/2026)
+- **CrmTag system** — Quản lý tag riêng cho CRM, Settings tabs, optimistic UI
+- **Notes thread** — Ghi chú CRM-style trong tab Hồ Sơ, AI suggest lịch hẹn
+- **Zalo Labels 2-way sync** — Native dropdown, on-demand mode, auto-sync khi reconnect
+- **DM history backfill** — Endpoint `/sync-history` + nút đồng bộ lịch sử DM
+- **Duplicate review** — Dialog 3 cột để rà soát/gộp khách hàng trùng
+
+### v3.0 (2026)
 - **📎 Chat attachments** — Gửi/nhận hình ảnh, video, file (PDF, Excel, Word, ZIP…) qua composer chat, mirror lên MinIO để hiển thị trong CRM
 - **🎬 Video player inline** — Tin nhắn video render trực tiếp với controls trong bubble (không cần download)
 - **🎨 UI refactor 3 trang** — Chat / Contacts / Friends thiết kế Smax style, layout cố định, badge số tin chưa đọc
@@ -270,7 +119,7 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 | Hệ điều hành | Ubuntu 20.04+ | Ubuntu 22.04 LTS |
 | Phần mềm | Docker + Docker Compose | Docker 24+ |
 
-> v3.0 cần thêm MinIO container nên ổ cứng và RAM tăng so với v2.1.
+> v3.x dùng thêm Redis + object storage (MinIO/S3/R2) nên production nên có tối thiểu 4 GB RAM nếu chạy đủ service trên cùng VPS.
 
 ## Cài đặt mới
 
@@ -292,6 +141,132 @@ openssl rand -hex 32
 # ENCRYPTION_KEY (32 bytes = 64 hex chars)
 openssl rand -hex 32
 ```
+
+## Nâng cấp từ v3.x lên v3.3
+
+> ⚠️ **Backup database trước khi nâng cấp.** v3.3 có thêm Facebook Lead Ingestion, Privacy/RBAC/Zalo UI, media forward và object storage mirror. Không commit `.env` thật lên git.
+
+```bash
+# 1. Backup database
+docker exec zalo-crm-db pg_dump -U crmuser zalocrm > backup-v3.x-$(date +%Y%m%d-%H%M).sql
+
+# 2. Pull code mới nhất
+cd /path/to/ZaloCRM
+git fetch origin
+git checkout main
+git pull origin main
+
+# 3. Đồng bộ biến môi trường mới
+#    Mở .env.example mới và copy các biến còn thiếu sang .env thật.
+#    Nếu dùng Cloudflare R2, dùng endpoint/account/key của R2 trong block S3_*.
+diff .env .env.example
+
+# 4. Rebuild + restart app
+docker compose up -d --build app
+
+# 5. Verify
+curl http://localhost:3080/
+docker logs zalo-crm-app --tail 50 | grep -E "facebook|media|storage|listener|cron"
+```
+
+### Biến môi trường cần rà soát ở v3.3
+
+| Nhóm | Biến cần kiểm tra | Ghi chú |
+|---|---|---|
+| Object storage | `S3_ENDPOINT`, `S3_PUBLIC_URL`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Dùng được cho MinIO, Amazon S3 hoặc Cloudflare R2 |
+| MinIO local | `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` | Chỉ dùng khi chạy service MinIO trong Docker Compose |
+| Facebook Lead | Các biến Meta/Facebook trong `.env.example` nếu bật kênh Facebook | Cấu hình app id/secret/webhook theo Meta app |
+| Security | `JWT_SECRET`, `ENCRYPTION_KEY`, `DB_PASSWORD` | Không để trống ở production |
+
+### Cloudflare R2 example
+
+```env
+S3_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
+S3_PUBLIC_URL=https://<public-r2-domain-or-custom-domain>
+S3_BUCKET=zalocrm-attachments
+S3_REGION=auto
+S3_ACCESS_KEY=<r2-access-key-id>
+S3_SECRET_KEY=<r2-secret-access-key>
+```
+
+`S3_PUBLIC_URL` phải là URL browser truy cập được để ảnh/video hiển thị trong CRM. Nếu bucket private, gắn custom domain/public access hoặc cơ chế signed URL phù hợp.
+
+### Backfill media cũ từ Zalo CDN
+
+Sau khi cấu hình storage đúng, chạy lại job/script backfill media của hệ thống nếu DB còn message có URL dạng `zpc.zdn.vn`. Mục tiêu là object mới xuất hiện trong MinIO/S3/R2 và message trong DB trỏ về URL storage mới.
+
+### Rollback về bản v3.x cũ
+
+```bash
+docker compose down
+git checkout <tag-v3.x-cu>
+docker exec zalo-crm-db psql -U crmuser -d zalocrm < backup-v3.x-<datetime>.sql
+docker compose up -d --build
+```
+
+---
+
+## Nâng cấp từ v3.1 lên v3.2
+
+> ⚠️ **Backup database trước khi nâng cấp.** Schema v3.2 thêm các bảng Phase 7 (Block, Sequence, Trigger, Broadcast, Campaign, Task, CustomerList) và Phase 6 (ScoringConfig, ScoreSignalRule, StageTransitionRule, StuckThreshold, NbaTemplate) + field `Organization.timezone`, `Contact.priorityScore/priorityUpdatedAt`.
+
+```bash
+# 1. Backup database
+docker exec zalo-crm-db pg_dump -U crmuser zalocrm > backup-v3.1-$(date +%Y%m%d-%H%M).sql
+
+# 2. Pull code v3.2
+git pull origin main
+
+# 3. Rebuild + restart (entrypoint tự `prisma db push --accept-data-loss`)
+docker compose up -d --build app
+
+# 4. Verify
+curl http://localhost:3080/                                                              # HTTP 200
+docker logs zalo-crm-app --tail 30 | grep -E "broadcast-scheduler|list-enrichment|cron-scheduler"
+```
+
+### Tính năng mới v3.2
+
+#### 🤖 Bot-Auto framework (Phase 7) — top-level tab
+| Module | Mô tả |
+|--------|-------|
+| **Blocks** | Reusable content blocks + folders, dùng chung cho sequence/broadcast |
+| **Sequences** | Automated message sequences với cron + stop_on_accept gate |
+| **Triggers** | Event-driven: cron, scheduled_cron, webhook (order_success), birthday, request_friend Zalo SDK |
+| **Broadcasts** | CRUD + scheduler + UI, send batch tới audience |
+| **Lists (Tệp khách hàng)** | Import CSV/Excel với column mapping, inline edit, undo delete, 2-axis status (lifecycle + system) |
+| **Engine** | Action handlers, manual_run, block-bound trigger materializer, real Zalo SDK send |
+
+#### 📊 Lead Scoring (Phase 6) — chấm điểm + phát hiện KH đình trệ
+- Scoring engine: signal detect (inbound/outbound/meeting) + auto decay
+- Auto-tag 7 tags: `cold-lead`, `warm-lead`, `hot-lead`, `champion`, `cooling`, `at-risk`, `dormant`
+- Stuck detection cron + `/leads/stuck` dashboard riêng
+- Stage promotion logic + breakdown modal explainability
+- `/settings/crm/scoring` để cấu hình weights + thresholds
+
+#### 🎨 UI redesigns lớn
+- **AppointmentsView** redesign theo Airtable-design spec
+- **FriendsView** flat per-pair table + kind tabs
+- **ZaloAccountsView** dashboard 2-axis status
+- **Settings layout** overhaul: nav nhóm Personal / Team / CRM / Channels / Dev
+- **Bot-Auto** promoted to top-level primary tab (smax.ai parity)
+- **Responsive overhaul** per Airtable breakpoints
+
+#### ⚙️ Other
+- ContactProfileView, CustomerActivityLogView
+- Touch-profile endpoint: fill gender/phone/birthday/hasZalo từ SDK khi click conv
+- Alias 2-way sync: `Friend.aliasInNick` Zalo Real ↔ CRM (pagination 200/page)
+- Scripts mới: `deploy-local.sh`, `test-phase7-runner.sh`, `test-phase7-setup.sql`
+
+### Rollback về v3.1
+```bash
+docker compose down
+git checkout v3.1.2
+docker exec zalo-crm-db psql -U crmuser -d zalocrm < backup-v3.1-<datetime>.sql
+docker compose up -d --build
+```
+
+---
 
 ## Nâng cấp từ v3.0 lên v3.1
 
@@ -512,11 +487,28 @@ By using ZaloCRM, you acknowledge that you understand and accept these terms and
 
 ## Giấy phép
 
-**Apache License 2.0** — Miễn phí sử dụng, chỉnh sửa, phân phối lại cho mọi mục đích cá nhân và thương mại. Xem [LICENSE](LICENSE).
+Copyright © 2026 **Nguyễn Tiến Lộc**.
 
-### Yêu cầu attribution (NOTICE)
+ZaloCRM là **phần mềm tự do** phát hành theo **GNU Affero General Public License v3.0 (AGPL-3.0)** —
+xem [LICENSE](LICENSE). Mã nguồn công khai: <https://github.com/locphamnguyen/ZaloCRM>.
 
-Theo Apache 2.0 Section 4(d), khi phân phối lại (kể cả phiên bản chỉnh sửa hoặc deploy SaaS), bạn **bắt buộc** giữ file [NOTICE](NOTICE).
+### Copyleft + điều khoản mạng (AGPL §13) — bắt buộc
+Mọi bản **phân phối lại HOẶC cung cấp dưới dạng dịch vụ qua mạng (SaaS)** — kể cả bản đã chỉnh sửa — **bắt buộc**:
+- Phát hành dưới cùng **AGPL-3.0**.
+- **Công khai mã nguồn đầy đủ** (kể cả phần bạn sửa) cho người dùng — gồm cả người dùng truy cập qua mạng.
+- Giữ nguyên thông báo bản quyền + giấy phép.
+
+→ Không ai có thể biến ZaloCRM thành sản phẩm **đóng/độc quyền** (kể cả host SaaS) mà không mở mã nguồn.
+
+### Giấy phép thương mại (dual-license)
+Nếu bạn muốn dùng ZaloCRM **không chịu ràng buộc copyleft của AGPL** (vd nhúng vào sản phẩm đóng,
+phân phối bản tuỳ biến không công khai mã, hoặc cung cấp SaaS độc quyền) → mua **giấy phép thương mại**.
+Liên hệ: **locnt@locnguyendata.com**.
+
+### Thương hiệu (Trademark)
+Tên **"ZaloCRM"**, logo và nhận diện thương hiệu **KHÔNG** được cấp theo AGPL (AGPL/GPL không cấp quyền
+nhãn hiệu). Bạn được fork và phân phối lại mã nguồn theo AGPL, nhưng **không được dùng tên/logo "ZaloCRM"**
+để đặt tên, quảng bá hay bán bản phái sinh nếu chưa được phép bằng văn bản. Hãy đổi tên thương hiệu cho bản fork của bạn.
 
 ---
 

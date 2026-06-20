@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * redis-client.ts — Optional Redis connection.
  * Returns null when REDIS_URL is not set (in-memory fallback mode).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Organization settings routes — get and update current org info.
  * GET is accessible to all authenticated users; PUT requires owner role.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-phone-format.ts — Hiển thị SĐT đẹp cho UI (KHÔNG đổi giá trị lưu).
  *

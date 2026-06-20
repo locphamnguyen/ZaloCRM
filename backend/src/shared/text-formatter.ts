@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Ports openzca's Markdown-to-Zalo text style system into a clean utility.
  * Converts markdown-like markup into Zalo's range-based style format.

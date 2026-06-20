@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Team management routes — CRUD for teams and member assignment within an org.
  * All routes require authentication; write operations require owner/admin role.

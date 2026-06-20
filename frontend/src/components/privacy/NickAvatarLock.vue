@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   NickAvatarLock — overlay 🔒 badge ở góc avatar nick có privacyMode='main'.
   Anh chốt 2026-05-22: mọi giao diện có tên nick mà setup Riêng tư → hiện

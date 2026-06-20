@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * tag-routes.ts — REST API cho Tag Taxonomy v2.
  *
@@ -266,7 +268,7 @@ export async function registerFriendTagRoutes(app: FastifyInstance): Promise<voi
       try {
         const fr = await prisma.friend.findUnique({ where: { id: req.params.id }, select: { contactId: true, orgId: true } });
         if (fr?.contactId) {
-          const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+          const { onTagAdded } = await import('../../shared/ee-registry/automation.js');
           await onTagAdded({ orgId: fr.orgId, contactId: fr.contactId, tagKind: 'friendTag', tagId: result.tag.id });
         }
       } catch { /* non-fatal */ }
@@ -309,7 +311,7 @@ export async function registerContactCrmTagRoutes(app: FastifyInstance): Promise
       });
       // CareSession 2026-06-07 (anh chốt): gắn CRM tag → đóng phiên nếu tag ∈ closeConditions.
       try {
-        const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+        const { onTagAdded } = await import('../../shared/ee-registry/automation.js');
         await onTagAdded({ orgId: user.orgId, contactId: req.params.id, tagKind: 'crmTag', tagId: result.tag.id });
       } catch { /* non-fatal */ }
       return reply.send(result);

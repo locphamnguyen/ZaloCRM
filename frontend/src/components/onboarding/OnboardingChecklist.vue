@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   OnboardingChecklist — Phase Onboarding v1 2026-05-24 (redesign 2026-05-24).
 

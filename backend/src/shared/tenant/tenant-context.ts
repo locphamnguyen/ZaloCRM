@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * tenant-context.ts — Phase 0 Gateway (Bảo mật xác thực 2026-06-07)
  *

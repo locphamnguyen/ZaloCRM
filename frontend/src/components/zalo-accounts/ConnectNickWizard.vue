@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   ConnectNickWizard — luồng kết nối nick Zalo MỚI 4 bước (Anh chốt 2026-06-09).
   1 modal nhiều step, KHÔNG nhảy trang. BỎ "Tên hiển thị" + "Proxy".

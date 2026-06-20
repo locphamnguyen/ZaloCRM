@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * scoring/scoring-routes.ts — REST API cho Lead Scoring Engine.
  *
@@ -30,7 +32,7 @@ import { recomputeFriendFinalScore } from './scoring-hooks.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { formatMessage } from '../../shared/text-formatter.js';
-import { renderMessageTemplate } from '../automation/template-renderer.js';
+import { renderMessageTemplate } from '../../shared/templating/template-renderer.js';
 import { randomUUID } from 'node:crypto';
 
 export async function scoringRoutes(app: FastifyInstance): Promise<void> {

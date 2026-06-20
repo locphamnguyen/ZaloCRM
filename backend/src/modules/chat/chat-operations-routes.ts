@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * chat-operations-routes.ts — Extended chat operations: reactions, typing, delete/undo/edit,
  * forward, pin/unpin, sticker, link, card. All ported from openzca CLI capabilities.

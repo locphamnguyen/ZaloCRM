@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Preview trang /login trong Cài đặt › Hồ sơ tổ chức. Dựng lại y hệt login
        (banner dùng chung LoginBrandBanner + form tĩnh) rồi scale gọn để vừa khung.

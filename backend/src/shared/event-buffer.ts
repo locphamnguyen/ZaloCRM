@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * event-buffer.ts — Event batching for typing indicators + reactions.
  * Uses Redis pub/sub when REDIS_URL is set, otherwise in-memory Maps.

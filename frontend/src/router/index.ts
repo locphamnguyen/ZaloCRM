@@ -1,6 +1,10 @@
-import { createRouter, createWebHistory, type RouteLocation, type RouteRecordRaw } from 'vue-router';
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
+// Open-core: extension route injection (empty in Community edition via @ee stub).
+import { eeSettingsChildren, eeReportsChildren, eeTopRoutes } from '@ee/routes';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -84,9 +88,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'nick',       name: 'Reports.Nick',       component: () => import('@/views/reports/NickFleetReport.vue'),  meta: { resource: 'engagement_score' } },
       { path: 'sale',       name: 'Reports.Sales',      component: () => import('@/views/reports/SalesReport.vue'),      meta: { resource: 'engagement_score' } },
       { path: 'pipeline',   name: 'Reports.Pipeline',   component: () => import('@/views/reports/PipelineReport.vue'),   meta: { resource: 'engagement_score' } },
-      { path: 'automation', name: 'Reports.Automation', component: () => import('@/views/reports/AutomationReport.vue'), meta: { resource: 'engagement_score' } },
       { path: 'engagement', name: 'Reports.Engagement', component: () => import('@/views/reports/EngagementReport.vue'), meta: { resource: 'engagement_score' } },
       { path: 'audit',      name: 'Reports.Audit',      component: () => import('@/views/reports/AuditReport.vue'),      meta: { resource: 'engagement_score' } },
+      ...eeReportsChildren,
     ],
   },
   // Báo cáo cơ bản cũ — giữ deep-link không gãy.
@@ -145,20 +149,16 @@ const routes: RouteRecordRaw[] = [
       { path: 'crm/stuck',       name: 'Settings.Stuck',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'stuck' }, meta: { resource: 'settings' } },
       { path: 'crm/folders',     name: 'Settings.Folders',     component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'folders' }, meta: { resource: 'settings' } },
       { path: 'crm/templates',   name: 'Settings.Templates',   component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'templates' }, meta: { resource: 'settings' } },
-      // Phase Lead Pool 2026-05-24. 2026-06-10: gộp 2 trang thành 1 wrapper 2 tab.
-      { path: 'crm/lead-pool',         name: 'Settings.LeadPool',        component: () => import('@/views/settings/LeadPoolTabsPage.vue'), meta: { resource: 'settings' } },
-      { path: 'crm/lead-pool/queue',   redirect: '/settings/crm/lead-pool?tab=queue' },
+      // Lead Pool routes → extension bundle (eeSettingsChildren).
       // M53 2026-05-30 — Trợ Lý AI Virtual Chat
       { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue'), meta: { resource: 'settings' } },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue'), meta: { resource: 'zalo_account' } },
       // 2026-06-18 — Trần SDK dời sang Cài đặt (gate 'settings', KHÔNG 'zalo_account') → sale ko đổi được.
       { path: 'channels/sdk-limits',       name: 'Settings.SdkLimits',       component: () => import('@/views/settings/SdkLimitsSettingsPage.vue'), meta: { resource: 'settings' } },
-      // Phase Multi-Source Lead Ads 2026-05-27
-      { path: 'channels/facebook-leadads', name: 'Settings.FacebookLeadAds', component: () => import('@/views/settings/FacebookLeadAdsTabsPage.vue'), meta: { resource: 'settings' } },
+      // Facebook Lead Ads route → extension bundle (eeSettingsChildren).
       { path: 'channels/rate-limit',       name: 'Settings.RateLimit',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'rate-limit' }, meta: { resource: 'settings' } },
-      // #3 2026-06-06 (Anh chốt) — trang Cài đặt kỹ thuật automation (nhịp quét, ngưỡng kẹt/timeout)
-      { path: 'channels/automation',       name: 'Settings.Automation',      component: () => import('@/views/settings/AutomationTechSettingsPage.vue'), meta: { resource: 'settings' } },
+      // Automation tech-settings route → extension bundle (eeSettingsChildren).
       { path: 'channels/integrations',     name: 'Settings.Integrations',    component: () => import('@/views/IntegrationsView.vue'), meta: { resource: 'settings' } },
 
       // 🛠 Dev & API
@@ -166,6 +166,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'dev/public-token',  name: 'Settings.PublicToken',  component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'public-token' }, meta: { resource: 'settings' } },
       { path: 'dev/feature-flags', name: 'Settings.FeatureFlags', component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'feature-flags' }, meta: { resource: 'settings' } },
       { path: 'dev/backup',        name: 'Settings.Backup',       component: () => import('@/views/settings/SettingsComingSoon.vue'), props: { feature: 'backup' }, meta: { resource: 'settings' } },
+      ...eeSettingsChildren,
     ],
   },
 
@@ -200,74 +201,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/api-settings',     redirect: '/settings/dev/api' },
   { path: '/integrations',     redirect: '/settings/channels/integrations' },
   {
-    path: '/automation',
-    name: 'Automation',
-    component: () => import('@/views/AutomationView.vue'),
-    meta: { requiresAuth: true, resource: 'settings' },
-  },
-  // Phase 7 — Marketing framework (Khối / Luồng kịch bản / Mục tiêu / Broadcast)
-  // 2026-06-05 — Anh chốt: hợp nhất route cụm "Mục tiêu" về /marketing/triggers.
-  // TriggersView.vue cũ (catalog trigger event-based) ĐÃ BỎ — /marketing/triggers
-  // giờ trỏ thẳng MucTieuListView (table + side panel Wave 3). Toàn bộ list/detail/
-  // wizard về children shell /marketing để dùng sidebar Marketing chung + canonical
-  // /marketing/* thống nhất. THỨ TỰ children: literal (tao-moi, new/friend-invite)
-  // PHẢI đứng trước param (:id) để Vue Router không match :id='tao-moi'.
-  {
-    path: '/marketing',
-    component: () => import('@/views/automation/BotAutoShell.vue'),
-    meta: { requiresAuth: true },
-    // RBAC 2026-06-09 — redirect động tới chức năng Marketing ĐẦU TIÊN user có quyền
-    // (vd Sale chỉ có Khối → /marketing vào thẳng /marketing/blocks, không kẹt ở /triggers).
-    redirect: () => {
-      const auth = useAuthStore();
-      const fns: Array<[string, string]> = [
-        ['/marketing/triggers', 'trigger'],
-        ['/marketing/care-sessions', 'care_session'],
-        ['/marketing/sequences', 'sequence'],
-        ['/marketing/blocks', 'block'],
-        ['/marketing/broadcasts', 'broadcast'],
-        ['/marketing/lists', 'customer_list'],
-      ];
-      const target = fns.find(([, res]) => auth.canAccess(res));
-      return target ? target[0] : '/marketing/triggers';
-    },
-    children: [
-      // Wizard tạo/sửa Mục tiêu — literal, đứng TRƯỚC triggers/:id.
-      { path: 'triggers/tao-moi',           name: 'Marketing.MucTieuCreate',      component: () => import('@/views/automation/MucTieuWizard.vue'), meta: { resource: 'trigger' } },
-      // Legacy create view (friend-invite) — literal, giữ cho deep-link/nút cũ.
-      { path: 'triggers/new/friend-invite', name: 'Marketing.FriendInviteCreate', component: () => import('@/views/automation/FriendInviteCreateView.vue'), meta: { resource: 'trigger' } },
-      // Mục tiêu — danh sách (thay TriggersView.vue cũ đã bỏ).
-      { path: 'triggers',     name: 'Marketing.MucTieuList',   component: () => import('@/views/automation/MucTieuListView.vue'), meta: { resource: 'trigger' } },
-      // Mục tiêu hệ thống "Bám đuổi thủ công" — bảng full KH gắn tay (2026-06-07).
-      { path: 'manual-followup', name: 'Marketing.ManualFollowup', component: () => import('@/views/automation/ManualFollowupView.vue'), meta: { resource: 'trigger' } },
-      // Mục tiêu — chi tiết (Dashboard + Log). Param, đứng SAU mọi literal triggers/*.
-      { path: 'triggers/:id', name: 'Marketing.MucTieuDetail', component: () => import('@/views/automation/MucTieuDetailView.vue'), meta: { resource: 'trigger' } },
-      // CareSession (Phiên chăm sóc) 2026-06-07 — list + side panel phiên.
-      { path: 'care-sessions', name: 'Marketing.CareSessions', component: () => import('@/views/automation/CareSessionListView.vue'), meta: { resource: 'care_session' } },
-      // "Lắng nghe & Nhắc" GỘP thành tab "Cài đặt" trong Phiên chăm sóc (anh chốt 2026-06-07).
-      // Giữ route cũ → redirect để link cũ không 404.
-      { path: 'care-listen', redirect: '/marketing/care-sessions' },
-      { path: 'blocks',     name: 'Marketing.Blocks',     component: () => import('@/views/automation/BlocksView.vue'), meta: { resource: 'block' } },
-      // Mẫu tin nhắn (2026-06-09) — gộp quyền 'block'. Sale gõ "/" trong chat để chèn.
-      { path: 'templates', name: 'Marketing.Templates', component: () => import('@/views/automation/MessageTemplatesView.vue'), meta: { resource: 'block' } },
-      { path: 'sequences',           name: 'Marketing.Sequences',     component: () => import('@/views/automation/SequencesView.vue'), meta: { resource: 'sequence' } },
-      { path: 'sequences/:id/stats', name: 'Marketing.SequenceStats', component: () => import('@/views/automation/SequenceStatsView.vue'), meta: { resource: 'sequence' } },
-      { path: 'broadcasts',           name: 'Marketing.Broadcasts',       component: () => import('@/views/automation/BroadcastsView.vue'), meta: { resource: 'broadcast' } },
-      { path: 'broadcasts/tao-moi',   name: 'Marketing.BroadcastWizard',  component: () => import('@/views/automation/BroadcastWizardView.vue'), meta: { resource: 'broadcast' } },
-      { path: 'broadcasts/:id',       name: 'Marketing.BroadcastDetail',  component: () => import('@/views/automation/BroadcastDetailView.vue'), meta: { resource: 'broadcast' } },
-      { path: 'lists',      name: 'Marketing.Lists',      component: () => import('@/views/automation/ListsView.vue'), meta: { resource: 'customer_list' } },
-      { path: 'lists/:id',  name: 'Marketing.ListDetail', component: () => import('@/views/automation/ListDetailView.vue'), meta: { resource: 'customer_list' } },
-    ],
-  },
-  // Backward compat redirect — URL /automation/bot/* cũ vẫn hoạt động
-  { path: '/automation/bot',              redirect: '/marketing/triggers' },
-  { path: '/automation/bot/triggers',     redirect: '/marketing/triggers' },
-  { path: '/automation/bot/blocks',       redirect: '/marketing/blocks' },
-  { path: '/automation/bot/sequences',    redirect: '/marketing/sequences' },
-  { path: '/automation/bot/broadcasts',   redirect: '/marketing/broadcasts' },
-  { path: '/automation/bot/lists',        redirect: '/marketing/lists' },
-  { path: '/automation/bot/lists/:id',    redirect: (to: RouteLocation) => ({ path: `/marketing/lists/${to.params.id}` }) },
-  {
     path: '/groups',
     name: 'Groups',
     component: () => import('@/views/GroupsView.vue'),
@@ -279,6 +212,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/FriendsView.vue'),
     meta: { requiresAuth: true, resource: 'friend' },
   },
+  // Open-core: extension top-level routes (empty in Community edition).
+  ...eeTopRoutes,
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',

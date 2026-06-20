@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="score-banner">
     <!-- 3 stat cards row — Priority ở giữa rộng 15% hơn -->

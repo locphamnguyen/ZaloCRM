@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * duplicate-detector.ts — Detect & auto-merge duplicate contacts per org.
  *
@@ -18,6 +20,7 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { mergeContacts } from './merge-service.js';
+import { followMergedInto } from './resolve-contact.js';
 import { withTenant } from '../../shared/tenant/tenant-context.js';
 
 interface ContactLite {
@@ -38,6 +41,16 @@ interface ContactLite {
 // (3) phone + (7) parent-candidate còn dùng.
 function normPhone(phone: string): string {
   return phone.replace(/[\s\-\.]/g, '').toLowerCase();
+}
+
+/**
+ * THUẦN (test được): chọn globalId để backfill từ Friend của 1 contact.
+ * CHỈ trả khi Friend cho ĐÚNG 1 globalId. ≥2 globalId khác nhau = mơ hồ (Friend trỏ nhiều
+ * Zalo identity) → null (KHÔNG backfill/merge, tránh gộp nhầm 2 người). 0 → null.
+ */
+export function pickBackfillGlobalId(gids: Set<string> | undefined): string | null {
+  if (!gids || gids.size !== 1) return null;
+  return [...gids][0];
 }
 
 function normName(name: string): string {
@@ -147,6 +160,62 @@ export async function detectDuplicates(): Promise<void> {
     const autoMergedIds = new Set<string>();
     const conflictRef = { count: 0 };
     const filterRemaining = () => contacts.filter(c => !autoMergedIds.has(c.id));
+
+    // ── (0) BACKFILL globalId từ FRIEND (FIX 2026-06-20 dedup globalId↔phone) ──
+    // Hồ sơ import-SĐT đẻ contact phone-KHÔNG-globalId; friend-sync đã lưu globalId trên
+    // Friend → dùng nó nối với hồ sơ gốc-Zalo (globalId-KHÔNG-phone). backfill-global-id.ts
+    // cũ CHỈ chạy contact có hội thoại user-thread → bỏ sót hồ sơ import 0-hội-thoại, nên làm ở đây.
+    // LƯU Ý unique(orgId, zaloGlobalId): nếu đã có contact giữ globalId đó → MERGE thẳng
+    // (import vào hồ sơ gốc = primary), KHÔNG set (tránh P2002). Conflict-guard: Friend cho
+    // ≥2 globalId khác nhau → bỏ qua (mơ hồ).
+    const noGid = contacts.filter(c => !c.zaloGlobalId);
+    if (noGid.length) {
+      const friends = await prisma.friend.findMany({
+        where: { contactId: { in: noGid.map(c => c.id) }, zaloGlobalId: { not: null } },
+        select: { contactId: true, zaloGlobalId: true },
+      });
+      const gidsByContact = new Map<string, Set<string>>();
+      for (const f of friends) {
+        if (!f.zaloGlobalId) continue;
+        if (!gidsByContact.has(f.contactId)) gidsByContact.set(f.contactId, new Set());
+        gidsByContact.get(f.contactId)!.add(f.zaloGlobalId);
+      }
+      for (const c of noGid) {
+        if (autoMergedIds.has(c.id)) continue;
+        const gid = pickBackfillGlobalId(gidsByContact.get(c.id)); // null nếu 0 hoặc ≥2 (mơ hồ)
+        if (!gid) continue;
+        // Tìm holder kể cả ĐÃ-merged: unique(org_id, zalo_global_id) NON-partial → contact
+        // merged-away VẪN giữ globalId trong index → KHÔNG lọc mergedInto, dùng followMergedInto
+        // về gốc alive (nếu chỉ lọc alive sẽ set đè → P2002 với holder đã-merged).
+        const holder = await prisma.contact.findFirst({
+          where: { orgId: org.id, zaloGlobalId: gid, id: { not: c.id } },
+          select: { id: true },
+        });
+        if (holder) {
+          const root = (await followMergedInto(holder.id)).id; // holder có thể đã merged → về gốc
+          if (root === c.id) continue;
+          // Hồ sơ gốc-Zalo (root) = primary; import (c) = secondary gộp vào.
+          if (systemUserId) {
+            try {
+              await mergeContacts(org.id, systemUserId, root, [c.id]);
+              autoMergedIds.add(c.id);
+              totalAutoMerged++;
+              logger.info(`[duplicate-detector] merge import ${c.id} → gốc ${root} via Friend.globalId`);
+            } catch (err) {
+              logger.warn(`[duplicate-detector] merge-via-friend-globalId failed ${c.id}→${root}:`, err);
+              await saveGroup(org.id, [root, c.id], 'globalId_from_friend_mergefail', 0.5);
+            }
+          } else {
+            await saveGroup(org.id, [root, c.id], 'globalId_from_friend', 1.0);
+          }
+        } else {
+          // Chưa ai giữ globalId này → set lên contact (an toàn, để lần sau match được).
+          c.zaloGlobalId = gid;
+          await prisma.contact.update({ where: { id: c.id }, data: { zaloGlobalId: gid } })
+            .catch((err) => logger.warn(`[duplicate-detector] backfill globalId set ${c.id} failed:`, err));
+        }
+      }
+    }
 
     // ── (1) Hard match: zaloGlobalId ──────────────────────────────────────
     const byGlobalId = new Map<string, ContactLite[]>();

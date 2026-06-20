@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
+// ZaloCRM is free software under the GNU Affero General Public License v3.0 (see LICENSE).
+// Commercial (dual) licensing available: locnt@locnguyendata.com
 /**
  * Main application entry point.
  * Bootstraps Fastify server with all plugins, Socket.IO, and route handlers.
@@ -76,29 +80,12 @@ import { startContactIntelligence } from './modules/contacts/contact-intelligenc
 import { analyticsRoutes } from './modules/analytics/analytics-routes.js';
 import { savedReportRoutes } from './modules/analytics/saved-report-routes.js';
 import { integrationRoutes } from './modules/integrations/integration-routes.js';
-import { automationRoutes } from './modules/automation/automation-routes.js';
-import { templateRoutes } from './modules/automation/template-routes.js';
-import { templateFolderRoutes } from './modules/automation/template-folder-routes.js';
-// Phase 7 — Automation framework (Block / Sequence / Trigger / Broadcast)
-import { blockRoutes } from './modules/automation/blocks/block-routes.js';
-import { blockFolderRoutes } from './modules/automation/blocks/block-folder-routes.js';
-import { sequenceRoutes } from './modules/automation/sequences/sequence-routes.js';
-import { registerSequenceStatsRoutes } from './modules/automation/sequences/stats-routes.js';
-import { registerBullBoardRoutes } from './modules/automation/queues/bull-board-routes.js';
-import { registerManualControlRoutes } from './modules/automation/queues/manual-control-routes.js';
-import { triggerRoutes } from './modules/automation/triggers/trigger-routes.js';
-import { friendInviteRoutes } from './modules/automation/friend-invite/friend-invite-routes.js';
-import { careSessionRoutes } from './modules/automation/care-session/care-session-routes.js';
-import { startFriendInviteSweepers, stopFriendInviteSweepers } from './modules/automation/friend-invite/sweepers.js';
-import { startWelcomeProbeWorker, stopWelcomeProbeWorker } from './modules/automation/friend-invite/welcome-probe-worker.js';
-import { bootstrapFriendInviteWorkers, stopAllNickWorkers, setNickWorkerIO } from './modules/automation/friend-invite/nick-worker.js';
-import { broadcastRoutes } from './modules/automation/broadcasts/broadcast-routes.js';
-import { webhookRoutes as automationWebhookRoutes } from './modules/automation/webhooks/webhook-routes.js';
-// Tệp khách hàng (CustomerList) — Phase 7 audience layer
-import { customerListRoutes } from './modules/automation/lists/list-routes.js';
-import { customerListEntryRoutes } from './modules/automation/lists/list-entry-routes.js';
-import { startListEnrichmentWorker } from './modules/automation/lists/list-enrichment-service.js';
-import { registerCustomerListEventHandlers } from './modules/automation/lists/list-event-handlers.js';
+// Automation + Marketing (engine, blocks, sequences, triggers, broadcasts,
+// care-session, lists, friend-invite) → extension bundle (src/_ee/automation).
+// Telegram bridge (Zalo↔Telegram) is core — stays outside _ee.
+import { initTelegramBridge } from './modules/integrations/providers/telegram-bridge/index.js';
+// Telegram bridge routes (Zalo↔Telegram /link + provisioner) — core, stays outside _ee.
+import { telegramBridgeRoutes } from './modules/integrations/providers/telegram-bridge/telegram-bridge-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
 import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
@@ -109,17 +96,36 @@ import { credentialRoutes } from './modules/zalo/credential-routes.js';
 import { eventBuffer } from './shared/event-buffer.js';
 import { systemNotifyRoutes } from './modules/system-notifications/system-notify-routes.js';
 import { userCreateWithZaloRoutes } from './modules/system-notifications/user-create-with-zalo-routes.js';
-import { leadPoolRoutes } from './modules/lead-pool/lead-pool-routes.js';
-import { startLeadPoolCron } from './modules/lead-pool/lead-pool-service.js';
-// Phase Multi-Source Lead Ads 2026-05-27 — FB adapter + outbox worker
-import { fbLeadAdsRoutes } from './modules/integrations/facebook-leadads/fb-routes.js';
-import { fbIntegrationRoutes } from './modules/integrations/facebook-leadads/fb-oauth.js';
-import { processFbWebhookLog } from './modules/integrations/facebook-leadads/fb-adapter.js';
-import { startOutboxWorker, registerLogProcessor } from './modules/integrations/_shared/outbox-worker.js';
-// Phase FB Lead Ads "Form" 2026-06-09 — port từ main: OAuth Page + webhook leadgen + form→list.
-import { facebookRoutes } from './modules/integrations/providers/facebook/facebook-routes.js';
+// Lead Pool → extension bundle (src/_ee/lead-pool).
+// Facebook Lead Ads (Multi-Source + Form ingestion) → extension bundle (src/_ee/facebook).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Open-core loader. Loads the extension bundle (`./_ee/index.js`) if present.
+ * The specifier is a non-literal string so TypeScript does NOT statically
+ * resolve it — in the Community edition the whole `_ee/` directory is stripped,
+ * the import throws, and we fall back to a null bundle (every extension hook
+ * becomes a no-op). Loaded once and cached for the lifetime of the process.
+ */
+type ExtensionBundle = {
+  registerExtensionEarly?: (app: typeof Fastify.prototype) => Promise<void>;
+  registerExtensionRoutes?: (app: typeof Fastify.prototype) => Promise<void>;
+  startExtensionJobs?: (app: typeof Fastify.prototype, io: Server) => Promise<void>;
+};
+let extensionBundle: ExtensionBundle | null | undefined;
+async function loadExtension(): Promise<ExtensionBundle | null> {
+  if (extensionBundle !== undefined) return extensionBundle;
+  const spec: string = './_ee/index.js';
+  try {
+    extensionBundle = (await import(spec)) as ExtensionBundle;
+    logger.info('Extension edition — _ee bundle loaded');
+  } catch {
+    extensionBundle = null;
+    logger.info('Community edition — _ee bundle absent');
+  }
+  return extensionBundle;
+}
 
 async function bootstrap() {
   // trustProxy 2026-06-11 — app chạy sau Cloudflare + reverse proxy (nginx/Caddy).
@@ -225,6 +231,10 @@ async function bootstrap() {
   // Đăng ký TRƯỚC routes để áp cho mọi route đăng ký sau.
   registerPrivacyLeakGuard(app);
 
+  // Open-core: extension early hooks (onSend guards that must precede routes).
+  const ee = await loadExtension();
+  await ee?.registerExtensionEarly?.(app);
+
   // ── Routes ────────────────────────────────────────────────────────────────
 
   await app.register(authRoutes);
@@ -284,40 +294,16 @@ async function bootstrap() {
   await app.register(notificationRoutes);
   await app.register(systemNotifyRoutes);
   await app.register(userCreateWithZaloRoutes);
-  await app.register(leadPoolRoutes);
-  // Phase Multi-Source Lead Ads 2026-05-27 — FB Lead Ads webhook + OAuth/status
-  await app.register(fbLeadAdsRoutes);
-  await app.register(fbIntegrationRoutes);
-  // Form ingestion (port từ main) — sub-path /oauth /webhook /pages /mappings (KHÔNG trùng Campaign).
-  await app.register(facebookRoutes);
+  // Lead Pool + Facebook Lead Ads routes → registered by extension bundle.
   await app.register(searchRoutes);
   await app.register(publicApiRoutes);
   await app.register(webhookSettingsRoutes);
   await app.register(analyticsRoutes);
   await app.register(savedReportRoutes);
   await app.register(integrationRoutes);
-  await app.register(automationRoutes);
-  await app.register(templateRoutes);
-  await app.register(templateFolderRoutes);
-  // Phase 7 — Block authoring layer (must register BEFORE sequence/trigger/broadcast in later phases)
-  await app.register(blockRoutes);
-  await app.register(blockFolderRoutes);
-  await app.register(sequenceRoutes);
-  // Luồng Mục Tiêu M6 Stats Wave A
-  await registerSequenceStatsRoutes(app);
-  // Luồng Mục Tiêu M7 Bull Board admin UI
-  await registerBullBoardRoutes(app);
-  // Luồng Mục Tiêu M9 manual control endpoints
-  await registerManualControlRoutes(app);
-  await app.register(triggerRoutes);
-  await app.register(friendInviteRoutes);
-  // CareSession (Phiên chăm sóc) 2026-06-07 — list/detail/close phiên
-  await app.register(careSessionRoutes);
-  await app.register(broadcastRoutes);
-  await app.register(automationWebhookRoutes);
-  // Tệp khách hàng — CustomerList CRUD + entries + enrichment + event handlers
-  await app.register(customerListRoutes);
-  await app.register(customerListEntryRoutes);
+  // Automation + Marketing routes (blocks/sequences/triggers/broadcasts/care-session/
+  // lists/friend-invite + bull-board/stats/manual-control) → extension bundle.
+  await app.register(telegramBridgeRoutes); // Telegram bridge (Zalo↔Telegram) — core
   await app.register(aiRoutes);
   await app.register(chatOperationsRoutes);
   await app.register(groupRoutes);
@@ -325,6 +311,9 @@ async function bootstrap() {
   await app.register(friendRoutes);
   await app.register(profileRoutes);
   await app.register(credentialRoutes);
+
+  // Open-core: extension route registrations (no-op in Community edition).
+  await ee?.registerExtensionRoutes?.(app);
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {
@@ -406,80 +395,28 @@ async function bootstrap() {
     }
     // XÓA 2026-06-10 (CEO-review): cron cleanup handshake pending — cơ chế setup nick
     // nội bộ thủ công đã gỡ bỏ (gây bug gửi nhầm UID). Không còn handshake pending để dọn.
-    // Phase Lead Pool 2026-05-24 — auto-return expired leads 2am daily
-    startLeadPoolCron();
+    // Lead Pool auto-return cron → started by extension bundle (startExtensionJobs).
     // GĐ13a 2026-06-13 — tự dọn thùng rác Media sau 30 ngày (03:30 VN). Chỉ xóa hàng DB,
     // KHÔNG đụng byte MinIO. DRY-RUN mặc định BẬT (env MEDIA_TRASH_GC_DRYRUN='0' để bật xóa thật).
     if (config.nodeEnv !== 'test') {
       const { startMediaTrashGcCron } = await import('./modules/media/media-trash-gc-cron.js');
       startMediaTrashGcCron();
     }
-    // Phase Multi-Source Lead Ads 2026-05-27 — outbox worker (LISTEN/NOTIFY + 30s poll)
-    // dispatch fb webhook logs → Graph API fetch → normalize → route → insert entry.
-    registerLogProcessor('fb-leadads', processFbWebhookLog);
-    startOutboxWorker().catch((err) => logger.error('[outbox-worker] startup failed:', err));
-    // Phase FB Pull 2026-05-30 — kéo lead chủ động bằng System User token (chính chủ,
-    // không App Review). Chỉ chạy thật khi có Org bật fbPullEnabled. Skip lúc test.
-    if (config.nodeEnv !== 'test') {
-      const { startFbPullWorker } = await import('./modules/integrations/facebook-leadads/fb-pull-worker.js');
-      startFbPullWorker();
-      // Phase FB Lead Ads "Form" 2026-06-09 — BullMQ worker ingest lead + discovery form + cron refresh token.
-      const { startFacebookLeadIngestionWorker } = await import('./modules/integrations/providers/facebook/facebook-lead-worker.js');
-      void startFacebookLeadIngestionWorker();
-      const { startFormDiscoveryWorker } = await import('./modules/integrations/providers/facebook/facebook-form-discovery-worker.js');
-      void startFormDiscoveryWorker();
-      const { startFacebookTokenRefreshCron } = await import('./modules/integrations/providers/facebook/facebook-token-refresh-cron.js');
-      startFacebookTokenRefreshCron();
-    }
+    // Facebook Lead Ads workers (outbox dispatch, pull worker, form ingestion,
+    // token refresh) → started by extension bundle (startExtensionJobs).
     await eventBuffer.start(io);
-    // Phase 7 — Automation engine (event bus + materializer + task worker + 3 action handlers)
+    // Automation engine + Marketing workers (broadcast scheduler, BullMQ workers,
+    // sweepers, list enrichment, nick workers) → started by the extension bundle.
+    // Open-core: extension cron/worker startups (no-op in Community edition).
+    await ee?.startExtensionJobs?.(app, io);
+
+    // 2026-06-19 — Cầu Telegram (Phase 1): subscribe bridge-bus, mirror tin Zalo→Telegram.
+    // Core feature (outside _ee) — chạy ở cả Extension lẫn Community.
     if (config.nodeEnv !== 'test') {
-      const { startAutomationEngine } = await import('./modules/automation/engine/index.js');
-      startAutomationEngine();
-      // Phase F — Broadcast scheduler: poll automation_broadcasts scheduled→running
-      const { startBroadcastScheduler } = await import('./modules/automation/broadcasts/broadcast-scheduler.js');
-      startBroadcastScheduler();
-
-      // ── Luồng Mục Tiêu Day 1+2 — BullMQ workers + sweeper + stats cron ──
-      // Start AFTER engine để workers nhận event hooks từ M5 wire
       try {
-        const { startFriendInviteWorker } = await import('./modules/automation/queues/friend-invite-worker.js');
-        const { startSequenceStepWorker, startOutboxSweeper } = await import('./modules/automation/queues/sequence-step-worker.js');
-        const { startInternalNotifyWorker } = await import('./modules/automation/queues/internal-notify-worker.js');
-        const { startStatsReconcileCron } = await import('./modules/automation/queues/stats-reconcile-cron.js');
-
-        startFriendInviteWorker();
-        startSequenceStepWorker();
-        startInternalNotifyWorker();
-        startOutboxSweeper(5 * 60_000); // 5 phút sweep cycle (v4 Fix #1)
-        startStatsReconcileCron();      // 02:30 VN daily reconcile drift
-
-        // Broadcasts Đợt 1 (2026-06-05) — worker E2E gửi tin hàng loạt
-        const { startBroadcastFireWorker } = await import('./modules/automation/queues/broadcast-fire-worker.js');
-        startBroadcastFireWorker();
-
-        logger.info('[luong-muc-tieu] BullMQ workers + sweeper + cron started');
+        initTelegramBridge();
       } catch (err) {
-        logger.error(`[luong-muc-tieu] failed to start workers: ${(err as Error).message}`);
-        // Non-fatal: legacy task-worker vẫn hoạt động
-      }
-      // Tệp khách hàng — enrichment worker + reverse-update event handlers
-      startListEnrichmentWorker();
-      registerCustomerListEventHandlers();
-      // Phase Friend Invite Queue 2026-05-28 — sweepers + per-nick workers
-      // #3 2026-06-06 — async vì đọc nhịp quét từ Cài đặt kỹ thuật (org settings).
-      await startFriendInviteSweepers();
-      // Wave 2 Welcome Probe 2026-05-29 — poll WELCOME_PROBE outbox rows
-      startWelcomeProbeWorker();
-      // bootstrap workers — guard with try/catch để container không restart loop
-      // nếu DB chưa migrate đủ cột (đang phát triển feature)
-      try {
-        // Sprint v3 Tuần 3 Row 2.2: inject io trước bootstrap để emit socket
-        // "friend-invite:claimed" tới Mục tiêu Detail dashboard realtime.
-        setNickWorkerIO(io);
-        await bootstrapFriendInviteWorkers();
-      } catch (err) {
-        logger.error('[friend-invite] bootstrap workers failed (non-fatal):', err);
+        logger.error('[telegram-bridge] init failed (non-fatal):', err);
       }
     }
   } catch (err) {

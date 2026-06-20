@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- 2026-05-21: switched from fixed overlay (Teleport to body) to inline panel
        as 3rd grid column in AppointmentsView. Was causing z-index conflicts +
@@ -222,7 +224,7 @@ function formatRelative(iso: string): string {
 </script>
 
 <style scoped>
-@import '@/components/automation/phase7/airtable.css';
+@import '@/assets/airtable.css';
 
 /* Desktop: inline panel = 3rd grid column trong apt-body. Không fixed/overlay. */
 .apt-panel {

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * socket.ts — Socket.IO client factory (Phase 1b auth 2026-06-07).
  *

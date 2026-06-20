@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-muc-tieu-socket.ts — Sprint v3 Tuần 3 Row 2.2 (2026-06-03)
  *

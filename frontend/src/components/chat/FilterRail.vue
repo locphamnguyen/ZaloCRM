@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="filter-rail" :class="{ collapsed }">
     <!-- Header: toggle + nick picker compact -->

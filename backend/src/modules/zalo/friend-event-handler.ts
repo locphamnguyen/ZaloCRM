@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * friend-event-handler.ts — persists zca-js `friend_event` to the Friend table.
  *
@@ -18,8 +20,8 @@ import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { zaloPool } from './zalo-pool.js';
 import { resolveOrCreateContact } from '../contacts/resolve-contact.js';
-import { logEvent } from '../automation/friend-invite/event-log-service.js';
-import { isListeningState } from '../automation/care-session/care-session-service.js';
+import { logEvent } from '../../shared/ee-registry/automation.js';
+import { isListeningState } from '../../shared/ee-registry/automation.js';
 
 // zca-js FriendEventType numeric values (mirrored from models/FriendEvent.d.ts)
 export const FriendEventType = {
@@ -235,7 +237,7 @@ export async function applyFriendTransition(args: {
   // event. Imported lazily to avoid circular dep (engine imports prisma helpers).
   if (newFriendshipStatus === 'accepted' || newFriendshipStatus === 'pending_received') {
     try {
-      const { automationEventBus } = await import('../automation/engine/event-bus.js');
+      const { automationEventBus } = await import('../../shared/ee-registry/event-bus.js');
       automationEventBus.emit({
         type: newFriendshipStatus === 'accepted' ? 'friendship_accepted' : 'friendship_received',
         orgId,
@@ -458,7 +460,7 @@ export async function handleFriendEvent(
             // followUpFriendEnabled đã load chung ở fTrigger (T5) — không query lại.
             try {
               if (fTrigger?.followUpFriendEnabled) {
-                const { onFriendAccepted } = await import('../automation/queues/event-hooks.js');
+                const { onFriendAccepted } = await import('../../shared/ee-registry/automation.js');
                 await onFriendAccepted({
                   orgId,
                   triggerId: outbox.triggerId,
@@ -492,7 +494,7 @@ export async function handleFriendEvent(
                 select: { enableRejectedFollowUp: true, rejectedTemplate: true },
               });
               if (trg?.enableRejectedFollowUp && trg.rejectedTemplate?.trim() && friendUid) {
-                const { sendStrangerFollowUp } = await import('../automation/queues/event-hooks.js');
+                const { sendStrangerFollowUp } = await import('../../shared/ee-registry/automation.js');
                 await sendStrangerFollowUp({
                   orgId,
                   triggerId: outbox.triggerId,
@@ -599,7 +601,7 @@ export async function handleFriendEvent(
           // (event-hooks.ts) — nó cancel pending sequence-step jobs trong BullMQ +
           // set pause flag vĩnh viễn. Block là tín hiệu chấm dứt mạnh nhất.
           try {
-            const { onCustomerBlock } = await import('../automation/queues/event-hooks.js');
+            const { onCustomerBlock } = await import('../../shared/ee-registry/automation.js');
             await onCustomerBlock({
               orgId,
               triggerId: outbox.triggerId,
@@ -619,9 +621,9 @@ export async function handleFriendEvent(
               select: { ownerUserId: true },
             });
             // I13: tôn trọng cờ notifyChannels.block (tắt = không báo chặn).
-            const { shouldNotifyOwner } = await import('../automation/queues/event-hooks.js');
+            const { shouldNotifyOwner } = await import('../../shared/ee-registry/automation.js');
             if (nickOwner?.ownerUserId && (await shouldNotifyOwner(outbox.triggerId, 'block'))) {
-              const { notifyCustomerBlock } = await import('../automation/queues/internal-notify-worker.js');
+              const { notifyCustomerBlock } = await import('../../shared/ee-registry/automation.js');
               const triggerRow = await prisma.automationTrigger.findUnique({
                 where: { id: outbox.triggerId },
                 select: { name: true },

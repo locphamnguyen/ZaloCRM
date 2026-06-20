@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * list-models.ts — Lấy DANH SÁCH MODEL trực tiếp từ API của từng provider.
  * Trả về [{title, value}]. Có cache in-memory theo orgId:provider (TTL 5 phút)

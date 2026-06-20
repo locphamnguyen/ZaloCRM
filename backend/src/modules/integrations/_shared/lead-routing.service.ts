@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * lead-routing.service.ts — Resolve campaign name → CustomerList qua #KEY parsing.
  *

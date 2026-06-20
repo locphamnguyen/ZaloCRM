@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * M53 2026-05-30 — Prompt mẫu cho Trợ Lý AI trong Virtual Chat (KH no-Zalo).
  * Anh chốt Approach A: KH no-Zalo có conversation ảo trong /chat. Sale gõ tin →

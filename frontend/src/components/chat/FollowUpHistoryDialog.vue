@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
 ═══════════════════════════════════════════════════════════════════════
  FollowUpHistoryDialog — Lịch sử chi tiết 1 luồng bám đuổi (office-hours 2026-06-18)

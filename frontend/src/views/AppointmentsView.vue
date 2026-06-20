@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="airtable-scope apt-page">
     <!-- Hero band: white canvas, h1 weight 400 size 32, 2-row layout (title+CTA / controls) -->
@@ -471,7 +473,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-@import '@/components/automation/phase7/airtable.css';
+@import '@/assets/airtable.css';
 
 /* Page shell — Airtable design */
 .apt-page {

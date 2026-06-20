@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-crm-tag-defs.ts — Shared cache cho CrmTag definitions (color + managedBy).
  *

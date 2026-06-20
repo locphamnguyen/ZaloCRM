@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   PrivacyLockBadge — pill nhỏ hiển thị ngay ô tên user ở Cột 1 sidebar.
   Anh chốt 2026-05-22:

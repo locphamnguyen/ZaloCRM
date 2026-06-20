@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * appointment-digest.ts — Digest hằng ngày cho TRƯỞNG PHÒNG (2026-06-18).
  *

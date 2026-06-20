@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * template-variables.ts — DANH SÁCH 8 BIẾN cá nhân hóa DÙNG CHUNG (anh chốt 2026-06-15).
  *

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   CreateUserWithZaloModal.vue — Phase user-create-with-zalo 2026-05-27
 

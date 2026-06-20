@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * minio-client.ts — MinIO/S3 storage client for chat attachments.
  * Uploads return a public URL suitable for zca-js sendImage/sendVideo.

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   ReportsShell — khung Module Báo cáo (2026-06-17). Sub-nav 7 màn + router-view.
   report-kit.css (global, scope .rpt-scope) cấp design system cho các view con.

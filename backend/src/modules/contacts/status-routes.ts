@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * status-routes.ts — CRUD cho Status (Trạng thái KH) per-org.
  * Settings UI dùng để add/edit/delete/reorder status custom.

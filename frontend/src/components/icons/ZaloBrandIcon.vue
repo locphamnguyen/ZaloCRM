@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!-- ZaloBrandIcon.vue — logo Zalo THẬT (khôi phục 2026-06-06 từ public/brand/zalo-icon.svg).
      Trước đó là placeholder (vòng tròn + Z). Logo brand đa màu → KHÔNG monochrome theo
      --tag-color; chỉ pill text/border mới ăn màu tag. Dùng ở TagCrmBar + ConversationList +

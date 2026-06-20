@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   SdkLimitsDialog.vue — 2026-06-06 (Anh chốt).
   Cài đặt TRẦN an toàn SDK Zalo: tab "Mặc định hệ thống" (org default, áp mọi nick) +

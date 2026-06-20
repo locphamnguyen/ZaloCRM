@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * group-moderation-routes.ts — Group moderation, links, lifecycle, and polls.
  * Routes: /api/v1/zalo-accounts/:accountId/groups/:groupId/...

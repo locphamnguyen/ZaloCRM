@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Composable wrapping all group management API endpoints.
  * All methods take accountId as first param (from useSelectedAccount).

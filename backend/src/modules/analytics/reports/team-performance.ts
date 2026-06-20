@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * team-performance.ts — Per-user metrics: messages sent, contacts converted,
  * appointments completed, avg response time.

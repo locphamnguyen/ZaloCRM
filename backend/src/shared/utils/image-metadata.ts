@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Minimal image metadata reader — parse width/height from common formats
  * (PNG, JPEG, GIF, WebP, BMP) by reading first ~30 bytes.

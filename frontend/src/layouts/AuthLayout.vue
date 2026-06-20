@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu HS Holding trái + form phải.
        Bỏ container 450px cũ, để LoginView tự dựng 2 cột full màn. -->

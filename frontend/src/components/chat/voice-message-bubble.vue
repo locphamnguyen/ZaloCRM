@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="voice-bubble d-flex align-center gap-2 px-3 py-2 rounded-pill" style="min-width: 180px; max-width: 260px;">
     <!-- Play / Pause button -->

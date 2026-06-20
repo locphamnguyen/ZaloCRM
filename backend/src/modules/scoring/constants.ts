@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * scoring/constants.ts — Default seed data cho Phase 6 Lead Scoring Engine.
  *

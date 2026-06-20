@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div v-if="modelValue" class="modal-backdrop" @click.self="onClose" @keydown.esc="onClose">
     <div class="modal" role="dialog" aria-labelledby="folder-modal-title" aria-modal="true">

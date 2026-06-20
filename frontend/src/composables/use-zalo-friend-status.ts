@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-zalo-friend-status.ts — Phase C: Cross-check friend state via Zalo SDK.
  *

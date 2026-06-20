@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * push-targets.ts — resolve danh sách userId được phép nhận push cho 1 nick Zalo.
  *

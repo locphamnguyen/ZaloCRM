@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * webhook-settings-routes.ts — Manage webhook URL/secret and public API key generation.
  * All routes require JWT auth and are scoped to user's org.

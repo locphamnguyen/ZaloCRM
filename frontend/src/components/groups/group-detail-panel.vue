@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div v-if="!group" class="d-flex align-center justify-center h-100 text-grey">
     <div class="text-center">

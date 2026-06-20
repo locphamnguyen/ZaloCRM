@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Zalo access middleware — checks if user has sufficient permission on a Zalo account.
  * Permission hierarchy: admin > chat > read.
@@ -10,7 +12,55 @@ type Permission = 'read' | 'chat' | 'admin';
 
 const hierarchy: Record<Permission, number> = { read: 1, chat: 2, admin: 3 };
 
-// Factory: returns a preHandler that checks the user has at least minPermission on the Zalo account
+// 2026-06-18 — Lõi kiểm quyền THUẦN (không phụ thuộc HTTP req). Tách ra để dùng chung
+// cho middleware HTTP LẪN cầu Telegram (gọi ngoài request — Phase 2). Trả mã kết quả để
+// caller map lỗi phù hợp. Cùng quy tắc với middleware cũ (DRY, không phát minh lại).
+//   'ok'           — đủ quyền
+//   'no_grant'     — không có grant ZaloAccountAccess
+//   'insufficient' — có grant nhưng thấp hơn minPermission
+export type ZaloAccessResult = 'ok' | 'no_grant' | 'insufficient';
+
+export async function checkZaloAccess(args: {
+  userId: string;
+  orgId: string;
+  role: string;
+  zaloAccountId: string;
+  minPermission: Permission;
+}): Promise<ZaloAccessResult> {
+  const { userId, orgId, role, zaloAccountId, minPermission } = args;
+
+  // Owner/admin org → full access mọi nick trong org.
+  if (['owner', 'admin'].includes(role)) return 'ok';
+
+  // Fix 2026-06-07: CHÍNH CHỦ nick (ownerUserId) luôn full quyền — kể cả role 'member'.
+  const account = await prisma.zaloAccount.findFirst({
+    where: { id: zaloAccountId, orgId },
+    select: { ownerUserId: true },
+  });
+  if (account?.ownerUserId === userId) return 'ok';
+
+  const access = await prisma.zaloAccountAccess.findFirst({
+    where: { zaloAccountId, userId },
+  });
+  if (!access) return 'no_grant';
+
+  const userLevel = hierarchy[access.permission as Permission] ?? 0;
+  return userLevel >= hierarchy[minPermission] ? 'ok' : 'insufficient';
+}
+
+// Tiện ích boolean cho caller chỉ cần đúng/sai (vd cầu Telegram khi sale gửi từ Telegram).
+export async function hasZaloAccess(args: {
+  userId: string;
+  orgId: string;
+  role: string;
+  zaloAccountId: string;
+  minPermission: Permission;
+}): Promise<boolean> {
+  return (await checkZaloAccess(args)) === 'ok';
+}
+
+// Factory: preHandler HTTP — GIỮ NGUYÊN hành vi cũ (resolve accountId từ params/conversation,
+// 404/403/500, đúng 2 thông báo 403 như trước), nay ủy quyết định cho checkZaloAccess.
 export function requireZaloAccess(minPermission: Permission) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
@@ -37,26 +87,17 @@ export function requireZaloAccess(minPermission: Permission) {
     if (!zaloAccountId) return reply.status(404).send({ error: 'Not found' });
 
     try {
-      // Fix 2026-06-07: CHÍNH CHỦ nick (ownerUserId) luôn có full access — kể cả role 'member'.
-      // Trước đây chỉ bypass theo ROLE owner/admin + check ZaloAccountAccess grant → sale member
-      // owner nick (vd Đức owner Evo Sport) KHÔNG có grant record → bị 403 ở cột 3 messages +
-      // không gửi được tin, dù route conversation LIST (getZaloScope) đã cho thấy owner.
-      const account = await prisma.zaloAccount.findFirst({
-        where: { id: zaloAccountId, orgId: user.orgId },
-        select: { ownerUserId: true },
+      const result = await checkZaloAccess({
+        userId: user.id,
+        orgId: user.orgId,
+        role: user.role,
+        zaloAccountId,
+        minPermission,
       });
-      if (account?.ownerUserId === user.id) return; // owner nick → full quyền
-
-      const access = await prisma.zaloAccountAccess.findFirst({
-        where: { zaloAccountId, userId: user.id },
-      });
-
-      if (!access) {
+      if (result === 'no_grant') {
         return reply.status(403).send({ error: 'Không có quyền truy cập tài khoản Zalo này' });
       }
-
-      const userLevel = hierarchy[access.permission as Permission] ?? 0;
-      if (userLevel < hierarchy[minPermission]) {
+      if (result === 'insufficient') {
         return reply.status(403).send({ error: 'Không đủ quyền' });
       }
     } catch {

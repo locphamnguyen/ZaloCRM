@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   AppointmentActionView — trang CÔNG KHAI mở từ link trong tin Zalo (2026-06-16).
   Sale bấm link → xem lịch hẹn → bấm Hoàn thành / Huỷ. Xác thực bằng token (query ?t=),

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * User management routes — CRUD for users within an org.
  * All routes require authentication via authMiddleware.

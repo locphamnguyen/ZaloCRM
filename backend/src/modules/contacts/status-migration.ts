@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * status-migration.ts — One-off seed 8 default Status rows per org +
  * convert Contact.status enum text → Contact.statusId FK. Idempotent.

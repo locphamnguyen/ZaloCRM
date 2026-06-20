@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * analytics-routes.ts — Conversion funnel, team performance, response time, custom report.
  * All routes require JWT auth, scoped to user's orgId.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Auth service — handles setup, login, and profile operations.
  * Uses bcryptjs for password hashing and Fastify JWT for token signing.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * internal-contact-handshake-hook.ts — Phase Internal Contact 2-method 2026-05-23.
  *

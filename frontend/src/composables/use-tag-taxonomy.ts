@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-tag-taxonomy.ts — Shared cache cho Tag v2 taxonomy (Tag model), index theo SLUG.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Pure helper utilities for appointment UI — color palette, formatting, time math.
  * Separate from use-appointments.ts (stateful composable) to keep that file lean

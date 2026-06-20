@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-relative-time.ts — ticker dùng CHUNG cho toàn app (1 setInterval duy nhất).
  *

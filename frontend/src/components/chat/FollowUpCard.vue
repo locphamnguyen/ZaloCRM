@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
 ═══════════════════════════════════════════════════════════════════════
  FollowUpCard — 1 card luồng bám đuổi trong tab FOLLOW-UP (redesign 2026-06-07)

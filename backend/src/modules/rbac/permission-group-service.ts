@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * permission-group-service.ts — RBAC Phase Phân Quyền 2026-05-21
  *

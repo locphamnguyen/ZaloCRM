@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Banner thương hiệu cột trái của trang đăng nhập. Dùng chung cho /login và
        preview trong Cài đặt › Hồ sơ tổ chức (DRY — 1 nguồn giao diện duy nhất). -->

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * token-encryption.util.ts — AES-256-GCM cho secrets (FB Page access token, App secret).
  *

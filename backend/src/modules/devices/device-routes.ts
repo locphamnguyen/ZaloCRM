@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * device-routes.ts — FCM/APNs device registration cho push notification.
  * - POST   /api/v1/devices            — upsert device theo fcmToken (unique).

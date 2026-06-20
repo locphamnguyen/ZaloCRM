@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="info-panel">
     <!-- ════════ HEADER: Phase 8.C Score Banner (3 stat cards + avatar below) ════════ -->

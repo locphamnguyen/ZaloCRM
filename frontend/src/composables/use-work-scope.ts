@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-work-scope.ts — "Phạm vi làm việc" (work-scope): NGUỒN CHÂN LÝ DUY NHẤT cho
  * "đang làm việc với nick nào" trong UI chat.

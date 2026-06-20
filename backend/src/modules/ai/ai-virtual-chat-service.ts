@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * M53 2026-05-30 — AI Trợ Lý cho Virtual Chat (KH no-Zalo).
  * Anh chốt 2026-05-30: KHÔNG auto-quét Zalo (M52). AI chỉ chạy khi sale gõ tin

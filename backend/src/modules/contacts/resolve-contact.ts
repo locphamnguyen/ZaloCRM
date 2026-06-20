@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 // Wave 1.5-B — Canonical resolveOrCreateContact helper.
 //
 // Anh chốt 2026-05-29: "UID không khớp được. Chỉ khớp duy nhất 2 tham số global_id và phone."
@@ -265,7 +267,7 @@ export async function resolveOrCreateContact(input: ResolveContactInput): Promis
  * Walk mergedInto chain to find the alive root Contact. Bounded depth=5 to
  * avoid infinite loops on cyclic data.
  */
-async function followMergedInto(contactId: string): Promise<{ id: string; orgId: string }> {
+export async function followMergedInto(contactId: string): Promise<{ id: string; orgId: string }> {
   let currentId = contactId;
   for (let depth = 0; depth < 5; depth++) {
     const row = await prisma.contact.findUnique({

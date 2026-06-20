@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Zalo account access control routes — manage per-user permissions on Zalo accounts.
  * Permission levels: read (view messages), chat (send messages), admin (manage account).

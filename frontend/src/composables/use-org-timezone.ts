@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Org timezone — offset cố định (không DST), format "+07:00" / "-05:00".
  * Source of truth: Organization.timezone (xem OrgSettings).

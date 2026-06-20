@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * appointment-reminder.ts — Cron job that emits Socket.IO reminders
  * for appointments scheduled tomorrow.

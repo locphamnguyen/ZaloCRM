@@ -1,0 +1,17 @@
+# Build context hygiene — keep the image small & the build fast.
+.git
+**/node_modules
+backend/dist
+frontend/dist
+backend/static
+**/*.log
+# Secrets / local env never go into the image (provided at runtime via env_file)
+.env
+.env.*
+!.env.example
+# Editor / OS noise
+.DS_Store
+.idea
+.vscode
+# Docs & local tooling not needed at runtime
+.claude

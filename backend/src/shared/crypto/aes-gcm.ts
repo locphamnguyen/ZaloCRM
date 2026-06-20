@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * aes-gcm.ts — AES-256-GCM symmetric encryption for sensitive tokens at rest.
  * Key sourced from FB_TOKEN_ENC_KEY env (32-byte hex = 64 hex chars).

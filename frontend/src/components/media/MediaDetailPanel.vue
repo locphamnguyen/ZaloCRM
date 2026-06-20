@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="m-panel">
     <!-- ✕ nổi góc ảnh — bỏ thanh tiêu đề "Chi tiết" để ảnh lên TRÊN CÙNG (anh chốt 2026-06-16). -->

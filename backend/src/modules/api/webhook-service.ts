@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * webhook-service.ts — fire-and-forget webhook delivery for org-configured endpoints.
  * Signs payloads with HMAC-SHA256 if webhook_secret is configured.

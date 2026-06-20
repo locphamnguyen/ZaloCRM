@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Wave 4a v2 /plan-eng-review M57 2026-06-01.
        Cấu trúc bổ sung theo feedback anh:

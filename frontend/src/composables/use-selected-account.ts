@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Shared composable for picking which Zalo account to operate on.
  * Used by Groups, Friends, and other account-scoped views.

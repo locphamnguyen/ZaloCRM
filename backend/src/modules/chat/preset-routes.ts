@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * preset-routes.ts — SavedFilterPreset CRUD cho Inbox Triage Filter (Phase 6+).
  *

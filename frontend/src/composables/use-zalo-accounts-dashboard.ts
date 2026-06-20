@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Dashboard composable — wraps the existing use-zalo-accounts QR/socket flow
  * and adds the dashboard-specific data: enriched list, team KPI stats,

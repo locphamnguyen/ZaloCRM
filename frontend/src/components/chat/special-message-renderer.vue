@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="special-message" :data-type="type">
     <!-- Bank Account card (Zalo zinstant.bankcard) — render UI riêng dùng VietQR API

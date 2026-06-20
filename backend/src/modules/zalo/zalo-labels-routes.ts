@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-labels-routes.ts — Sync và quản lý Zalo native labels (thẻ Zalo Real) per nick.
  *

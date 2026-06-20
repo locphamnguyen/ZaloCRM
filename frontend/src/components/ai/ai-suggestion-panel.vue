@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-card variant="outlined" class="mb-3">
     <v-card-title class="d-flex align-center text-body-1">

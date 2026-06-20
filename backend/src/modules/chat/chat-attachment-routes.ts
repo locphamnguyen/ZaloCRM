@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * chat-attachment-routes.ts — Upload chat attachments (image/video) and send via Zalo.
  * Accepts multipart form with 1+ files + optional caption.

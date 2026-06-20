@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Minimal structured logger.
  * Prefixes every message with timestamp (giờ Việt Nam UTC+7) and level.

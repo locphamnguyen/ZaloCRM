@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * lead-scoring.ts — Computes lead scores for contacts.
  * Score factors: recent messages, scheduled appointments, status, last activity.
@@ -7,7 +9,7 @@
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { emitLeadScoreThresholdIfCrossed } from '../automation/engine/lead-score-threshold-hook.js';
+import { emitLeadScoreThresholdIfCrossed } from '../../shared/ee-registry/automation.js';
 import { withTenant, runSystemQuery } from '../../shared/tenant/tenant-context.js';
 
 export async function computeLeadScore(contactId: string): Promise<number> {

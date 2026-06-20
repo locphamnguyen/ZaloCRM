@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="cfb">
     <!-- ① Quick pills row — soft button, no icon, count fixed-slot tránh nhảy UI -->

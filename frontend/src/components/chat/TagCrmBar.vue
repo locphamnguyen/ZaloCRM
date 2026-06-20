@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Refactor 2026-06-01 — thanh tag Friend-row cấp (per-pair sale-nick × KH).
        /office-hours 2026-06-06 — gom auto-tag 3→2 nhóm (BỎ Auto Score Tier khỏi thanh;

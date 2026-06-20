@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * google-sheets.ts — Export contacts to Google Sheets via Sheets API v4.
  * Config shape: { spreadsheetId: string, apiKey: string, sheetName?: string }

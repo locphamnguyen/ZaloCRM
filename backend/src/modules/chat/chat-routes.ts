@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * chat-routes.ts — REST API for conversations and messages.
  * All routes require JWT auth and are scoped to the user's org.
@@ -27,13 +29,13 @@ import { getUserFullName } from './chat-helpers.js';
 import { zaloOps } from '../../shared/zalo-operations.js';
 import { sendNativeVideo } from '../../shared/video-processor.js';
 import { downloadMediaToTemp, extractZaloMsgId } from './chat-media-helpers.js';
-import { resolveBlockContent } from '../automation/blocks/resolve-block-content.js';
-import { renderTemplate, renderTemplateDetailed, shiftStylesForRender } from '../automation/blocks/render-template.js';
+import { resolveBlockContent } from '../../shared/ee-registry/automation.js';
+import { renderTemplate, renderTemplateDetailed, shiftStylesForRender } from '../../shared/ee-registry/automation.js';
 // GĐ Block-media (2026-06-13): D4 vá tên file dùng chung; D3 bump usageCount khi gửi media qua Block.
 import { buildSendFileName } from '../media/media-routes.js';
 import { bumpUsage } from '../media/media-service.js';
 import { getOwnerScope } from '../rbac/owner-scope.js';
-import { blockVisibilityWhere } from '../automation/blocks/block-visibility.js';
+import { blockVisibilityWhere } from '../../shared/ee-registry/automation.js';
 
 type QueryParams = Record<string, string>;
 

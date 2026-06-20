@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * profile-routes.ts — REST API for Zalo account profile management.
  * Ports openzca `me` commands: info, last-online, avatar, status, update, avatars CRUD.

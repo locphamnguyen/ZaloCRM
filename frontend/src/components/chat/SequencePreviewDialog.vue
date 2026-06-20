@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   SequencePreviewDialog — Xem trước tin nhắn Sequence sẽ gửi cho 1-2 KH (2026-06-18).
   Bong bóng PHÍA NGƯỜI GỬI (sale gửi đi) + GIỜ GỬI cụ thể từng bước (qua ngày ghi rõ mai/ngày)

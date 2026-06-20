@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-privacy-visibility — helper client-side để decide blur cho UI khi
  * server không kịp redact (vd realtime socket message arrive trước context).

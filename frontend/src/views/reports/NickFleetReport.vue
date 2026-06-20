@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   NickFleetReport — Vận hành Nick Zalo (2026-06-17).
   Endpoint #2: GET /reports/nick-fleet?from&to. report-kit.css (global, scope .rpt-scope).

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="system-notify-page airtable-scope">
     <!-- 2026-06-04 (Anh chốt) — redesign Atlas v2: topbar + 4 tab ngang. -->

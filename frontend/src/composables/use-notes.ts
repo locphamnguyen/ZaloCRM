@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-notes — CRM notes thread on a contact.
  * Flat thread (root + 1-level replies), emoji reactions, AI appointment parse.

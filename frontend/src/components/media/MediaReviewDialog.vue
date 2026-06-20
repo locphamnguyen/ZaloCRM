@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   MediaReviewDialog — Bảng review 1 ảnh/video/file TRƯỚC khi gửi (Anh chốt 2026-06-15).
   Click 1 mục trong tab Media (cột chat) → mở popup overlay này:

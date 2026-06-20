@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   PrivacyViewerDialog — Non-owner (admin/user khác) read-only popup.
   Anh chốt 2026-05-22: theme trắng + xanh sậm, blockchain style.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * video-processor.ts — Native video send for Zalo: ffmpeg detection, thumbnail generation,
  * upload orchestration, and fallback to plain attachment.

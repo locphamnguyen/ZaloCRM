@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-app class="smax-app">
     <!-- ════════ TOP NAV — HS Holding teal-navy shell (redesign 2026-06-05, đảo lock Variant A) ════════ -->
@@ -67,7 +69,10 @@
             <v-list-item v-if="authStore.canAccess('zalo_account')" to="/settings/channels/zalo" title="Tài khoản Zalo" prepend-icon="mdi-cellphone-link" />
             <v-list-item v-if="authStore.canAccess('settings')" to="/settings/crm/tags-v2" title="Nhãn KH" prepend-icon="mdi-tag-multiple-outline" />
             <v-list-item v-if="authStore.canAccess('settings')" to="/settings/org/system-notifications" title="Thông báo hệ thống" prepend-icon="mdi-bell-cog-outline" />
-            <v-list-item v-if="authStore.canAccess('settings')" to="/settings/channels/facebook-leadads" title="Facebook Lead Ads" prepend-icon="mdi-facebook" />
+            <!-- Open-core: extension top-nav shortcuts (empty in Community edition). -->
+            <template v-for="sc in eeTopNavShortcuts" :key="sc.to">
+              <v-list-item v-if="authStore.canAccess(sc.resource)" :to="sc.to" :title="sc.title" :prepend-icon="sc.icon" />
+            </template>
             <v-divider />
             <v-list-item to="/settings" title="Xem tất cả cài đặt" prepend-icon="mdi-cog-outline" />
           </v-list>
@@ -149,6 +154,8 @@ import GlobalSearch from '@/components/GlobalSearch.vue';
 import ToastContainer from '@/components/ui/ToastContainer.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import { fetchPublicBranding } from '@/api/public-branding';
+// Open-core: extension top-nav shortcuts (empty in Community edition via @ee stub).
+import { eeTopNavShortcuts } from '@ee/nav';
 // 2026-06-04: gỡ MiniOnboardingIndicator (Anh chốt code lại setup 4 bước sau)
 // LeadFloatingButton moved to ConversationFilterSidebar 2026-06-01
 // 2026-06-08: gỡ import api — banner "BỎ LỠ thông báo" đã tắt (checkInternalContactSetup no-op).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * contact-routes.ts — REST API for CRM contact management.
  * Supports list, detail, create, update, delete, pipeline view, and tag updates.
@@ -21,7 +23,7 @@ import { migrateStatusTable } from './status-migration.js';
 import { computeAggregateDisplay, computeViewerPreview, AGGREGATE_INCLUDE } from './contact-aggregate-display.js';
 import { getContactScope, assertContactVisible, attachContactCollaboratorByUser, assertContactEditable } from './contact-scope.js';
 import { getZaloScope } from '../zalo/zalo-scope.js';
-import { runAutomationRules } from '../automation/automation-service.js';
+import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { normalizePhone } from '../../shared/utils/phone.js';
 import { logActivity, computeDiff } from '../activity/activity-logger.js';
 import { emitWebhook } from '../api/webhook-service.js';
@@ -535,7 +537,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       // Phase 7 — emit AutomationEvent for engine triggers bound to contact_created
       void (async () => {
         try {
-          const { automationEventBus } = await import('../automation/engine/event-bus.js');
+          const { automationEventBus } = await import('../../shared/ee-registry/event-bus.js');
           automationEventBus.emit({
             type: 'contact_created',
             orgId: user.orgId,
@@ -1245,7 +1247,7 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
           });
           // CareSession 2026-06-07: gắn CRM tag → đóng phiên nếu ∈ closeConditions.
           if (res?.tag?.id) {
-            const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+            const { onTagAdded } = await import('../../shared/ee-registry/automation.js');
             await onTagAdded({ orgId: user.orgId, contactId: id, tagKind: 'crmTag', tagId: res.tag.id });
           }
         } catch (err) {

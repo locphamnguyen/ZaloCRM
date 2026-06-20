@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 export function buildSentimentPrompt(language: 'vi' | 'en') {
   return [
     'You are an AI assistant for a CRM chat workspace.',

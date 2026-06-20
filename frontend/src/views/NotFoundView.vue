@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div class="text-center mt-16">
     <v-icon icon="mdi-alert-circle-outline" size="96" color="grey" />

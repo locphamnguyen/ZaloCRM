@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * appointment-public-routes.ts — endpoint CÔNG KHAI (không cần đăng nhập) để sale bấm
  * link từ tin Zalo đánh dấu Lịch hẹn Hoàn thành / Huỷ. Xác thực bằng token HMAC (JWT_SECRET),

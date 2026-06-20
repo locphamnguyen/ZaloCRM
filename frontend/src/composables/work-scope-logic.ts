@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * work-scope-logic.ts — LOGIC THUẦN cho "Phạm vi làm việc" (tách khỏi Vue để unit-test).
  *

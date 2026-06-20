@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * report-analytics-routes.ts — Analytics report endpoints for the Reports module.
  * 8 GET endpoints: overview, nick-fleet, sales-performance, pipeline, lead-pool,

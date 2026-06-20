@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-profile.ts — Composable for Zalo account profile management.
  * Wraps REST API calls for profile info, avatar CRUD, status toggle,

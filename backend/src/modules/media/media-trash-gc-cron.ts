@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * media-trash-gc-cron.ts — GĐ13a (2026-06-13): tự dọn thùng rác Media sau 30 ngày.
  *

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * credential-routes.ts — Export/import Zalo session credentials for backup/restore.
  * Endpoints: GET /accounts/:id/credentials/export, POST /accounts/:id/credentials/import

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 // Tag normalization helper — Wave 0 spec /plan-eng-review M57 2026-05-31.
 // Slugify Vietnamese tag name → URL-safe slug cho Tag.slug unique constraint.
 // Strip emoji prefix (Zalo-style "🔵 VIP") không ăn vào slug.

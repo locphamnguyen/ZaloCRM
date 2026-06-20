@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <aside class="filter-sidebar" :class="{ collapsed }">
     <!-- Header: workspace + privacy lock badge + collapse -->
@@ -815,7 +817,8 @@ import { ref, computed, onMounted, onUnmounted, reactive, watch } from 'vue';
 import type { AccountFolder, AutoTagKey, ScoreTier, StuckDuration, LastMessageWithin, EngagementPatternKey, MessageReplyState } from '@/composables/use-inbox-filters';
 import { cleanTagName } from '@/composables/use-crm-tag-defs';
 import PrivacyLockBadge from '@/components/privacy/PrivacyLockBadge.vue';
-import LeadFloatingButton from '@/components/lead-pool/LeadFloatingButton.vue';
+// Open-core: Lead Pool floating button → extension bundle (no-op stub in Community).
+import LeadFloatingButton from '@ee/lead-pool/components/LeadFloatingButton.vue';
 import PrivacyUnlockOtpModal from '@/components/privacy/PrivacyUnlockOtpModal.vue';
 import { usePrivacyStore } from '@/stores/privacy';
 import { api } from '@/api/index';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * M53 2026-05-30 — Type + validator cho extracted entities AI Trợ Lý
  * trả về trong Virtual Chat. Mapping qua Contact fields.

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
+// ZaloCRM is free software under the GNU Affero General Public License v3.0 (see LICENSE).
+// Commercial (dual) licensing available: locnt@locnguyendata.com
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';

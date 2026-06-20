@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-health-check.ts — Cron-based health monitor for Zalo account connections.
  * Runs every 5 minutes to detect disconnected accounts and auto-reconnect them.

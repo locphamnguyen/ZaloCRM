@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * privacy-leak-guard.ts — Điểm kiểm soát tập trung CHỐNG TÁI PHẠM (2026-06-11, Đợt 3.1).
  *

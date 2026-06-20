@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * cung-cham-tag-service.ts — Auto-tag "Cùng chăm" cho KH có ≥2 sale.
  *

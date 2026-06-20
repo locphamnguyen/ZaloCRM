@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <div
     class="message-thread"
@@ -885,9 +887,9 @@ import ZaloBrandIcon from '@/components/icons/ZaloBrandIcon.vue';
 import Avatar from '@/components/ui/Avatar.vue';
 import EmojiPicker from '@/components/chat/EmojiPicker.vue';
 import QuickTemplatePopup from '@/components/chat/quick-template-popup.vue';
-import BlockPreviewDialog from '@/components/chat/BlockPreviewDialog.vue';
+import BlockPreviewDialog from '@ee/automation/chat-blocks/BlockPreviewDialog.vue';
 // M14 (2026-06-02) — Popup chọn "Khối tin nhắn" từ Automation Blocks
-import BlockPickerPopup from '@/components/chat/BlockPickerPopup.vue';
+import BlockPickerPopup from '@ee/automation/chat-blocks/BlockPickerPopup.vue';
 import MessageBubble from '@/components/chat/message-bubble.vue';
 // M53 2026-05-30: Trợ lý AI cho virtual chat
 import AiAssistantMessage from '@/components/chat/AiAssistantMessage.vue';
@@ -2639,14 +2641,14 @@ function openBlockPicker() {
 // 2026-06-04 — Khối Phase 1 MVP: 2 đường workflow
 // 👁 Xem trước → mở Preview dialog → bấm Gửi → dispatch
 // 📤 Gửi luôn → bỏ qua preview, dispatch ngay
-const previewBlock = ref<import('@/api/automation/types').Block | null>(null);
+const previewBlock = ref<import('@ee/automation/api/types').Block | null>(null);
 
-function onBlockPreview(block: import('@/api/automation/types').Block) {
+function onBlockPreview(block: import('@ee/automation/api/types').Block) {
   previewBlock.value = block;
   showBlockPicker.value = false;
 }
 
-async function onBlockSendDirect(block: import('@/api/automation/types').Block) {
+async function onBlockSendDirect(block: import('@ee/automation/api/types').Block) {
   showBlockPicker.value = false;
   await dispatchBlockComponents(block.id);
 }
@@ -2670,7 +2672,7 @@ async function dispatchBlockComponents(blockId: string) {
   if (blockSending.value) return; // chống double-send
   blockSending.value = true;
   try {
-    const { sendBlockToConversation } = await import('@/api/automation/blocks');
+    const { sendBlockToConversation } = await import('@ee/automation/api/blocks');
     const res = await sendBlockToConversation(conversationId, blockId);
     // 2026-06-13: BE gửi NỀN, trả {accepted} ngay → báo "đang gửi", tin hiện dần qua socket
     // (KHÔNG chờ → hết timeout). Giữ nhánh cũ {partial/sentCount} phòng STUB/đường khác trả đủ.

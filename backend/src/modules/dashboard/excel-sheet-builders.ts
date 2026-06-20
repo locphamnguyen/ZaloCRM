@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * excel-sheet-builders.ts — ExcelJS worksheet builders for each report type.
  * Each function adds a worksheet to the provided workbook and populates it with data.

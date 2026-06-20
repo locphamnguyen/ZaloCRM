@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 import { ref, computed } from 'vue';
 import { api } from '@/api/index';
 import { Socket } from 'socket.io-client';

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-message-sync.ts — polling backup for group message history.
  * Runs periodically per connected account, calls getGroupChatHistory()

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Proxy utility for Zalo SDK connections.
  * Sets HTTP_PROXY/HTTPS_PROXY env vars around SDK calls so zca-js

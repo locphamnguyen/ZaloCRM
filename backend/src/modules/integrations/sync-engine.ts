@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * sync-engine.ts — Orchestrates sync execution for any integration type.
  * Delegates to provider-specific handlers and logs results.
@@ -6,7 +8,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { syncGoogleSheets } from './providers/google-sheets.js';
 import { sendTelegramNotification } from './providers/telegram-bot.js';
-import { importFacebookLeads } from './providers/facebook.js';
+import { importFacebookLeads } from '../../shared/ee-registry/integrations.js';
 import { triggerZapierWebhook } from './providers/zapier-webhook.js';
 
 interface Integration {

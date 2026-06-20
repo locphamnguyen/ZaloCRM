@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 import { describe, it, expect } from 'vitest';
 
 // Test quy tắc ẩn popup mẫu tin nhắn khi gõ "/" (anh chốt 2026-06-15, FIX 2).

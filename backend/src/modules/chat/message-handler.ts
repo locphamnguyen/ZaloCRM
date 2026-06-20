@@ -1,18 +1,23 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * message-handler.ts — persists incoming Zalo messages to the database.
  * Called from zalo-pool's startListener on every 'message' / 'undo' event.
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { publishMessagePersisted } from '../../shared/bridge-bus.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
-import { runAutomationRules } from '../automation/automation-service.js';
+import { runAutomationRules } from '../../shared/ee-registry/automation.js';
+import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
 import { onInboundMessage as onInboundScoring, onOutboundMessage as onOutboundScoring } from '../scoring/scoring-hooks.js';
 import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { config } from '../../config/index.js';
-import { logEvent as logAutomationEvent } from '../automation/friend-invite/event-log-service.js';
+// Open-core: customer-reply care-session reaction moved to extension engine
+// (emitted via the shared automation event bus below).
 
 export interface IncomingMessage {
   accountId: string;
@@ -301,6 +306,12 @@ export async function handleIncomingMessage(
           },
         });
         if (claimed.count > 0) {
+          // 2026-06-19 Cầu Telegram: echo media OUTBOUND từ CRM → mirror sang Telegram (lấy
+          // id row vừa claim theo zaloMsgId).
+          const claimedRow = await prisma.message
+            .findFirst({ where: { conversationId: conversation.id, zaloMsgId: msg.msgId }, select: { id: true } })
+            .catch(() => null);
+          if (claimedRow) publishMessagePersisted({ messageId: claimedRow.id, conversationId: conversation.id });
           logger.debug(`[message-handler] Skipping self echo: claimed placeholder (album=${msg.albumKey ?? 'none'} idx=${msg.albumIndex})`);
           return null;
         }
@@ -330,6 +341,11 @@ export async function handleIncomingMessage(
               data: { zaloCliMsgId: msg.cliMsgId },
             }).catch(() => {});
           }
+          // 2026-06-19 Cầu Telegram: đây là echo của tin OUTBOUND gửi từ CRM (sale web /
+          // automation / hệ thống / bridge). Đường này return TRƯỚC nhánh create nên phải bắn
+          // publishMessagePersisted Ở ĐÂY để cầu mirror sang Telegram. Tin sentVia='bridge'
+          // (gốc Telegram) sẽ bị forwarder bỏ qua (chống lặp).
+          publishMessagePersisted({ messageId: recentDupe.id, conversationId: conversation.id });
           logger.debug('[message-handler] Skipping self echo: content match within 30s');
           return null;
         }
@@ -404,6 +420,16 @@ export async function handleIncomingMessage(
             data: { zaloCliMsgId: msg.cliMsgId },
           }).catch(() => {});
         }
+        // 2026-06-19 Cầu Telegram: tin OUTBOUND gửi từ CRM (sale web / automation / hệ thống /
+        // bridge) tạo row TRƯỚC → echo selfListen hit P2002 ở đây. Bắn publishMessagePersisted
+        // (tin SELF) để cầu mirror các tin đó sang Telegram. CHỈ self → tránh re-forward tin KH
+        // khi Zalo gửi trùng. Tin sentVia='bridge' (gốc Telegram) sẽ bị forwarder bỏ qua.
+        if (msg.isSelf && msg.msgId) {
+          const existing = await prisma.message
+            .findFirst({ where: { conversationId: conversation.id, zaloMsgId: msg.msgId }, select: { id: true } })
+            .catch(() => null);
+          if (existing) publishMessagePersisted({ messageId: existing.id, conversationId: conversation.id });
+        }
         logger.debug(`[message-handler] Skipping duplicate zaloMsgId=${msg.msgId} (cliMsgId backfill attempted)`);
         return null;
       }
@@ -411,6 +437,10 @@ export async function handleIncomingMessage(
     }
 
     await updateConversationAfterMessage(conversation.id, sentAt, msg.isSelf);
+
+    // 2026-06-18 — Cầu Telegram (Phase 0): phát sự kiện hậu-commit để bridge mirror sang
+    // Telegram. Fire-and-forget; subscriber (Phase 1) tự lọc nick bắc cầu + chống lặp theo msgId.
+    publishMessagePersisted({ messageId: message.id, conversationId: conversation.id });
 
     // Update Contact aggregate fields (last*, total*) — fire-and-forget,
     // best-effort. Skipped for group threads inside the helper.
@@ -616,215 +646,24 @@ export async function handleIncomingMessage(
         conversationDetails?.threadType === 'user' &&
         message.contentType === 'text'
       ) {
-        void (async () => {
-          try {
-            // ── CareSession 2026-06-07 (T3): lắng nghe qua PHIÊN, không tra outbox ──
-            // Đọc phiên ĐANG MỞ cho (org, contact, nick) + lazy-close nguồn chết (D12).
-            // Phiên = chân lý; bao được cả luồng gắn tay (outbox cũ chỉ thấy friend-request).
-            const { findListeningSessionsForEvent, recordCustomerEventOnSession, buildCareEventId } =
-              await import('../automation/care-session/care-session-service.js');
-            const sessions = await findListeningSessionsForEvent({
-              orgId: account.orgId,
-              contactId: careContactId,
-              nickId: msg.accountId,
-              // Per-nick thread (2026-06-08): chỉ phiên của ĐÚNG hội thoại này (hoặc legacy null).
-              externalThreadId: conversationDetails?.externalThreadId ?? null,
-            });
-            if (sessions.length === 0) return; // KH không trong phiên chăm sóc nào
-
-            const contactDisplay =
-              contact?.crmName?.trim() || contact?.fullName?.trim() || contact?.phone || 'KH';
-
-            // Idempotency gate per phiên (reply 2 lần / Zalo gửi trùng → chỉ xử lý 1).
-            const eventId = buildCareEventId({
-              nickId: msg.accountId,
-              contactId: careContactId,
-              eventType: 'reply',
-              providerId: message.id,
-            });
-
-            // Xử lý từng phiên (khách có thể ở nhiều phiên — đa Mục tiêu / gắn tay).
-            for (const session of sessions) {
-              const isNew = await recordCustomerEventOnSession({
-                sessionId: session.id,
-                eventId,
-                eventType: 'reply',
-                payload: {
-                  messageId: message.id,
-                  conversationId: conversation.id,
-                  contentPreview: (message.content ?? '').slice(0, 120),
-                },
-              });
-              if (!isNew) continue; // dup → bỏ qua phiên này
-
-              const triggerId = session.sourceTriggerId;
-
-              // CareSession 2026-06-07 (anh chốt): ghi pause vào PHIÊN để trang Phiên
-              // chăm sóc hiển thị "💬 vừa trả lời" + "⏸ chạy lại sau X giờ". pausedUntil
-              // = now + pauseOnActivityHours (đồng bộ Redis pause flag set bên dưới).
-              try {
-                let pauseHours = 24;
-                if (triggerId) {
-                  const tg = await prisma.automationTrigger.findUnique({
-                    where: { id: triggerId },
-                    select: { pauseOnActivityHours: true },
-                  });
-                  if (tg?.pauseOnActivityHours && tg.pauseOnActivityHours > 0) pauseHours = tg.pauseOnActivityHours;
-                }
-                await prisma.careSession.update({
-                  where: { id: session.id },
-                  data: {
-                    lastReplyAt: new Date(),
-                    pausedUntil: new Date(Date.now() + pauseHours * 3600_000),
-                  },
-                });
-              } catch (e) {
-                logger.warn(`[message-handler] update care-session pause failed session=${session.id}`);
-              }
-
-              // T5 — Guard log: CHỈ ghi AutomationEventLog(triggerId) cho Monitor khi
-              // trigger ĐANG nghe (active+paused). Trigger chết → KHÔNG ghi rác (chỉ Phiên).
-              // findListeningSessionsForEvent đã lazy-close phiên nguồn chết → tới đây
-              // session.triggerState ∈ [active,paused,null]. null = gắn tay (không log Monitor).
-              if (triggerId && session.triggerState != null) {
-                void logAutomationEvent({
-                  orgId: account.orgId,
-                  triggerId,
-                  contactId: careContactId,
-                  nickId: msg.accountId,
-                  eventType: 'customer_reply',
-                  eventPriority: 'urgent',
-                  summary: `🔥 ${contactDisplay} vừa trả lời chuỗi bám đuổi — Mục tiêu dừng`,
-                  metadata: {
-                    messageId: message.id,
-                    conversationId: conversation.id,
-                    contentPreview: (message.content ?? '').slice(0, 120),
-                    careSessionId: session.id,
-                  },
-                });
-
-                // FE chip "🛑 KH reply" — queueStatus per-trigger (chỉ khi có trigger).
-                try {
-                  await prisma.triggerQueueEntry.updateMany({
-                    where: {
-                      triggerId,
-                      contactId: careContactId,
-                      queueStatus: {
-                        notIn: ['customer_reply', 'customer_block', 'converted_lead', 'cancelled'],
-                      },
-                    },
-                    data: { queueStatus: 'customer_reply' },
-                  });
-                } catch (updErr) {
-                  logger.warn('[message-handler] customer_reply entry update failed:', updErr);
-                }
-              }
-
-              // Dừng chuỗi + báo sale khi khách reply.
-              //   - Cancel BullMQ steps + pause flag: CHỈ khi phiên có trigger (chuỗi đang gửi).
-              //   - dispatchCareNotify (BÁO SALE): cho MỌI phiên — kể cả phiên GẮN TAY
-              //     (sourceTriggerId=null, chỉ-theo-dõi). Anh chốt 2026-06-08: khách chat tay
-              //     được "ghim" theo dõi → trả lời (dù chậm) vẫn phải báo sale.
-              try {
-                let triggerName: string | null = session.triggerName ?? null;
-
-                // Phần dừng chuỗi tự động — chỉ phiên có trigger mới có gì để dừng.
-                // 2026-06-13 (LUẬT 4): KHÔNG remove job (mất tiến độ → không resume được).
-                // Thay bằng: set pause flag (worker guard chặn gửi) + ghi pausedAtStepIdx
-                // per-phiên (resume khi hết phiên). ARCH#1=B: dừng CẢ luồng của khách.
-                // bước dở per-sequence — khai báo NGOÀI block để notify (dưới) dùng lại tên+bước.
-                let stepIdxBySequence: Map<string, number> = new Map();
-                if (triggerId) {
-                  const trigger = await prisma.automationTrigger.findUnique({
-                    where: { id: triggerId },
-                    select: { name: true },
-                  });
-                  if (trigger?.name) triggerName = trigger.name;
-                  const { setContactPauseFlag, getPendingStepIdxBySequence } = await import(
-                    '../automation/queues/event-hooks.js'
-                  );
-                  // Scan BullMQ 1 lần → bước dở của từng luồng (per sourceSequenceId).
-                  stepIdxBySequence = await getPendingStepIdxBySequence(triggerId, careContactId);
-                  // 2026-06-19 (Luật 4 wire): pause-mark TRƯỚC (đọc rule từng sequence, bỏ qua luồng
-                  // tắt Luật 4 + set pausedUntil theo careHoldHours). CHỈ set cờ Redis khi CÓ phiên
-                  // thật bị hold → luồng tắt Luật 4 (paused=0) gửi đúng lịch, không hold giờ nào.
-                  const { pauseSessionsOnReply } = await import(
-                    '../automation/care-session/care-session-service.js'
-                  );
-                  const { paused, holdHours } = await pauseSessionsOnReply({
-                    orgId: account.orgId,
-                    contactId: careContactId,
-                    stepIdxBySequence,
-                  });
-                  if (paused > 0) {
-                    await setContactPauseFlag(triggerId, careContactId, holdHours);
-                    logger.info(`[message-handler] customer_reply LUẬT 4 pause-mark ${paused} phiên contact=${careContactId} hold=${holdHours}h (giữ tiến độ, worker chặn gửi)`);
-                  } else {
-                    logger.info(`[message-handler] customer_reply contact=${careContactId} — KHÔNG hold (Luật 4 tắt cho mọi luồng) → gửi đúng lịch`);
-                  }
-                }
-
-                // Notify KHẨN sale chủ nick — "KH đang nhắn, vào trả lời ngay" (mọi phiên).
-                const nickOwner = await prisma.zaloAccount.findUnique({
-                  where: { id: msg.accountId },
-                  select: { ownerUserId: true, displayName: true },
-                });
-                // ownerUserId ưu tiên chủ nick; phiên gắn tay nick chưa gán chủ → dùng owner phiên.
-                const notifyOwnerId = nickOwner?.ownerUserId ?? session.ownerUserId;
-                if (notifyOwnerId) {
-                  // T10c — bắn notify 3 đích (owner/manager/group) + privacy.
-                  // Lấy tên sale (cho đích nhóm "KH của [sale]"). notifyChannels đọc từ ORG.
-                  const saleUser = await prisma.user.findUnique({
-                    where: { id: notifyOwnerId },
-                    select: { fullName: true },
-                  });
-                  // 2026-06-15 (anh báo): thông báo phải hiện TÊN LUỒNG thật + bước (không
-                  // fallback tên trigger). Lấy sequence của phiên + bước dở (pausedAtStepIdx).
-                  let notifySequenceName: string | null = null;
-                  let notifyStepInfo: { idx: number; total: number } | null = null;
-                  if (session.sourceSequenceId) {
-                    const seq = await prisma.automationSequence.findUnique({
-                      where: { id: session.sourceSequenceId },
-                      select: { name: true, steps: true },
-                    });
-                    if (seq) {
-                      notifySequenceName = seq.name;
-                      const total = Array.isArray(seq.steps) ? (seq.steps as unknown[]).length : 0;
-                      // bước đang dừng = pausedAtStepIdx (0-based) → đã gửi tới bước đó.
-                      const pausedIdx = stepIdxBySequence.get(session.sourceSequenceId);
-                      if (typeof pausedIdx === 'number' && total > 0) {
-                        notifyStepInfo = { idx: pausedIdx, total }; // "Bước pausedIdx/total" = đã gửi
-                      }
-                    }
-                  }
-                  const { dispatchCareNotify } = await import(
-                    '../automation/care-session/care-session-service.js'
-                  );
-                  await dispatchCareNotify({
-                    orgId: account.orgId,
-                    eventType: 'reply',
-                    eventKey: 'reply',
-                    eventId,
-                    ownerUserId: notifyOwnerId,
-                    contactId: careContactId,
-                    contactName: contact?.fullName ?? contact?.crmName ?? contactDisplay,
-                    contactPhone: contact?.phone ?? '',
-                    contentPreview: message.content ?? '',
-                    saleName: saleUser?.fullName ?? '',
-                    triggerId, // null cho phiên gắn tay → template "theo dõi tay"
-                    triggerName, // null cho phiên gắn tay
-                    sequenceName: notifySequenceName, // TÊN LUỒNG thật (ưu tiên hơn triggerName)
-                    stepInfo: notifyStepInfo,
-                  });
-                }
-              } catch (err) {
-                logger.warn('[message-handler] stop sequence on reply failed:', err);
-              }
-            }
-          } catch (err) {
-            logger.warn('[message-handler] customer_reply care-session handling failed:', err);
-          }
-        })();
+        // Open-core: customer-reply care-session reaction is extension logic.
+        // Core just emits the event; the automation engine reacts (no-op in Community).
+        automationEventBus.emit({
+          type: 'customer_reply',
+          orgId: account.orgId,
+          occurredAt: new Date(),
+          contactId: careContactId,
+          payload: {
+            nickId: msg.accountId,
+            externalThreadId: conversationDetails?.externalThreadId ?? null,
+            conversationId: conversation.id,
+            messageId: message.id,
+            content: message.content ?? '',
+            contact: contact
+              ? { crmName: contact.crmName ?? null, fullName: contact.fullName ?? null, phone: contact.phone ?? null }
+              : null,
+          },
+        });
       }
 
       // Phase 7 — emit AutomationEvent for engine triggers.
@@ -832,7 +671,6 @@ export async function handleIncomingMessage(
       // and emit text-content payload so keyword_match triggers can filter.
       void (async () => {
         try {
-          const { automationEventBus } = await import('../automation/engine/event-bus.js');
           // Count prior inbound messages from this contact to determine "first message"
           const priorInbound = contactId
             ? await prisma.message.count({

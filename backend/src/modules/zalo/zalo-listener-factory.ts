@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-listener-factory.ts — sets up zca-js listener events for one Zalo account.
  * Handles message routing, user-info caching, group detection, and undo events.
@@ -174,7 +176,7 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
             orderBy: { createdAt: 'desc' },
           });
           if (!outbox?.triggerId) return; // KH không thuộc Mục tiêu — bỏ qua signal
-          const { onCustomerReaction } = await import('../automation/queues/event-hooks.js');
+          const { onCustomerReaction } = await import('../../shared/ee-registry/automation.js');
           await onCustomerReaction({
             orgId: conversation.orgId,
             triggerId: outbox.triggerId,

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * clamav-client.ts — GĐ13b (2026-06-13): quét virus file upload bằng ClamAV (clamd INSTREAM).
  *

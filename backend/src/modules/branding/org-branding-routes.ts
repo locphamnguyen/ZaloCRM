@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /*
  * org-branding-routes.ts — Public (PRE-AUTH) org branding for the login page.
  *

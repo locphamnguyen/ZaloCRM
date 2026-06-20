@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   ConfirmHost — mount 1 lần ở App.vue. Render hộp xác nhận dùng chung (useConfirm())
   qua ConfirmActionModal HS theme. Thay window.confirm/prompt toàn app.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * folder-routes.ts — Account Folder CRUD cho Inbox Triage Filter (Phase 6+).
  *

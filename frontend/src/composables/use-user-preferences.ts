@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-user-preferences — Read/write per-user prefs (cross-device sync qua backend).
  * Singleton-ish: cache local trong module để tránh nhiều fetch song song.

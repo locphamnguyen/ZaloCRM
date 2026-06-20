@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-dialog v-model="show" :max-width="1100" :fullscreen="$vuetify.display.smAndDown" scrollable>
     <v-card class="dup-dialog">

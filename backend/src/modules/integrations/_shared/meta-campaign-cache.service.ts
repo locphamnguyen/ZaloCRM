@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * meta-campaign-cache.service.ts — TTL 5 phút cache cho campaign_id → list_id.
  *

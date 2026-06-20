@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Anh chốt 2026-05-22: học Zalo native — 1 BOX duy nhất chứa tất cả icons
        sát nhau + tổng count cuối. Click box → popup chi tiết grouped emoji + user.

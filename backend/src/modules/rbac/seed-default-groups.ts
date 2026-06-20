@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * seed-default-groups.ts — Seed 7 default permission groups (system, is_system=true)
  *

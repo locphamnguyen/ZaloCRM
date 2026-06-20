@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * engagement-tag-service.ts — Làm tag Auto Engagement "sống" (tự cập nhật).
  *
@@ -158,7 +160,7 @@ export async function syncEngagementTag(contactId: string): Promise<void> {
     // CareSession 2026-06-07: tag engagement gắn xong → đóng phiên nếu ∈ closeConditions.
     if (wantTagId) {
       try {
-        const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+        const { onTagAdded } = await import('../../shared/ee-registry/automation.js');
         await onTagAdded({ orgId: contact.orgId, contactId, tagKind: 'friendTag', tagId: wantTagId });
       } catch { /* non-fatal */ }
     }

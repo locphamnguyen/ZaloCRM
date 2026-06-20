@@ -5,7 +5,7 @@
  * KHÔNG redefine class/token Atlas v1 (xem airtable.css "APPEND, DO NOT REDEFINE").
  * HD-first 1366×768 — KPI row 6 cột, card padding sát, không emoji (Lucide line icons).
  */
-@import '../components/automation/phase7/airtable.css';
+@import './airtable.css';
 
 .airtable-scope.dh-v4 {
   --at-dash-gap: 12px;

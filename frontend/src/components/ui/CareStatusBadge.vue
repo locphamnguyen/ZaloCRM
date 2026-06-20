@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-menu v-if="!readonly" v-model="open" :close-on-content-click="true" location="bottom start">
     <template #activator="{ props: act }">

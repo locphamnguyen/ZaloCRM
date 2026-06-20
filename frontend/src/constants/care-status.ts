@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * 9 enum care status đề xuất theo Dev Spec mockup contacts-approach-b-v3.
  * Đây là per-nick care status (Friend.customerCareStatus). Khác với

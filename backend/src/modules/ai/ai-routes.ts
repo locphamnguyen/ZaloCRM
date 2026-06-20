@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
@@ -425,7 +427,7 @@ export async function aiRoutes(app: FastifyInstance) {
                 });
                 // CareSession 2026-06-07: gắn CRM tag (AI) → đóng phiên nếu ∈ closeConditions.
                 if (res?.tag?.id) {
-                  const { onTagAdded } = await import('../automation/care-session/care-session-service.js');
+                  const { onTagAdded } = await import('../../shared/ee-registry/automation.js');
                   await onTagAdded({ orgId: user.orgId, contactId, tagKind: 'crmTag', tagId: res.tag.id });
                 }
               } catch (err) {

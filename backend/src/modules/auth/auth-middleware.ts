@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Auth middleware — verifies JWT on protected routes.
  * JWT user shape is defined in shared/types/fastify-jwt-user.d.ts.

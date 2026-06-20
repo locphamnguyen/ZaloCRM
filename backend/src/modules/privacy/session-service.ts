@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * session-service.ts — Phase Riêng Tư (OTP migration 2026-06-06)
  *

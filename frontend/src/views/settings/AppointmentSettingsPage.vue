@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   AppointmentSettingsPage — Cài đặt "Lịch hẹn → Nhắc hẹn Zalo" (2026-06-16).
   Bật/tắt tính năng + chỉnh số phút sau giờ hẹn mới gửi link đánh dấu Hoàn thành/Huỷ.

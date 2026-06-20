@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * activity-types.ts — UI mapping cho ActivityLog (icon, label tiếng Việt,
  * default visibility trong compact timeline).

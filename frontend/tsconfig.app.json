@@ -5,7 +5,8 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@ee/*": ["./src/_ee/*", "./src/_ee-stubs/*"]
     },
     "skipLibCheck": true,
 

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Zalo Socket.IO event handlers.
  * Manages room subscriptions for org-level and per-account events.

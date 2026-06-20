@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- 2026-06-09 (anh chốt): login 2 cột — banner thương hiệu HS Holding + form.
        Banner teal-navy: logo HS + ZaloCRM + slogan "Bền vững · Trường tồn".
@@ -56,6 +58,13 @@
         <v-alert v-if="error" type="error" class="mt-4" density="compact" closable variant="tonal">
           {{ error }}
         </v-alert>
+
+        <!-- AGPL-3.0 §13: cung cấp mã nguồn cho người dùng tương tác qua mạng. -->
+        <p class="agpl-source text-center text-caption mt-6">
+          ZaloCRM — phần mềm tự do
+          <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">AGPL-3.0</a>
+          · <a href="https://github.com/locphamnguyen/ZaloCRM" target="_blank" rel="noopener noreferrer">Mã nguồn</a>
+        </p>
       </div>
     </section>
   </div>

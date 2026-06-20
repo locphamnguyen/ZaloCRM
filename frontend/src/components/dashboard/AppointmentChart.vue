@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-card>
     <v-card-title class="text-body-1">Trạng thái lịch hẹn</v-card-title>

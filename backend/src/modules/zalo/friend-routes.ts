@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * friend-routes.ts — REST API for Zalo friend management.
  * Ports openzca friend commands: queries, requests, management, privacy.

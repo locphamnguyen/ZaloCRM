@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * media-routes.ts — Phase Media Library 2026-06-11 (GĐ1).
  *

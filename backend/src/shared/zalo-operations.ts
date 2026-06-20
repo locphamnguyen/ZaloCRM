@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-operations.ts — DRY wrapper for all zca-js API calls.
  * Every Zalo operation goes through this service:

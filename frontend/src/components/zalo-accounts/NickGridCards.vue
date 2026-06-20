@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   NickGridCards — tab "Đơn giản" cho Sale (Anh chốt 2026-06-09 CEO review).
   Grid card gọn: SĐT, Tên nick, Trạng thái (TO + viền xanh/đỏ), Owner, Sale hỗ trợ.

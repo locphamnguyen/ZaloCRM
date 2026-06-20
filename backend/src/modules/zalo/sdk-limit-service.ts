@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * sdk-limit-service.ts — 2026-06-06 (Anh chốt).
  * Nguồn TRẦN SDK Zalo (thay CATEGORY_LIMITS hardcode). Cấu hình tại màn "Quản lý

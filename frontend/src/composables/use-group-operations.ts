@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-group-operations.ts — Unified composable for all group management operations.
  * Combines group CRUD, membership, invite links, and polls into one interface.

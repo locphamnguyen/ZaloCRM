@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * appointment-zalo-service.ts — Lịch hẹn CRM ⇄ Nhắc hẹn Zalo (2026-06-16).
  *

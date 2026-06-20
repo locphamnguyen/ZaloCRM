@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * saved-report-routes.ts — CRUD for SavedReport + run saved config.
  * All routes require JWT auth, scoped to user's orgId.

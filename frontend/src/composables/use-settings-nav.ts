@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-settings-nav.ts — Central config cho Settings sidebar.
  *
@@ -11,6 +13,10 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+// Open-core: extension settings items merged in by group id (empty in Community).
+import { eeSettingsItems } from '@ee/nav';
+// Open-core: edition flag — gate items whose code stays in Community but UI is hidden.
+import { isExtension } from '@ee/edition';
 
 export type SettingsPermission = 'everyone' | 'admin' | 'owner';
 
@@ -27,6 +33,8 @@ export interface SettingsItem {
   comingSoon?: boolean;
   /** Search alias bổ sung (vd "phân quyền" → tìm "roles") */
   aliases?: string[];
+  /** Open-core: item chỉ hiện ở bản Extension (code vẫn ở Community, chỉ ẩn menu). */
+  extensionOnly?: boolean;
 }
 
 export interface SettingsGroup {
@@ -59,7 +67,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       // "Tài khoản của tôi" (1 trang: avatar + thông tin + đổi mật khẩu modal).
       { id: 'account', label: 'Tài khoản của tôi', icon: 'mdi-account-outline', route: '/settings/personal/profile', permission: 'everyone', aliases: ['hồ sơ', 'profile', 'avatar', 'ảnh đại diện', 'đổi mật khẩu', 'mật khẩu', 'password', 'tài khoản'] },
       // Riêng Tư 2026-06-06: trỏ thẳng tab Privacy trong trang Zalo (nơi quản lý DUY NHẤT).
-      { id: 'privacy', label: 'Riêng tư', icon: 'mdi-shield-lock-outline', route: '/settings/channels/zalo?tab=privacy', permission: 'everyone', aliases: ['privacy', 'otp', 'riêng tư', 'blur', 'nick chính'] },
+      { id: 'privacy', label: 'Riêng tư', icon: 'mdi-shield-lock-outline', route: '/settings/channels/zalo?tab=privacy', permission: 'everyone', extensionOnly: true, aliases: ['privacy', 'otp', 'riêng tư', 'blur', 'nick chính'] },
       { id: 'notifications', label: 'Thông báo của tôi', icon: 'mdi-bell-outline', route: '/settings/channels/zalo?tab=internal-contact', permission: 'everyone', aliases: ['internal contact', 'liên lạc nội bộ', 'system notify', 'thông báo zalo'] },
     ],
   },
@@ -92,7 +100,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: 'scoring', label: 'Lead scoring', icon: 'mdi-chart-line', route: '/settings/crm/scoring', permission: 'admin', resource: 'settings', aliases: ['điểm', 'chấm điểm', 'score'] },
       { id: 'appointments', label: 'Lịch hẹn & Nhắc hẹn', icon: 'mdi-calendar-clock-outline', route: '/settings/crm/appointments', permission: 'admin', resource: 'settings', aliases: ['lịch hẹn', 'appointment', 'nhắc hẹn', 'reminder', 'zalo reminder', 'nhắc lịch'] },
       // Lead Pool — gộp Nhận Lead + Queue chia Lead thành 1 mục 2 tab (2026-06-10).
-      { id: 'lead-pool', label: 'Lead Pool', icon: 'mdi-gift-outline', route: '/settings/crm/lead-pool', permission: 'admin', resource: 'settings', aliases: ['pool lead', 'lead pool', 'nhận lead', 'pool', 'quota', 'câu chào', 'greeting', 'queue', 'chia lead', 'xem trước'] },
+      // Lead Pool nav item → extension bundle (eeSettingsItems.customer).
     ],
   },
 
@@ -107,8 +115,8 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       // 2026-06-18 — Trần SDK dời từ trang Zalo sang đây (gate resource 'settings', KHÔNG 'zalo_account')
       // → sale quản nick không thấy/không đổi được trần (trần SDK nguy hiểm).
       { id: 'sdk-limits', label: 'Trần an toàn SDK Zalo', icon: 'mdi-shield-alert-outline', route: '/settings/channels/sdk-limits', permission: 'admin', resource: 'settings', aliases: ['trần', 'rate limit', 'sdk', 'giới hạn', 'an toàn nick', 'khoá nick', 'quota nick', 'giới hạn gửi'] },
-      { id: 'fb-leadads', label: 'Facebook Lead Ads', icon: 'mdi-facebook', route: '/settings/channels/facebook-leadads', permission: 'admin', resource: 'settings', aliases: ['fb', 'facebook', 'lead ads', 'leadads', 'meta'] },
-      { id: 'automation', label: 'Tự động hoá', icon: 'mdi-cog-sync-outline', route: '/settings/channels/automation', permission: 'admin', resource: 'settings', aliases: ['automation', 'kỹ thuật', 'nhịp quét', 'timeout', 'bám đuổi kỹ thuật'] },
+      // Facebook Lead Ads item → extension bundle (eeSettingsItems.channels).
+      // Automation tech-settings nav item → extension bundle (eeSettingsItems.channels).
       { id: 'integrations', label: 'Tích hợp 3rd party', icon: 'mdi-puzzle-outline', route: '/settings/channels/integrations', permission: 'admin', resource: 'settings', aliases: ['tích hợp', 'integration', '3rd party'] },
     ],
   },
@@ -128,6 +136,13 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   },
 ];
 
+// Open-core: append extension items to their target groups (no-op in Community
+// edition where eeSettingsItems is empty). Done once at module load.
+for (const group of SETTINGS_GROUPS) {
+  const extra = eeSettingsItems[group.id];
+  if (extra?.length) group.items.push(...extra);
+}
+
 // ─── Helpers ────────────────────────────────────────────
 
 export function useSettingsNav() {
@@ -144,7 +159,11 @@ export function useSettingsNav() {
     return SETTINGS_GROUPS
       .map((g) => ({
         ...g,
-        items: g.items.filter((item) => !item.resource || auth.canAccess(item.resource, item.action)),
+        items: g.items.filter(
+          (item) =>
+            (!item.extensionOnly || isExtension) &&
+            (!item.resource || auth.canAccess(item.resource, item.action)),
+        ),
       }))
       .filter((g) => g.items.length > 0);
   });

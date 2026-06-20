@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   AppointmentEditor.vue — 1 modal duy nhất cho create + edit "Nhắc hẹn".
 
@@ -1056,7 +1058,7 @@ if (typeof window !== 'undefined') {
 </script>
 
 <style scoped>
-@import '@/components/automation/phase7/airtable.css';
+@import '@/assets/airtable.css';
 
 /* FIX 2026-06-09 (Anh báo bể UI): 2 token --at-coral-tint / --at-coral-text KHÔNG
    được định nghĩa trong airtable.css → render rỗng → hàng KH liên kết (.linked-kh-row)

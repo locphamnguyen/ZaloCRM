@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * report-routes.ts — Detailed reports for messages, contacts, appointments, and Excel export.
  * All routes require JWT auth, scoped to user's orgId.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * scoring/config-cache.ts — In-memory cache cho ScoringConfig + Signal Rules.
  *

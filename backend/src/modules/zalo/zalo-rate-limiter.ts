@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-rate-limiter.ts — Per-account, per-operation-type rate limiting.
  * Uses Redis when REDIS_URL is set, otherwise in-memory Maps.

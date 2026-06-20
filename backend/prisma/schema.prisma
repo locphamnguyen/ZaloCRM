@@ -907,6 +907,20 @@ model TelegramTopicMap {
   @@map("telegram_topic_map")
 }
 
+// 2026-06-19 Phase 3.1 — Gắn 1 tài khoản Telegram (telegramUserId) với 1 user CRM để biết
+// "ai gõ trong Telegram" + enforce quyền (ZaloAccountAccess). userId/orgId scalar (không
+// relation) để khỏi đụng model User dùng chung. Sale gắn qua lệnh /link <mã sinh từ CRM>.
+model TelegramUserLink {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  telegramUserId String   @unique @map("telegram_user_id")
+  userId         String   @map("user_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([orgId])
+  @@map("telegram_user_link")
+}
+
 // Phase metrics layer 2026-05-22 — Phone search event log.
 // Mỗi lần POST /zalo-accounts/:id/find-user log 1 row. Phone hash SHA-256 cho privacy.
 // Dùng cho dashboard "Phone search today: total/found/notfound" + Automation rate-limit.

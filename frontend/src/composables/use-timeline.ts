@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-timeline — Fetch unified timeline (Notes + Activity) cho panel KH.
  * Cursor-based pagination, filter theo categories.

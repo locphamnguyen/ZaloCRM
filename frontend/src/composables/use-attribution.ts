@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /*
  * ============================================================================
  *  ATTRIBUTION BANNER — REQUIRED BY APACHE LICENSE 2.0 (NOTICE clause §4d)

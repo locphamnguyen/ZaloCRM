@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * contact-sub-resource-routes.ts — Sub-resource endpoints for contacts.
  * Provides appointments scoped to a specific contact.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * use-friend-display.ts — Shared fallback chain cho tên KH hiển thị trên UI.
  *

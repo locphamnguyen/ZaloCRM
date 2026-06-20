@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   SalesReport — Hiệu suất Sale & Team. Endpoint #3 GET /reports/sales-performance.
   Render trong .rpt-scope (ReportsShell) → dùng global classes của report-kit.css.

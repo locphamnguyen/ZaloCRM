@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * zalo-message-helpers.ts — utilities for processing incoming Zalo messages.
  * Detects content type from msgType and updates contact avatars fire-and-forget.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * hmac.ts — Phase 5 (Bảo mật xác thực 2026-06-08)
  *

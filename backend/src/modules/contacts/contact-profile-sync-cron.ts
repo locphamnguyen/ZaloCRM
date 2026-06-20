@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * contact-profile-sync-cron.ts — Kéo giới tính + ngày sinh KH từ Zalo SDK (getUserInfo).
  *

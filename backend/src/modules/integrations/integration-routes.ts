@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * integration-routes.ts — CRUD for external integrations + manual sync trigger.
  * All routes require JWT auth, scoped to user's org.

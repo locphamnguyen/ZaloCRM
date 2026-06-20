@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Nguyễn Tiến Lộc
 /**
  * Global search routes — searches contacts, messages, and appointments by keyword.
  * Requires minimum 2 characters to avoid expensive full-table scans.

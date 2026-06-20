@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <v-banner v-if="!isOnline" color="warning" icon="mdi-wifi-off" lines="one" density="compact" style="position: fixed; top: 0; left: 0; right: 0; z-index: 200;">
     <template #text>

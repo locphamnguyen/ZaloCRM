@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <template>
   <!-- Picker giai đoạn KH (Status table — Wave 3 lazy gate source of truth).
        Ghi `contact.statusId` (FK) qua PUT /contacts/:id { statusId } để

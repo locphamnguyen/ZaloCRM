@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Nguyễn Tiến Lộc -->
 <!--
   reaction-detail-popup.vue — Anh chốt 2026-05-22: học Zalo native popup "Biểu cảm".
   Sidebar tabs: "Tất cả N" / "[emoji] [count]" cho mỗi emoji.
