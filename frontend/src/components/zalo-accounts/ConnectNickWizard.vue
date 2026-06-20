@@ -240,15 +240,14 @@ const dupOwnedByMe = computed(() => checkInfo.value?.duplicate?.ownedByMe === tr
 const dupOtherOwner = computed(
   () => !!checkInfo.value?.duplicate && checkInfo.value.duplicate.ownedByMe === false,
 );
-// 2026-06-20 (T2) — điều hướng theo LÝ DO ngắt của nick trùng (BE check-phone trả thêm
-// duplicate.status / disconnectReason / archived). manual hoặc đã-xóa (archived) → phiên cũ ĐÃ ĐÓNG
-// → bắt buộc QUÉT QR MỚI (KHÔNG reconnect ngầm — sẽ bị BE skip im lặng → sale kẹt). connected → đang
-// chạy, không cần làm gì. passive/disconnected khác → vẫn thử reconnect bằng session cũ.
+// 2026-06-20 (T2) + 2026-06-21 (anh chốt): điều hướng theo trạng thái nick trùng (BE check-phone
+// trả duplicate.status/disconnectReason/archived). connected → đang chạy, không cần làm gì. MỌI
+// trạng thái KHÁC connected (manual/archived/disconnected/qr_pending/passive) → phiên cũ thường ĐÃ
+// CHẾT → bắt buộc QUÉT QR MỚI (KHÔNG reconnect ngầm — trả "đang kết nối" GIẢ rồi tự end, nick
+// không online). Trước đây passive/disconnected vẫn thử reconnect → bug "tự end" anh báo.
 const dupStatus = computed(() => checkInfo.value?.duplicate?.status ?? null);
-const dupReason = computed(() => checkInfo.value?.duplicate?.disconnectReason ?? null);
-const dupArchived = computed(() => checkInfo.value?.duplicate?.archived === true);
-const dupNeedsQr = computed(() => dupOwnedByMe.value && (dupReason.value === 'manual' || dupArchived.value));
 const dupConnected = computed(() => dupOwnedByMe.value && dupStatus.value === 'connected');
+const dupNeedsQr = computed(() => dupOwnedByMe.value && !dupConnected.value);
 
 const stepLabels = ['Nhập SĐT', 'Xác nhận', 'Quét QR', 'Hoàn tất'];
 const stepIndex = computed(() => ({ phone: 0, confirm: 1, qr: 2, done: 3 }[props.step]));

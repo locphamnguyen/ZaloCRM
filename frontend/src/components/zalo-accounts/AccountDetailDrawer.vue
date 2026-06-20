@@ -19,7 +19,19 @@
           <div class="meta">
             <div class="nm">{{ account.displayName || 'Nick chưa đặt tên' }}</div>
             <div class="uid" v-if="account.zaloUid">UID {{ account.zaloUid }}</div>
-            <div class="uid" v-if="account.phone">{{ maskPhone(account.phone) }}</div>
+            <!-- SĐT nick (lưu ZaloAccount.phone) — sửa thủ công + verify trùng Zalo/tên. -->
+            <div class="phone-line">
+              <template v-if="!editingPhone">
+                <span v-if="account.phone" class="uid">📱 {{ maskPhone(account.phone) }}</span>
+                <span v-else class="uid phone-empty">📱 Chưa có SĐT</span>
+                <button class="phone-edit" @click="startEditPhone">{{ account.phone ? 'Sửa' : 'Thêm' }}</button>
+              </template>
+              <template v-else>
+                <input v-model="phoneInput" class="phone-input" placeholder="0xxxxxxxxx" @keydown.enter.prevent="savePhone(false)" />
+                <button class="phone-save" :disabled="phoneSaving" @click="savePhone(false)">Lưu</button>
+                <button class="phone-cancel" :disabled="phoneSaving" @click="editingPhone = false">Hủy</button>
+              </template>
+            </div>
             <div class="st">
               <span class="status" :class="statusClass(account.liveStatus)">
                 <span class="dot"></span>
@@ -306,9 +318,50 @@ import type { EnrichedAccount, UptimeBucket } from '@/composables/use-zalo-accou
 import UptimeSparkline from './UptimeSparkline.vue';
 import { useAuthStore } from '@/stores/auth';
 import { api } from '@/api/index';
+import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 
 // Fix ③ (2026-06-11): chuyển nhượng nick CHỈ chủ tổ chức (khớp gate BE đã siết role='owner').
 const authStore = useAuthStore();
+const toast = useToast();
+const { confirm } = useConfirm();
+
+// ── Sửa SĐT thủ công (anh hỏi 2026-06-21) ──────────────────────────────────
+const editingPhone = ref(false);
+const phoneInput = ref('');
+const phoneSaving = ref(false);
+function startEditPhone() {
+  phoneInput.value = props.account?.phone ?? '';
+  editingPhone.value = true;
+}
+async function savePhone(force: boolean) {
+  if (!props.account) return;
+  phoneSaving.value = true;
+  try {
+    const { data } = await api.put(`/zalo-accounts/${props.account.id}/phone`, { phone: phoneInput.value, force });
+    (props.account as any).phone = phoneInput.value.trim().replace(/[\s.\-()]/g, '') || null;
+    editingPhone.value = false;
+    toast.push(data?.message || 'Đã lưu SĐT', 'success');
+    emit('refresh');
+  } catch (e: any) {
+    // 409 needsConfirm: SĐT KHÁC tên/uid Zalo (hoặc chưa có Zalo) → hỏi gõ "OK" lưu vẫn.
+    if (e.response?.status === 409 && e.response?.data?.needsConfirm) {
+      const ok = await confirm({
+        title: 'SĐT không khớp Zalo',
+        message: (e.response.data.message || '') + ' Vẫn muốn lưu số này cho nick?',
+        tone: 'danger',
+        requireTypedConfirm: 'OK',
+        confirmText: 'Vẫn lưu',
+        cancelText: 'Hủy',
+      });
+      if (ok) await savePhone(true);
+    } else {
+      toast.push(e.response?.data?.message || 'Lưu SĐT thất bại', 'error');
+    }
+  } finally {
+    phoneSaving.value = false;
+  }
+}
 
 const props = defineProps<{
   modelValue: boolean;
@@ -341,6 +394,7 @@ const emit = defineEmits<{
   (e: 'remove-crew', payload: { accountId: string; accessId: string }): void;
   (e: 'action', payload: { accountId: string; action: 'sync-contacts' | 'sync-history' | 'reconnect' | 'qr-login' | 'edit-proxy' | 'disconnect' | 'delete' }): void;
   (e: 'reassign-owner', account: EnrichedAccount): void;
+  (e: 'refresh'): void;
 }>();
 
 function close() {
@@ -563,6 +617,22 @@ function maskPhone(p: string): string {
   margin-top: 2px;
 }
 .hero .st { margin-top: 6px }
+
+/* Sửa SĐT thủ công (2026-06-21) */
+.phone-line { display: flex; align-items: center; gap: 6px; margin-top: 2px; flex-wrap: wrap; }
+.phone-empty { color: var(--ink-4, #b0b6bf); }
+.phone-edit, .phone-save, .phone-cancel {
+  font-size: 11px; font-family: inherit; border-radius: 6px; padding: 2px 8px; cursor: pointer;
+  border: 1px solid var(--line, #e5e7eb); background: var(--surface, #fff); color: var(--ink-2, #4b5563);
+}
+.phone-edit:hover { background: var(--surface-3, #f3f4f6); }
+.phone-save { background: var(--brand, #1786be); border-color: var(--brand, #1786be); color: #fff; }
+.phone-save:disabled { opacity: 0.6; cursor: not-allowed; }
+.phone-input {
+  width: 130px; font-size: 12px; font-family: inherit; padding: 3px 8px;
+  border: 1px solid var(--line, #e5e7eb); border-radius: 6px; color: var(--ink, #111827); background: var(--surface, #fff);
+}
+.phone-input:focus { outline: none; border-color: var(--brand, #1786be); }
 
 .status {
   display: inline-flex;

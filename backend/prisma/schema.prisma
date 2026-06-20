@@ -372,6 +372,9 @@ model ZaloAccount {
   // dữ liệu (hội thoại/tin/bạn bè) trong DB. archivedAt != null = đã ẩn khỏi danh sách.
   // Listener + health-check BỎ QUA nick đã archive (không reconnect).
   archivedAt      DateTime? @map("archived_at")
+  // T13 (2026-06-21): user.id người bấm XÓA nick (null = hệ thống tự dọn thẻ ma / xóa trước khi
+  // có field này). Tab "Nick đã xóa" resolve tên qua User. KHÔNG FK (giữ nhẹ, xóa user ko cascade).
+  archivedById    String?   @map("archived_by_id")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   org                Organization          @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -544,6 +547,10 @@ model Contact {
   hasZalo            Boolean?  @map("has_zalo") // null=unknown, true=verified yes, false=verified no
   zaloLookupAt       DateTime? @map("zalo_lookup_at")
   zaloLookupAttempts Int       @default(0) @map("zalo_lookup_attempts")
+  // #3 (2026-06-20): đếm số lần ĐÃ GỬI kết bạn cho SĐT này (mức Cha) — để sau lọc/loại SĐT bị
+  // nhiều chiến dịch gửi kết bạn. Chỉ +1 khi GỬI MỚI thành công (không tính "đã là bạn").
+  friendInviteSentCount  Int       @default(0) @map("friend_invite_sent_count")
+  friendInviteLastSentAt DateTime? @map("friend_invite_last_sent_at")
   importBatchId      String?   @map("import_batch_id") // soft FK -> phone_list_imports.id (model later)
 
   // ── Compliance ─────────────────────────────────────────────────────────────
@@ -693,6 +700,7 @@ model Contact {
   @@index([orgId, zaloUsername])
   @@index([orgId, mergedInto])
   @@index([orgId, hasZalo])
+  @@index([orgId, friendInviteSentCount]) // #3: lọc "SĐT đã gửi kết bạn ≥ N" nhanh
   @@index([orgId, importBatchId])
   @@index([orgId, consentStatus])
   @@index([orgId, province, district])

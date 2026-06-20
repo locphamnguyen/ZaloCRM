@@ -254,15 +254,17 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const gate = await requireAccountManagement(request, reply, id);
       if (!gate) return reply;
+      const user = request.user!;
 
       // Stop listener trước (nick archived không cần kết nối nữa).
       zaloPool.disconnect(id);
       // Chỉ ẩn — GIỮ sessionData + zaloUid để kết nối lại nguyên vẹn (revive). KHÔNG nhả uid.
+      // T13: ghi archivedById = ai bấm xóa (tab "Nick đã xóa" hiện người xóa).
       await prisma.zaloAccount.update({
         where: { id },
-        data: { archivedAt: new Date(), status: 'disconnected' },
+        data: { archivedAt: new Date(), status: 'disconnected', archivedById: user.id },
       });
-      request.log?.info?.(`[zalo:${id}] soft-deleted (archivedAt set, status=disconnected, GIỮ uid+session để revive, listener stopped)`);
+      request.log?.info?.(`[zalo:${id}] soft-deleted by ${user.id} (archivedAt set, GIỮ uid+session để revive)`);
 
       return reply.status(204).send();
     },
@@ -275,8 +277,85 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const gate = await requireAccountManagement(request, reply, id);
       if (!gate) return reply;
-      await prisma.zaloAccount.update({ where: { id }, data: { archivedAt: null } });
+      // T13: khôi phục → bỏ ẩn + clear người-xóa. Nick về danh sách active (disconnected) →
+      // bấm "Kết nối lại" để quét QR online lại.
+      await prisma.zaloAccount.update({ where: { id }, data: { archivedAt: null, archivedById: null } });
       return { message: 'Account restored — kết nối lại bằng QR/reconnect nếu cần' };
+    },
+  );
+
+  // GET /api/v1/zalo-accounts/archived — T13 (2026-06-21): tab "Nick đã xóa".
+  // Admin/chủ tổ chức → mọi nick đã ẩn của org; sale thường → chỉ nick đã xóa của MÌNH.
+  // Trả kèm số liệu (hội thoại/bạn) + người xóa + chủ nick + loại (khôi-phục-được vs thẻ ma).
+  app.get('/api/v1/zalo-accounts/archived', async (request, reply) => {
+    const user = request.user;
+    if (!user) return reply.status(401).send({ error: 'Unauthorized' });
+    const isAdmin = user.role === 'owner' || user.role === 'admin';
+    const rows = await prisma.zaloAccount.findMany({
+      where: {
+        orgId: user.orgId,
+        archivedAt: { not: null },
+        ...(isAdmin ? {} : { ownerUserId: user.id }),
+      },
+      select: {
+        id: true, displayName: true, avatarUrl: true, zaloUid: true, phone: true,
+        ownerUserId: true, archivedAt: true, archivedById: true, lastConnectedAt: true, disconnectReason: true,
+        owner: { select: { fullName: true, email: true } },
+        _count: { select: { conversations: true, friends: true } },
+      },
+      orderBy: { archivedAt: 'desc' },
+    });
+    // Resolve tên người xóa (batch, 0 N+1).
+    const archiverIds = [...new Set(rows.map((r) => r.archivedById).filter((x): x is string => !!x))];
+    const archivers = archiverIds.length
+      ? await prisma.user.findMany({ where: { id: { in: archiverIds } }, select: { id: true, fullName: true, email: true } })
+      : [];
+    const archiverMap = new Map(archivers.map((u) => [u.id, u.fullName || u.email]));
+    return {
+      accounts: rows.map((r) => ({
+        id: r.id,
+        displayName: r.displayName,
+        avatarUrl: r.avatarUrl,
+        zaloUid: r.zaloUid,
+        phone: r.phone,
+        ownerName: r.owner?.fullName || r.owner?.email || null,
+        archivedAt: r.archivedAt,
+        lastConnectedAt: r.lastConnectedAt,
+        disconnectReason: r.disconnectReason,
+        // null = hệ thống tự dọn (thẻ ma) hoặc xóa trước khi có field.
+        archivedByName: r.archivedById ? (archiverMap.get(r.archivedById) || 'Không rõ') : null,
+        conversations: r._count.conversations,
+        friends: r._count.friends,
+        // có uid = đã từng login → khôi phục được; uid null = thẻ ma (chỉ xóa hẳn).
+        revivable: !!r.zaloUid,
+      })),
+    };
+  });
+
+  // DELETE /api/v1/zalo-accounts/:id/purge-empty — T13: XÓA HẲN thẻ ma RỖNG (0 hội thoại + 0 bạn).
+  // An toàn cascade vì không có data để mất. Nick còn dữ liệu → CHẶN (chỉ khôi phục).
+  app.delete<{ Params: { id: string } }>(
+    '/api/v1/zalo-accounts/:id/purge-empty',
+    async (request, reply) => {
+      const { id } = request.params;
+      const gate = await requireAccountManagement(request, reply, id);
+      if (!gate) return reply;
+      const acc = await prisma.zaloAccount.findUnique({
+        where: { id },
+        select: { archivedAt: true, _count: { select: { conversations: true, friends: true } } },
+      });
+      if (!acc) return reply.status(404).send({ error: 'not_found' });
+      if (!acc.archivedAt) {
+        return reply.status(400).send({ error: 'not_archived', message: 'Chỉ xóa hẳn nick đã ẩn (đã xóa mềm).' });
+      }
+      if (acc._count.conversations > 0 || acc._count.friends > 0) {
+        return reply.status(409).send({ error: 'has_data', message: 'Nick còn dữ liệu (hội thoại/bạn bè) — không xóa hẳn được, chỉ khôi phục.' });
+      }
+      zaloPool.disconnect(id);
+      await prisma.zaloAccountAccess.deleteMany({ where: { zaloAccountId: id } });
+      await prisma.zaloAccount.delete({ where: { id } }); // cascade dọn friendshipAttempts rỗng
+      request.log?.info?.(`[zalo:${id}] purged (thẻ ma rỗng, 0 conv/0 friend) by ${request.user?.id}`);
+      return { message: 'Đã xóa hẳn nick (thẻ ma rỗng).' };
     },
   );
 
@@ -371,10 +450,12 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
             disconnectReason: existing.disconnectReason ?? null, // T1: FE phân biệt manual/passive
             archived: isArchived,                                 // T1: boolean (KHÔNG trả raw Date)
           };
-          // T9b: nick ĐÃ XÓA của CHÍNH MÌNH + khớp theo UID (định danh thật) → FE login QR THẲNG
-          // trên id cũ (POST /:id/login) → revive đúng record (T8 clear archivedAt), KHÔNG tạo mới.
+          // T9b + 2026-06-21: nick CỦA CHÍNH MÌNH + khớp theo UID (định danh thật) mà KHÔNG đang
+          // 'connected' (đã xóa / disconnected / qr_pending / manual) → FE login QR THẲNG trên id
+          // cũ (POST /:id/login) → revive đúng record cũ, KHÔNG tạo nick mới (giữ uid + tin nhắn).
+          // Trước chỉ archived → nick disconnected (session chết) rơi vào reconnect ngầm báo ảo.
           // KHÔNG revive theo phone-only (uid rỗng = bản ma/khác người dùng cũ số đó).
-          if (isArchived && ownedByMe && !!foundUid && existing.zaloUid === foundUid) {
+          if (ownedByMe && !!foundUid && existing.zaloUid === foundUid && existing.status !== 'connected') {
             reviveAccountId = existing.id;
           }
         }
@@ -434,6 +515,71 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return { message: 'Proxy updated', hasProxy: !!proxyUrl };
+    },
+  );
+
+  // PUT /api/v1/zalo-accounts/:id/phone — sửa SĐT THỦ CÔNG cho nick (anh hỏi 2026-06-21:
+  // nick nhập trước chưa xác minh SĐT → bổ sung sau). Verify trùng Zalo/tên trước khi lưu:
+  //   • khớp UID (nick đã login + uid của SĐT trùng) HOẶC khớp TÊN → lưu (đã xác minh).
+  //   • lookup được nhưng KHÁC uid/tên, hoặc số chưa có Zalo, hoặc không tra được → 409 needsConfirm
+  //     (cảnh báo); chỉ lưu khi body.force=true. Để trống phone → xóa SĐT (cho luôn).
+  app.put<{ Params: { id: string }; Body: { phone?: string; force?: boolean } }>(
+    '/api/v1/zalo-accounts/:id/phone',
+    async (request, reply) => {
+      const { id } = request.params;
+      const gate = await requireAccountManagement(request, reply, id);
+      if (!gate) return reply;
+
+      const force = request.body?.force === true;
+      const phone = (request.body?.phone ?? '').trim().replace(/[\s.\-()]/g, '');
+      if (!phone) {
+        await prisma.zaloAccount.update({ where: { id }, data: { phone: null } });
+        return { saved: true, message: 'Đã xóa SĐT.' };
+      }
+      if (!/^(0|\+?84)\d{8,10}$/.test(phone)) {
+        return reply.status(400).send({ error: 'invalid_phone', message: 'Số điện thoại không hợp lệ.' });
+      }
+
+      const nick = await prisma.zaloAccount.findUnique({
+        where: { id }, select: { zaloUid: true, displayName: true, orgId: true },
+      });
+      if (!nick) return reply.status(404).send({ error: 'not_found' });
+
+      // Tra SĐT trên Zalo qua nick hệ thống (như check-phone) để xác minh danh tính.
+      let resolved: { uid: string | null; name: string | null } | null = null;
+      try {
+        const org = await prisma.organization.findUnique({
+          where: { id: nick.orgId },
+          select: { systemNotifyNick: { select: { id: true, status: true } } },
+        });
+        const sysNick = org?.systemNotifyNick;
+        if (sysNick && sysNick.status === 'connected') {
+          const { zaloOps } = await import('../../shared/zalo-operations.js');
+          const found = (await zaloOps.findUser(sysNick.id, phone)) as { uid?: string; display_name?: string; zalo_name?: string; username?: string } | null;
+          resolved = found?.uid
+            ? { uid: String(found.uid), name: found.display_name ?? found.zalo_name ?? found.username ?? null }
+            : { uid: null, name: null };
+        }
+      } catch { /* lookup lỗi → resolved=null (không xác minh được) */ }
+
+      const norm = (s: string | null) => (s ?? '').trim().toLowerCase();
+      const uidMatch = !!resolved?.uid && !!nick.zaloUid && resolved.uid === nick.zaloUid;
+      const nameMatch = !!resolved?.name && norm(resolved.name) === norm(nick.displayName);
+
+      if (uidMatch || nameMatch) {
+        await prisma.zaloAccount.update({ where: { id }, data: { phone } });
+        return { saved: true, verified: true, matchedBy: uidMatch ? 'uid' : 'name', message: 'Đã lưu SĐT (khớp Zalo).' };
+      }
+      if (!force) {
+        const why = resolved === null
+          ? 'Không tra được Zalo (nick hệ thống chưa kết nối) để xác minh.'
+          : resolved.uid === null
+            ? 'Số này CHƯA đăng ký Zalo.'
+            : `Số này trên Zalo là "${resolved.name ?? 'người khác'}" — KHÁC tên nick "${nick.displayName ?? ''}".`;
+        return reply.status(409).send({ saved: false, needsConfirm: true, resolved, message: why });
+      }
+      await prisma.zaloAccount.update({ where: { id }, data: { phone } });
+      return { saved: true, verified: false, message: 'Đã lưu SĐT (chưa xác minh).' };
     },
   );
 }

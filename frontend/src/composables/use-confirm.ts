@@ -23,6 +23,8 @@ export interface ConfirmOptions {
   requireReason?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
+  /** Bắt gõ đúng chuỗi này (vd "OK") mới cho bấm xác nhận — chống bấm nhầm. */
+  requireTypedConfirm?: string;
 }
 
 interface ConfirmState extends ConfirmOptions {

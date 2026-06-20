@@ -2,9 +2,9 @@
  * care-session-service.test.ts — Unit test CareSession (Phiên chăm sóc).
  *
  * Phủ các quyết định eng-review (D9 test đầy đủ):
- *  - isListeningState (D12): active+paused = nghe; completed/cancelled = đóng
+ *  - isListeningState (D12): active+paused = nghe (gác ghi Monitor, KHÔNG đóng phiên)
  *  - buildCareEventId (S2): phân tán, providerId vs timestamp-bucket
- *  - findListeningSessionsForEvent: lazy-close nguồn chết (D12), giữ paused
+ *  - findListeningSessionsForEvent: phiên ĐỘC LẬP với Mục tiêu (CEO 2026-06-20) — không lazy-close
  *  - recordCustomerEventOnSession: idempotent reply 2 lần (D4) — P2002 → false
  *  - sweepSilentCareSessions: janitor set-based + race guard (S1)
  *  - closeCareSessionsOnConditionMatch: đóng theo status/tag trong closeConditions
@@ -93,34 +93,30 @@ describe('buildCareEventId (S2 — phân tán)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-describe('findListeningSessionsForEvent (D12 lazy-close)', () => {
-  it('trigger active → nghe; trigger completed → lazy-close + loại khỏi kết quả', async () => {
+describe('findListeningSessionsForEvent (phiên độc lập với Mục tiêu — CEO 2026-06-20)', () => {
+  it('trigger active VÀ completed → CẢ HAI vẫn nghe, KHÔNG lazy-close', async () => {
     prismaMock.careSession.findMany.mockResolvedValue([
       { id: 's1', orgId: 'o1', ownerUserId: 'u1', enrolledByUserId: null, sourceType: 'trigger',
         sourceTriggerId: 't1', sourceSequenceId: null, trigger: { state: 'active', name: 'A' } },
       { id: 's2', orgId: 'o1', ownerUserId: 'u1', enrolledByUserId: null, sourceType: 'trigger',
         sourceTriggerId: 't2', sourceSequenceId: null, trigger: { state: 'completed', name: 'B' } },
     ]);
-    prismaMock.careSession.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await findListeningSessionsForEvent({ orgId: 'o1', contactId: 'c1', nickId: 'n1' });
 
-    // Chỉ s1 (active) còn nghe; s2 (completed) bị lazy-close.
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('s1');
-    // s2 được updateMany đóng với reason source_done.
-    expect(prismaMock.careSession.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: { in: ['s2'] } }),
-        data: expect.objectContaining({ state: 'closed', closedReason: 'source_done' }),
-      }),
-    );
+    // Mục tiêu hoàn tất KHÔNG còn giết phiên — cả s1 lẫn s2 đều còn nghe.
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.id).sort()).toEqual(['s1', 's2']);
+    // s2 vẫn mang triggerState='completed' để caller tự quyết việc ghi Monitor.
+    expect(result.find((r) => r.id === 's2')?.triggerState).toBe('completed');
+    // KHÔNG tự đóng phiên nào theo trạng thái Mục tiêu.
+    expect(prismaMock.careSession.updateMany).not.toHaveBeenCalled();
   });
 
-  it('trigger PAUSED → VẪN nghe (D12 không đóng)', async () => {
+  it('trigger cancelled → VẪN nghe (Hủy không giết phiên, có nút đóng thủ công riêng)', async () => {
     prismaMock.careSession.findMany.mockResolvedValue([
-      { id: 's1', orgId: 'o1', ownerUserId: 'u1', enrolledByUserId: null, sourceType: 'trigger',
-        sourceTriggerId: 't1', sourceSequenceId: null, trigger: { state: 'paused', name: 'A' } },
+      { id: 's3', orgId: 'o1', ownerUserId: 'u1', enrolledByUserId: null, sourceType: 'trigger',
+        sourceTriggerId: 't3', sourceSequenceId: null, trigger: { state: 'cancelled', name: 'C' } },
     ]);
     const result = await findListeningSessionsForEvent({ orgId: 'o1', contactId: 'c1', nickId: 'n1' });
     expect(result).toHaveLength(1);

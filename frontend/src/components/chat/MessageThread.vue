@@ -1307,6 +1307,11 @@ async function touchConversationProfile(convId: string) {
 // Watch conversation switch → sync labels (cooldown 5s server-side) + fetch master list cho thread hiện tại
 watch(() => props.conversation?.id, (newId, oldId) => {
   if (!newId || newId === oldId) return;
+  // Xoá nhãn Zalo của nick CŨ ngay lập tức. Nếu không, allLabels vẫn giữ list của
+  // thread trước → currentLabel.find(assignedTo) trả nhãn nick cũ trong lúc chờ
+  // fetchAllLabels → "hiện sai vài giây rồi nhảy đúng". Xoá xong currentLabel sẽ
+  // fallback về friendship.zaloLabels của ĐÚNG nick mới (lấy từ list) cho tới khi API về.
+  allLabels.value = [];
   const accId = props.conversation?.zaloAccount?.id;
   const threadId = props.conversation?.externalThreadId;
   if (accId) {

@@ -15,6 +15,7 @@
     :require-reason="confirmState.requireReason"
     :reason-label="confirmState.reasonLabel"
     :reason-placeholder="confirmState.reasonPlaceholder"
+    :require-typed-confirm="confirmState.requireTypedConfirm"
     @confirm="(reason) => resolveConfirm(true, reason)"
     @cancel="resolveConfirm(false, '')"
   />

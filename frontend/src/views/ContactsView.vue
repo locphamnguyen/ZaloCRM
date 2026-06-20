@@ -158,6 +158,18 @@
           <input type="number" v-model.number="filters.scoreMax" min="0" max="100" placeholder="Max" class="score-input-mini" @change="fetchContacts" />
         </div>
       </div>
+      <div class="adv-group adv-inline">
+        <label title="Lọc khách đã được gắn từ N sequence trở lên (tính cả tự động lẫn thủ công) — để lọc bớt KH gắn quá nhiều">🔁 Gắn sequence ≥</label>
+        <div class="adv-row">
+          <input type="number" v-model.number="filters.sequenceAttachMin" min="1" placeholder="N" class="score-input-mini" @change="fetchContacts" />
+        </div>
+      </div>
+      <div class="adv-group adv-inline">
+        <label title="Lọc khách đã được gửi lời mời kết bạn từ N lần trở lên — để loại bớt SĐT bị nhiều chiến dịch gửi kết bạn">📨 Gửi kết bạn ≥</label>
+        <div class="adv-row">
+          <input type="number" v-model.number="filters.friendInviteMin" min="1" placeholder="N" class="score-input-mini" @change="fetchContacts" />
+        </div>
+      </div>
       <div class="adv-group adv-inline adv-wide">
         <label>📅 Khoảng tương tác</label>
         <div class="adv-row">
@@ -279,6 +291,12 @@
                   <div v-if="contact.fullName && contact.crmName && contact.fullName !== contact.crmName" class="cl-name-sub">{{ contact.fullName }}</div>
                   <div v-if="(contact.childrenCount ?? 0) > 1" class="cl-name-sub">
                     <span class="chip chip-cung-cham" :title="`${contact.childrenCount} nick chăm KH này — mở ▸ để xem`">🤝 Cùng chăm ({{ contact.childrenCount }})</span>
+                  </div>
+                  <div v-if="(contact.sequenceAttachCount ?? 0) > 0" class="cl-name-sub">
+                    <span class="chip chip-seq" :title="`Đã gắn ${contact.sequenceAttachCount} sequence (${contact.sequenceActiveCount ?? 0} đang chạy) — tính cả tự động lẫn thủ công`">🔁 {{ contact.sequenceAttachCount }} sequence<template v-if="(contact.sequenceActiveCount ?? 0) > 0"> · {{ contact.sequenceActiveCount }} chạy</template></span>
+                  </div>
+                  <div v-if="(contact.friendInviteSentCount ?? 0) > 0" class="cl-name-sub">
+                    <span class="chip chip-fi" :title="`Đã gửi lời mời kết bạn ${contact.friendInviteSentCount} lần cho SĐT này (cộng dồn mọi chiến dịch)`">📨 {{ contact.friendInviteSentCount }} lần kết bạn</span>
                   </div>
                 </div>
               </td>
@@ -1971,6 +1989,24 @@ watch(
   background: var(--warning-soft);
   color: var(--warning);
   border: 1px solid #F59E0B66;
+  margin-left: 6px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+/* #4: badge số lần gắn sequence (auto+manual) — tím để tách khỏi chip nick xanh */
+.chip-seq {
+  background: rgba(124,58,237,0.10);
+  color: #6D28D9;
+  border: 1px solid #7C3AED55;
+  margin-left: 6px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+/* #3: badge số lần đã gửi kết bạn — xanh ngọc, tách khỏi chip seq tím */
+.chip-fi {
+  background: rgba(13,148,136,0.10);
+  color: #0F766E;
+  border: 1px solid #14B8A655;
   margin-left: 6px;
   font-weight: 600;
   letter-spacing: 0.2px;

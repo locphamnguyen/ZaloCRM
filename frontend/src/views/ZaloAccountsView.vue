@@ -48,6 +48,14 @@
           ({{ privacyCounter.used }}/{{ privacyCounter.max }})
         </span>
       </button>
+      <!-- T13 2026-06-21: tab "Nick đã xóa" — xem/khôi phục/dọn nick đã ẩn. -->
+      <button
+        class="za-tab"
+        :class="{ active: activeTab === 'archived' }"
+        @click="setTab('archived')"
+      >
+        🗑 Nick đã xóa
+      </button>
       <!-- GỠ 2026-06-10 (CEO-review): tab "Sửa nick nhận thông báo" (setup thủ công)
            đã bỏ — gây bug gửi nhầm UID. Nick nhận giờ chỉ đến từ luồng tạo user bằng SĐT
            + Check Live ở trang Thông báo hệ thống. Ẩn nút, không cho vào tab. -->
@@ -175,6 +183,11 @@
       </div>
     </template>
 
+    <!-- T13 2026-06-21: tab Nick đã xóa -->
+    <template v-else-if="activeTab === 'archived'">
+      <ArchivedNicksPanel @changed="refreshAll" />
+    </template>
+
     <!-- DETAIL DRAWER -->
     <AccountDetailDrawer
       v-model="drawerOpen"
@@ -188,6 +201,7 @@
       @remove-crew="onRemoveCrew"
       @action="onDrawerAction"
       @reassign-owner="onOpenReassign"
+      @refresh="refreshAll"
     />
 
     <!-- BULK ACTION BAR -->
@@ -251,6 +265,7 @@ import StatsCards from '@/components/zalo-accounts/StatsCards.vue';
 import AccountsTable from '@/components/zalo-accounts/AccountsTable.vue';
 // SdkLimitsDialog dời sang trang Cài đặt SdkLimitsSettingsPage (2026-06-18) — ko import ở đây nữa.
 import AccountDetailDrawer from '@/components/zalo-accounts/AccountDetailDrawer.vue';
+import ArchivedNicksPanel from '@/components/zalo-accounts/ArchivedNicksPanel.vue';
 import BulkActionBar from '@/components/zalo-accounts/BulkActionBar.vue';
 import OwnerReassignDrawer from '@/components/zalo-accounts/OwnerReassignDrawer.vue';
 import NickGridCards from '@/components/zalo-accounts/NickGridCards.vue';
@@ -265,6 +280,7 @@ import { api } from '@/api/index';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useToast } from '@/composables/use-toast';
+import { useConfirm } from '@/composables/use-confirm';
 import type { EnrichedAccount } from '@/composables/use-zalo-accounts-dashboard';
 
 const dash = useZaloAccountsDashboard();
@@ -287,7 +303,7 @@ const {
   showQRDialog, qrImage, qrScanned, scannedName, qrError, qrSessionDead, duplicateInfo,
   currentLoginAccountId,
   deleting,
-  addAccount, loginAccount, reconnectAccount, deleteAccount,
+  addAccount, loginAccount, deleteAccount,
   cancelQR, setupSocket,
 } = dash;
 
@@ -337,13 +353,14 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const toast = useToast();
+const { confirm } = useConfirm();
 const reconnectingIds = ref<Set<string>>(new Set());
 // RBAC 2026-06-08 — quản lý nick + sửa liên lạc nội bộ của sale theo grants 'zalo_account.edit'
 // (owner/admin tự bypass). Thay cho check legacy role.
 const canManageZalo = computed(() => authStore.canAccess('zalo_account', 'edit'));
 // GỠ 2026-06-10 (CEO-review): bỏ 'internal-contact' khỏi tab hợp lệ — URL hack
 // ?tab=internal-contact sẽ rơi về 'manage'. Cơ chế setup thủ công đã gỡ.
-type TabKey = 'manage' | 'privacy' | 'internal-contact';
+type TabKey = 'manage' | 'privacy' | 'internal-contact' | 'archived';
 // Community edition: 'privacy' not a valid tab → ?tab=privacy falls back to 'manage'.
 const VALID_TABS: TabKey[] = isExtension ? ['manage', 'privacy'] : ['manage'];
 const activeTab = ref<TabKey>(VALID_TABS.includes(route.query.tab as TabKey) ? (route.query.tab as TabKey) : 'manage');
@@ -559,20 +576,13 @@ async function onWizardConfirmConnect() {
   else { wizardStep.value = 'phone'; alert('Không lấy được nick vừa tạo. Thử lại.'); }
 }
 
-// Fix ①: trùng nick CỦA CHÍNH MÌNH → Kết nối lại record cũ (thử reconnect session;
-// nếu hết session thì rơi về quét QR trên chính record đó, KHÔNG đẻ record mới).
+// Trùng nick CỦA CHÍNH MÌNH → 2026-06-21 (anh chốt): QUÉT QR MỚI thẳng trên record cũ (revive),
+// KHÔNG thử reconnect ngầm bằng session cũ. Lý do: session cũ thường ĐÃ CHẾT → reconnect fire-and-
+// forget trả 200 "đang kết nối" GIẢ → wizard vào "done" ảo mà nick không online. QR luôn chắc chắn.
 async function onWizardReconnectExisting(accountId: string) {
   connectedNickName.value = wizardPhone.value;
-  const r: any = await reconnectAccount(accountId);
-  if (r?.needsQR || r?.success === false) {
-    // Session cũ hết hạn → quét QR lại trên đúng record cũ.
-    wizardStep.value = 'qr';
-    await loginAccount(accountId);
-  } else {
-    // Reconnect thành công bằng session cũ → vào màn hoàn tất.
-    wizardStep.value = 'done';
-    await refreshAll();
-  }
+  wizardStep.value = 'qr';
+  await loginAccount(accountId);
 }
 
 // T2 2026-06-20: nick mình NGẮT THỦ CÔNG / ĐÃ XÓA (phiên cũ đã đóng) → đi THẲNG quét QR mới
@@ -632,30 +642,11 @@ function openQrForReconnect(account: any) {
 }
 
 async function onCardReconnect(account: any) {
-  const live = (account.liveStatus || account.status || '').toLowerCase();
-  // qr_pending (session hết hạn / circuit breaker) → cần quét QR lại.
-  // 2026-06-16: nick NGẮT THỦ CÔNG (disconnectReason='manual') → cũng quét QR lại (Anh chốt:
-  // "Kết nối lại = quét QR", không reconnect ngầm). loginQR sẽ clear reason khi connected.
-  if (live === 'qr_pending' || account.disconnectReason === 'manual') {
-    openQrForReconnect(account);
-    return;
-  }
-  // Còn session → reconnect ngầm + báo feedback (trước đây nuốt lỗi im → "không hiện gì").
-  reconnectingIds.value.add(account.id);
-  try {
-    const result = await reconnectAccount(account.id);
-    if (result.success) {
-      toast.push('Đang kết nối lại nick…', 'success');
-    } else if (result.needsQR) {
-      // Nick chưa có phiên lưu → mở QR thay vì reconnect ngầm.
-      toast.push('Nick chưa có phiên lưu — mở quét QR để đăng nhập lại.', 'warning');
-      openQrForReconnect(account);
-    } else {
-      toast.push('Kết nối lại thất bại: ' + result.message, 'error');
-    }
-  } finally {
-    reconnectingIds.value.delete(account.id);
-  }
+  // 2026-06-21 (anh chốt): "Kết nối lại" nick ĐÃ NGẮT = QUÉT QR MỚI (mọi lý do). Trước đây nick
+  // passive/disconnected thử reconnect ngầm bằng session cũ → session thường ĐÃ CHẾT → "tự end" /
+  // báo thành công ẢO mà nick không online. Health-check cron vẫn tự reconnect session-còn-sống
+  // ngầm (5 phút/lần); nút thủ công này = QR mới, chắc chắn ra giao diện quét.
+  openQrForReconnect(account);
 }
 function onConfirmDelete(account: any) {
   // Mở modal xác nhận (giống tab nâng cao). 2026-06-20 (T10): BE bỏ purge — xóa LUÔN là ẩn-mềm
@@ -666,8 +657,15 @@ function onConfirmDelete(account: any) {
 
 // Grid "Ngắt kết nối" → dùng chung flow disable (bulk-action) như tab nâng cao.
 async function onCardDisconnect(account: any) {
-  // eslint-disable-next-line no-alert
-  if (!window.confirm('Ngắt kết nối nick này?')) return;
+  // 2026-06-21 (anh chốt): thay confirm() native xấu → dialog HS + GÕ "OK" xác nhận (chống bấm nhầm).
+  if (!(await confirm({
+    title: `Ngắt kết nối "${account.displayName || 'nick'}"?`,
+    message: 'Nick sẽ ngắt khỏi CRM (vẫn giữ tin nhắn). Kết nối lại bằng cách quét QR mới.',
+    tone: 'danger',
+    requireTypedConfirm: 'OK',
+    confirmText: 'Ngắt kết nối',
+    cancelText: 'Hủy',
+  }))) return;
   try {
     await api.post('/zalo-accounts/bulk-action', { ids: [account.id], action: 'disable' });
     await refreshAll();
@@ -681,11 +679,9 @@ function onTableAction(payload: { account: any; action: 'reconnect' | 'sync' }) 
     if (payload.account.liveStatus === 'connected') {
       // Already connected → trigger sync-history instead as "refresh"
       api.post(`/zalo-accounts/${payload.account.id}/sync-history`).catch(() => {});
-    } else if (payload.account.disconnectReason === 'manual' || (payload.account.liveStatus || '').toLowerCase() === 'qr_pending') {
-      // 2026-06-16: ngắt thủ công / qr_pending → quét QR lại (không reconnect ngầm).
-      openQrForReconnect(payload.account);
     } else {
-      reconnectAccount(payload.account.id);
+      // 2026-06-21: mọi nick CHƯA kết nối → quét QR mới (không reconnect ngầm báo ảo).
+      openQrForReconnect(payload.account);
     }
   } else if (payload.action === 'sync') {
     api.post(`/zalo-accounts/${payload.account.id}/sync-contacts`)
@@ -707,9 +703,13 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         await api.post(`/zalo-accounts/${id}/sync-history`);
         toast.push('Đồng bộ lịch sử chat thành công', 'success');
         break;
-      case 'reconnect':
-        await reconnectAccount(id);
+      case 'reconnect': {
+        // 2026-06-21: "Kết nối lại" = quét QR mới (không reconnect ngầm báo ảo).
+        const acct = filtered.value.find((a) => a.id === id);
+        if (acct) openQrForReconnect(acct);
+        else { wizardStep.value = 'qr'; wizardOpen.value = true; await loginAccount(id); }
         break;
+      }
       case 'qr-login': {
         // 2026-06-11 FIX: mở wizard ở bước QR (ConnectNickWizard render qrImage) thay vì
         // loginAccount trần — trước đây chỉ set showQRDialog (dialog cũ không còn render)
@@ -727,13 +727,20 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         await api.put(`/zalo-accounts/${id}/proxy`, { proxyUrl: url.trim() || null });
         await refreshAll();
         break;
-      case 'disconnect':
-        // eslint-disable-next-line no-alert
-        if (!window.confirm('Ngắt kết nối nick này?')) return;
+      case 'disconnect': {
+        if (!(await confirm({
+          title: 'Ngắt kết nối nick?',
+          message: 'Nick sẽ ngắt khỏi CRM (vẫn giữ tin nhắn). Kết nối lại bằng quét QR mới.',
+          tone: 'danger',
+          requireTypedConfirm: 'OK',
+          confirmText: 'Ngắt kết nối',
+          cancelText: 'Hủy',
+        }))) return;
         await api.post('/zalo-accounts/bulk-action', { ids: [id], action: 'disable' });
         await refreshAll();
         toast.push('Đã ngắt kết nối nick', 'success');
         break;
+      }
       case 'delete':
         deleteTargetId.value = id;
         showDeleteDialog.value = true;
@@ -752,8 +759,7 @@ function onAddCrew(accountId: string) {
 }
 
 async function onRemoveCrew(payload: { accountId: string; accessId: string }) {
-  // eslint-disable-next-line no-alert
-  if (!window.confirm('Bỏ gán sale này?')) return;
+  if (!(await confirm({ title: 'Bỏ gán sale này?', tone: 'danger', confirmText: 'Bỏ gán', cancelText: 'Hủy' }))) return;
   try {
     await api.delete(`/zalo-accounts/${payload.accountId}/access/${payload.accessId}`);
     await refreshAll();
@@ -769,8 +775,14 @@ function onAccessDialogClose() {
 
 async function onBulkAction(action: 'reconnect' | 'sync-contacts' | 'disable') {
   if (action === 'disable') {
-    // eslint-disable-next-line no-alert
-    if (!window.confirm(`Disable ${selectedCount.value} nick? Status sẽ chuyển sang disconnected.`)) return;
+    if (!(await confirm({
+      title: `Ngắt kết nối ${selectedCount.value} nick?`,
+      message: 'Các nick chọn sẽ chuyển sang ngắt kết nối (vẫn giữ tin nhắn).',
+      tone: 'danger',
+      requireTypedConfirm: 'OK',
+      confirmText: 'Ngắt kết nối',
+      cancelText: 'Hủy',
+    }))) return;
   }
   bulkLoading.value = true;
   try {

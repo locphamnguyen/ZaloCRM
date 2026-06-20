@@ -48,13 +48,26 @@
           <p v-if="showError" class="cam-err">Vui lòng nhập lý do trước khi dừng.</p>
         </div>
 
+        <!-- Body: gõ xác nhận (chỉ khi requireTypedConfirm) — chống bấm nhầm. -->
+        <div v-if="requireTypedConfirm" class="cam-body">
+          <label class="cam-label">Gõ <b>{{ requireTypedConfirm }}</b> để xác nhận</label>
+          <input
+            ref="typedEl"
+            v-model="typed"
+            class="cam-input"
+            :placeholder="requireTypedConfirm"
+            autocomplete="off"
+            @keydown.enter.exact.prevent="onConfirm"
+          />
+        </div>
+
         <!-- Foot -->
         <div class="cam-foot">
           <button class="cam-btn cam-btn--ghost" :disabled="busy" @click="onCancel">{{ cancelText }}</button>
           <button
             class="cam-btn"
             :class="tone === 'danger' ? 'cam-btn--danger' : 'cam-btn--primary'"
-            :disabled="busy"
+            :disabled="busy || !typedOk"
             @click="onConfirm"
           >
             <span v-if="busy" class="cam-spin" />
@@ -67,7 +80,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, computed } from 'vue';
 
 const props = withDefaults(defineProps<{
   open: boolean;
@@ -79,6 +92,8 @@ const props = withDefaults(defineProps<{
   requireReason?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
+  /** Bắt gõ đúng chuỗi này (vd "OK") mới cho bấm xác nhận — chống bấm nhầm. */
+  requireTypedConfirm?: string;
   busy?: boolean;
 }>(), {
   message: '',
@@ -88,6 +103,7 @@ const props = withDefaults(defineProps<{
   requireReason: false,
   reasonLabel: 'Lý do',
   reasonPlaceholder: 'Nhập lý do...',
+  requireTypedConfirm: '',
   busy: false,
 });
 
@@ -98,17 +114,24 @@ const emit = defineEmits<{
 }>();
 
 const reason = ref('');
+const typed = ref('');
 const showError = ref(false);
 const reasonEl = ref<HTMLTextAreaElement | null>(null);
+const typedEl = ref<HTMLInputElement | null>(null);
 
-// Mở modal → reset + focus ô lý do.
+// Nút xác nhận chỉ bật khi gõ ĐÚNG chuỗi yêu cầu (không phân biệt hoa/thường). Không yêu cầu → luôn bật.
+const typedOk = computed(() =>
+  !props.requireTypedConfirm || typed.value.trim().toUpperCase() === props.requireTypedConfirm.trim().toUpperCase(),
+);
+
+// Mở modal → reset + focus ô nhập.
 watch(() => props.open, (v) => {
   if (v) {
     reason.value = '';
+    typed.value = '';
     showError.value = false;
-    if (props.requireReason) {
-      void nextTick(() => reasonEl.value?.focus());
-    }
+    if (props.requireReason) void nextTick(() => reasonEl.value?.focus());
+    else if (props.requireTypedConfirm) void nextTick(() => typedEl.value?.focus());
   }
 });
 
@@ -118,6 +141,7 @@ function onConfirm(): void {
     showError.value = true;
     return;
   }
+  if (!typedOk.value) return;
   emit('confirm', reason.value.trim());
 }
 
@@ -193,6 +217,13 @@ function onCancel(): void {
 }
 .cam-textarea:focus { outline: none; border-color: var(--brand); }
 .cam-err { font-size: 11px; color: var(--error); margin-top: 5px; }
+.cam-input {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 10px; font-family: inherit; font-size: 13px; color: var(--ink);
+  background: var(--surface); transition: border-color 0.12s;
+}
+.cam-input:focus { outline: none; border-color: var(--brand); }
 
 /* Foot */
 .cam-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 16px 16px; }

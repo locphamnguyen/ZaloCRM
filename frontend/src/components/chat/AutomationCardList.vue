@@ -317,7 +317,13 @@ function deriveState(card: AutomationStatusCard): CardState {
     card.currentStep != null && card.totalSteps != null &&
     card.totalSteps > 0 && card.currentStep >= card.totalSteps
   ) return 'completed';
-  return 'active';
+  // Fallback (2026-06-20): KHÔNG còn job pending (nextRunAt null) + không pause/dừng +
+  // không đọc được tiến độ bước (totalSteps=null từ event-log 30 ngày) → luồng KHÔNG còn
+  // việc để gửi nữa = đã xong. Trước đây fallback 'active' khiến luồng đã kết thúc vẫn
+  // kẹt badge "Đang chạy" mãi (đúng case anh báo). Khớp với BE: hết job + totalSteps biết
+  // → currentStep=totalSteps → completed. Luồng THẬT đang chạy luôn có nextRunAt (đã return
+  // 'active' ở trên), nên đổi này chỉ chạm các run đã hết việc.
+  return 'completed';
 }
 
 // ── Gom card theo SEQUENCE (Anh chốt 2026-06-07) ──
