@@ -203,10 +203,21 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       if (!gate) return reply;
       const account = await prisma.zaloAccount.findUnique({
         where: { id },
-        select: { sessionData: true, proxyUrl: true },
+        select: { sessionData: true, proxyUrl: true, disconnectReason: true },
       });
       if (!account) {
         return reply.status(404).send({ error: 'Account not found' });
+      }
+
+      // T3 (YC1 2026-06-20): nick NGẮT THỦ CÔNG (manual) → session cũ đã đóng, reconnect ngầm
+      // sẽ bị zalo-pool skip IM LẶNG → caller nhận 200 giả → wizard nhảy "done" sai. Trả 409
+      // needsQR để FE chuyển sang QUÉT QR MỚI. (Nick passive/null vẫn reconnect ngầm bình thường.)
+      if (account.disconnectReason === 'manual') {
+        return reply.status(409).send({
+          error: 'needs_qr',
+          needsQR: true,
+          message: 'Nick này đã ngắt thủ công — vui lòng quét QR mới để đăng nhập lại.',
+        });
       }
 
       const session = account.sessionData as {
@@ -320,10 +331,12 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         //   • chưa có                    → tạo nick mới như cũ
         // Match ưu tiên zaloUid (định danh thật của nick), fallback phone (số chưa từng quét QR).
         const userId = (user as any).userId ?? user.id;
+        // T1+T9b (YC2 2026-06-20): BỎ `archivedAt: null` → tìm CẢ nick đã xóa mềm để FE biết
+        // (revive). orderBy ưu tiên nick CÒN SỐNG (archivedAt nulls-first) → nếu có cả nick sống
+        // lẫn nick xóa cùng uid (ca trùng), trả nick SỐNG (đang chạy, không revive nhầm).
         const existing = await prisma.zaloAccount.findFirst({
           where: {
             orgId: user.orgId,
-            archivedAt: null,
             OR: [
               ...(foundUid ? [{ zaloUid: foundUid }] : []),
               { phone: normalized },
@@ -335,9 +348,14 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
             status: true,
             ownerUserId: true,
             owner: { select: { id: true, fullName: true } },
+            disconnectReason: true,
+            archivedAt: true,
+            zaloUid: true,
           },
-          // zaloUid match đáng tin hơn phone → ưu tiên record đã có uid.
-          orderBy: { zaloUid: { sort: 'desc', nulls: 'last' } },
+          orderBy: [
+            { archivedAt: { sort: 'asc', nulls: 'first' } }, // nick sống (null) trước nick xóa
+            { zaloUid: { sort: 'desc', nulls: 'last' } },     // rồi mới tới record đã có uid
+          ],
         });
 
         let duplicate: {
@@ -346,15 +364,28 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
           status: string;
           ownedByMe: boolean;
           owner: string | null;
+          disconnectReason: string | null;
+          archived: boolean;
         } | null = null;
+        let reviveAccountId: string | null = null;
         if (existing) {
+          const isArchived = existing.archivedAt !== null;
+          const ownedByMe = existing.ownerUserId === userId;
           duplicate = {
             accountId: existing.id,
             displayName: existing.displayName,
             status: existing.status,
-            ownedByMe: existing.ownerUserId === userId,
+            ownedByMe,
             owner: existing.owner?.fullName ?? null,
+            disconnectReason: existing.disconnectReason ?? null, // T1: FE phân biệt manual/passive
+            archived: isArchived,                                 // T1: boolean (KHÔNG trả raw Date)
           };
+          // T9b: nick ĐÃ XÓA của CHÍNH MÌNH + khớp theo UID (định danh thật) → FE login QR THẲNG
+          // trên id cũ (POST /:id/login) → revive đúng record (T8 clear archivedAt), KHÔNG tạo mới.
+          // KHÔNG revive theo phone-only (uid rỗng = bản ma/khác người dùng cũ số đó).
+          if (isArchived && ownedByMe && !!foundUid && existing.zaloUid === foundUid) {
+            reviveAccountId = existing.id;
+          }
         }
 
         return {
@@ -367,6 +398,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
             phone: normalized,
           },
           duplicate,
+          reviveAccountId,
         };
       } catch (err) {
         request.log?.warn?.({ err }, '[check-phone] findUser failed');

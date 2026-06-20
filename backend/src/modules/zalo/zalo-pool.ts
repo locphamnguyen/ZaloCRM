@@ -589,7 +589,11 @@ class ZaloAccountPool {
             ...(zaloUid !== null ? { zaloUid } : {}),
             // 2026-06-16: nick connected lại → CLEAR trạng thái mất kết nối (manual/passive)
             // để FE thôi hiện "đã ngắt/đã mất kết nối".
-            ...(status === 'connected' ? { lastConnectedAt: new Date(), disconnectReason: null, disconnectedAt: null } : {}),
+            // T8 (YC2 2026-06-20): + CLEAR archivedAt → nick ĐÃ XÓA login lại (quét QR đúng
+            // tài khoản) tự SỐNG DẬY, hội thoại/tin nhắn cũ hiện lại. An toàn vì chỉ clear khi
+            // status='connected' (nick THẬT đã login WS thành công, api!=null). Nick-ma không
+            // bao giờ tới 'connected' (api=null) nên không bị clear nhầm.
+            ...(status === 'connected' ? { lastConnectedAt: new Date(), disconnectReason: null, disconnectedAt: null, archivedAt: null } : {}),
           },
           select: { orgId: true, ownerUserId: true },
         });
@@ -679,13 +683,18 @@ class ZaloAccountPool {
 
   /**
    * Tra nick đang SỞ HỮU một zaloUid (để báo "nick đã thuộc ai" khi quét trùng). Fix ②.
+   * T9 (YC2 2026-06-20): `includeArchived` — khi true, tìm cả nick ĐÃ XÓA (archived) giữ uid
+   * để báo "nick đã xóa của người khác". Mặc định false → giữ nguyên hành vi loginQR (chỉ nick
+   * sống). Lưu ý: chống đẻ record mồ côi nằm ở T8 (revive clear archivedAt) + T9b (check-phone
+   * cho FE login đúng id cũ), KHÔNG ở đây; updateMany nhả uid (FIX 0) giữ nguyên.
    */
   private async findOwnerOfZaloUid(
     zaloUid: string,
     excludeAccountId: string,
+    includeArchived = false,
   ): Promise<{ accountId: string; ownerName: string | null; ownedByMe: false } | null> {
     const rec = await prisma.zaloAccount.findFirst({
-      where: { zaloUid, archivedAt: null, NOT: { id: excludeAccountId } },
+      where: { zaloUid, NOT: { id: excludeAccountId }, ...(includeArchived ? {} : { archivedAt: null }) },
       select: { id: true, owner: { select: { fullName: true } } },
     });
     return rec ? { accountId: rec.id, ownerName: rec.owner?.fullName ?? null, ownedByMe: false } : null;
@@ -1067,14 +1076,17 @@ class ZaloAccountPool {
    *
    * An toàn:
    *   • CHỈ thẻ ma: zaloUid=null (chưa từng connect thật) + qr_pending/disconnected.
-   *   • Quá hạn: createdAt < now()-15min (ngưỡng để KHÔNG đụng thẻ sale đang quét QR).
+   *   • Quá hạn: createdAt < now()-24h (T4b 2026-06-20: đổi 15ph→24h — nick-ma phải HIỆN
+   *     24h ở UI với badge "Đang chờ quét QR" trước khi ẩn; 15ph quá sớm, sale quét QR dở
+   *     để lâu sẽ thấy nick-ma biến mất giữa chừng).
    *   • lastConnectedAt=null: chưa từng online → loại nick thật cũ (qua purge nhả uid
    *     nhưng có lastConnectedAt) khỏi tầm xoá. Đây là chốt phân biệt thẻ-ma vs nick-thật-cũ.
-   *   • ẨN bằng archivedAt (xoá mềm), KHÔNG hard-delete → giữ lịch sử, admin gộp sau.
+   *   • ẨN bằng archivedAt (xoá mềm), KHÔNG hard-delete → giữ lịch sử + Friend/Conversation
+   *     (cascade) còn nguyên, admin gộp sau.
    *
    * @returns số thẻ ma đã ẩn (để test + log).
    */
-  async cleanupStaleGhosts(staleMinutes = 15): Promise<number> {
+  async cleanupStaleGhosts(staleMinutes = 24 * 60): Promise<number> {
     const cutoff = new Date(Date.now() - staleMinutes * 60_000);
     try {
       return await runSystemQuery(async () => {
@@ -1098,7 +1110,7 @@ class ZaloAccountPool {
           where: { id: { in: ids } },
           data: { archivedAt: new Date(), status: 'disconnected', sessionData: Prisma.JsonNull },
         });
-        logger.info(`[zalo:cleanup] ẩn ${ids.length} thẻ ma qr_pending quá ${staleMinutes} phút (chống tái phát nick trùng)`);
+        logger.info(`[zalo:cleanup] ẩn ${ids.length} thẻ ma qr_pending quá ${Math.round(staleMinutes / 60)}h (chống tái phát nick trùng)`);
         return ids.length;
       });
     } catch (err) {

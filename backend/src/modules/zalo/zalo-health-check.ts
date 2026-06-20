@@ -83,12 +83,13 @@ export function startZaloHealthCheck(): void {
     }
   });
 
-  // FIX 3 nick-ghost (Anh chốt 2026-06-13): mỗi giờ dọn thẻ ma qr_pending cũ (>15 phút,
-  // chưa từng online) bằng cách ẩn (archivedAt). Chống tái phát nick trùng khi nick thật
-  // không bao giờ connect ổn định. Logic + điều kiện an toàn nằm trong zaloPool.cleanupStaleGhosts.
+  // FIX 3 nick-ghost (Anh chốt 2026-06-13): mỗi giờ dọn thẻ ma qr_pending cũ bằng cách ẩn
+  // (archivedAt). T4b (2026-06-20): đổi ngưỡng 15 phút → 24h — nick-ma phải HIỆN 24h ở UI
+  // (badge "Đang chờ quét QR") trước khi ẩn, tránh biến mất giữa lúc sale quét QR dở.
+  // Logic + điều kiện an toàn nằm trong zaloPool.cleanupStaleGhosts.
   cron.schedule('0 * * * *', async () => {
     try {
-      const n = await zaloPool.cleanupStaleGhosts(15);
+      const n = await zaloPool.cleanupStaleGhosts(24 * 60);
       if (n > 0) logger.info(`[health-check] dọn ${n} thẻ ma qr_pending cũ`);
     } catch (err) {
       logger.error('[health-check] Error during stale-ghost cleanup:', err);

@@ -10,17 +10,49 @@
  * Output: array of zaloAccount IDs user được phép xem.
  * Caller dùng `where: { id: { in: ids }, orgId: ... }` để filter list.
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 
 export interface ZaloScope {
-  /** Account IDs user được phép xem (read scope) */
+  /** Account IDs user được phép xem (read scope) — nick còn SỐNG (archivedAt=null). Dùng cho picker/gửi. */
   accessibleIds: string[];
+  /**
+   * 2026-06-20 (YC2): Account IDs user XEM được — gồm nick còn sống + nick ĐÃ XÓA-có-uid (đọc-only).
+   * Loại nick-ma (zaloUid=null). Dùng cho list/detail chat (nick xóa vẫn hiện lịch sử).
+   */
+  displayableIds: string[];
   /** True nếu user có quyền manage org-wide (bulk actions, edit any) */
   isOrgAdmin: boolean;
   /** Set của account IDs mà user là owner (owns the nick) — dùng để gate Action buttons */
   ownedIds: Set<string>;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T4 (YC2 2026-06-20) — 2 predicate Prisma DÙNG CHUNG cho lọc nick theo tầng NICK.
+// CHỈ chạm cột ZaloAccount (archivedAt, zaloUid, status). TUYỆT ĐỐI KHÔNG đụng tầng
+// FRIEND (Friend.relationshipKind='ghost') — trộn vào = lộ Friend-ma. Cũng KHÔNG nhúng
+// orgId/ownerUserId/scope vào đây — caller tự AND thêm để giữ privacy + tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Predicate "HIỂN THỊ ĐƯỢC" (đọc-only): nick còn sống HOẶC nick đã xóa nhưng ĐÃ TỪNG login
+ * (zaloUid != null). Loại nick-ma (archivedAt != null mà zaloUid = null = chưa từng login).
+ * Dùng cho list/detail chat. Nhúng relation: `zaloAccount: DISPLAYABLE_NICK_WHERE`.
+ * Filter trực tiếp bảng ZaloAccount: `{ ...DISPLAYABLE_NICK_WHERE, orgId }`.
+ */
+export const DISPLAYABLE_NICK_WHERE: Prisma.ZaloAccountWhereInput = {
+  OR: [
+    { archivedAt: null },
+    { archivedAt: { not: null }, zaloUid: { not: null } },
+  ],
+};
+
+/** Predicate "GỬI ĐƯỢC": nick còn sống VÀ đang kết nối. */
+export const ACTIVE_SEND_NICK_WHERE: Prisma.ZaloAccountWhereInput = {
+  archivedAt: null,
+  status: 'connected',
+};
 
 export async function getZaloScope(userId: string, orgId: string, legacyRole: string): Promise<ZaloScope> {
   const isOrgAdmin = legacyRole === 'owner' || legacyRole === 'admin';
@@ -29,14 +61,16 @@ export async function getZaloScope(userId: string, orgId: string, legacyRole: st
   // 2026-06-10 FIX: lọc archivedAt → nick đã xóa KHÔNG còn trong accessibleIds, nên
   // mọi picker/màn hình dùng getZaloScope tự động hết pick được nick đã xóa.
   if (isOrgAdmin) {
+    // T6 (YC2): lấy CẢ nick xóa-có-uid để XEM; accessibleIds (gửi) chỉ nick còn sống.
     const all = await prisma.zaloAccount.findMany({
-      where: { orgId, archivedAt: null },
-      select: { id: true, ownerUserId: true },
+      where: { orgId, ...DISPLAYABLE_NICK_WHERE },
+      select: { id: true, ownerUserId: true, archivedAt: true },
     });
     return {
-      accessibleIds: all.map((a) => a.id),
+      displayableIds: all.map((a) => a.id),
+      accessibleIds: all.filter((a) => a.archivedAt === null).map((a) => a.id),
       isOrgAdmin: true,
-      ownedIds: new Set(all.filter((a) => a.ownerUserId === userId).map((a) => a.id)),
+      ownedIds: new Set(all.filter((a) => a.ownerUserId === userId && a.archivedAt === null).map((a) => a.id)),
     };
   }
 
@@ -75,26 +109,36 @@ export async function getZaloScope(userId: string, orgId: string, legacyRole: st
     for (const m of subtreeMembers) visibleUserIds.add(m.userId);
   }
 
-  // Accounts owned by any of visible users (trừ nick đã xóa mềm — 2026-06-10).
+  // Accounts owned by any of visible users. T6 (YC2): lấy CẢ nick xóa-có-uid (DISPLAYABLE)
+  // để XEM được; tách archivedAt=null cho accessibleIds (gửi). GIỮ NGUYÊN luật owner/dept.
   const ownedAccounts = await prisma.zaloAccount.findMany({
-    where: { orgId, ownerUserId: { in: Array.from(visibleUserIds) }, archivedAt: null },
-    select: { id: true, ownerUserId: true },
+    where: { orgId, ownerUserId: { in: Array.from(visibleUserIds) }, ...DISPLAYABLE_NICK_WHERE },
+    select: { id: true, ownerUserId: true, archivedAt: true },
   });
 
-  // PLUS accounts user được grant access explicit (qua ZaloAccountAccess) — trừ nick đã xóa.
+  // PLUS accounts user được grant access explicit (qua ZaloAccountAccess) — gồm nick xóa-có-uid.
   const grantedAccess = await prisma.zaloAccountAccess.findMany({
-    where: { userId, zaloAccount: { orgId, archivedAt: null } },
-    select: { zaloAccountId: true },
+    where: { userId, zaloAccount: { orgId, ...DISPLAYABLE_NICK_WHERE } },
+    select: { zaloAccountId: true, zaloAccount: { select: { archivedAt: true } } },
   });
 
-  const accessibleIds = Array.from(
-    new Set([...ownedAccounts.map((a) => a.id), ...grantedAccess.map((g) => g.zaloAccountId)]),
-  );
+  const displayableSet = new Set<string>();
+  const accessibleSet = new Set<string>();
+  for (const a of ownedAccounts) {
+    displayableSet.add(a.id);
+    if (a.archivedAt === null) accessibleSet.add(a.id);
+  }
+  for (const g of grantedAccess) {
+    displayableSet.add(g.zaloAccountId);
+    if (g.zaloAccount?.archivedAt === null) accessibleSet.add(g.zaloAccountId);
+  }
 
   return {
-    accessibleIds,
+    displayableIds: Array.from(displayableSet),
+    accessibleIds: Array.from(accessibleSet),
     isOrgAdmin: false,
-    ownedIds: new Set(ownedAccounts.filter((a) => a.ownerUserId === userId).map((a) => a.id)),
+    // ownedIds = nick mình sở hữu CÒN SỐNG (gate action buttons) — loại nick đã xóa.
+    ownedIds: new Set(ownedAccounts.filter((a) => a.ownerUserId === userId && a.archivedAt === null).map((a) => a.id)),
   };
 }
 
@@ -184,7 +228,8 @@ export async function requireAccountVisible(
     return null;
   }
   const scope = await getZaloScope(user.id, user.orgId, user.role);
-  if (!scope.isOrgAdmin && !scope.accessibleIds.includes(accountId)) {
+  // T6 (YC2): dùng displayableIds để XEM (gồm nick xóa-có-uid đọc-only). Gửi vẫn gate riêng (T7/T7b).
+  if (!scope.isOrgAdmin && !scope.displayableIds.includes(accountId)) {
     reply.status(403).send({
       error: 'Bạn không có quyền xem nick này',
       code: 'not_in_scope',
@@ -192,4 +237,21 @@ export async function requireAccountVisible(
     return null;
   }
   return account;
+}
+
+/**
+ * T7b (YC2 2026-06-20) — lý do CHẶN GỬI qua 1 nick, dùng chung mọi cửa gửi (chat/attachment/
+ * media/public-api/automation) để thông điệp + mã lỗi nhất quán. Thứ tự ưu tiên: nick đã XÓA
+ * (archivedAt) trước → chưa kết nối sau. null = gửi được.
+ */
+export function nickSendBlockReason(
+  acc: { archivedAt: Date | null; status: string },
+): { code: string; message: string } | null {
+  if (acc.archivedAt) {
+    return { code: 'NICK_ARCHIVED', message: 'Nick này đã bị xóa — chỉ xem lại lịch sử, không gửi được. Kết nối lại nick để tiếp tục.' };
+  }
+  if (acc.status !== 'connected') {
+    return { code: 'NICK_NOT_CONNECTED', message: 'Nick Zalo chưa kết nối.' };
+  }
+  return null;
 }
