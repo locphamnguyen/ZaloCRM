@@ -17,6 +17,9 @@ interface ZaloAccount {
   privacyMode?: 'main' | 'sub';
   /** Owner user của nick (chính chủ) — dùng cho gate UI privacy blur + composer lock */
   ownerUserId?: string | null;
+  /** T11 2026-06-20: thời điểm nick bị XÓA (ẩn-mềm). !=null → badge "Đã xóa" + khóa ô soạn tin.
+   *  KHÔNG suy ra từ status='disconnected' (nick sống cũng disconnected tạm). */
+  archivedAt?: string | null;
 }
 
 export interface AiSentiment {

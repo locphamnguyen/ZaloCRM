@@ -208,6 +208,7 @@
       @checked="onWizardChecked"
       @confirm-connect="onWizardConfirmConnect"
       @reconnect-existing="onWizardReconnectExisting"
+      @rescan-existing="onWizardRescanExisting"
       @retry-qr="onWizardRetryQr"
       @close="closeWizard"
     />
@@ -218,12 +219,7 @@
         <div class="modal-head"><h3>Xoá nick</h3></div>
         <div class="modal-body">
           <p>Xoá nick "<b>{{ deleteTarget?.displayName || deleteTarget?.zaloUid || deleteTarget?.id }}</b>" khỏi quản lý?</p>
-          <div class="hint">Nick sẽ bị ẩn khỏi danh sách. Nếu kết nối lại Zalo vào nick này, toàn bộ dữ liệu CRM sẽ hiện lại.</div>
-          <label class="purge-check">
-            <input type="checkbox" v-model="deletePurge" />
-            <span>Xoá khỏi CRM (xoá phiên đăng nhập — kết nối lại sẽ tạo nick mới)</span>
-          </label>
-          <div v-if="deletePurge" class="hint hint-danger">Nếu kết nối lại Zalo, sẽ tạo một nick CRM mới với dữ liệu CRM mới.</div>
+          <div class="hint">Nick sẽ bị ẩn nhưng GIỮ toàn bộ tin nhắn (xem lại được). Kết nối lại đúng nick này sẽ tự khôi phục.</div>
         </div>
         <div class="modal-foot">
           <button class="btn" @click="showDeleteDialog = false">Huỷ</button>
@@ -318,7 +314,6 @@ const wizardPhone = ref('');
 const connectedNickName = ref<string | null>(null);
 const showDeleteDialog = ref(false);
 const deleteTargetId = ref<string | null>(null);
-const deletePurge = ref(false); // checkbox "Xoá khỏi CRM" → wipe phiên + nhả uid
 const bulkLoading = ref(false);
 const lastRefresh = ref(new Date());
 
@@ -501,6 +496,7 @@ function openAddDialog() {
   wizardStep.value = 'phone';
   wizardPhone.value = '';
   connectedNickName.value = null;
+  reviveAccountId.value = null; // T2: reset cờ revive mỗi lần mở wizard fresh
   wizardOpen.value = true;
 }
 function closeWizard() {
@@ -508,9 +504,14 @@ function closeWizard() {
   cancelQR(); // hủy phiên QR đang chờ (tránh nick treo qr_pending rác)
 }
 
+// T2 2026-06-20: id nick ĐÃ XÓA của chính mình khớp UID (BE check-phone trả reviveAccountId).
+// → login THẲNG trên record cũ (revive) thay vì tạo nick mới ở bước Xác nhận.
+const reviveAccountId = ref<string | null>(null);
+
 // B1→B2: wizard đã gọi check-phone, lưu phone.
 function onWizardChecked(payload: { phone: string; info: any }) {
   wizardPhone.value = payload.phone;
+  reviveAccountId.value = payload.info?.reviveAccountId ?? null;
   if (payload.info?.found && payload.info?.info?.displayName) {
     connectedNickName.value = payload.info.info.displayName;
   }
@@ -519,6 +520,12 @@ function onWizardChecked(payload: { phone: string; info: any }) {
 // B2→B3: sale xác nhận → tạo nick (gửi kèm SĐT để BE check trùng owner) + login QR.
 async function onWizardConfirmConnect() {
   wizardStep.value = 'qr';
+  // T2 2026-06-20: nick ĐÃ XÓA của chính mình khớp UID → login THẲNG trên record cũ (revive),
+  // KHÔNG tạo nick mới (giữ uid + toàn bộ tin nhắn cũ).
+  if (reviveAccountId.value) {
+    await loginAccount(reviveAccountId.value);
+    return;
+  }
   // displayName/proxy để trống — lấy tên thật sau QR. phone giúp BE chặn trùng (fix ①).
   const res = await addAccount('', undefined, wizardPhone.value);
   if (!res.ok) {
@@ -558,6 +565,14 @@ async function onWizardReconnectExisting(accountId: string) {
     wizardStep.value = 'done';
     await refreshAll();
   }
+}
+
+// T2 2026-06-20: nick mình NGẮT THỦ CÔNG / ĐÃ XÓA (phiên cũ đã đóng) → đi THẲNG quét QR mới
+// trên chính record cũ (revive), KHÔNG gọi reconnectAccount (BE skip im lặng nick manual).
+async function onWizardRescanExisting(accountId: string) {
+  connectedNickName.value = wizardPhone.value;
+  wizardStep.value = 'qr';
+  await loginAccount(accountId);
 }
 
 function onWizardRetryQr() {
@@ -635,11 +650,9 @@ async function onCardReconnect(account: any) {
   }
 }
 function onConfirmDelete(account: any) {
-  // Mở modal xác nhận (giống tab nâng cao) — có checkbox "Xoá khỏi CRM" (purge).
-  // 2026-06-16 (Anh chốt): xóa nick từ grid card = XÓA HẲN (purge) → mặc định tick sẵn.
-  // Sale vẫn thấy dialog + bỏ tick được nếu chỉ muốn ẩn. Card chỉ cho xóa khi nick ĐÃ NGẮT.
+  // Mở modal xác nhận (giống tab nâng cao). 2026-06-20 (T10): BE bỏ purge — xóa LUÔN là ẩn-mềm
+  // (giữ uid + tin nhắn). Card chỉ cho xóa khi nick ĐÃ NGẮT.
   deleteTargetId.value = account.id;
-  deletePurge.value = true;
   showDeleteDialog.value = true;
 }
 
@@ -715,7 +728,6 @@ async function onDrawerAction(payload: { accountId: string; action: string }) {
         break;
       case 'delete':
         deleteTargetId.value = id;
-        deletePurge.value = false;
         showDeleteDialog.value = true;
         break;
     }
@@ -766,14 +778,12 @@ async function onBulkAction(action: 'reconnect' | 'sync-contacts' | 'disable') {
 
 async function handleDelete() {
   if (!deleteTarget.value) return;
-  const purge = deletePurge.value;
-  const ok = await deleteAccount(deleteTarget.value as any, purge);
+  const ok = await deleteAccount(deleteTarget.value as any);
   if (ok) {
     showDeleteDialog.value = false;
     deleteTargetId.value = null;
-    deletePurge.value = false;
     drawerOpen.value = false; // 2026-06-11: đóng drawer chi tiết sau khi xoá (giống main)
-    toast.push(purge ? 'Đã xoá nick và dữ liệu khỏi CRM' : 'Đã ẩn nick khỏi quản lý', 'success');
+    toast.push('Đã ẩn nick khỏi quản lý (giữ tin nhắn — kết nối lại sẽ khôi phục)', 'success');
     await refreshAll();
   } else {
     toast.push('Xoá nick thất bại', 'error');
@@ -1083,14 +1093,6 @@ onMounted(async () => {
   color: #9CA3AF;
   margin-top: 4px;
 }
-.purge-check {
-  display: flex; align-items: flex-start; gap: 8px;
-  margin-top: 12px; padding: 10px 12px;
-  background: #FEF2F2; border: 1px solid #FECACA; border-radius: 8px;
-  cursor: pointer; font-size: 12.5px; color: #991B1B; line-height: 1.4;
-}
-.purge-check input { margin-top: 2px; flex-shrink: 0; }
-.hint-danger { color: #B91C1C; font-weight: 500; margin-top: 8px; }
 .modal-foot {
   padding: 12px 18px;
   background: #FAFBFC;

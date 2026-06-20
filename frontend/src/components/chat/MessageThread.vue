@@ -194,6 +194,8 @@
               </NickAvatarLock>
               <span class="nick-name">{{ conversation.zaloAccount?.displayName || '—' }}</span>
             </template>
+            <!-- T11 2026-06-20: nick đã xóa → chip xám "Đã xóa" cạnh tên nick -->
+            <span v-if="isArchivedNick" class="nick-archived-chip" title="Nick này đã bị xóa khỏi CRM — chỉ xem lại lịch sử">Đã xóa</span>
             <span class="ch-sep">|</span>
             <span
               class="msg-counts"
@@ -336,6 +338,17 @@
           <div class="virtual-banner-title">Chat nội bộ — tin nhắn KHÔNG gửi đi Zalo</div>
           <div class="virtual-banner-sub">
             Dùng để ghi nhật ký chăm sóc + đặt lịch hẹn. Trợ lý AI sẽ gợi ý câu hỏi khai thác thông tin KH cho anh/chị.
+          </div>
+        </div>
+      </div>
+
+      <!-- T11 2026-06-20: Banner cho nick đã xóa — chỉ xem lại lịch sử, không gửi/nhận. -->
+      <div v-if="isArchivedNick" class="virtual-banner archived-banner">
+        <div class="virtual-banner-icon"><InfoIcon :size="14" :stroke-width="2" /></div>
+        <div class="virtual-banner-body">
+          <div class="virtual-banner-title">Nick đã bị xóa — chỉ xem lại lịch sử</div>
+          <div class="virtual-banner-sub">
+            Kết nối lại nick này để gửi/nhận tin trở lại.
           </div>
         </div>
       </div>
@@ -598,7 +611,7 @@
           </div>
           </NickAvatarLock>
 
-          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) }">
+          <div ref="editorWrapRef" class="editor-wrap" :class="{ 'editor-locked': !privacyVisibility.canSendInConv(conversation) || isArchivedNick }">
             <QuickTemplatePopup
               ref="templatePopupRef"
               :visible="showTemplatePopup"
@@ -629,6 +642,14 @@
             >
               <span class="editor-lock-pill">🔒 Riêng tư — chỉ chính chủ nick gửi được tin</span>
             </div>
+            <!-- T11 2026-06-20: nick đã xóa → overlay khóa ô soạn (khóa mềm UX, KHÔNG thay guard server) -->
+            <div
+              v-else-if="isArchivedNick"
+              class="editor-lock-overlay"
+              @click.stop
+            >
+              <span class="editor-lock-pill">🗑 Nick đã xóa — không gửi được. Kết nối lại để gửi tin.</span>
+            </div>
           </div>
 
           <!-- Emoji picker (hover) — sát nút Gửi -->
@@ -638,9 +659,9 @@
           <button
             class="send-btn"
             :class="{ 'send-btn-virtual': isVirtualConv }"
-            :disabled="!inputText.trim() || sending"
+            :disabled="!inputText.trim() || sending || isArchivedNick"
             @click="handleSend"
-            :title="isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
+            :title="isArchivedNick ? 'Nick đã xóa — không gửi được.' : isVirtualConv ? 'Lưu nội bộ (Enter) — KHÔNG gửi đi Zalo' : 'Gửi (Enter)'"
           >
             <v-icon v-if="sending" size="20">mdi-loading mdi-spin</v-icon>
             <template v-else-if="isVirtualConv">
@@ -1476,6 +1497,11 @@ const isVirtualConv = computed(() => {
   return Boolean((props.conversation as { isVirtual?: boolean } | undefined)?.isVirtual);
 });
 
+// T11 2026-06-20: nick của conversation ĐÃ BỊ XÓA (ẩn-mềm) → badge "Đã xóa" + banner + khóa ô
+// soạn tin (khóa mềm UX, KHÔNG thay guard server). CHỈ dùng archivedAt!=null — KHÔNG suy từ
+// status='disconnected' (nick sống cũng có thể disconnected tạm).
+const isArchivedNick = computed(() => !!props.conversation?.zaloAccount?.archivedAt);
+
 // M55 2026-05-30 — Cùng chăm chip + tooltip cho header chat
 const contactAccessList = computed(() => {
   const list = (props.conversation?.contact as { contactAccess?: Array<{
@@ -2034,6 +2060,10 @@ function onOpenNote() {
   toast.push('Mở ghi chú nhanh ở panel bên phải');
 }
 const inputPlaceholder = computed(() => {
+  // T11 2026-06-20: nick đã xóa → placeholder khóa
+  if (isArchivedNick.value) {
+    return 'Nick đã xóa — không gửi được.';
+  }
   // M53 2026-05-30: virtual conv → placeholder rõ ràng là nhật ký nội bộ
   if (isVirtualConv.value) {
     return 'Ghi nội dung trao đổi — Trợ lý AI sẽ gợi ý câu hỏi tiếp theo...';
@@ -2665,6 +2695,7 @@ async function dispatchBlockComponents(blockId: string) {
 // ── Send ────────────────────────────────────────────────────────────────────
 function handleSend() {
   if (showTemplatePopup.value) { showTemplatePopup.value = false; return; }
+  if (isArchivedNick.value) return; // T11: nick đã xóa → chặn gửi (Enter + nút). Khóa mềm UX.
   if (!inputText.value.trim()) return;
 
   // 2026-05-21 fix: lấy rich payload {text, styles} từ editor để gửi format đi Zalo.
@@ -3278,6 +3309,27 @@ watch(() => props.editingMessage?.id, async (id) => {
 .virtual-banner-body { flex: 1; }
 .virtual-banner-title { font-weight: 600; line-height: 1.4; }
 .virtual-banner-sub { font-size: 11px; color: #c2410c; margin-top: 2px; line-height: 1.4; }
+
+/* T11 2026-06-20: banner nick đã xóa — tông XÁM (clone virtual-banner) + chip xám cạnh tên nick */
+.archived-banner {
+  background: linear-gradient(90deg, #f9fafb, #f3f4f6);
+  border-bottom: 1px solid #e5e7eb;
+  color: #4b5563;
+}
+.archived-banner .virtual-banner-icon { background: #9ca3af; }
+.archived-banner .virtual-banner-sub { color: #6b7280; }
+.nick-archived-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 
 /* M53 2026-05-30: virtual mode — bubble self border đứt nét */
 .chat-messages-area.is-virtual-mode :deep(.bubble.self) {

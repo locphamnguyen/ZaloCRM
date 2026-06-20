@@ -141,6 +141,11 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
       return { success: true, message: 'Đang kết nối lại nick…' };
     } catch (err: any) {
       const msg = err.response?.data?.error || err.message || 'Kết nối lại thất bại';
+      // 2026-06-20: BE trả 409 needs_qr cho nick NGẮT THỦ CÔNG (phiên cũ đã đóng → reconnect ngầm
+      // vô nghĩa). FE phải rơi sang quét QR mới trên chính record cũ. message ưu tiên dạng "người đọc".
+      if (err.response?.status === 409 && err.response?.data?.needsQR) {
+        return { success: false, message: err.response.data.message || msg, needsQR: true };
+      }
       // Nick chưa có phiên lưu (chưa từng login qua QR) → cần quét QR thay vì reconnect ngầm.
       if (err.response?.status === 400 && /no saved session/i.test(msg)) {
         return { success: false, message: msg, needsQR: true };
@@ -150,11 +155,12 @@ export function useZaloAccounts(opts?: { onStatusChange?: () => void }) {
     }
   }
 
-  // purge=true → "Xoá khỏi CRM": BE wipe sessionData + nhả zaloUid (re-connect tạo nick mới).
-  async function deleteAccount(account: ZaloAccount, purge = false) {
+  // 2026-06-20: BE BỎ tham số purge — xoá nick LUÔN là ẩn-mềm (giữ uid + tin nhắn). Kết nối lại
+  // đúng nick này sẽ tự khôi phục. Không còn "Xoá khỏi CRM" wipe phiên.
+  async function deleteAccount(account: ZaloAccount) {
     deleting.value = true;
     try {
-      await api.delete(`/zalo-accounts/${account.id}`, { params: { purge: purge ? 'true' : undefined } });
+      await api.delete(`/zalo-accounts/${account.id}`);
       await fetchAccounts();
       return true;
     } catch (err: any) {

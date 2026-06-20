@@ -45,25 +45,45 @@
             <div class="cnw-confirm-name">{{ checkInfo.info?.displayName || 'Nick Zalo' }}</div>
             <div class="cnw-confirm-phone">{{ phone }}</div>
 
-            <!-- Trùng nick CỦA CHÍNH MÌNH → hướng Kết nối lại, không quét QR mới (fix ①) -->
-            <div v-if="dupOwnedByMe" class="cnw-info-box">
-              <v-icon size="18" color="#0f6ea3">mdi-information-outline</v-icon>
-              <div>
-                Nick này <b>bạn đã kết nối trước đó</b>. Không cần quét QR mới — hãy
-                <b>Kết nối lại</b> để khôi phục phiên cũ.
-              </div>
-            </div>
+            <!-- Thứ tự v-if/else-if PHẢI là: dupOtherOwner → dupConnected → dupNeedsQr → dupOwnedByMe(passive)
+                 → bình thường. Sai thứ tự sẽ nuốt nhánh (T2 2026-06-20). -->
             <!-- Trùng nick NGƯỜI KHÁC → CHẶN, hướng chủ tổ chức chuyển giao (fix ① + ③) -->
-            <div v-else-if="dupOtherOwner" class="cnw-block-box">
+            <div v-if="dupOtherOwner" class="cnw-block-box">
               <v-icon size="18" color="#b42318">mdi-account-lock-outline</v-icon>
               <div>
                 Nick này <b>đang do {{ checkInfo.duplicate.owner || 'nhân viên khác' }} quản lý</b>.
                 Bạn không thể tự kết nối. Vui lòng <b>liên hệ chủ tổ chức</b> để được chuyển giao.
               </div>
             </div>
+            <!-- T2: nick mình ĐANG CHẠY trong CRM → không cần làm gì -->
+            <div v-else-if="dupConnected" class="cnw-info-box">
+              <v-icon size="18" color="#0f6ea3">mdi-information-outline</v-icon>
+              <div>
+                Nick này <b>đang chạy trong CRM</b>, không cần kết nối lại.
+              </div>
+            </div>
+            <!-- T2: nick mình đã NGẮT THỦ CÔNG / ĐÃ XÓA → phiên cũ đã đóng → phải QUÉT QR MỚI -->
+            <div v-else-if="dupNeedsQr" class="cnw-info-box">
+              <v-icon size="18" color="#0f6ea3">mdi-information-outline</v-icon>
+              <div>
+                Nick này <b>bạn đã ngắt/xóa trước đó</b>. Cần <b>QUÉT QR MỚI</b> để đăng nhập lại
+                (phiên cũ đã đóng).
+              </div>
+            </div>
+            <!-- Trùng nick mình (passive/null disconnected) → vẫn thử Kết nối lại bằng session cũ (fix ①) -->
+            <div v-else-if="dupOwnedByMe" class="cnw-info-box">
+              <v-icon size="18" color="#0f6ea3">mdi-information-outline</v-icon>
+              <div>
+                Nick này <b>bạn đã kết nối trước đó</b>. Không cần quét QR mới — hãy
+                <b>Kết nối lại</b> để khôi phục phiên cũ.
+              </div>
+            </div>
 
             <p v-if="!dupOtherOwner" class="cnw-confirm-q">
-              {{ dupOwnedByMe ? 'Khôi phục kết nối nick này chứ?' : 'Đúng nick bạn muốn kết nối chứ?' }}
+              {{ dupConnected ? 'Nick đang sẵn sàng dùng.'
+                : dupNeedsQr ? 'Quét QR mới để đăng nhập lại nick này chứ?'
+                : dupOwnedByMe ? 'Khôi phục kết nối nick này chứ?'
+                : 'Đúng nick bạn muốn kết nối chứ?' }}
             </p>
           </div>
           <div v-else class="cnw-confirm cnw-fallback">
@@ -131,11 +151,29 @@
         </button>
 
         <button v-if="step === 'confirm'" class="btn" @click="step = 'phone'">← Sửa SĐT</button>
+        <!-- Thứ tự v-if/else-if PHẢI khớp nhánh info-box: dupOtherOwner → dupConnected → dupNeedsQr
+             → dupOwnedByMe(passive) → bình thường (T2 2026-06-20). -->
         <!-- Trùng người khác → chỉ cho đóng, KHÔNG cho quét -->
         <button v-if="step === 'confirm' && dupOtherOwner" class="btn btn-primary" @click="onClose">
           Đã hiểu
         </button>
-        <!-- Trùng nick mình → Kết nối lại record cũ (không đẻ record mới) -->
+        <!-- T2: nick mình đang chạy → chỉ đóng -->
+        <button
+          v-else-if="step === 'confirm' && dupConnected"
+          class="btn btn-primary"
+          @click="onClose"
+        >
+          Đã hiểu
+        </button>
+        <!-- T2: nick mình manual/đã-xóa → QUÉT QR MỚI trên record cũ (KHÔNG reconnect ngầm) -->
+        <button
+          v-else-if="step === 'confirm' && dupNeedsQr"
+          class="btn btn-primary"
+          @click="$emit('rescan-existing', checkInfo.duplicate.accountId)"
+        >
+          Quét QR mới →
+        </button>
+        <!-- Trùng nick mình (passive) → Kết nối lại record cũ (không đẻ record mới) -->
         <button
           v-else-if="step === 'confirm' && dupOwnedByMe"
           class="btn btn-primary"
@@ -178,7 +216,8 @@ const emit = defineEmits<{
   'update:step': [v: 'phone' | 'confirm' | 'qr' | 'done'];
   'checked': [payload: { phone: string; info: any }];   // sang B2
   'confirm-connect': [];                                  // B2 → B3 (parent tạo nick + login QR)
-  'reconnect-existing': [accountId: string];             // trùng nick mình → reconnect record cũ (fix ①)
+  'reconnect-existing': [accountId: string];             // trùng nick mình (passive) → reconnect record cũ (fix ①)
+  'rescan-existing': [accountId: string];                // T2 2026-06-20: nick manual/đã-xóa → QUÉT QR MỚI trên record cũ
   'retry-qr': [];
   close: [];
 }>();
@@ -199,6 +238,15 @@ const dupOwnedByMe = computed(() => checkInfo.value?.duplicate?.ownedByMe === tr
 const dupOtherOwner = computed(
   () => !!checkInfo.value?.duplicate && checkInfo.value.duplicate.ownedByMe === false,
 );
+// 2026-06-20 (T2) — điều hướng theo LÝ DO ngắt của nick trùng (BE check-phone trả thêm
+// duplicate.status / disconnectReason / archived). manual hoặc đã-xóa (archived) → phiên cũ ĐÃ ĐÓNG
+// → bắt buộc QUÉT QR MỚI (KHÔNG reconnect ngầm — sẽ bị BE skip im lặng → sale kẹt). connected → đang
+// chạy, không cần làm gì. passive/disconnected khác → vẫn thử reconnect bằng session cũ.
+const dupStatus = computed(() => checkInfo.value?.duplicate?.status ?? null);
+const dupReason = computed(() => checkInfo.value?.duplicate?.disconnectReason ?? null);
+const dupArchived = computed(() => checkInfo.value?.duplicate?.archived === true);
+const dupNeedsQr = computed(() => dupOwnedByMe.value && (dupReason.value === 'manual' || dupArchived.value));
+const dupConnected = computed(() => dupOwnedByMe.value && dupStatus.value === 'connected');
 
 const stepLabels = ['Nhập SĐT', 'Xác nhận', 'Quét QR', 'Hoàn tất'];
 const stepIndex = computed(() => ({ phone: 0, confirm: 1, qr: 2, done: 3 }[props.step]));
