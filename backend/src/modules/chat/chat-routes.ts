@@ -8,6 +8,7 @@ import { prisma, tenantTransaction } from '../../shared/database/prisma-client.j
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
+import { DISPLAYABLE_NICK_WHERE } from '../zalo/zalo-scope.js';
 import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -129,7 +130,8 @@ export async function chatRoutes(app: FastifyInstance) {
     const user = request.user!;
     const { accountId = '', tab = '', threadType = '' } = request.query as QueryParams;
 
-    const baseWhere: any = { orgId: user.orgId, deletedAt: null, zaloAccount: { archivedAt: null } };
+    // T5-A (YC2): nick đã XÓA-có-uid vẫn hiện hội thoại (đọc-only) → DISPLAYABLE thay archivedAt:null.
+    const baseWhere: any = { orgId: user.orgId, deletedAt: null, zaloAccount: DISPLAYABLE_NICK_WHERE };
     if (accountId) baseWhere.zaloAccountId = accountId;
     if (tab) baseWhere.tab = tab;
     // 2026-06-11 — đếm theo cùng key tab như list: Cá nhân/Nhóm (threadType) loại
@@ -145,11 +147,12 @@ export async function chatRoutes(app: FastifyInstance) {
     const { getZaloScope } = await import('../zalo/zalo-scope.js');
     const zScope = await getZaloScope(user.id, user.orgId, user.role);
     if (!zScope.isOrgAdmin) {
-      const accessibleIds = zScope.accessibleIds;
-      if (accountId && accessibleIds.includes(accountId)) {
+      // T6-consumer (YC2): XEM dùng displayableIds (gồm nick xóa-có-uid đọc-only).
+      const displayableIds = zScope.displayableIds;
+      if (accountId && displayableIds.includes(accountId)) {
         baseWhere.zaloAccountId = accountId;
       } else {
-        baseWhere.zaloAccountId = { in: accessibleIds };
+        baseWhere.zaloAccountId = { in: displayableIds };
       }
     }
 
@@ -462,7 +465,8 @@ export async function chatRoutes(app: FastifyInstance) {
       messageReplyState = '',
     } = request.query as QueryParams;
 
-    const where: any = { orgId: user.orgId, deletedAt: null, zaloAccount: { archivedAt: null } };
+    // T5-A (YC2): hội thoại nick đã XÓA-có-uid hiện lại (đọc-only) → DISPLAYABLE thay archivedAt:null.
+    const where: any = { orgId: user.orgId, deletedAt: null, zaloAccount: DISPLAYABLE_NICK_WHERE };
     if (tab) where.tab = tab;
     if (threadType === 'user' || threadType === 'group') {
       where.threadType = threadType;
@@ -775,12 +779,13 @@ export async function chatRoutes(app: FastifyInstance) {
     const { getZaloScope: _getZScope } = await import('../zalo/zalo-scope.js');
     const zScope2 = await _getZScope(user.id, user.orgId, user.role);
     if (!zScope2.isOrgAdmin) {
-      const accessibleIds = zScope2.accessibleIds;
+      // T6-consumer (YC2): danh sách hội thoại dùng displayableIds (gồm nick xóa-có-uid).
+      const displayableIds = zScope2.displayableIds;
       if (accountIdList.length > 0) {
-        const allowed = accountIdList.filter(id => accessibleIds.includes(id));
+        const allowed = accountIdList.filter(id => displayableIds.includes(id));
         where.zaloAccountId = allowed.length === 1 ? allowed[0] : { in: allowed };
       } else {
-        where.zaloAccountId = { in: accessibleIds };
+        where.zaloAccountId = { in: displayableIds };
       }
     }
 
@@ -835,7 +840,7 @@ export async function chatRoutes(app: FastifyInstance) {
               _count: { select: { contactAccess: true } },
             },
           },
-          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, privacyMode: true, ownerUserId: true } },
+          zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, privacyMode: true, ownerUserId: true, archivedAt: true } },
           pins: { select: { id: true } },
           messages: {
             take: 1,
@@ -1006,7 +1011,8 @@ export async function chatRoutes(app: FastifyInstance) {
           },
         },
         // PRIVACY 2026-06-11: cần privacyMode + ownerUserId để gate redact.
-        zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true, privacyMode: true, ownerUserId: true } },
+        // T11-BE (YC2): + archivedAt → FE badge "Đã xóa" + banner + khóa ô soạn tin.
+        zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, status: true, privacyMode: true, ownerUserId: true, archivedAt: true } },
         pins: { select: { id: true } },
       },
     });
@@ -1016,7 +1022,8 @@ export async function chatRoutes(app: FastifyInstance) {
     // (audit C4). Chặn user ngoài quyền đọc chi tiết hội thoại của nick người khác.
     const { getZaloScope } = await import('../zalo/zalo-scope.js');
     const scope = await getZaloScope(user.id, user.orgId, user.role);
-    if (!scope.isOrgAdmin && !scope.accessibleIds.includes(conversation.zaloAccountId)) {
+    // T6-consumer (YC2): mở chi tiết dùng displayableIds (nick xóa-có-uid đọc-only). Gửi gate riêng (T7).
+    if (!scope.isOrgAdmin && !scope.displayableIds.includes(conversation.zaloAccountId)) {
       return reply.status(403).send({ error: 'Bạn không có quyền xem hội thoại này', code: 'not_in_scope' });
     }
 
@@ -1501,6 +1508,16 @@ export async function chatRoutes(app: FastifyInstance) {
       include: { zaloAccount: true },
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
+
+    // T7 (YC2 2026-06-20): CHẶN GỬI qua nick ĐÃ XÓA (archivedAt) — kể cả hội thoại ảo. Đặt
+    // TRƯỚC isVirtual + TRƯỚC mọi nhánh tạo Message. Sau T5/T6 hội thoại nick xóa hiện lại
+    // (đọc-only) → guard này chặn sale gửi nhầm. Nick chưa-kết-nối (status) để nhánh gửi thật lo.
+    if (conversation.zaloAccount.archivedAt) {
+      return reply.status(409).send({
+        error: 'Nick này đã bị xóa — chỉ xem lại lịch sử, không gửi được. Kết nối lại nick để tiếp tục.',
+        code: 'NICK_ARCHIVED',
+      });
+    }
 
     // Fix 2026-06-03 (optimistic badge): lookup User.fullName cho metadata.sender
     // → socket emit ngay sau khi insert message có đủ tên sale → FE hiện badge

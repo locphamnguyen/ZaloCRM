@@ -263,9 +263,13 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       // Verify account belongs to org
       const account = await prisma.zaloAccount.findFirst({
         where: { id: body.zaloAccountId, orgId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, archivedAt: true },
       });
       if (!account) return reply.status(404).send({ error: 'Zalo account not found' });
+      // T7b (YC2 2026-06-20): nick ĐÃ XÓA (archivedAt) → 409, trước check kết nối.
+      if (account.archivedAt) {
+        return reply.status(409).send({ error: 'Nick này đã bị xóa — không gửi được. Kết nối lại nick để tiếp tục.', code: 'NICK_ARCHIVED' });
+      }
       if (account.status !== 'connected') {
         return reply.status(422).send({ error: 'Zalo account is not connected' });
       }

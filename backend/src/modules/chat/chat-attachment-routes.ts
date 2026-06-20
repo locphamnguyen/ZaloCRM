@@ -77,6 +77,11 @@ export async function chatAttachmentRoutes(app: FastifyInstance) {
       });
       if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
 
+      // T7b (YC2 2026-06-20): chặn gửi file/ảnh qua nick ĐÃ XÓA (archivedAt).
+      if (conversation.zaloAccount.archivedAt) {
+        return reply.status(409).send({ error: 'Nick này đã bị xóa — chỉ xem lại lịch sử, không gửi được.', code: 'NICK_ARCHIVED' });
+      }
+
       // Fix 2026-06-03 — optimistic badge "Sale CRM · {tên}"
       const userFullName = await getUserFullName(user.id);
 

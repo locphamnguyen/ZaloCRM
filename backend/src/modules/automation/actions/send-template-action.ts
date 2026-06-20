@@ -30,6 +30,14 @@ export async function sendTemplateAction(input: {
   const content = renderMessageTemplate(template.content, input.context).trim();
   if (!content) return null;
 
+  // T7b (YC2 2026-06-20): nick ĐÃ XÓA (archivedAt) → automation BỎ QUA im lặng (đúng — nick
+  // ngừng làm việc thì không tự gửi). Tránh chạy xuống SDK với api null/lỗi mơ hồ.
+  const acc = await prisma.zaloAccount.findUnique({
+    where: { id: input.zaloAccountId },
+    select: { archivedAt: true },
+  });
+  if (acc?.archivedAt) return null;
+
   const instance = zaloPool.getInstance(input.zaloAccountId);
   if (!instance?.api) return null;
 

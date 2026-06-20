@@ -243,35 +243,24 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // Listener stop, health-check bỏ qua nick archived (không reconnect).
   // RBAC: requireAccountManagement đã chặn — owner-of-nick + admin (sale chỉ xóa nick mình).
   //
-  // ?purge=true → "Xoá khỏi CRM": ngoài archive còn xoá sessionData + nhả zaloUid.
-  //   Kết nối lại CÙNG tài khoản Zalo sẽ tạo nick CRM MỚI (dữ liệu CRM mới) vì uid đã nhả.
-  // ?purge=false (mặc định) → chỉ ẩn: GIỮ sessionData + zaloUid để kết nối lại nguyên vẹn.
-  app.delete<{ Params: { id: string }; Querystring: { purge?: string } }>(
+  // T10 (YC2 2026-06-20): BỎ tùy chọn ?purge. Xóa nick = LUÔN chỉ ẩn-mềm, GIỮ NGUYÊN
+  // zaloUid + sessionData → tin nhắn KHÔNG mất + kết nối lại ĐÚNG nick này tự khôi phục
+  // (revive qua T8/T9b, KHÔNG tạo record mới). Nhả uid (purge) sinh nick mới mồ côi → đã gỡ.
+  app.delete<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id',
     async (request, reply) => {
       const { id } = request.params;
-      const purge = request.query.purge === 'true';
       const gate = await requireAccountManagement(request, reply, id);
       if (!gate) return reply;
 
       // Stop listener trước (nick archived không cần kết nối nữa).
       zaloPool.disconnect(id);
-      if (purge) {
-        // Wipe phiên + nhả uid → re-connect tạo nick mới. Dữ liệu conv/friend key theo
-        // zaloAccountId (id) nên null uid KHÔNG mất dữ liệu; chỉ nhả khoá uid cho nick mới claim.
-        await prisma.zaloAccount.update({
-          where: { id },
-          data: { archivedAt: new Date(), status: 'disconnected', zaloUid: null, sessionData: Prisma.DbNull },
-        });
-      } else {
-        // Chỉ ẩn — giữ sessionData + zaloUid để kết nối lại nguyên vẹn.
-        await prisma.zaloAccount.update({
-          where: { id },
-          data: { archivedAt: new Date(), status: 'disconnected' },
-        });
-      }
-      // Log lifecycle 2026-06-10: xác nhận soft-delete chạy (debug "xoá không được").
-      request.log?.info?.(`[zalo:${id}] soft-deleted (purge=${purge}, archivedAt set, status=disconnected, listener stopped)`);
+      // Chỉ ẩn — GIỮ sessionData + zaloUid để kết nối lại nguyên vẹn (revive). KHÔNG nhả uid.
+      await prisma.zaloAccount.update({
+        where: { id },
+        data: { archivedAt: new Date(), status: 'disconnected' },
+      });
+      request.log?.info?.(`[zalo:${id}] soft-deleted (archivedAt set, status=disconnected, GIỮ uid+session để revive, listener stopped)`);
 
       return reply.status(204).send();
     },

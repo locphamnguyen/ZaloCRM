@@ -254,6 +254,9 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       // FIX 4 nick-ghost (2026-06-13, Codex #7): filter "Friend THẬT" (loại thẻ ma/đã ẩn +
       // dòng ghost) dùng chung cho stat counter — để "có nick chăm" + "multi-claim ≥3 nick"
       // không tính thẻ ma. Đồng bộ với AGGREGATE_INCLUDE.friends.where.
+      // NHÓM C YC2 (2026-06-20): GIỮ archivedAt:null — nick ĐÃ XÓA KHÔNG tính là "đang chăm"
+      // (tầng ĐẾM khác tầng "hiển thị hội thoại" của chat dùng DISPLAYABLE_NICK_WHERE). ĐỪNG
+      // đổi sang DISPLAYABLE ở đây → số liệu Contact sẽ phình (đếm nick đã ngừng làm việc).
       const REAL_FRIEND_SOME = { some: { zaloAccount: { archivedAt: null }, relationshipKind: { not: 'ghost' } } };
       const [
         total,

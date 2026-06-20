@@ -587,6 +587,11 @@ export async function mediaRoutes(app: FastifyInstance) {
       });
       if (!conversation) return reply.status(404).send({ error: 'Không tìm thấy hội thoại' });
 
+      // T7b (YC2 2026-06-20): chặn gửi media qua nick ĐÃ XÓA (archivedAt) trước check kết nối.
+      if (conversation.zaloAccount.archivedAt) {
+        return reply.status(409).send({ error: 'Nick này đã bị xóa — chỉ xem lại lịch sử, không gửi được.', code: 'NICK_ARCHIVED' });
+      }
+
       // Guard sớm: nick phải đang KẾT NỐI (status connected) — tránh treo khi nick
       // QR-pending/disconnected. zaloOps cũng check lại, nhưng báo sớm rõ hơn cho sale.
       const instance = zaloPool.getInstance(conversation.zaloAccountId);
@@ -1282,6 +1287,10 @@ export async function mediaRoutes(app: FastifyInstance) {
         where: { id: body.conversationId, orgId: user.orgId }, include: { zaloAccount: true },
       });
       if (!conversation) return reply.status(404).send({ error: 'Không tìm thấy hội thoại' });
+      // T7b (YC2): chặn gửi qua nick ĐÃ XÓA trước check kết nối.
+      if (conversation.zaloAccount.archivedAt) {
+        return reply.status(409).send({ error: 'Nick này đã bị xóa — chỉ xem lại lịch sử, không gửi được.', code: 'NICK_ARCHIVED' });
+      }
       const instance = zaloPool.getInstance(conversation.zaloAccountId);
       if (!instance?.api || instance.status !== 'connected') {
         return reply.status(400).send({ error: 'Nick Zalo chưa kết nối', code: 'NICK_NOT_CONNECTED' });
