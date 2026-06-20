@@ -941,7 +941,7 @@ import {
 // Reaction detail popup state — anh chốt 2026-05-22: click reaction box → popup
 const reactionPopupOpen = ref(false);
 const reactionPopupReactions = ref<Array<{ emoji: string; count: number; reacted: boolean }>>([]);
-const reactionPopupDetails = ref<Array<{ userId: string; userName?: string | null; emoji: string; source?: 'crm' | 'zalo' }>>([]);
+const reactionPopupDetails = ref<Array<{ userId: string; userName?: string | null; emoji: string; source?: 'crm' | 'zalo'; avatarUrl?: string | null }>>([]);
 function onOpenReactionDetail(payload: { reactions: any[]; message: Message }) {
   reactionPopupReactions.value = payload.reactions;
   // 2026-06-20 FIX: build details từ message.reactionDetails (raw per-user rows GIỮ ở
@@ -953,6 +953,7 @@ function onOpenReactionDetail(payload: { reactions: any[]; message: Message }) {
     userName: r.reactorName || r.userName || null,
     emoji: r.emoji,
     source: r.reactorSource || r.source,
+    avatarUrl: r.reactorAvatar || null,
   }));
   reactionPopupOpen.value = true;
 }

@@ -62,7 +62,7 @@ export interface ReplyMessageRef {
 
 interface RawMessage extends Omit<Message, 'reactions' | 'reply' | 'reactionDetails'> {
   quote?: ReplyMessageRef | null;
-  reactions?: Array<{ emoji: string; reactorId: string; reactorName?: string | null; reactorSource?: string | null; count?: number; reacted?: boolean }>;
+  reactions?: Array<{ emoji: string; reactorId: string; reactorName?: string | null; reactorSource?: string | null; reactorAvatar?: string | null; count?: number; reacted?: boolean }>;
 }
 
 export interface FriendshipInfo {
@@ -136,6 +136,7 @@ export interface MessageReactionDetail {
   reactorId: string;
   reactorName: string | null;
   reactorSource: string | null; // "crm" | "zalo"
+  reactorAvatar?: string | null; // avatar thật (Friend.zaloAvatarUrl) — resolve ở BE
   emoji: string;
 }
 
@@ -483,6 +484,7 @@ export function useChat() {
         reactorId: r.reactorId,
         reactorName: r.reactorName ?? null,
         reactorSource: r.reactorSource ?? null,
+        reactorAvatar: r.reactorAvatar ?? null,
         emoji: r.emoji,
       })),
     };

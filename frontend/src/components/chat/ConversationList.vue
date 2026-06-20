@@ -14,6 +14,7 @@
             placeholder="Tìm theo tên, SĐT, nội dung tin nhắn…"
             @input="onSearchInput"
             @keydown.esc="clearSearch"
+            @keydown.enter.prevent="onSearchEnter"
             @animationend="searchFlash = false"
           />
           <!-- 2026-06-12 — nút X mờ hiện khi có text → click xóa kết quả tìm + focus lại
@@ -394,6 +395,15 @@ function onClickNewMessage() {
   }
   // State B: mở NickPickerPopup xổ từ button "Tin nhắn mới"
   newMsgPickerOpen.value = !newMsgPickerOpen.value;
+}
+
+// 2026-06-20 (anh báo: nhập SĐT vào ô tìm kiếm + Enter phải mở "Tin nhắn mới", đỡ phải click):
+// Enter trong ô search → mở picker "Tin nhắn mới" (giống bấm nút) khi có nội dung. Enter LUÔN
+// mở (không toggle như click) để bấm Enter không vô tình đóng lại.
+function onSearchEnter() {
+  const q = (props.search || '').trim();
+  if (!q) return; // rỗng → không làm gì (khỏi flash phiền khi Enter)
+  newMsgPickerOpen.value = true;
 }
 
 function onPickNickForNewMsg(nick: { id: string }) {

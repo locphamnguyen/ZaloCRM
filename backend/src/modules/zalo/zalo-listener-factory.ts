@@ -60,7 +60,16 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
     if (!message) return;
 
     const displayEmoji = ZALO_REACTION_DISPLAY[rawIcon] || rawIcon || '👍';
-    const reactorName = String(data.dName || '');
+    // 2026-06-20 (anh báo popup cảm xúc nhóm chỉ hiện "Người dùng"): Zalo event NHÓM không kèm
+    // tên (data.dName rỗng) → tra Friend của nick để có tên thật rồi lưu + emit (tin live có tên).
+    let reactorName = String(data.dName || '');
+    if (!reactorName) {
+      const fr = await prisma.friend.findFirst({
+        where: { zaloAccountId: accountId, zaloUidInNick: reactorZaloUid },
+        select: { aliasInNick: true, zaloDisplayName: true },
+      });
+      reactorName = fr?.aliasInNick || fr?.zaloDisplayName || '';
+    }
 
     // Phase A v3 (2026-05-21) — selective self-echo guard via reaction-echo-cache.
     // BAD fix cũ: skip tất cả reactorUid === ownNickUid → SAI vì cũng skip genuine

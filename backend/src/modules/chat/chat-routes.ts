@@ -1415,15 +1415,57 @@ export async function chatRoutes(app: FastifyInstance) {
       };
     }
 
+    // 2026-06-20 (anh báo popup cảm xúc nhóm chỉ hiện "Người dùng"): Zalo event NHÓM không
+    // kèm tên người thả → reactor_name rỗng trong DB. Resolve UID→tên+avatar lúc query:
+    //  - reactor 'zalo' → Friend.zaloUidInNick (của nick này) → aliasInNick/zaloDisplayName + zaloAvatarUrl.
+    //  - reactor 'crm'  → User.fullName/email. Batch 0 N+1, chỉ chạy khi có reaction.
+    const reactorZaloUids = new Set<string>();
+    const reactorCrmIds = new Set<string>();
+    for (const m of ordered) {
+      for (const rx of ((m as { reactions?: Array<{ reactorId: string; reactorSource: string | null; reactorName: string | null }> }).reactions || [])) {
+        if (!rx.reactorId) continue;
+        if (rx.reactorSource === 'crm') reactorCrmIds.add(rx.reactorId);
+        else reactorZaloUids.add(rx.reactorId);
+      }
+    }
+    const reactorMap = new Map<string, { name: string | null; avatar: string | null }>();
+    if (reactorZaloUids.size > 0 || reactorCrmIds.size > 0) {
+      const [frx, urx] = await Promise.all([
+        reactorZaloUids.size > 0
+          ? prisma.friend.findMany({
+              where: { orgId: user.orgId, zaloUidInNick: { in: [...reactorZaloUids] } },
+              select: { zaloUidInNick: true, aliasInNick: true, zaloDisplayName: true, zaloAvatarUrl: true },
+            })
+          : Promise.resolve([] as Array<{ zaloUidInNick: string; aliasInNick: string | null; zaloDisplayName: string | null; zaloAvatarUrl: string | null }>),
+        reactorCrmIds.size > 0
+          ? prisma.user.findMany({ where: { id: { in: [...reactorCrmIds] } }, select: { id: true, fullName: true, email: true } })
+          : Promise.resolve([] as Array<{ id: string; fullName: string | null; email: string | null }>),
+      ]);
+      for (const f of frx) {
+        if (!reactorMap.has(f.zaloUidInNick)) {
+          reactorMap.set(f.zaloUidInNick, { name: f.aliasInNick || f.zaloDisplayName || null, avatar: f.zaloAvatarUrl || null });
+        }
+      }
+      for (const u of urx) reactorMap.set(u.id, { name: u.fullName || u.email || null, avatar: null });
+    }
+
     const redacted = ordered.map((m) => {
       const r = redactMessage(m as any, conversation as any, privacyCtx);
       // PRIVACY 2026-06-11 (audit H1): senderResolved (tên/crmName/alias KH) gán SAU
       // redactMessage → KHÔNG gán cho tin đã redact, nếu không cấp trên vẫn đọc được
       // DANH SÁCH tên KH riêng tư dù nội dung đã mờ.
       const isRedacted = (r as any).redacted === true;
+      // Enrich reaction reactor: tên + avatar resolved (tin redact → ẩn danh tính, giữ emoji/count).
+      const rawReactions = ((r as { reactions?: Array<{ emoji: string; reactorId: string; reactorName: string | null; reactorSource: string | null }> }).reactions) || [];
+      const enrichedReactions = rawReactions.map((rx) => {
+        if (isRedacted) return { ...rx, reactorName: null, reactorAvatar: null };
+        const hit = reactorMap.get(rx.reactorId);
+        return { ...rx, reactorName: rx.reactorName || hit?.name || null, reactorAvatar: hit?.avatar || null };
+      });
       // BigInt zaloMsgIdNum → string cho JSON serialize
       return {
         ...r,
+        reactions: enrichedReactions,
         zaloMsgIdNum: (r as any).zaloMsgIdNum?.toString() ?? null,
         senderResolved: isRedacted ? null : resolveSender(m),
       };
