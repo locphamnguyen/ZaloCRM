@@ -691,19 +691,7 @@
           @created="onAppointmentCreated"
         />
 
-        <!-- Gợi ý ảnh kho theo ngữ cảnh khách (GĐ3a-4) -->
-        <div v-if="mediaSuggestions.length" class="media-suggest-bar">
-          <span class="ms-label">✨ Gợi ý ảnh dự án:</span>
-          <button
-            v-for="a in mediaSuggestions" :key="a.id"
-            class="ms-chip" :disabled="sendingSuggestId === a.id"
-            :title="'Gửi: ' + a.name"
-            @click="sendSuggestion(a)"
-          >
-            <img v-if="a.thumbnailUrl" :src="a.thumbnailUrl" alt="" />
-            <span class="ms-name">{{ a.name }}</span>
-          </button>
-        </div>
+        <!-- 2026-06-20 (anh chốt): GỠ bar "✨ Gợi ý ảnh dự án" — gợi ý không đúng + sale không dùng. -->
 
         <!-- 2026-06-12: popover "Chèn ảnh từ Kho" đã GỠ — nút giờ mở tab Media ở cột 4
              (emit 'open-media-tab' → ChatView switch ChatContactPanel sang tab Media). -->
@@ -865,7 +853,7 @@ import { ref, watch, nextTick, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Conversation, Message } from '@/composables/use-chat';
 import { formatInOrgTz, weekdayInOrgTz, getOrgParts } from '@/composables/use-org-timezone';
 import { api } from '@/api/index';
-import { saveFromChat, saveFromChatBatch, suggestMedia, sendMediaToConversation, toggleFavorite, type MediaAssetItem } from '@/api/media';
+import { saveFromChat, saveFromChatBatch, toggleFavorite } from '@/api/media';
 import AISuggestBar from '@/components/chat/AISuggestBar.vue';
 // Mission Fix 2 (2026-05-30) — header picker GHI `Contact.statusId` (FK Status table)
 // để Wave 3 evaluateStatusGate đọc đúng cột. Trước đây CareStatusBadge ghi enum legacy
@@ -956,8 +944,10 @@ const reactionPopupReactions = ref<Array<{ emoji: string; count: number; reacted
 const reactionPopupDetails = ref<Array<{ userId: string; userName?: string | null; emoji: string; source?: 'crm' | 'zalo' }>>([]);
 function onOpenReactionDetail(payload: { reactions: any[]; message: Message }) {
   reactionPopupReactions.value = payload.reactions;
-  // Build details từ message.reactions (raw row per-user per-emoji)
-  const raw = (payload.message as any).reactions ?? [];
+  // 2026-06-20 FIX: build details từ message.reactionDetails (raw per-user rows GIỮ ở
+  // normalizeMessage), KHÔNG phải message.reactions (đã tổng hợp emoji+count, mất reactor →
+  // trước đây luôn ra "Người dùng"). Nay có reactorName thật từ BE.
+  const raw = (payload.message as any).reactionDetails ?? [];
   reactionPopupDetails.value = raw.map((r: any) => ({
     userId: r.reactorId || r.userId || '',
     userName: r.reactorName || r.userName || null,
@@ -1300,7 +1290,6 @@ watch(() => props.conversation?.id, (newId, oldId) => {
     void touchAccountSync(accId, threadId);
     void touchConversationProfile(newId);  // refresh contact profile from SDK
   }
-  void loadMediaSuggestions(); // gợi ý ảnh kho theo tag khách (GĐ3a-4)
 }, { immediate: true });
 
 /* Optimistic UI FULL: update cả allLabels (dropdown ✓) + friendship.crmTagsPerNick
@@ -2117,31 +2106,7 @@ const imageInputRef = ref<HTMLInputElement | null>(null);
 const fileInputRef = ref<HTMLInputElement | null>(null);
 // 2026-06-12: showMediaPicker + MediaPickerPopover đã GỠ — nút "Chèn từ kho" giờ mở
 // tab Media ở cột 4 (emit 'open-media-tab'). Logic kho dời sang MediaTabPanel.
-// Gợi ý ảnh theo ngữ cảnh (GĐ3a-4): match tag khách với tag ảnh kho.
-const mediaSuggestions = ref<MediaAssetItem[]>([]);
-const sendingSuggestId = ref<string | null>(null);
-async function loadMediaSuggestions() {
-  mediaSuggestions.value = [];
-  const cid = props.conversation?.id;
-  if (!cid) return;
-  try {
-    const res = await suggestMedia(cid);
-    mediaSuggestions.value = res.items;
-  } catch { /* im lặng — gợi ý là phụ */ }
-}
-async function sendSuggestion(a: MediaAssetItem) {
-  if (sendingSuggestId.value) return;
-  sendingSuggestId.value = a.id;
-  try {
-    await sendMediaToConversation(a.id, props.conversation!.id);
-    toast.success(`Đã gửi "${a.name}"`);
-    mediaSuggestions.value = mediaSuggestions.value.filter((x) => x.id !== a.id);
-  } catch (e: any) {
-    toast.warning(e?.response?.data?.error || 'Gửi thất bại');
-  } finally {
-    sendingSuggestId.value = null;
-  }
-}
+// 2026-06-20: GỠ "Gợi ý ảnh dự án" (mediaSuggestions/loadMediaSuggestions/sendSuggestion) — anh chốt bỏ.
 const dragDepth = ref(0);
 const isDraggingFiles = ref(false);
 
@@ -3970,20 +3935,4 @@ watch(() => props.editingMessage?.id, async (id) => {
 }
 .zlbl-manage:hover { background: var(--smax-grey-50); color: var(--smax-primary); }
 .manage-icon { font-size: 14px; }
-
-/* Dải gợi ý ảnh kho theo ngữ cảnh (GĐ3a-4) */
-.media-suggest-bar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 7px 12px; margin: 0 0 6px; background: #a8d8c4; border: 1px solid #8fc7af;
-  border-radius: 10px; font-size: 12.5px;
-}
-.media-suggest-bar .ms-label { color: #0a2e0e; font-weight: 500; flex-shrink: 0; }
-.ms-chip {
-  display: inline-flex; align-items: center; gap: 6px; background: #fff;
-  border: 1px solid #8fc7af; border-radius: 9999px; padding: 3px 10px 3px 3px;
-  cursor: pointer; font-size: 12px; color: #181d26; max-width: 180px;
-}
-.ms-chip:disabled { opacity: .6; cursor: default; }
-.ms-chip img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
-.ms-chip .ms-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 </style>

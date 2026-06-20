@@ -333,6 +333,9 @@ export async function chatRoutes(app: FastifyInstance) {
   app.get('/api/v1/conversations/sidebar-tags', async (request: FastifyRequest, _reply: FastifyReply) => {
     const user = request.user!;
     const { folderId = '', accountId = '' } = request.query as QueryParams;
+    // 2026-06-20 (anh báo: tag cột 2 phải theo PHẠM VI XEM cột 1, không lấy toàn hệ thống):
+    // nhận danh sách nick đang xem (accountIds=csv) → chỉ gom tag của các nick đó.
+    const accountIdsCsv = String((request.query as { accountIds?: string }).accountIds ?? '');
 
     // 1) Resolve danh sách zaloAccountId theo scope.
     let scopedAccountIds: string[] | null = null; // null = mọi nick accessible
@@ -346,6 +349,8 @@ export async function chatRoutes(app: FastifyInstance) {
       } else {
         scopedAccountIds = []; // folder không thuộc user → rỗng
       }
+    } else if (accountIdsCsv) {
+      scopedAccountIds = accountIdsCsv.split(',').map((s) => s.trim()).filter(Boolean);
     } else if (accountId) {
       scopedAccountIds = [accountId];
     }
@@ -825,6 +830,9 @@ export async function chatRoutes(app: FastifyInstance) {
                 orderBy: { createdAt: 'asc' },
                 take: 5,
               },
+              // 2026-06-20 (anh báo: badge "Cùng chăm" hiện 5 cache ≠ số thật khi click):
+              // SỐ CHÍNH XÁC qua _count (không bị cap take:5) → badge khớp detail + sau reload.
+              _count: { select: { contactAccess: true } },
             },
           },
           zaloAccount: { select: { id: true, displayName: true, avatarUrl: true, zaloUid: true, privacyMode: true, ownerUserId: true } },
@@ -834,7 +842,7 @@ export async function chatRoutes(app: FastifyInstance) {
             // Primary sort by Zalo Snowflake numeric (match 100% Zalo Web), sentAt fallback
             // cho CRM-sent in-flight messages chưa nhận echo zaloMsgId.
             orderBy: [{ zaloMsgIdNum: { sort: 'desc', nulls: 'last' } }, { sentAt: 'desc' }],
-            select: { id: true, zaloMsgId: true, senderUid: true, senderName: true, content: true, contentType: true, senderType: true, sentAt: true, isDeleted: true, editedAt: true, reactions: { select: { emoji: true, reactorId: true } } },
+            select: { id: true, zaloMsgId: true, senderUid: true, senderName: true, content: true, contentType: true, senderType: true, sentAt: true, isDeleted: true, editedAt: true, reactions: { select: { emoji: true, reactorId: true, reactorName: true, reactorSource: true } } },
           },
         },
         orderBy: orderByClause,
@@ -993,6 +1001,8 @@ export async function chatRoutes(app: FastifyInstance) {
               orderBy: { createdAt: 'asc' },
               take: 20,
             },
+            // 2026-06-20: số chính xác (khớp badge cột 2) — cùng nguồn _count.
+            _count: { select: { contactAccess: true } },
           },
         },
         // PRIVACY 2026-06-11: cần privacyMode + ownerUserId để gate redact.
@@ -1291,7 +1301,7 @@ export async function chatRoutes(app: FastifyInstance) {
           albumKey: true,
           albumIndex: true,
           albumTotal: true,
-          reactions: { select: { emoji: true, reactorId: true } },
+          reactions: { select: { emoji: true, reactorId: true, reactorName: true, reactorSource: true } },
           // M55 2026-05-30 — sender attribution cho multi-sale cùng chăm.
           // Tin self (sale gửi qua CRM) lưu repliedByUserId — FE render mini avatar
           // tên sale phía trên bubble khi sale khác (không phải mình) gửi.

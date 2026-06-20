@@ -1301,7 +1301,10 @@ async function openFile(href: string, name?: string) {
 .voice-fallback { font-size: 12px; color: var(--smax-grey-700); font-style: italic; }
 
 .recall-card {
-  display: inline-block;
+  /* 2026-06-20 (anh báo dồn sau tên): block riêng dòng + hug content + tách khỏi tên người gửi. */
+  display: block;
+  width: fit-content;
+  margin-top: 3px;
   padding: 6px 10px;
   background: rgba(107, 114, 128, 0.06);
   border-radius: 7px;

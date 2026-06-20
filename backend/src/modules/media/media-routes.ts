@@ -194,7 +194,18 @@ async function saveOneMessageToMedia(args: {
       logger.info(`[media][audit] nhận diện video từ đuôi .${extForKind} (Zalo gửi dạng file) msg=${messageId}`);
     }
   }
-  const mediaName = realName || (kind === 'image' ? 'Lưu từ chat' : kind === 'video' ? 'Video lưu từ chat' : 'Tệp lưu từ chat');
+  // 2026-06-20 (anh chốt): ẢNH Zalo không kèm tên → thay "Lưu từ chat" giống hệt nhau bằng
+  // "[tên cuối của sale] dd/mm" (vd "Ngoán 20/06") cho dễ phân biệt + biết ai lưu, khi nào.
+  // Áp cho MỌI fallback (ảnh/video/file thiếu tên thật). Sale vẫn đổi tên lại được trong kho.
+  const saver = await prisma.user.findUnique({ where: { id: userId }, select: { fullName: true } });
+  const saleLast =
+    (saver?.fullName ?? '').trim().split(/\s+/).pop()
+    || (nick.displayName ?? '').trim().split(/\s+/).pop()
+    || 'Chat';
+  const ddmm = (message.sentAt ?? new Date()).toLocaleDateString('en-GB', {
+    day: '2-digit', month: '2-digit', timeZone: 'Asia/Ho_Chi_Minh',
+  });
+  const mediaName = realName || `${saleLast} ${ddmm}`;
 
   // Validation file (audit 2026-06-12): save-from-chat KHÔNG qua classify() như /upload.
   // Chặn đuôi nguy hiểm (thực thi) để file độc không vào kho rồi gửi lại khách. KHÔNG dùng
@@ -1094,36 +1105,11 @@ export async function mediaRoutes(app: FastifyInstance) {
         ...(Array.isArray(conv.contact.autoTags) ? conv.contact.autoTags : []),
       ].map((t) => String(t).replace(/^auto:/, '').trim().toLowerCase()).filter(Boolean);
       const custTags = [...new Set(raw)];
-      // contactTags = TOÀN BỘ tag khách (cho chip gợi ý lúc gửi — eng-review #C). matchedTags
-      // chỉ là tag GIAO với ảnh-kho (dùng cho gợi ý ẢNH), KHÔNG đủ làm chip gợi ý tag.
-      if (custTags.length === 0) return { items: [], matchedTags: [], contactTags: [] };
-
-      // Ảnh kho có tagIds giao với tag khách + (public HOẶC của mình) + chưa archive.
-      const assets = await prisma.mediaAsset.findMany({
-        where: {
-          orgId: user.orgId,
-          archivedAt: null,
-          kind: 'image',
-          OR: [{ visibility: 'public' }, { ownerUserId: userId }],
-        },
-        orderBy: [{ usageCount: 'desc' }],
-        take: 50,
-        include: { blobs: { where: { variantType: 'original' }, take: 1 } },
-      });
-
-      // Lọc app-side: asset có ÍT NHẤT 1 tag khớp tag khách (so lowercase).
-      const matched = assets
-        .map((a) => ({ a, hits: a.tagIds.filter((t) => custTags.includes(t.toLowerCase())) }))
-        .filter((x) => x.hits.length > 0)
-        .slice(0, 8);
-
-      const items = matched.map(({ a }) => ({
-        id: a.id, name: a.name, kind: a.kind,
-        url: a.blobs[0]?.publicUrl ?? null,
-        thumbnailUrl: a.thumbnailUrl ?? a.blobs[0]?.publicUrl ?? null,
-        tagIds: a.tagIds,
-      }));
-      return { items, matchedTags: [...new Set(matched.flatMap((m) => m.hits))], contactTags: custTags };
+      // 2026-06-20 (anh chốt): GỠ phần gợi-ý-ẢNH (items) — gợi ý không đúng + sale không dùng.
+      // GIỮ contactTags để MediaSendPicker hiện chip "tag khách" khi sale gửi ảnh (vẫn dùng).
+      // items/matchedTags trả rỗng để KHÔNG vỡ type FE cũ.
+      void userId;
+      return { items: [], matchedTags: [], contactTags: custTags };
     },
   );
 

@@ -3,9 +3,11 @@
        Ghi `contact.statusId` (FK) qua PUT /contacts/:id { statusId } để
        evaluateStatusGate BE đọc đúng cột. Thay <CareStatusBadge> legacy enum.
        Anh chốt 2026-05-30 — Mission Fix 2. -->
-  <span v-if="loadError" class="cds-empty" :title="loadError">
-    <span class="cds-empty-text">Chưa cấu hình giai đoạn</span>
-    <a class="cds-empty-link" href="/settings/statuses" @click.stop>Cấu hình</a>
+  <!-- 2026-06-20 (anh chốt: text dài khó hiểu → "Trống"): org chưa có giai đoạn nào → pill "Trống"
+       (lý do đầy đủ ở tooltip). -->
+  <span v-if="loadError" class="cds-pill cds-pill-empty" :title="loadError">
+    <span class="cds-dot" :style="`background: ${UNASSIGNED_COLOR}`" />
+    <span class="cds-label">Trống</span>
   </span>
 
   <v-menu
@@ -93,7 +95,7 @@ const options = ref<Status[]>([]);
 // Local state — optimistic update, không lệ thuộc prop sau khi sale chọn.
 const localStatusId = ref<string | null>(props.currentStatusId);
 
-const UNASSIGNED_LABEL = '(chưa phân loại)';
+const UNASSIGNED_LABEL = 'Trống';
 const UNASSIGNED_COLOR = '#9CA3AF';
 
 watch(() => props.currentStatusId, (v) => {
@@ -214,6 +216,10 @@ onMounted(() => {
 }
 .cds-pill:hover { filter: brightness(0.97); }
 .cds-pill:active { transform: translateY(0.5px); }
+/* 2026-06-20 — pill "Trống" khi org chưa có giai đoạn (không bấm được). */
+.cds-pill-empty { cursor: default; color: #6b7280; }
+.cds-pill-empty:hover { filter: none; }
+.cds-pill-empty:active { transform: none; }
 
 .cds-dot {
   width: 7px;

@@ -586,21 +586,28 @@ function computeDisplayTags(conv: Conversation): DisplayTag[] {
 function isUsableName(s: string | null | undefined): s is string {
   return !!s && s.trim().length > 0 && s.trim().toLowerCase() !== 'unknown';
 }
-// M55 2026-05-30 — Cùng chăm counter cho ConversationList badge
+// M55 2026-05-30 — Cùng chăm counter cho ConversationList badge.
+// 2026-06-20 (anh báo lệch cache vs detail): dùng _count CHÍNH XÁC (không bị cap take:5),
+// fallback length mảng nếu thiếu _count → badge khớp số thật + sau reload.
 function cungChamCount(conv: Conversation): number {
-  return (conv.contact as { contactAccess?: unknown[] } | null | undefined)?.contactAccess?.length ?? 0;
+  const c = conv.contact as { contactAccess?: unknown[]; _count?: { contactAccess?: number } } | null | undefined;
+  return c?._count?.contactAccess ?? c?.contactAccess?.length ?? 0;
 }
 function cungChamTooltip(conv: Conversation): string {
-  const list = ((conv.contact as { contactAccess?: Array<{
+  const c = conv.contact as { contactAccess?: Array<{
     role: string;
     user: { fullName: string | null; email: string | null } | null;
-  }> } | null | undefined)?.contactAccess) ?? [];
-  if (!list.length) return '';
+  }>; _count?: { contactAccess?: number } } | null | undefined;
+  const list = c?.contactAccess ?? [];
+  const total = c?._count?.contactAccess ?? list.length;
+  if (!total) return '';
   const names = list.map((a) => {
     const n = a.user?.fullName || a.user?.email || 'Sale';
     return a.role === 'primary' ? `⭐ ${n} (chính)` : `🤝 ${n}`;
   });
-  return `${list.length} sale đang/đã chăm KH này:\n${names.join('\n')}`;
+  const more = total - list.length;
+  if (more > 0) names.push(`… và ${more} người khác`);
+  return `${total} sale đang/đã chăm KH này:\n${names.join('\n')}`;
 }
 
 // Theo dõi (anh chốt 2026-06-15) — khách đang trong "theo dõi" → hiện chuông sau tên.
@@ -779,7 +786,12 @@ async function fetchAvailableTags() {
     // qua v2) sang GET /conversations/sidebar-tags: crmTags = Friend.crmTagsPerNick (mirror
     // tag v2 manual) + zaloTags (nhãn Zalo). Khớp đúng cả 3 nguồn mà backend filter `tags`
     // match (Contact.tags OR crmTagsPerNick OR zaloLabels) → cột 2 nhất quán với cột 1/3.
-    const { data } = await api.get('/conversations/sidebar-tags');
+    // 2026-06-20 (anh báo): tag chip chỉ lấy theo PHẠM VI XEM (nick đang chọn ở cột 1).
+    // Rỗng = không giới hạn (mọi nick accessible — hành vi cũ).
+    const scopeIds = props.selectedAccountIds || [];
+    const { data } = await api.get('/conversations/sidebar-tags', {
+      params: scopeIds.length > 0 ? { accountIds: scopeIds.join(',') } : {},
+    });
     const crm: string[] = Array.isArray(data.crmTags) ? data.crmTags : [];
     const zalo: string[] = (Array.isArray(data.zaloTags) ? data.zaloTags : [])
       .map((z: { name?: string }) => (z?.name ?? '').toString());
@@ -805,6 +817,8 @@ watch(activeTab, () => {
   emit('update:filters', buildFilterParams());
   fetchCounts();
 });
+// 2026-06-20 (anh báo): đổi PHẠM VI XEM (nick cột 1) → load lại chip tag theo nick mới.
+watch(() => props.selectedAccountIds, () => { void fetchAvailableTags(); }, { deep: true });
 
 onMounted(async () => {
   // Load CrmTag defs (color + managedBy) cho TagIcon render — share cache toàn app

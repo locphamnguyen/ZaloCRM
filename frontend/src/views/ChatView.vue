@@ -61,6 +61,7 @@
             :total-count="conversations.length"
             :counts="conversationCounts"
             :priority-has-unread="priorityHasUnread"
+            @reselect-tab="onReselectActiveTab"
           />
         </template>
       </ConversationList>
@@ -367,6 +368,12 @@ watch(
     void inboxFilters.fetchFolders();
   },
 );
+
+// 2026-06-20 (anh báo): click LẠI chính tab đang active (activeTab không đổi → watch trên
+// không fire) cũng phải XÓA ô tìm kiếm. ConversationFilterBar emit 'reselect-tab' khi đó.
+function onReselectActiveTab() {
+  if (searchQuery.value) searchQuery.value = ''; // watch(searchQuery) tự refetch
+}
 watch(
   () => [
     inboxFilters.state.folderId,

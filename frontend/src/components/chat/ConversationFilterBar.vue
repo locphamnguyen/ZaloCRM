@@ -92,6 +92,8 @@ const props = defineProps<{
   priorityHasUnread?: boolean;
 }>();
 
+// 2026-06-20: phát khi click LẠI tab đang active → ChatView clear ô tìm kiếm.
+const emit = defineEmits<{ 'reselect-tab': [] }>();
 
 type TabKey = 'personal' | 'group' | 'main' | 'other';
 
@@ -110,8 +112,12 @@ const TABS: Array<{
 ];
 
 function setActiveTab(key: TabKey) {
+  // 2026-06-20 (anh báo): click LẠI tab đang active cũng phải clear ô tìm kiếm. activeTab
+  // không đổi → watch ở ChatView không fire → emit 'reselect-tab' để parent tự clear search.
+  const sameTab = props.filters.state.activeTab === key;
   // Single-active: tab khác sẽ tự deselect.
   props.filters.state.activeTab = key;
+  if (sameTab) emit('reselect-tab');
 }
 
 function toggleSort() {
