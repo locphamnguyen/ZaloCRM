@@ -204,6 +204,7 @@ function avatarColor(name: string): string {
   border-right: 1px solid #f0f1f3;
   padding: 8px;
   overflow-y: auto;
+  min-height: 0;
 }
 .tab-item {
   width: 100%;
@@ -243,6 +244,9 @@ function avatarColor(name: string): string {
 .popup-main {
   padding: 8px;
   overflow-y: auto;
+  /* 2026-06-20 (anh báo: list dài không cuộn được): grid item mặc định min-height:auto →
+     phình theo nội dung, tràn thay vì cuộn. min-height:0 cho phép co lại + overflow-y cuộn. */
+  min-height: 0;
 }
 .popup-empty {
   padding: 40px 24px;
