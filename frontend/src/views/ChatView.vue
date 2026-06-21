@@ -249,19 +249,30 @@ function onShowAllOutOfScope() {
 const followingPairs = ref<Set<string>>(new Set());
 async function fetchFollowingPairs() {
   try {
-    const res = await api.get<{ pairs: Array<{ contactId: string; nickId: string }> }>(
+    const res = await api.get<{ pairs: Array<{ contactId: string; nickId: string; externalThreadId?: string | null }> }>(
       '/automation/care-sessions/listening-pairs',
     );
-    followingPairs.value = new Set((res.data.pairs ?? []).map(p => `${p.contactId}|${p.nickId}`));
+    // 2026-06-21 dual-key: khớp chuông theo THREAD Zalo (nick+externalThreadId) — chính xác kể cả
+    // khi hội thoại trỏ hồ sơ trùng KHÁC với phiên (~29 ca mất chuông). GIỮ khóa contactId làm
+    // fallback cho phiên thread-NULL + tương thích. Prefix 'c|'/'t|' để 2 loại khóa không đụng nhau.
+    const next = new Set<string>();
+    for (const p of res.data.pairs ?? []) {
+      // Phiên CÓ thread → CHỈ khóa 't|' (khớp đúng 1 hội thoại theo thread Zalo, KHÔNG lan sang
+      // hội thoại khác cùng contact+nick nhưng khác thread). Phiên thread-NULL → khóa 'c|'
+      // (wildcard theo contact, giữ hành vi cũ cho phiên không có Friend row). Loại trừ nhau.
+      if (p.externalThreadId) next.add(`t|${p.nickId}|${p.externalThreadId}`);
+      else next.add(`c|${p.nickId}|${p.contactId}`);
+    }
+    followingPairs.value = next;
   } catch (err) {
     console.error('[follow] fetch listening-pairs failed', err);
   }
 }
-function onFollowChanged(contactId: string, nickId: string, following: boolean) {
-  const key = `${contactId}|${nickId}`;
-  const next = new Set(followingPairs.value);
-  if (following) next.add(key); else next.delete(key);
-  followingPairs.value = next; // gán Set mới → reactive, chuông cột 2 cập nhật ngay
+function onFollowChanged(_contactId: string, _nickId: string, _following: boolean) {
+  // Refetch authoritative: toggle (ConversationList.toggleFollowFromMenu) đã AWAIT API tạo/đóng
+  // phiên XONG mới emit → fetch lại ra đúng trạng thái. Tránh lệch khóa c|/t| khi UN-follow
+  // (optimistic không biết threadId của phiên nên không xoá được khóa 't|' → chuông treo). 1 GET nhẹ.
+  void fetchFollowingPairs();
 }
 
 const currentAccount = computed(() => {

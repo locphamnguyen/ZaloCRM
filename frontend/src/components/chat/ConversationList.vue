@@ -627,10 +627,15 @@ function cungChamTooltip(conv: Conversation): string {
 function isFollowingConv(conv: Conversation): boolean {
   const pairs = props.followingPairs;
   if (!pairs || pairs.size === 0) return false;
-  const contactId = conv.contact?.id;
   const nickId = conv.zaloAccount?.id;
-  if (!contactId || !nickId) return false;
-  return pairs.has(`${contactId}|${nickId}`);
+  if (!nickId) return false;
+  // 2026-06-21 dual-key: ưu tiên khớp theo THREAD Zalo (nick+externalThreadId) — đúng kể cả khi
+  // hội thoại trỏ hồ sơ trùng khác phiên. Fallback theo contactId cho phiên thread-NULL + cũ.
+  const threadId = conv.externalThreadId;
+  if (threadId && pairs.has(`t|${nickId}|${threadId}`)) return true;
+  const contactId = conv.contact?.id;
+  if (contactId && pairs.has(`c|${nickId}|${contactId}`)) return true;
+  return false;
 }
 
 function displayName(conv: Conversation): string {

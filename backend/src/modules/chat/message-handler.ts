@@ -12,6 +12,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 import { runAutomationRules } from '../../shared/ee-registry/automation.js';
 import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 import { applyContactAggregateFromMessage, applyContactInteraction, applyFriendAggregate } from '../contacts/contact-aggregate.js';
+import { followMergedInto } from '../contacts/resolve-contact.js';
 import { onInboundMessage as onInboundScoring, onOutboundMessage as onOutboundScoring } from '../scoring/scoring-hooks.js';
 import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
@@ -822,6 +823,43 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
   const contactName = msg.isSelf ? (msg.recipientName || '') : msg.senderName;
   const globalId = msg.contactGlobalId || '';
   const username = msg.contactUsername || '';
+
+  // 2026-06-21 (Lớp 2 — CHẶN ĐẺ HỒ SƠ TRÙNG ở nguồn): nếu (nick, uid) ĐÃ có Friend row thì tin
+  // này thuộc đúng contact của Friend đó (thường là contact import có SĐT = "A"). Hàm chuẩn
+  // resolveOrCreateContact đã Friend-first; upsertContact trước đây globalId-first nên đẻ "Contact B"
+  // trùng (chỉ tên Zalo, no SĐT) → hội thoại lệch phiên/hồ sơ. Chèn Friend-lookup ở ĐẦU, ưu tiên
+  // hơn globalId/uid. CỐ Ý không swap cả hàm sang resolveOrCreateContact để TRÁNH kéo
+  // enrichViaGetUserInfo (gọi Zalo getUserInfo) vào hot-path mỗi tin. Cờ lùi nhanh:
+  // đặt env CONTACT_RESOLVE_FRIEND_FIRST=off để tắt. friends(zaloAccountId,zaloUidInNick) unique → rẻ.
+  if (process.env.CONTACT_RESOLVE_FRIEND_FIRST !== 'off' && contactUid && msg.accountId) {
+    const friend = await prisma.friend.findFirst({
+      where: { orgId, zaloAccountId: msg.accountId, zaloUidInNick: contactUid },
+      select: {
+        contact: {
+          select: { id: true, mergedInto: true, zaloGlobalId: true, zaloUsername: true, fullName: true, zaloUid: true },
+        },
+      },
+    });
+    if (friend?.contact) {
+      const fc = friend.contact;
+      // Nếu contact đã được gộp → theo mergedInto về gốc, bỏ qua backfill (ca hiếm).
+      if (fc.mergedInto) {
+        const canonical = await followMergedInto(fc.id);
+        return canonical.id;
+      }
+      // GIỮ backfill như nhánh else phía dưới — Friend-first KHÔNG được làm MẤT việc cập nhật
+      // danh tính (globalId/username/fullName từ 'Unknown') qua tin nhắn cho contact đã có Friend.
+      const patch: { zaloGlobalId?: string; zaloUsername?: string; fullName?: string; zaloUid?: string } = {};
+      if (globalId && fc.zaloGlobalId !== globalId) patch.zaloGlobalId = globalId;
+      if (username && fc.zaloUsername !== username) patch.zaloUsername = username;
+      if (!fc.zaloUid && contactUid) patch.zaloUid = contactUid;
+      if (contactName && fc.fullName === 'Unknown') patch.fullName = contactName;
+      if (Object.keys(patch).length > 0) {
+        await prisma.contact.update({ where: { id: fc.id }, data: patch });
+      }
+      return fc.id;
+    }
+  }
 
   // Lookup chain (theo policy hard-match anh chốt: globalId / username / phone / uid):
   //  1. By zaloGlobalId — silver bullet, identical across viewer accounts
