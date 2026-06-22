@@ -282,6 +282,12 @@
 
         </template>
 
+        <!-- Bug B 2026-06-22: tin GỬI THẤT BẠI → badge cảnh báo + lý do (chặn người lạ / chặn nick…) -->
+        <div v-if="sendFailReason" class="send-failed">
+          <v-icon size="13">mdi-alert-circle-outline</v-icon>
+          Gửi thất bại: {{ sendFailReason }}
+        </div>
+
         <!-- Timestamp -->
         <div class="bubble-time" :class="{ 'text-end': isSelf }">
           {{ formatTime(message.sentAt) }}
@@ -685,6 +691,12 @@ const messageCaption = computed<string>(() => {
 });
 
 const formattedCaption = computed(() => highlightText(messageCaption.value));
+
+// Bug B 2026-06-22: tin gửi thất bại (metadata.sendStatus='failed') → hiện lý do.
+const sendFailReason = computed<string | null>(() => {
+  const m = props.message.metadata as { sendStatus?: string; failReason?: string } | null | undefined;
+  return m?.sendStatus === 'failed' ? (m.failReason || 'không gửi được') : null;
+});
 
 // ── Sticker — fetch metadata + CSS sprite animation cho animated stickers ──
 interface StickerMeta {
@@ -1183,6 +1195,16 @@ async function openFile(href: string, name?: string) {
 }
 
 /* Caption text below media (image/video/sticker/gif/file + text) */
+.send-failed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #d9534f;
+}
+.send-failed :deep(.v-icon) { color: #d9534f; }
 .media-caption {
   margin-top: 6px;
   font-size: 13.5px;

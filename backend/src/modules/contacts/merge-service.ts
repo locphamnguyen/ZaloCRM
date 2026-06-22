@@ -6,6 +6,8 @@
  */
 import { Prisma } from '@prisma/client';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
+import { logger } from '../../shared/utils/logger.js';
+import { consolidateContactConversations } from './conversation-consolidate.js';
 
 export async function mergeContacts(
   orgId: string,
@@ -13,7 +15,7 @@ export async function mergeContacts(
   primaryId: string,
   secondaryIds: string[],
 ): Promise<object> {
-  return tenantTransaction(async (tx) => {
+  const updatedPrimary = await tenantTransaction(async (tx) => {
     // Fetch primary
     const primary = await tx.contact.findUnique({ where: { id: primaryId } });
     if (!primary) throw new Error(`Contact ${primaryId} not found in org`);
@@ -121,4 +123,18 @@ export async function mergeContacts(
 
     return updatedPrimary;
   });
+
+  // A1 (2026-06-22, anh chốt): sau khi re-point conversation của secondaries → primary, primary
+  // có thể có NHIỀU conversation cùng 1 nick (per-account UID drift) → tin nhắn XÉ. Gộp về 1
+  // canonical mỗi nick để UI hiện đủ. Ngoài tx (helper tự mở tx riêng); lỗi KHÔNG chặn merge.
+  try {
+    const c = await consolidateContactConversations(primaryId);
+    if (c.conversationsRemoved > 0) {
+      logger.info(`[merge] primary=${primaryId} gộp ${c.conversationsRemoved} conversation xé (${c.messagesMoved} tin)`);
+    }
+  } catch (err) {
+    logger.warn(`[merge] consolidate conversations failed primary=${primaryId}:`, err);
+  }
+
+  return updatedPrimary;
 }

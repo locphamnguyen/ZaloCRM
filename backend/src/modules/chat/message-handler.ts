@@ -957,6 +957,19 @@ async function findOrCreateConversation(
     return { id: existing.id };
   }
 
+  // A2 (chặn tái sinh hội thoại xé — anh chốt 2026-06-22): trước khi tạo conversation MỚI cho
+  // thread 1-1, nếu contact ĐÃ có conversation với nick này (UID khác do per-account UID drift)
+  // → DÙNG LẠI thay vì đẻ conversation thứ 2 (gốc gây "Chưa có tin nhắn"). Group giữ nguyên
+  // (externalThreadId nhóm ổn định, không drift).
+  if (msg.threadType === 'user' && contactId) {
+    const sibling = await prisma.conversation.findFirst({
+      where: { zaloAccountId: msg.accountId, contactId, threadType: 'user' },
+      orderBy: { lastMessageAt: 'desc' },
+      select: { id: true },
+    });
+    if (sibling) return { id: sibling.id };
+  }
+
   return prisma.conversation.create({
     data: {
       id: randomUUID(),
