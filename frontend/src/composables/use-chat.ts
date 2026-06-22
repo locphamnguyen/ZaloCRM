@@ -343,6 +343,12 @@ export function useChat() {
   const outOfScopeCounts = ref<Map<string, number>>(new Map());
   // FIX socket-chết v2 — trạng thái realtime cho badge "mất kết nối" ở header chat.
   const socketConnected = ref(true);
+  // 2026-06-22 (anh báo banner "Mất kết nối realtime" nháy liên tục): access token sống 15' →
+  // server CHỦ ĐỘNG ngắt socket mỗi chu kỳ → client refresh token + reconnect (thường <1-2s);
+  // mỗi lần deploy/restart cũng rớt 1 nhịp. Debounce: chỉ bật cờ "offline" khi mất kết nối THẬT
+  // > GRACE (4s) → ẩn nháy lúc reconnect nhanh, vẫn báo khi mất kết nối thật sự. Ẩn NGAY khi nối lại.
+  const realtimeOffline = ref(false);
+  let offlineGraceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Debounce server-side reconcile: chỉ fetch full list sau 3s không có tin mới
   // → tránh lag khi nhận burst (chat group nhiều người gửi liên tiếp).
@@ -774,7 +780,14 @@ export function useChat() {
     socket = createAppSocket({
       // Badge "mất kết nối realtime" — cập nhật cờ cho header chat đọc.
       onStatusChange: (status) => {
-        socketConnected.value = status === 'connected';
+        const connected = status === 'connected';
+        socketConnected.value = connected;
+        if (connected) {
+          if (offlineGraceTimer) { clearTimeout(offlineGraceTimer); offlineGraceTimer = null; }
+          realtimeOffline.value = false;
+        } else if (!offlineGraceTimer) {
+          offlineGraceTimer = setTimeout(() => { realtimeOffline.value = true; offlineGraceTimer = null; }, 4000);
+        }
       },
       // Reconnect sau 1 khoảng chết → kéo lại tin cột 2 đã lỡ (socket không backfill).
       // bypassCache đảm bảo lấy fresh, không apply cache cũ trước lúc chết.
@@ -1170,6 +1183,7 @@ export function useChat() {
     getSocket: () => socket,
     typingConvIds,
     socketConnected,
+    realtimeOffline,
     // work-scope 2026-06-15
     outOfScopeCounts,
     clearOutOfScopeBadge: (accountId: string) => {

@@ -23,7 +23,7 @@
     <div class="smax-conv-col">
       <!-- FIX socket-chết v2 — báo mất kết nối realtime, KHÔNG để chết âm thầm (bỏ lỡ khách).
            Text generic, không lộ orgId/user. Ẩn khi đã kết nối. -->
-      <div v-if="!socketConnected" class="realtime-offline-banner">
+      <div v-if="realtimeOffline" class="realtime-offline-banner">
         <span class="dot" />
         Mất kết nối realtime — đang thử kết nối lại...
       </div>
@@ -173,7 +173,7 @@ const {
   fetchConversations, fetchAiConfig, fetchMessages, selectConversation, sendMessage,
   generateAiSuggestion, generateAiSummary, generateAiSentiment,
   initSocket, destroySocket, getSocket,
-  typingConvIds, socketConnected,
+  typingConvIds, realtimeOffline,
   outOfScopeCounts, clearOutOfScopeBadge,
   patchContactProfile,
 } = useChat();
