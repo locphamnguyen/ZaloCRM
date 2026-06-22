@@ -247,6 +247,8 @@ export interface UserInfoCacheEntry {
 }
 
 const USER_INFO_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// TẠM Đợt 2b (gỡ sau khi chốt cột): đếm để log field-name+type raw getUserInfo vài lần đầu.
+let rawProfileDebugN = 0;
 
 // Fetch zaloName + avatar + globalId + username from API with a per-pool in-memory cache
 async function resolveZaloName(
@@ -264,6 +266,12 @@ async function resolveZaloName(
     const profiles = result?.changed_profiles || {};
     const profile = profiles[uid] || profiles[`${uid}_0`];
     if (profile) {
+      // TẠM Đợt 2b — log TÊN field + KIỂU (KHÔNG log giá trị → không lộ PII) để chốt cột thật.
+      if (rawProfileDebugN < 8) {
+        rawProfileDebugN++;
+        const p = profile as Record<string, unknown>;
+        logger.info(`[rawprofile-debug] keys=${Object.keys(p).join('|')} || bizPkg:${typeof p.bizPkg} business:${typeof p.business} status:${typeof p.status} bio:${typeof p.bio} cover:${typeof p.cover} lastActionTime:${typeof p.lastActionTime} sdob:${typeof p.sdob} dob:${typeof p.dob}`);
+      }
       const entry: UserInfoCacheEntry = {
         zaloName:
           profile.zaloName ||
