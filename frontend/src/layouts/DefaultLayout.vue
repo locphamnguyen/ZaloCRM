@@ -144,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import { useTheme } from 'vuetify';
 import { useRoute, RouterLink } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -175,8 +175,35 @@ function closeAllNavMenus() {
   settingsMenu.value = false;
   userMenu.value = false;
 }
-router.afterEach(() => closeAllNavMenus());
-router.onError(() => closeAllNavMenus());
+
+// 2026-06-23 (anh báo: thao tác 1 lúc ở MỌI module rồi click nav không chuyển được, phải
+// F5; hover vẫn hiện href ⇒ KHÔNG phải overlay phủ-hình). GỐC: overlay Vuetify (v-menu/
+// v-dialog, z-index 2000) bị KẸT/ORPHAN — activator unmount giữa lúc mở (list re-render,
+// đổi route…) để lại overlay + listener "click-outside" ở document → click nav bị nuốt
+// (đóng overlay ma thay vì điều hướng). Fix cũ chỉ đóng 3 menu NAV, không dọn overlay từ
+// module khác. Đây là DỌN TOÀN CỤC mọi overlay kẹt sau mỗi điều hướng:
+//   1) Esc native → Vuetify tự đóng overlay còn mounted (sạch, không lỗi removeChild).
+//   2) nextTick xong gỡ orphan DOM còn sót trong .v-overlay-container (component đã unmount
+//      nên Vuetify không quản nữa → gỡ an toàn; bọc try/catch chống race).
+function sweepStuckOverlays() {
+  try {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  } catch { /* no-op */ }
+  void nextTick(() => {
+    try {
+      document
+        .querySelectorAll('.v-overlay-container > .v-overlay.v-overlay--active')
+        .forEach((el) => el.remove());
+    } catch { /* race với Vuetify cleanup — bỏ qua */ }
+  });
+}
+
+function cleanupAfterNav() {
+  closeAllNavMenus();
+  sweepStuckOverlays();
+}
+router.afterEach(() => cleanupAfterNav());
+router.onError(() => cleanupAfterNav());
 
 // Phase Internal Contact 2-method 2026-05-23 — banner cho sale chưa setup
 // Phase Onboarding v1 redesign 2026-05-24: ẨN banner khi đang ở Dashboard route
