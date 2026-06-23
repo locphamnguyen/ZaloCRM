@@ -286,7 +286,10 @@ router.beforeEach(async (to, _from, next) => {
     // Route khai báo meta.resource → user phải canAccess(resource, action) mới vào.
     // owner/admin = full (canAccess tự bypass). Default action = 'access'.
     const required = to.meta.resource as string | undefined;
-    if (required && !authStore.canAccess(required, (to.meta.action as string) ?? 'access')) {
+    // Redesign Đợt 1: route có meta.managerOr=true → cho trưởng phòng (leader/deputy) vào dù
+    // không có grant `resource` (vd Lead Pool: leader xem tab Báo cáo đội/Nhật ký). Tab tự ẩn theo quyền.
+    const managerBypass = to.meta.managerOr === true && authStore.isManager;
+    if (required && !managerBypass && !authStore.canAccess(required, (to.meta.action as string) ?? 'access')) {
       try { useToast().error('Bạn không có quyền truy cập trang này'); } catch { /* toast chưa sẵn sàng */ }
       // Đến từ trang hợp lệ → giữ nguyên (next(false)); vào thẳng bằng URL → về Dashboard.
       if (_from?.name) { next(false); return; }
