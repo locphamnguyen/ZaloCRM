@@ -233,15 +233,17 @@
               <span v-if="friendDaysLabel" class="sub-meta">{{ friendDaysLabel }}</span>
             </button>
             <button
-              class="btn-action btn-remove-friend"
+              class="btn-action btn-remove-friend fr-hover-pop"
               :disabled="actionLoading"
               @click="onRemoveFriend"
             >
               <span class="ic"><UserXIcon :size="14" :stroke-width="2" /></span> Huỷ KB
             </button>
           </div>
-          <!-- Sale đã gửi mời, đợi KH accept: primary "Đã mời" + secondary "Thu hồi" -->
-          <template v-else-if="friendshipState === 'pending_sent' || friendshipState === 'pending_friend'">
+          <!-- Sale đã gửi mời, đợi KH accept: "Đã mời" + hover xổ xuống nút "Thu hồi".
+               2026-06-23 (anh chốt): bố trí GIỐNG Đã KB→Huỷ KB (hover-group) để Thu hồi
+               không chiếm chỗ ngang; chức năng giữ nguyên = thu hồi lời mời kết bạn. -->
+          <div v-else-if="friendshipState === 'pending_sent' || friendshipState === 'pending_friend'" class="friend-hover-group">
             <button
               class="btn-action btn-pending"
               :title="pendingSentTooltip"
@@ -250,14 +252,14 @@
               <span class="ic"><SendIcon :size="14" :stroke-width="2" /></span> Đã mời <span class="sub-meta">{{ pendingDaysLabel }}</span>
             </button>
             <button
-              class="btn-action btn-cancel-invite"
+              class="btn-action btn-cancel-invite fr-hover-pop"
               title="Thu hồi lời mời kết bạn"
               :disabled="actionLoading"
               @click="onCancelInvite"
             >
               <span class="ic"><Undo2Icon :size="14" :stroke-width="2" /></span> Thu hồi
             </button>
-          </template>
+          </div>
           <!-- KH đã gửi mời, sale chưa accept: primary "Chấp nhận" + secondary "Từ chối" -->
           <template v-else-if="friendshipState === 'pending_received'">
             <button
@@ -3557,12 +3559,14 @@ watch(() => props.editingMessage?.id, async (id) => {
   color: white;
   border-color: var(--smax-primary);
 }
-/* Secondary "Thu hồi" — neutral grey, không cảnh báo (rút lại action của chính mình) */
+/* Secondary "Thu hồi" — neutral grey, không cảnh báo (rút lại action của chính mình).
+   2026-06-23: giờ là popup xổ xuống (.fr-hover-pop) → thêm shadow toả xuống cho ra dáng dropdown. */
 .btn-cancel-invite {
-  background: rgba(100, 116, 139, 0.10);
+  background: #f8fafc;
   color: #475569;
   border-color: rgba(100, 116, 139, 0.30);
   font-weight: 500;
+  box-shadow: 0 6px 12px -4px rgba(100, 116, 139, 0.22);
 }
 .btn-cancel-invite:hover:not(:disabled) {
   background: rgba(100, 116, 139, 0.20);
@@ -3582,34 +3586,51 @@ watch(() => props.editingMessage?.id, async (id) => {
   color: #991b1b;
 }
 /* 2026-06-03 Anh chốt: hover-reveal VERTICAL (xổ xuống dưới), KHÔNG đẩy ngang.
-   .friend-hover-group là anchor; .btn-remove-friend absolute top:100% slide-down. */
+   .friend-hover-group là anchor; .fr-hover-pop absolute top:100% slide-down.
+   2026-06-23 (anh báo: rê chuột xuống popup bị MẤT — Đã KB→Huỷ KB; áp luôn Đã mời→Thu hồi):
+   popup tách 6px khỏi nút trên → KHE HỞ làm rời hover → ẩn popup, không bấm được. Thêm
+   CẦU trong suốt (::before) bắc qua khe để hover liên tục. Class .fr-hover-pop DÙNG CHUNG cho
+   Huỷ KB (Đã KB) + Thu hồi (Đã mời); màu sắc để class riêng (.btn-remove-friend/.btn-cancel-invite). */
 .friend-hover-group {
   display: inline-flex;
   align-items: center;
-  position: relative; /* anchor cho btn-remove-friend absolute */
+  position: relative; /* anchor cho .fr-hover-pop absolute */
 }
-.btn-remove-friend {
+.fr-hover-pop {
   position: absolute;
-  top: calc(100% + 6px); /* dưới Đã KB 6px — tách hẳn khỏi row 1 */
+  top: calc(100% + 6px); /* dưới nút trên 6px — tách hẳn khỏi row 1 */
   left: 0;
-  background: #fff5f5;
-  color: #b91c1c;
-  border-color: rgba(239, 68, 68, 0.4);
-  font-weight: 500;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transform: translateY(-4px);
   transition: opacity 0.16s ease, transform 0.18s ease;
   z-index: 5;
-  /* Shadow chỉ tỏa XUỐNG DƯỚI (offset-y dương + spread âm) → KHÔNG lan lên đè row 1 */
-  box-shadow: 0 6px 12px -4px rgba(185, 28, 28, 0.18);
 }
-.friend-hover-group:hover .btn-remove-friend,
-.btn-remove-friend:focus-visible {
+/* CẦU trong suốt bắc qua khe (nút trên → popup) → rê chuột xuống KHÔNG rớt hover. Chỉ "ăn"
+   chuột khi popup đang hiện (pointer-events kế thừa từ .fr-hover-pop) → ẩn thì không chắn click. */
+.fr-hover-pop::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
+  height: 10px;
+}
+.friend-hover-group:hover .fr-hover-pop,
+.fr-hover-pop:focus-visible {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
+}
+/* Màu riêng Huỷ KB (đỏ destructive) */
+.btn-remove-friend {
+  background: #fff5f5;
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.4);
+  font-weight: 500;
+  /* Shadow chỉ tỏa XUỐNG DƯỚI (offset-y dương + spread âm) → KHÔNG lan lên đè row 1 */
+  box-shadow: 0 6px 12px -4px rgba(185, 28, 28, 0.18);
 }
 .btn-remove-friend:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.22);
