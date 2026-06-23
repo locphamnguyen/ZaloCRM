@@ -3684,6 +3684,41 @@ model ZaloOaAppConfig {
   @@map("zalo_oa_app_configs")
 }
 
+// ───────── TikTok Lead Generation (Nhịp 2, 2026-06-23) — env-gated, mirror Zalo OA ─────────
+// Cấu hình app TikTok for Business per-org (điền qua UI, fallback env TIKTOK_*).
+model TiktokAppConfig {
+  id                 String   @id @default(cuid())
+  orgId              String   @unique @map("org_id")
+  appId              String?  @map("app_id") // TikTok App ID / client_key
+  appSecretEnc       String?  @map("app_secret_enc") @db.Text // encryptToken(client_secret)
+  webhookVerifyToken String?  @map("webhook_verify_token")
+  oauthRedirectUri   String?  @map("oauth_redirect_uri")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("tiktok_app_configs")
+}
+
+// Kết nối 1 advertiser TikTok (OAuth) — giữ access token để gọi Marketing API lấy lead.
+// Marketing API access_token long-lived (không refresh) → không lưu refresh token.
+model TiktokAdvertiserConnection {
+  id             String    @id @default(cuid())
+  orgId          String    @map("org_id")
+  advertiserId   String    @map("advertiser_id") // TikTok advertiser_id
+  advertiserName String?   @map("advertiser_name")
+  accessTokenEnc String    @map("access_token_enc") @db.Text // encryptToken(access_token)
+  tokenExpiresAt DateTime? @map("token_expires_at")
+  status         String    @default("connected") // connected | revoked | error
+  lastError      String?   @map("last_error")
+  lastWebhookAt  DateTime? @map("last_webhook_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@unique([orgId, advertiserId])
+  @@index([advertiserId])
+  @@map("tiktok_advertiser_connections")
+}
+
 model ZaloOaConnection {
   id              String    @id @default(cuid())
   orgId           String    @map("org_id")
