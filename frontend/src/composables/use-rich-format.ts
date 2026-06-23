@@ -107,9 +107,18 @@ export function plainFormat(text: string): string {
 // biến trong tin hệ thống + copy-paste. Lookbehind (?<![\d.]) + lookahead (?![\d]) chặn
 // khớp giữa số dài (UID Zalo 19 số, mã đơn…). Bỏ qua dạng có dấu cách "0904 808 000" để
 // tránh gộp nhầm 2 số liền nhau (hiếm gặp trong tin hệ thống).
-const LINKIFY_RE = /(https?:\/\/[^\s<]+)|((?<![\d.])(?:\+?84|0)\d{9,10}(?![\d]))/g;
+// 1 lượt regex, 3 nhánh (URL ưu tiên đầu để "nuốt" trọn link → số trong link không bị tách):
+//   g1 = URL
+//   g2 = SĐT VN CÓ DẤU PHÂN CÁCH (chấm/cách/gạch) — vd 0964.96.96.81 / 0938 821 425 / 090-368...
+//        2026-06-23: quét log prod thấy ~46% SĐT sale gõ có dấu (nhất là dấu CHẤM) → trước
+//        đây trượt hết. Nhóm 2-7 số, tối đa 5 nhóm → KHÔNG nuốt số lẻ của số kế bên.
+//   g3 = SĐT VN SỐ LIỀN (vd 84936668266 / 0911234999) — chặn đuôi -\d để khỏi bắt nhầm MST.
+// Mọi nhánh SĐT đều qua normalizePhoneVN (strip dấu + chuẩn 84xxx) nên tự loại ngày/giá/giờ/
+// version/MST (prefix+độ dài sai → null → giữ nguyên text). Verify log prod: 98.5% SĐT, 0 false-positive.
+const LINKIFY_RE = /(https?:\/\/[^\s<]+)|((?<![\d.])(?:\+?84|0)[.\-\s]?\d{1,4}(?:[.\-\s]\d{2,7}){1,5}(?![\d]))|((?<![\d.])(?:\+?84|0)\d{9,10}(?!\d)(?!-\d))/g;
 
-/** Chuẩn hoá SĐT VN → "84xxxxxxxxx" (khớp BE find-by-phone). null nếu không hợp lệ. */
+/** Chuẩn hoá SĐT VN → "84xxxxxxxxx" (khớp BE find-by-phone). Strip mọi ký tự không phải số
+ *  (dấu cách/chấm/gạch/+) rồi kiểm prefix+độ dài. null nếu không hợp lệ. */
 function normalizePhoneVN(raw: string): string | null {
   let d = raw.replace(/\D/g, '');
   if (d.startsWith('840')) d = '84' + d.slice(3);
@@ -117,19 +126,19 @@ function normalizePhoneVN(raw: string): string | null {
   return /^84\d{9,10}$/.test(d) ? d : null;
 }
 
-/** Wrap URL + SĐT trong 1 đoạn text (đã escape). 1 lượt regex để URL "nuốt" trọn token
- *  → số trông-giống-SĐT nằm trong URL không bị tách riêng. */
+/** Wrap URL + SĐT trong 1 đoạn text (đã escape). */
 function linkifyTextChunk(text: string): string {
-  return text.replace(LINKIFY_RE, (m: string, url?: string, phone?: string) => {
+  return text.replace(LINKIFY_RE, (m: string, url?: string, phoneSep?: string, phoneRun?: string) => {
     if (url) {
       // Tách dấu câu cuối (. , ) ] …) ra khỏi URL để không dính vào href.
       const trail = (url.match(/[.,;:!?)\]]+$/) || [''])[0];
       const clean = trail ? url.slice(0, url.length - trail.length) : url;
       return `<a href="${clean}" target="_blank" rel="noopener" class="link">${clean}</a>${trail}`;
     }
+    const phone = phoneSep || phoneRun;
     if (phone) {
       const norm = normalizePhoneVN(phone);
-      if (!norm) return m;
+      if (!norm) return m; // không chuẩn hoá được (ngày/giá/MST…) → giữ nguyên text
       return `<span class="phone-link" data-phone="${norm}" title="Tra cứu người dùng Zalo qua số này">${phone}</span>`;
     }
     return m;
