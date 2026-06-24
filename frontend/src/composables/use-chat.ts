@@ -10,6 +10,7 @@ import { applyPendingTags, registerPendingTags } from '@/composables/use-pending
 import { usePrivacyStore } from '@/stores/privacy';
 import { useWorkScope } from '@/composables/use-work-scope';
 import { classifyIncoming } from '@/composables/work-scope-logic';
+import { useToast } from '@/composables/use-toast';
 
 interface ZaloAccount {
   id: string;
@@ -754,6 +755,16 @@ export function useChat() {
       }
     } catch (err) {
       console.error('Failed to send message:', err);
+      // 2026-06-24 (anh báo bug): gửi fail mà UI im lặng — sale không biết vì sao.
+      // Backend trả 422 + message tiếng Việt thật khi Zalo TỪ CHỐI nghiệp vụ
+      // (vd "Khách chặn nhận tin từ người lạ", 119, 127...). Interceptor toàn cục
+      // chỉ toast 403 + 5xx → ở đây bù phần còn lại (422 + lỗi mạng không response)
+      // để sale thấy lý do thay vì gửi vào hư không.
+      const e = err as { response?: { status?: number; data?: { error?: string } } };
+      const status = e?.response?.status;
+      if (status !== 403 && !(status && status >= 500)) {
+        useToast().error(e?.response?.data?.error || 'Không gửi được tin nhắn, vui lòng thử lại.');
+      }
       throw err;
     } finally {
       sendingMsg.value = false;
