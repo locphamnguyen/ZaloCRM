@@ -286,6 +286,7 @@ export interface ContactFilters {
   dateTo?: string;
   sequenceAttachMin?: number | null; // #4: lọc KH gắn ≥ N sequence
   friendInviteMin?: number | null;   // #3: lọc KH đã gửi kết bạn ≥ N lần
+  sort?: 'score' | '' | null;        // 'score' = điểm cao lên đầu; rỗng = tương tác mới nhất
 }
 
 export const SOURCE_OPTIONS = [
@@ -328,6 +329,7 @@ export function useContacts() {
     dateTo: '',
     sequenceAttachMin: null,
     friendInviteMin: null,
+    sort: null,
   });
 
   const pagination = reactive({ page: 1, limit: 20 });
@@ -354,6 +356,7 @@ export function useContacts() {
           dateTo: filters.dateTo || undefined,
           sequenceAttachMin: filters.sequenceAttachMin ?? undefined,
           friendInviteMin: filters.friendInviteMin ?? undefined,
+          sort: filters.sort || undefined,
         },
       });
       contacts.value = res.data.contacts ?? res.data;

@@ -232,7 +232,9 @@
             <th>Tỉnh/Quận</th>
             <th>Nguồn</th>
             <th>Trạng thái KH</th>
-            <th>Score</th>
+            <th class="th-sort" title="Bấm để sắp theo điểm cao → thấp" @click="toggleScoreSort">
+              Score <span class="sort-ind">{{ filters.sort === 'score' ? '▼' : '⇅' }}</span>
+            </th>
             <th>Nick chăm</th>
             <th>Sale chính / hỗ trợ</th>
             <th>KH nhắn cuối</th>
@@ -689,6 +691,14 @@ const router = useRouter();
 const route = useRoute();
 
 const { contacts, total, loading, filters, pagination, fetchContacts } = useContacts();
+
+// Toggle sắp theo điểm: lần 1 = điểm cao lên đầu (sort=score), lần 2 = về mặc định
+// (tương tác mới nhất). Reset trang về 1 để không lệch phân trang.
+function toggleScoreSort() {
+  filters.sort = filters.sort === 'score' ? null : 'score';
+  pagination.page = 1;
+  fetchContacts();
+}
 const { duplicateTotal, fetchDuplicateGroups } = useContactIntelligence();
 const toast = useToast();
 
@@ -1559,6 +1569,10 @@ watch(
 </script>
 
 <style scoped>
+/* Header Score click-to-sort */
+.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.th-sort .sort-ind { opacity: 0.55; font-size: 11px; }
+
 .smax-contacts-page {
   padding: 13px 18px 13px;
   background: var(--smax-grey-100);
