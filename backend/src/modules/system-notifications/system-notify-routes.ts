@@ -571,9 +571,9 @@ export async function systemNotifyRoutes(app: FastifyInstance): Promise<void> {
       const payload = buildWelcomeMessage(template, {
         fullName: 'Nguyễn Văn A',
         email: 'nguyenvana@example.com',
-        phone: '0931536109',
+        phone: '0901000001',
         password: 'a3k7p9',
-        loginUrl: process.env.CRM_LOGIN_URL || process.env.APP_URL || 'https://zalo.hsholding.vn',
+        loginUrl: process.env.CRM_LOGIN_URL || process.env.APP_URL || 'http://localhost:3080',
         orgName: org?.name ?? 'Tổ chức',
         departmentName: 'Phòng Kinh Doanh',
         roleName: 'Nhân viên Sale',

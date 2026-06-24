@@ -422,7 +422,7 @@ async function sendWelcomeAndFallback(p: SendLoginParams): Promise<CreateUserRes
   const senderId = p.org.systemNotifyZaloAccountId;
   // Ưu tiên CRM_LOGIN_URL (override), rồi APP_URL (domain thật của deployment),
   // cuối cùng mới fallback hardcode (chỉ là phương án chót).
-  const loginUrl = process.env.CRM_LOGIN_URL || process.env.APP_URL || 'https://zalo.hsholding.vn';
+  const loginUrl = process.env.CRM_LOGIN_URL || process.env.APP_URL || 'http://localhost:3080';
 
   const variant: WelcomeVariant = p.finalRelation === 'friend' ? 'friend' : 'stranger';
   // Build text trước (không cần attachment ở builder nữa — em xử attachment riêng dưới)

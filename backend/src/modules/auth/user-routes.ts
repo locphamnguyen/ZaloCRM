@@ -244,7 +244,7 @@ export async function userRoutes(app: FastifyInstance) {
     let zaloError: string | null = null;
     if (sendZalo) {
       try {
-        const loginUrl = process.env.CRM_LOGIN_URL || process.env.APP_URL || 'https://zalo.hsholding.vn';
+        const loginUrl = process.env.CRM_LOGIN_URL || process.env.APP_URL || 'http://localhost:3080';
         const title = '🔑 Mật khẩu đã được đặt lại';
         const content =
           `Quản trị viên vừa đặt lại mật khẩu tài khoản của bạn.\n` +
