@@ -26,6 +26,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { recomputeListCounters } from './list-entry-routes.js';
 import { appendSystemMessage } from './list-system-messages.js';
 import { withTenant, runSystemQuery } from '../../shared/tenant/tenant-context.js';
+import { automationEventBus } from '../../shared/ee-registry/event-bus.js';
 
 const CHUNK_SIZE = 200;
 const TICK_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -186,6 +187,17 @@ async function enrichListOnce(listId: string): Promise<{ processed: number; enri
           },
         });
         enriched++;
+        // Lead-notify Nhịp 1 (EE seam) — entry vừa có contactId (chokepoint mọi nguồn) → emit
+        // lên shared-bus; EE lead-notify-listener subscribe → tự giao sale + báo. Community = no-op.
+        if (contactId) {
+          automationEventBus.emit({
+            type: 'customer_list_entry_created',
+            orgId: list.orgId,
+            occurredAt: new Date(),
+            contactId,
+            payload: { customerListId: listId, entryId: entry.id },
+          });
+        }
       } else {
         // Không match Friend table → mark `enriched` (đã check Friend xong) nhưng
         // GIỮ hasZalo=null vì chưa biết thực sự có Zalo hay không.

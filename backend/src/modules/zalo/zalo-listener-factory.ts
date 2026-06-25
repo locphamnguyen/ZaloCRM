@@ -114,6 +114,16 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
       });
     }
 
+    // Lead-notify Nhịp 1 (2026-06-25) — sale thả cảm xúc vào TIN BÁO LEAD = xác nhận đã nhận
+    // → dừng vòng nhắc-lại. EE seam: dynamic-import + try/catch nuốt lỗi (bản CE không có
+    // _ee/ → skip vô hại). Service tự khớp zaloMsgId + chỉ tính reaction ADD.
+    try {
+      const mod = await import('../../_ee/automation/lead-notify/lead-notify-ack-service.js');
+      await mod.ackLeadNotifyByReaction?.(conversation.orgId, targetZaloMsgId, reactorZaloUid, rawIcon, rType);
+    } catch {
+      /* không có module EE (CE) hoặc lỗi → bỏ qua */
+    }
+
     // ANTI-DRIFT FIX 2026-05-22: emit authoritative totalCount từ DB sau upsert/delete.
     // Trước fix: Zalo gửi 10 reaction events liên tiếp → 10 socket emits với action='add'
     // → FE increment +1 mỗi event → count=10 realtime. Refresh page → REST trả 1 (DB chỉ

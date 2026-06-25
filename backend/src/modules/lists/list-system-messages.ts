@@ -31,7 +31,10 @@ export type SystemMessageType =
   // Sale / workflow events
   | 'SKIPPED_BY_SALE'
   | 'PHONE_EDITED'
-  | 'ENRICHED_NO_MATCH'; // worker check Friend xong, không match
+  | 'ENRICHED_NO_MATCH' // worker check Friend xong, không match
+  // Lead-notify Nhịp 1 (EE ghi qua appendSystemMessage; type ở core để FE đọc cột trạng thái)
+  | 'ASSIGNED_TO_SALE' // đã giao + báo (payload.userId)
+  | 'ASSIGN_FAILED'; // chưa giao được (payload.reason = 'empty_pool')
 
 export interface SystemMessage {
   type: SystemMessageType;

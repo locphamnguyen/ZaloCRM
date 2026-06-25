@@ -47,6 +47,15 @@
             <v-icon size="16">mdi-target</v-icon>
             Tạo Mục tiêu từ tệp này
           </button>
+          <button
+            class="btn btn-sm"
+            :class="currentList?.leadNotifyEnabled ? 'btn-running' : 'btn-ghost'"
+            :title="currentList?.leadNotifyEnabled ? 'Tự động giao & báo ĐANG CHẠY — bấm để cấu hình' : 'Tự động giao sale + báo lead mới khi vào tệp'"
+            @click="showLeadNotify = true"
+          >
+            <v-icon size="16">{{ currentList?.leadNotifyEnabled ? 'mdi-checkbox-blank-circle' : 'mdi-bell-ring-outline' }}</v-icon>
+            {{ currentList?.leadNotifyEnabled ? 'Đang chạy' : 'Tự động giao & báo' }}
+          </button>
           <button class="btn btn-ghost btn-sm" @click="onRescan">
             <v-icon size="16">mdi-refresh</v-icon>
             Quét lại Zalo
@@ -221,6 +230,12 @@
     </div>
 
     <!-- Entries table -->
+    <LeadNotifyTimeline
+      v-if="currentList?.leadNotifyEnabled"
+      :list-id="listId"
+      @open-entry="onTimelineOpenEntry"
+    />
+
     <div class="entries-wrap">
       <table class="tbl entries-table">
         <thead>
@@ -241,6 +256,7 @@
               Ngày cập nhật <v-icon size="12" class="th-i">{{ sortIcon('updatedAt') }}</v-icon>
             </th>
             <th v-show="isColVisible('source')" title="Nguồn lead: Facebook / TikTok / Zalo / Thủ công">Nguồn</th>
+            <th v-show="isColVisible('assignStatus')" title="Lead đã được tự động giao cho sale nào chưa (ô Tự động giao & báo)">Trạng thái giao</th>
             <th v-show="isColVisible('phoneRaw')"       title="Phone gốc anh paste">Phone (paste)</th>
             <th v-show="isColVisible('phoneE164')" class="sortable" :class="{ sorted: entrySort === 'phoneE164' }" title="Phone E.164 chuẩn quốc tế — bấm để sắp xếp" @click="toggleSort('phoneE164')">Phone (+84) <v-icon size="12" class="th-i">{{ sortIcon('phoneE164') }}</v-icon></th>
             <th v-show="isColVisible('phoneLocal')"     title="Phone local VN (0xxx)">Phone (local)</th>
@@ -292,6 +308,11 @@
             </td>
             <td v-show="isColVisible('source')" class="src-cell">
               <span class="src-badge" :class="'src-' + entrySourceBadge(entry).key">{{ entrySourceBadge(entry).icon }} {{ entrySourceBadge(entry).label }}</span>
+            </td>
+            <td v-show="isColVisible('assignStatus')" class="assign-status-cell">
+              <span class="assign-badge" :class="'assign-' + assignStatus(entry).state" :title="assignStatus(entry).title">
+                {{ assignStatus(entry).label }}
+              </span>
             </td>
             <!-- Editable phoneRaw — Enter sẽ re-validate + re-dedup -->
             <td v-show="isColVisible('phoneRaw')" class="phone-cell raw editable cell-scroll" @click.stop="startEdit(entry.id, 'phoneRaw', entry.phoneRaw)">
@@ -556,6 +577,11 @@
       :busy="!!rowFinding"
       @pick="onRowNickPicked"
     />
+    <LeadNotifyConfigDrawer
+      v-model="showLeadNotify"
+      :list-id="listId"
+      @saved="onLeadNotifySaved"
+    />
   </div>
 </template>
 
@@ -569,7 +595,10 @@ import LeadDetailPanel from '@/components/lists/LeadDetailPanel.vue';
 import { sourceBadge } from '@/lib/source-badge';
 // Phase 2026-05-30 — nút Tìm Zalo: cần danh sách nick theo quyền cho popup
 import { useZaloAccounts } from '@/composables/use-zalo-accounts';
+import { useUsers } from '@/composables/use-users';
 import NickPickerPopup, { type NickPickerAccount } from '@/components/zalo-accounts/NickPickerPopup.vue';
+import LeadNotifyConfigDrawer from '@ee/automation/components/LeadNotifyConfigDrawer.vue';
+import LeadNotifyTimeline from '@ee/automation/components/LeadNotifyTimeline.vue';
 import { api } from '@/api';
 import { useToast } from '@/composables/use-toast';
 import { useConfirm } from '@/composables/use-confirm';
@@ -579,6 +608,38 @@ const router = useRouter();
 
 const toast = useToast();
 const { confirm } = useConfirm();
+// Lead-notify Nhịp 1 — drawer cấu hình "Tự động giao & báo lead" per-tệp.
+const showLeadNotify = ref(false);
+function onLeadNotifySaved() {
+  toast.success('Đã lưu cấu hình tự động giao & báo lead');
+  fetchEntries(listId.value);
+}
+// Lead-notify Nhịp 1 — cột "Trạng thái giao": đọc systemMessages + map userId→tên sale.
+const { users: orgUsers, fetchUsers: fetchOrgUsers } = useUsers();
+fetchOrgUsers().catch(() => {});
+const userNameById = computed(() => {
+  const m = new Map<string, string>();
+  for (const u of orgUsers.value) m.set(u.id, u.fullName || u.id);
+  return m;
+});
+function assignStatus(entry: CustomerListEntry): { state: string; label: string; title: string } {
+  const msgs = entry.systemMessages ?? [];
+  const assigned = msgs.find((m) => m.type === 'ASSIGNED_TO_SALE');
+  if (assigned) {
+    const uid = assigned.payload?.userId as string | undefined;
+    const name = (uid && userNameById.value.get(uid)) || 'sale';
+    return { state: 'done', label: `✅ Đã giao · ${name}`, title: `Đã giao cho ${name} + đã báo nhóm/cá nhân` };
+  }
+  if (msgs.some((m) => m.type === 'ASSIGN_FAILED')) {
+    return { state: 'failed', label: '⚠️ Hết pool', title: 'Chưa giao được — pool sale của tệp đang rỗng' };
+  }
+  return { state: 'none', label: '—', title: 'Chưa có hoạt động tự-giao (tệp chưa bật hoặc lead chưa xử lý)' };
+}
+// Timeline chấm → mở hồ sơ lead (giống click hàng).
+function onTimelineOpenEntry(entryId: string) {
+  detailPanelEntryId.value = entryId;
+  showDetailPanel.value = true;
+}
 const { accounts: zaloAccounts, fetchAccounts } = useZaloAccounts();
 const nickAccounts = computed(() => zaloAccounts.value as unknown as NickPickerAccount[]);
 // Sau khi tìm ra Zalo / lưu note cho 1 lead → refresh bảng + counter
@@ -1097,6 +1158,8 @@ const ALL_COLUMNS: ColumnDef[] = [
   // 2026-06-24: cột "Ngày cập nhật" (updatedAt) lên đầu, ngay sau STT — hiện mặc định, sort được.
   { key: 'updatedAt',       label: 'Ngày cập nhật',           defaultVisible: true  },
   { key: 'source',          label: 'Nguồn',                   defaultVisible: true  },
+  // Lead-notify Nhịp 1 — trạng thái tự-giao-sale (đọc systemMessages)
+  { key: 'assignStatus',    label: 'Trạng thái giao',         defaultVisible: true  },
   { key: 'phoneRaw',        label: 'Phone (paste)',           defaultVisible: true  },
   { key: 'phoneE164',       label: 'Phone (+84)',             defaultVisible: true  },
   { key: 'phoneLocal',      label: 'Phone (local)',           defaultVisible: true  },
@@ -1361,6 +1424,25 @@ function nickAvatarStyle(name: string): Record<string, string> {
 .src-badge.src-zalo   { background: #e6f2fd; color: #0068ff; }
 .src-badge.src-google { background: #fdeceb; color: #c5221f; }
 .src-badge.src-manual { background: var(--surface-3); color: var(--ink-3); }
+/* Lead-notify Nhịp 1 — cột Trạng thái giao */
+.assign-status-cell { white-space: nowrap; }
+.assign-badge {
+  display: inline-flex; align-items: center;
+  padding: 1px 8px; font-size: 11px; font-weight: 700;
+  border-radius: var(--r-pill); white-space: nowrap;
+}
+.assign-badge.assign-done   { background: var(--success-soft, #e7f7ef); color: var(--success, #12b76a); }
+.assign-badge.assign-failed { background: var(--warning-soft, #fdf3e2); color: #a05a00; }
+.assign-badge.assign-none   { background: transparent; color: var(--ink-4, #97a0b3); font-weight: 500; }
+/* Nút "Đang chạy" khi tệp bật tự-báo */
+.btn-running {
+  background: var(--success-soft, #e7f7ef) !important;
+  color: var(--success, #12b76a) !important;
+  border: 1px solid var(--success, #12b76a) !important;
+  font-weight: 700;
+}
+.btn-running :deep(.v-icon), .btn-running .v-icon { font-size: 10px !important; animation: lnc-pulse 1.4s ease-in-out infinite; }
+@keyframes lnc-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
 .entries-table thead th {
   /* 2026-06-24: pin header lên đỉnh khi cuộn — nền đặc để không lộ hàng dưới */
   position: sticky; top: 0; z-index: 5;

@@ -105,6 +105,7 @@ export async function customerListRoutes(app: FastifyInstance): Promise<void> {
               integrationKey: true,
               displayInlineFields: true,
               shareableToPool: true,
+              leadNotifyEnabled: true,
             },
           }),
           prisma.customerList.count({ where }),

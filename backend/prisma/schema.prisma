@@ -2887,6 +2887,15 @@ model CustomerList {
   integrationKey      String? @map("integration_key")
   displayInlineFields Json?   @map("display_inline_fields")
 
+  // Lead-notify Nhịp 1 2026-06-25 (EE) — cấu hình "tự giao sale + báo lead mới" PER-TỆP.
+  // Cột tồn tại ở mọi edition; chỉ EE (_ee/automation) đọc/ghi. Community = mặc định tắt.
+  leadNotifyEnabled        Boolean @default(false) @map("lead_notify_enabled")
+  notifyGroupThreadId      String? @map("notify_group_thread_id")
+  notifyIndividual         Boolean @default(true) @map("notify_individual")
+  leadNotifyAckEnabled     Boolean @default(false) @map("lead_notify_ack_enabled")
+  leadNotifyAckIntervalSec Int     @default(60) @map("lead_notify_ack_interval_sec")
+  leadNotifyAckMaxAttempts Int     @default(10) @map("lead_notify_ack_max_attempts")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -3715,6 +3724,37 @@ model SaleAssignmentState {
   customerList CustomerList @relation(fields: [customerListId], references: [id], onDelete: Cascade)
 
   @@map("sale_assignment_states")
+}
+
+// Lead-notify Nhịp 1 (EE) — theo dõi tin báo lead + nhắc lại tới khi sale thả tương tác xác
+// nhận. Standalone (scalar FK, không relation) để khỏi đụng relation list model khác.
+model LeadNotifyAck {
+  id                  String    @id @default(uuid())
+  orgId               String    @map("org_id")
+  customerListId      String    @map("customer_list_id")
+  entryId             String    @map("entry_id")
+  contactId           String    @map("contact_id")
+  targetUserId        String    @map("target_user_id")
+  targetZaloUid       String?   @map("target_zalo_uid")
+  senderZaloAccountId String?   @map("sender_zalo_account_id")
+  zaloMsgId           String?   @map("zalo_msg_id") // tin nhắc 1-1 gần nhất
+  groupZaloMsgId      String?   @map("group_zalo_msg_id") // tin nhắc nhóm gần nhất → khớp reaction nhóm
+  conversationId      String?   @map("conversation_id")
+  acked               Boolean   @default(false)
+  ackedAt             DateTime? @map("acked_at")
+  ackEmoji            String?   @map("ack_emoji")
+  attempts            Int       @default(0)
+  maxAttempts         Int       @default(10) @map("max_attempts")
+  intervalSec         Int       @default(60) @map("interval_sec")
+  lastSentAt          DateTime? @map("last_sent_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@unique([entryId, targetUserId])
+  @@index([zaloMsgId])
+  @@index([groupZaloMsgId])
+  @@index([orgId, acked])
+  @@map("lead_notify_acks")
 }
 
 // ════════════════════════════════════════════════════════════════════════

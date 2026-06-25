@@ -38,6 +38,8 @@ export interface CustomerListSummary {
   fbLocked?: boolean;
   // Phase Multi-Source 2026-06-23 — nền tảng có lead trong tệp (['fb-leadads','tiktok-leadgen','zalo-ads']).
   platforms?: string[];
+  // Lead-notify Nhịp 1 — tệp đang bật tự-giao+báo (badge "Đang chạy" + nút trong tệp).
+  leadNotifyEnabled?: boolean;
 }
 
 export interface MappedRow {
@@ -57,7 +59,10 @@ export type SystemMessageType =
   | 'EMPTY'
   | 'SKIPPED_BY_SALE'
   | 'PHONE_EDITED'
-  | 'ENRICHED_NO_MATCH';
+  | 'ENRICHED_NO_MATCH'
+  // Lead-notify Nhịp 1 — trạng thái tự-giao-sale (cột "Trạng thái giao")
+  | 'ASSIGNED_TO_SALE'
+  | 'ASSIGN_FAILED';
 
 export interface SystemMessage {
   type: SystemMessageType;

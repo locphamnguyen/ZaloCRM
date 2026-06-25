@@ -144,6 +144,9 @@
                         color="primary"
                         title="Tệp khoá: tạo tự động từ Facebook Lead Form — không thể xoá/đổi tên"
                       >mdi-lock</v-icon>
+                      <span v-if="list.leadNotifyEnabled" class="ln-badge" title="Tự động giao sale & báo lead ĐANG CHẠY cho tệp này">
+                        <span class="ln-dot"></span> Đang chạy
+                      </span>
                     </div>
                     <div class="sub t-cap">{{ list.createdBy?.fullName ?? list.createdBy?.email ?? '—' }}</div>
                   </div>
@@ -549,4 +552,8 @@ function progressPct(l: CustomerListSummary, kind: 'valid' | 'invalid' | 'dup'):
 .empty .v-icon { color: var(--ink-4); }
 .empty h3 { margin: 12px 0 6px; color: var(--ink); font-size: 16px; font-weight: 700; }
 .empty p { margin: 0; font-size: 13px; color: var(--ink-3); }
+/* Lead-notify Nhịp 1 — badge "Đang chạy" trên tệp đang bật tự-báo */
+.ln-badge { display: inline-flex; align-items: center; gap: 5px; margin-left: 7px; padding: 1px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 700; color: var(--success, #12b76a); background: var(--success-soft, #e7f7ef); vertical-align: middle; }
+.ln-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success, #12b76a); animation: ln-pulse 1.4s ease-in-out infinite; }
+@keyframes ln-pulse { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.8); } }
 </style>
