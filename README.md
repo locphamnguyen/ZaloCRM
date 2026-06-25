@@ -6,13 +6,17 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 
 ## Ảnh chụp giao diện
 
-| Dashboard | Zalo Accounts |
+| Dashboard | Báo cáo |
 |---|---|
-| ![Dashboard v3.3](docs/release-images/v3.3/01-dashboard-v33.png) | ![Zalo Accounts](docs/release-images/v3.3/03-zalo-accounts-redesign.png) |
+| ![Dashboard](docs/release-images/v3.4/01-dashboard.png) | ![Báo cáo](docs/release-images/v3.4/07-reports.png) |
 
-| Chat media | Privacy PIN |
+| Chat | Khách hàng |
 |---|---|
-| ![Chat media forward](docs/release-images/v3.3/07-chat-media-forward.png) | ![Privacy PIN](docs/release-images/v3.3/04-privacy-pin.png) |
+| ![Chat](docs/release-images/v3.4/02-chat.png) | ![Khách hàng](docs/release-images/v3.4/03-contacts.png) |
+
+| Nhóm | Lịch hẹn |
+|---|---|
+| ![Nhóm](docs/release-images/v3.4/05-groups.png) | ![Lịch hẹn](docs/release-images/v3.4/06-appointments.png) |
 
 > 📖 Hướng dẫn cài đặt & triển khai đầy đủ: [docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md](docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md).
 > 📣 Changelog đầy đủ (mọi phiên bản): [CHANGELOG.md](CHANGELOG.md).
@@ -20,11 +24,17 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 ## Tính năng
 
 ### Mới trong v3.4
+- **Giao diện mới** — Redesign toàn diện UI: layout, theme sáng/tối, responsive desktop/mobile
+- **Giao diện Dashboard mới** — Trang điều hành thiết kế lại, biểu đồ + KPI trực quan hơn
+- **Nâng cao bảo mật** — Access token ngắn + **refresh token rotation**, CSP + security headers, RBAC phòng ban/đội nhóm, audit log, Privacy PIN
+- **Quét nhóm Zalo** — Quét nhóm & danh sách thành viên (GroupMember/GroupScan) bằng worker nền, trong menu Marketing
+- **Bộ báo cáo mới** — Tổng quan điều hành · Vận hành Nick Zalo · Hiệu suất Sale & Team · Tương tác khách hàng · Audit & Sức khoẻ hệ thống · **Phân tích nâng cao**
 - **Cầu Zalo ↔ Telegram** — Mirror tin nhắn **2 chiều** (vào/ra) giữa Zalo và Telegram, kèm **media** (ảnh/video/audio/file, giữ tên file gốc), realtime + badge chống lặp
 - **Chuông "đang theo dõi"** sau tên khách trong chat + **Phạm vi làm việc** (scope thành điều kiện load hội thoại)
-- **AI** — quản lý API key + model provider per-org ngay trên giao diện
+- **AI** — Quản lý API key + model provider per-org ngay trên giao diện
+- **API hoàn chỉnh cho ZaloCRM Mobile App** — Bộ REST API đầy đủ phục vụ ứng dụng di động (auth, chat, contacts, lịch hẹn, báo cáo, push)
 - **Public REST API** (X-API-Key) + tài liệu API (vi/en) + Postman collection
-- **Mã nguồn mở AGPL-3.0** — relicense sang AGPL-3.0 (copyleft + §13 SaaS), dual-license thương mại, kèm CONTRIBUTING + DCO
+- **Mã nguồn mở AGPL-3.0** — Relicense sang AGPL-3.0 (copyleft + §13 SaaS), dual-license thương mại, kèm CONTRIBUTING + DCO
 
 ### Mới trong v3.3
 - **Media forward đầy đủ** — Chuyển tiếp hình ảnh, video, audio trong chat thay vì chỉ chuyển tiếp text

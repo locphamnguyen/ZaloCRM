@@ -10,6 +10,12 @@ Các thay đổi đáng chú ý của ZaloCRM. Theo [Semantic Versioning](https:
 Đợt cập nhật lớn: **vận hành sale** (luồng bám đuổi + bể lead), **cầu Zalo ↔ Telegram**, **độ tin cậy chat**, và chuyển sang **mã nguồn mở AGPL-3.0**.
 
 ### Added — Tính năng mới
+- **Giao diện mới** — redesign toàn diện UI (layout, theme sáng/tối, responsive desktop/mobile).
+- **Giao diện Dashboard mới** — trang điều hành thiết kế lại, biểu đồ + KPI trực quan hơn.
+- **Nâng cao bảo mật** — access token ngắn + **refresh token rotation**, CSP + security headers, RBAC phòng ban/đội nhóm, audit log, Privacy PIN.
+- **Quét nhóm Zalo** — quét nhóm & danh sách thành viên (GroupMember/GroupScan) bằng worker nền, trong menu Marketing.
+- **Bộ báo cáo mới** — Tổng quan điều hành · Vận hành Nick Zalo · Hiệu suất Sale & Team · Tương tác khách hàng · Audit & Sức khoẻ hệ thống · **Phân tích nâng cao**.
+- **API hoàn chỉnh cho ZaloCRM Mobile App** — bộ REST API đầy đủ (auth, chat, contacts, lịch hẹn, báo cáo, push) phục vụ ứng dụng di động.
 - **Cầu Zalo ↔ Telegram** — mirror tin nhắn **2 chiều** (vào/ra) + **media** (ảnh/video/audio/file, giữ tên file gốc), realtime + badge, chống lặp theo `msgId`.
 - **Luồng bám đuổi (follow-up sequence) — recode toàn bộ:** nền móng schema cột mềm + `ensureUidForPair` + schedule-calculator; epoch trong jobId để gắn lại cùng luồng cho KH đã chạy xong; 4 luật (giãn cách random `[min,max]` + **jitter từng bước**, cooldown, pause/guard/resume); **Luật 4** tự giữ/hoãn theo `careHoldHours` cấu hình khi khách trả lời; ETA timing 4 mốc; UI màn 4 luật + badge timing + nút "gửi bước tiếp ngay"; 21 unit test.
 - **Bể Lead (lead-pool) — rebuild:** chia lead FIFO vòng tua (round-robin) + 2 ca làm việc + màn khóa trạng thái + 4 màn pro; tab "Tổng quan v2" phân tích sale tốt/tệ + lọc lead rác.
