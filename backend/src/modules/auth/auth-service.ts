@@ -63,6 +63,7 @@ export async function setup(
   fullName: string,
   email: string,
   password: string,
+  phone?: string,
 ): Promise<JwtPayload> {
   // runSystemQuery: setup tạo org đầu tiên → chưa có tenant context (Phase 1a).
   const existing = await runSystemQuery(() => prisma.user.count());
@@ -73,6 +74,8 @@ export async function setup(
   }
 
   const passwordHash = await bcrypt.hash(password, 12);
+  // SĐT chủ tổ chức (owner): normalize 84xxx để đồng nhất + cho phép login bằng SĐT.
+  const phoneNorm = normalizePhone(phone);
 
   const result = await runSystemQuery(() =>
     tenantTransaction(async (tx) => {
@@ -81,6 +84,7 @@ export async function setup(
         data: {
           orgId: org.id,
           email: email.toLowerCase().trim(),
+          phone: phoneNorm,
           passwordHash,
           fullName,
           role: 'owner',
