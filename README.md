@@ -14,7 +14,7 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 |---|---|
 | ![Chat media forward](docs/release-images/v3.3/07-chat-media-forward.png) | ![Privacy PIN](docs/release-images/v3.3/04-privacy-pin.png) |
 
-> 📖 Xem hướng dẫn sử dụng đầy đủ tại [docs/HUONG-DAN-NGUOI-DUNG.md](docs/HUONG-DAN-NGUOI-DUNG.md).
+> 📖 Hướng dẫn cài đặt & triển khai đầy đủ: [docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md](docs/HUONG-DAN-TRIEN-KHAI-PRODUCTION-COMMUNITY.md).
 > 📣 Changelog đầy đủ (mọi phiên bản): [CHANGELOG.md](CHANGELOG.md).
 
 ## Tính năng
@@ -113,6 +113,21 @@ Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 
 > v3.x dùng thêm Redis + object storage (MinIO/S3/R2) nên production nên có tối thiểu 4 GB RAM nếu chạy đủ service trên cùng VPS.
 
 ## Cài đặt mới
+
+### ⚡ Cách nhanh nhất — 1 lệnh (tự động)
+
+Script tự sinh `.env` (secret ngẫu nhiên), build, migrate, kiểm tra — **không cần setup tay**.
+Cùng script này cũng dùng để **nâng cấp** (tự backup DB):
+
+```bash
+git clone https://github.com/locphamnguyen/ZaloCRM.git
+cd ZaloCRM
+./scripts/zalocrm-deploy.sh          # auto: cài mới nếu chưa có, nâng cấp nếu đã chạy
+```
+
+Truy cập **http://IP-server:3080** → trang `/setup` tạo tổ chức + tài khoản chủ.
+
+### Hoặc thủ công từng bước
 
 ```bash
 git clone https://github.com/locphamnguyen/ZaloCRM.git

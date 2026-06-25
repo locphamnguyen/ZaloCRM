@@ -1,10 +1,33 @@
 # Hướng dẫn triển khai ZaloCRM lên Production (v3.4)
 
-> Runbook **tự chứa** cho ZaloCRM (mã nguồn mở, **GPL-3.0**). Gồm 2 luồng: **cài mới từ đầu**
+> Runbook **tự chứa** cho ZaloCRM (mã nguồn mở, **AGPL-3.0**). Gồm 2 luồng: **cài mới từ đầu**
 > và **nâng cấp** bản đang chạy lên v3.4. Mọi thao tác **idempotent + giữ dữ liệu**.
 >
 > Thay `sub.domain.com` / `file.domain.com` bằng domain thật của bạn. Hướng dẫn sử dụng:
-> [`HUONG-DAN-NGUOI-DUNG.md`](./HUONG-DAN-NGUOI-DUNG.md).
+> [`HUONG-DAN-SU-DUNG.md`](../HUONG-DAN-SU-DUNG.md).
+
+## 🚀 Quick Start — 1 lệnh (tự động)
+
+Cài mới **hoặc** nâng cấp đều dùng chung 1 script — tự phát hiện, tự backup, không cần setup tay:
+
+```bash
+git clone <repo-url> zalocrm && cd zalocrm
+./scripts/zalocrm-deploy.sh          # auto: cài mới nếu chưa có, nâng cấp nếu đã chạy
+```
+
+Script tự: sinh `.env` (secret ngẫu nhiên) khi cài mới · **backup DB** trước khi nâng cấp ·
+`docker compose up -d --build` (GIỮ dữ liệu, KHÔNG `-v`) · `prisma migrate deploy` · cutover ·
+kiểm tra HTTP 200. Cài mới xong → mở **http://localhost:3080** → trang `/setup` tạo tổ chức + chủ.
+
+| Lệnh | Việc |
+|---|---|
+| `./scripts/zalocrm-deploy.sh` | Tự phát hiện cài mới / nâng cấp |
+| `./scripts/zalocrm-deploy.sh install` | Ép **cài mới** |
+| `./scripts/zalocrm-deploy.sh upgrade` | Ép **nâng cấp** (vd 3.3 → 3.4) |
+| `./scripts/zalocrm-deploy.sh backup`  | Chỉ **backup database** |
+
+> 💡 **Production:** sau khi script tạo `.env`, sửa `APP_URL` + `S3_PUBLIC_URL` thành domain HTTPS
+> thật (xem §5) rồi chạy lại script. Muốn làm thủ công từng bước → xem §3 (cài mới) / §6 (nâng cấp) bên dưới.
 
 ## Tính năng chính
 Chat đa nick Zalo (realtime Socket.IO), danh bạ/CRM + chấm điểm (lead scoring), lịch hẹn & nhắc hẹn,
