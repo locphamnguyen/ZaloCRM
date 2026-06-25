@@ -331,7 +331,8 @@ export function useGroups() {
     scanLoading.value = true;
     try {
       const res = await api.post(scanBase(accountId), payload);
-      scan.value = res.data ?? null;
+      // Backend bọc trong { scan }. Unwrap (fallback res.data nếu sau này trả phẳng).
+      scan.value = res.data?.scan ?? res.data ?? null;
       return scan.value;
     } catch (err) {
       console.error('Failed to create group scan:', err);
@@ -345,7 +346,8 @@ export function useGroups() {
   async function fetchScanStatus(accountId: string, scanId: string): Promise<GroupScan | null> {
     try {
       const res = await api.get(`${scanBase(accountId)}/${scanId}`);
-      scan.value = res.data ?? null;
+      // Backend bọc trong { scan }. Unwrap (fallback res.data nếu trả phẳng).
+      scan.value = res.data?.scan ?? res.data ?? null;
       return scan.value;
     } catch (err) {
       console.error('Failed to fetch scan status:', err);

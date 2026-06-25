@@ -91,7 +91,7 @@ import { aiRoutes } from './modules/ai/ai-routes.js';
 import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupScanRoutes } from './modules/zalo/group-scan-routes.js';
-import { startGroupScanWorker } from './modules/zalo/group-scan-queue.js';
+import { startGroupScanWorker, stopGroupScanWorker } from './modules/zalo/group-scan-queue.js';
 import { groupModerationRoutes } from './modules/zalo/group-moderation-routes.js';
 import { friendRoutes } from './modules/zalo/friend-routes.js';
 import { profileRoutes } from './modules/zalo/profile-routes.js';
@@ -445,6 +445,31 @@ async function bootstrap() {
         logger.error('[telegram-bridge] init failed (non-fatal):', err);
       }
     }
+
+    // Graceful shutdown (review #7): Docker/k8s gửi SIGTERM khi deploy/scale → đóng gọn
+    // BullMQ worker (group-scan) + Fastify (drain in-flight HTTP/WS) trước khi thoát, tránh
+    // job dở dang + cắt kết nối đột ngột. Timeout 10s rồi thoát cưỡng bức nếu treo.
+    let shuttingDown = false;
+    const shutdown = async (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info(`[shutdown] nhận ${signal} — đóng worker + server...`);
+      const force = setTimeout(() => {
+        logger.warn('[shutdown] quá 10s, thoát cưỡng bức');
+        process.exit(1);
+      }, 10_000);
+      force.unref();
+      try {
+        await stopGroupScanWorker().catch((e) => logger.warn('[shutdown] stopGroupScanWorker lỗi:', e));
+        await app.close().catch((e) => logger.warn('[shutdown] app.close lỗi:', e));
+        logger.info('[shutdown] đóng gọn xong.');
+      } finally {
+        clearTimeout(force);
+        process.exit(0);
+      }
+    };
+    process.once('SIGTERM', () => void shutdown('SIGTERM'));
+    process.once('SIGINT', () => void shutdown('SIGINT'));
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

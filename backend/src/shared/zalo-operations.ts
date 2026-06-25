@@ -530,7 +530,8 @@ async function disperseGroup(accountId: string, groupId: string) {
 }
 
 // ─── Group Read ─────────────────────────────────────────────────────────────
-async function getGroupInfo(accountId: string, groupId: string) {
+// zca-js getGroupInfo nhận string HOẶC string[] (batch) → gridInfoMap keyed by id.
+async function getGroupInfo(accountId: string, groupId: string | string[]) {
   return exec({ accountId, category: 'group_read', operation: 'getGroupInfo' },
     (api) => api.getGroupInfo(groupId));
 }
