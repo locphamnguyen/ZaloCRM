@@ -50,6 +50,21 @@ class CoreAutomationEventBus {
     return () => this.emitter.off(BUS_EVENT, wrapped);
   }
 
+  /**
+   * Subscribe to events of specific types only. Returns an unsubscribe function.
+   * Mirrors the Extension engine bus so subscribers (e.g. lists handlers) work
+   * identically in Community and Extension editions.
+   */
+  onType(
+    types: string[],
+    handler: (event: AutomationEvent) => void | Promise<void>,
+  ): () => void {
+    return this.on((event) => {
+      if (!types.includes(event.type)) return;
+      return handler(event);
+    });
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners(BUS_EVENT);
   }

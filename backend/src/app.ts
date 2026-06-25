@@ -34,6 +34,8 @@ import { authRoutes } from './modules/auth/auth-routes.js';
 import { brandingRoutes } from './modules/branding/branding-routes.js';
 import { orgBrandingRoutes } from './modules/branding/org-branding-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
+import { customerListRoutes } from './modules/lists/list-routes.js';
+import { customerListEntryRoutes } from './modules/lists/list-entry-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
 import { folderRoutes } from './modules/chat/folder-routes.js';
 import { presetRoutes } from './modules/chat/preset-routes.js';
@@ -327,6 +329,8 @@ async function bootstrap() {
   await app.register(chatOperationsRoutes);
   await app.register(groupRoutes);
   await app.register(groupScanRoutes); // E1 Quét group (🟢 Community)
+  await app.register(customerListRoutes); // Tệp khách hàng (🟢 Community)
+  await app.register(customerListEntryRoutes);
   await app.register(groupModerationRoutes);
   await app.register(friendRoutes);
   await app.register(profileRoutes);
@@ -396,6 +400,13 @@ async function bootstrap() {
     // URL Zalo CDN hết hạn (nhóm im lặng lâu không có message để cập nhật thụ động).
     const { startGroupInfoSyncCron } = await import('./modules/zalo/group-info-sync-cron.js');
     startGroupInfoSyncCron();
+    // Tệp khách hàng (🟢 Community): enrichment worker + event handlers
+    if (config.nodeEnv !== 'test') {
+      const { startListEnrichmentWorker } = await import('./modules/lists/list-enrichment-service.js');
+      const { registerCustomerListEventHandlers } = await import('./modules/lists/list-event-handlers.js');
+      startListEnrichmentWorker();
+      registerCustomerListEventHandlers();
+    }
     // Contact profile enrichment (3am daily) — kéo gender + ngày sinh KH từ Zalo getUserInfo
     // cho KH đang trống. 24h/lần để tránh rate-limit (Anh chốt 2026-06-06).
     if (config.nodeEnv !== 'test') {

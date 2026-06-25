@@ -220,6 +220,9 @@ const routes: RouteRecordRaw[] = [
           { path: '', redirect: '/marketing/group-scan' },
           // E1 — Quét nhóm & thành viên (group scan).
           { path: 'group-scan', name: 'CE.GroupScan', component: () => import('@/views/GroupScanView.vue'), meta: { requiresAuth: true } },
+          // Tệp khách hàng (Customer Lists) — open-core, dùng được ở Community.
+          { path: 'lists', name: 'CE.Lists', component: () => import('@/views/marketing/ListsView.vue'), meta: { requiresAuth: true } },
+          { path: 'lists/:id', name: 'CE.ListDetail', component: () => import('@/views/marketing/ListDetailView.vue'), meta: { requiresAuth: true } },
         ],
       } as RouteRecordRaw]
     : []),
