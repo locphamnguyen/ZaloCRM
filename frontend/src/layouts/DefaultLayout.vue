@@ -41,8 +41,10 @@
             <v-list-item to="/reports/tong-quan"  title="Tổng quan điều hành"   prepend-icon="mdi-view-dashboard-outline" />
             <v-list-item to="/reports/nick"        title="Vận hành Nick Zalo"    prepend-icon="mdi-cellphone-link" />
             <v-list-item to="/reports/sale"        title="Hiệu suất Sale & Team" prepend-icon="mdi-account-tie-outline" />
-            <v-list-item to="/reports/pipeline"    title="Pipeline & Lead Pool"  prepend-icon="mdi-filter-variant" />
-            <v-list-item to="/reports/automation"  title="Automation & Chăm sóc" prepend-icon="mdi-cog-sync-outline" />
+            <!-- EE-only: Pipeline (Lead Pool) + Automation report là tính năng Extension.
+                 Ẩn ở Community (route /reports/automation do EE inject → CE không có). -->
+            <v-list-item v-if="isExtension" to="/reports/pipeline"    title="Pipeline & Lead Pool"  prepend-icon="mdi-filter-variant" />
+            <v-list-item v-if="isExtension" to="/reports/automation"  title="Automation & Chăm sóc" prepend-icon="mdi-cog-sync-outline" />
             <v-list-item to="/reports/engagement"  title="Engagement KH"         prepend-icon="mdi-fire" />
             <v-list-item to="/reports/audit"       title="Audit & Sức khỏe HT"   prepend-icon="mdi-shield-check-outline" />
             <v-divider />
