@@ -193,4 +193,18 @@ async function handleLogin() {
   .login-form-wrap { padding: 32px 28px; }
   .form-inner { max-width: 100%; }
 }
+
+/* Điện thoại nhỏ: giảm lề/padding, bo nhỏ lại cho vừa khung hẹp. */
+@media (max-width: 480px) {
+  .login-card { margin: 0 12px; border-radius: 16px; }
+  .login-form-wrap { padding: 24px 20px; }
+  .form-title { font-size: 21px; }
+  .form-sub { margin-bottom: 20px; }
+}
+
+/* Phòng hờ: ép màu chữ input đọc được trên card trắng, kể cả khi thiết bị dark-mode
+   (đi cùng color-scheme:light ở style.css). */
+.login-card :deep(.v-field__input),
+.login-card :deep(input) { color: #0e445a; }
+.login-card :deep(.v-field__input::placeholder) { color: #94a3b0; opacity: 1; }
 </style>

@@ -73,7 +73,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
   }
 
-  async function setup(data: { orgName: string; fullName: string; email: string; password: string }) {
+  async function setup(data: { orgName: string; fullName: string; email: string; password: string; phone?: string }) {
     const res = await api.post('/setup', data);
     user.value = res.data.user;
     persistTokens(res.data.token, res.data.refreshToken);

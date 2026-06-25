@@ -58,13 +58,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /api/v1/setup — create org + owner user, return access + refresh
   app.post<{
-    Body: { orgName: string; fullName: string; email: string; password: string };
+    Body: { orgName: string; fullName: string; email: string; password: string; phone?: string };
   }>('/api/v1/setup', async (request, reply) => {
-    const { orgName, fullName, email, password } = request.body;
+    const { orgName, fullName, email, password, phone } = request.body;
     if (!orgName || !fullName || !email || !password) {
       return reply.status(400).send({ error: 'Missing required fields' });
     }
-    const payload = await setup(orgName, fullName, email, password);
+    const payload = await setup(orgName, fullName, email, password, phone);
     const token = signAccess(app, payload);
     const refresh = await issueRefreshToken(payload.id, deviceMeta(request));
     autoSeedScoringIfNeeded(payload.orgId);

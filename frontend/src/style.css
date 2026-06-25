@@ -17,7 +17,10 @@
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
+  /* App là light-only (Vuetify defaultTheme hsLight). Trước để "light dark" → trên mobile
+     dark-mode, native form controls (input) render theo dark = chữ sáng trên card nền trắng
+     → ô đăng nhập trắng + chữ nhập vô hình. Ép "light" để input luôn đọc được. */
+  color-scheme: light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
