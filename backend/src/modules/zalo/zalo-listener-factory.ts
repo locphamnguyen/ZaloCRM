@@ -118,7 +118,10 @@ async function handleZaloReaction(accountId: string, io: Server | null, reaction
     // → dừng vòng nhắc-lại. EE seam: dynamic-import + try/catch nuốt lỗi (bản CE không có
     // _ee/ → skip vô hại). Service tự khớp zaloMsgId + chỉ tính reaction ADD.
     try {
-      const mod = await import('../../_ee/automation/lead-notify/lead-notify-ack-service.js');
+      // Path qua biến `string` để tsc KHÔNG resolve tĩnh — bản CE strip _ee/ vẫn typecheck sạch
+      // (cùng convention loader ở app.ts). Runtime: EE import được, CE import lỗi → catch bỏ qua.
+      const spec: string = '../../_ee/automation/lead-notify/lead-notify-ack-service.js';
+      const mod = await import(spec);
       await mod.ackLeadNotifyByReaction?.(conversation.orgId, targetZaloMsgId, reactorZaloUid, rawIcon, rType);
     } catch {
       /* không có module EE (CE) hoặc lỗi → bỏ qua */
