@@ -10,6 +10,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireGrant } from '../rbac/rbac-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { emitWebhook } from './webhook-service.js';
+import { hashApiKey, maskApiKeyHint } from '../../shared/crypto/api-key-hash.js';
 import crypto from 'node:crypto';
 
 export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void> {
@@ -79,8 +80,14 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
     try {
       const { orgId } = request.user!;
 
+      // P2 (H1) — chỉ lưu SHA-256 hash + hint đã mask; KHÔNG lưu key thật. Trả key gốc
+      // cho user 1 lần duy nhất ở response này (không lấy lại được sau đó).
       const newKey = `zcrm_${crypto.randomBytes(24).toString('hex')}`;
-      await upsertSetting(orgId, 'public_api_key', newKey);
+      await prisma.appSetting.upsert({
+        where: { orgId_settingKey: { orgId, settingKey: 'public_api_key' } },
+        create: { orgId, settingKey: 'public_api_key', valuePlain: maskApiKeyHint(newKey), valueHash: hashApiKey(newKey) },
+        update: { valuePlain: maskApiKeyHint(newKey), valueHash: hashApiKey(newKey) },
+      });
 
       return { key: newKey };
     } catch (err) {
@@ -97,8 +104,11 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
       const setting = await prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key' } });
       if (!setting?.valuePlain) return { key: null };
 
+      // P2 (H1): sau khi có valueHash, valuePlain CHỈ còn là hint đã mask (key thật không
+      // lưu) → trả thẳng. Legacy row chưa backfill (valueHash null) → vẫn mask plaintext
+      // để không lộ full key qua API cho tới khi backfill chạy.
+      if (setting.valueHash) return { key: setting.valuePlain };
       const k = setting.valuePlain;
-      // Show prefix + first 8 chars + mask + last 4 chars
       const masked = k.length > 12 ? `${k.slice(0, 12)}${'*'.repeat(k.length - 16)}${k.slice(-4)}` : `${k.slice(0, 4)}****`;
       return { key: masked };
     } catch (err) {

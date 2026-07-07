@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
 import { prisma, tenantTransaction } from '../../shared/database/prisma-client.js';
+import { decryptSessionData } from '../../shared/crypto/session-crypto.js';
 import { getZaloScope, canManageAccount, requireAccountManagement, requireAccountVisible } from './zalo-scope.js';
 
 export async function zaloRoutes(app: FastifyInstance): Promise<void> {
@@ -222,11 +223,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      const session = account.sessionData as {
-        cookie: any;
-        imei: string;
-        userAgent: string;
-      } | null;
+      const session = decryptSessionData<{ cookie: any; imei: string; userAgent: string }>(account.sessionData);
 
       if (!session?.imei) {
         return reply.status(400).send({ error: 'No saved session — please login with QR first' });

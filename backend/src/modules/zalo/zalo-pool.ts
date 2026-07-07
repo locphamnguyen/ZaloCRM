@@ -22,6 +22,7 @@ import { readFile } from 'fs/promises';
 import { imageSize } from 'image-size';
 import { withProxy } from './proxy-util.js';
 import { writeTransition, type ZaloStatus, type StatusReason } from './status-log-service.js';
+import { encryptSessionData, decryptSessionData } from '../../shared/crypto/session-crypto.js';
 
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
@@ -545,11 +546,11 @@ class ZaloAccountPool {
     startMessageSync(api, accountId);
   }
 
-  // Persist session credentials to DB
+  // Persist session credentials to DB (mã hoá at-rest — xem shared/crypto/session-crypto.ts)
   private saveCredentials(accountId: string, credentials: ZaloCredentials): void {
     // 2026-06-11: system-context — pool ghi nền (không tenant ctx), tránh RLS chặn.
     runSystemQuery(() => prisma.zaloAccount
-      .update({ where: { id: accountId }, data: { sessionData: credentials as any } }))
+      .update({ where: { id: accountId }, data: { sessionData: encryptSessionData(credentials) } }))
       .catch((err) => logger.error(`[zalo:${accountId}] saveCredentials error:`, err));
   }
 
@@ -753,7 +754,7 @@ class ZaloAccountPool {
         logger.info(`[zalo:${accountId}] autoReconnect skipped — sale đã NGẮT THỦ CÔNG (manual)`);
         return;
       }
-      const session = account?.sessionData as ZaloCredentials | null;
+      const session = decryptSessionData<ZaloCredentials>(account?.sessionData);
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);
         await this.reconnect(accountId, session, account?.proxyUrl);

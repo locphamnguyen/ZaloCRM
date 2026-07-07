@@ -8,6 +8,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { hashApiKey } from '../../shared/crypto/api-key-hash.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
@@ -15,8 +16,9 @@ async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
   const apiKey = request.headers['x-api-key'] as string;
   if (!apiKey) return reply.status(401).send({ error: 'API key required' });
 
+  // P2 (H1) — so khớp SHA-256 hash, KHÔNG so plaintext. Key thật không lưu ở DB nữa.
   const setting = await prisma.appSetting.findFirst({
-    where: { settingKey: 'public_api_key', valuePlain: apiKey },
+    where: { settingKey: 'public_api_key', valueHash: hashApiKey(apiKey) },
   });
   if (!setting) return reply.status(401).send({ error: 'Invalid API key' });
 

@@ -24,6 +24,7 @@ const tabs = [
   { to: '/reports/sale', icon: 'mdi-account-tie-outline', label: 'Sale & Team' },
   { to: '/reports/pipeline', icon: 'mdi-filter-variant', label: 'Pipeline & Lead Pool' },
   { to: '/reports/automation', icon: 'mdi-cog-sync-outline', label: 'Automation' },
+  { to: '/reports/broadcast', icon: 'mdi-bullhorn-outline', label: 'Broadcast' },
   { to: '/reports/engagement', icon: 'mdi-fire', label: 'Engagement' },
   { to: '/reports/audit', icon: 'mdi-shield-check-outline', label: 'Audit & Hệ thống' },
 ];

@@ -11,6 +11,7 @@ import { zaloPool } from './zalo-pool.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { runSystemQuery } from '../../shared/tenant/tenant-context.js';
+import { decryptSessionData } from '../../shared/crypto/session-crypto.js';
 
 export function startZaloHealthCheck(): void {
   // Every 5 minutes: check all accounts with saved sessions
@@ -35,7 +36,7 @@ export function startZaloHealthCheck(): void {
       for (const acc of accounts) {
         const status = zaloPool.getStatus(acc.id);
         if (status !== 'connected' && status !== 'connecting' && status !== 'qr_pending') {
-          const session = acc.sessionData as any;
+          const session = decryptSessionData(acc.sessionData);
           if (session?.imei) {
             logger.info(`[health-check] Reconnecting ${acc.displayName || acc.id}...`);
             zaloPool.reconnect(acc.id, session).catch((err) => {
@@ -68,7 +69,7 @@ export function startZaloHealthCheck(): void {
       );
 
       for (const acc of accounts) {
-        const session = acc.sessionData as any;
+        const session = decryptSessionData(acc.sessionData);
         if (session?.imei) {
           // Disconnect then reconnect to force cookie refresh
           zaloPool.disconnect(acc.id);

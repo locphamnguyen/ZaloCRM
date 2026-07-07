@@ -196,6 +196,20 @@
           @input="debouncedFetchEntries"
         />
       </div>
+      <div class="entry-range" :title="`Trang ${entryPage}, ${entryLimit} dòng mỗi trang`">
+        Hiện <b>{{ entriesRangeStart }}–{{ entriesRangeEnd }}</b>
+        / <b>{{ entriesTotal.toLocaleString('vi-VN') }}</b>
+      </div>
+      <select
+        v-model.number="entryLimit"
+        class="limit-select"
+        title="Số dòng mỗi trang"
+        @change="onLimitChange"
+      >
+        <option :value="50">50 dòng</option>
+        <option :value="100">100 dòng</option>
+        <option :value="200">200 dòng</option>
+      </select>
       <!-- Column visibility menu -->
       <v-menu :close-on-content-click="false">
         <template #activator="{ props: act }">
@@ -536,9 +550,9 @@
     </Transition>
 
     <!-- Pagination -->
-    <div v-if="entriesTotal > entryLimit" class="pag">
+    <div v-if="entriesTotal > 0" class="pag">
       <span>
-        Hiện <b>{{ ((entryPage - 1) * entryLimit) + 1 }}–{{ Math.min(entryPage * entryLimit, entriesTotal) }}</b>
+        Hiện <b>{{ entriesRangeStart }}–{{ entriesRangeEnd }}</b>
         / <b>{{ entriesTotal.toLocaleString('vi-VN') }}</b> SĐT
       </span>
       <div class="ctrls">
@@ -761,6 +775,16 @@ function setTab(tab: typeof entryTab.value) {
 
 function goPage(p: number) {
   entryPage.value = p;
+  fetchEntries(listId.value);
+}
+
+const entriesRangeStart = computed(() =>
+  entriesTotal.value === 0 ? 0 : (entryPage.value - 1) * entryLimit.value + 1,
+);
+const entriesRangeEnd = computed(() => Math.min(entryPage.value * entryLimit.value, entriesTotal.value));
+
+function onLimitChange() {
+  entryPage.value = 1;
   fetchEntries(listId.value);
 }
 
@@ -1404,13 +1428,34 @@ function nickAvatarStyle(name: string): Record<string, string> {
 }
 .search input::placeholder { color: var(--ink-4); }
 
+.entry-range {
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 32px; padding: 0 10px;
+  border: 1px solid var(--line-2); border-radius: var(--r-xs);
+  background: var(--surface-2); color: var(--ink-2);
+  font-size: 12px; white-space: nowrap;
+}
+.entry-range b {
+  color: var(--ink); font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.limit-select {
+  flex: 0 0 auto;
+  height: 32px; min-width: 92px; padding: 0 26px 0 9px;
+  border: 1px solid var(--line-2); border-radius: var(--r-xs);
+  background: var(--surface); color: var(--ink);
+  font: inherit; font-size: 12px; outline: none;
+}
+.limit-select:focus { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+
 .entries-wrap {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: var(--r-md); overflow: auto;
-  /* 2026-06-24: nới cao để xem nhiều khách hơn; header sticky pin top khi cuộn */
-  max-height: calc(100vh - 250px);
+  max-height: min(52vh, calc(100vh - 430px));
+  min-height: 260px;
+  scrollbar-gutter: stable both-edges;
 }
-.entries-table { font-size: 12px; min-width: 1500px; }
+.entries-table { font-size: 12px; min-width: 2200px; }
 
 /* ───── Badge Nguồn (nền tảng) — Phase Multi-Source 2026-06-23 ───── */
 .src-cell { white-space: nowrap; }

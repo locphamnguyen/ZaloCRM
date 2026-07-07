@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { encryptSessionData, decryptSessionData } from '../../shared/crypto/session-crypto.js';
 
 /** Shape matching openzca StoredCredentials */
 interface StoredCredentials {
@@ -58,12 +59,19 @@ export async function credentialRoutes(app: FastifyInstance) {
     if (!account.sessionData) {
       return reply.status(404).send({ error: 'No credentials saved for this account' });
     }
+    // Giải mã trước khi xuất — file export cần credentials plaintext để import lại được
+    // (mã hoá at-rest chỉ bảo vệ khi DB bị đọc trộm, không áp dụng cho hành động export
+    // đã qua xác thực owner/admin ở trên).
+    const decrypted = decryptSessionData(account.sessionData);
+    if (!decrypted) {
+      return reply.status(500).send({ error: 'Session data corrupted or cannot be decrypted' });
+    }
 
     const filename = `zalo-credentials-${account.displayName ?? accountId}-${Date.now()}.json`;
     reply.header('Content-Type', 'application/json');
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
     logger.info(`[credential-routes] Exporting credentials for account ${accountId}`);
-    return reply.send(JSON.stringify(account.sessionData, null, 2));
+    return reply.send(JSON.stringify(decrypted, null, 2));
   });
 
   // POST .../credentials/import — restore credentials from uploaded JSON
@@ -100,7 +108,7 @@ export async function credentialRoutes(app: FastifyInstance) {
       await prisma.zaloAccount.update({
         where: { id: accountId },
         data: {
-          sessionData: body as any,
+          sessionData: encryptSessionData(body),
           status: 'disconnected',
         },
       });

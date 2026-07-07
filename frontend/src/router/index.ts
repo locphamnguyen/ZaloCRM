@@ -93,6 +93,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'pipeline',   name: 'Reports.Pipeline',   component: () => import('@/views/reports/PipelineReport.vue'),   meta: { resource: 'engagement_score' } },
       { path: 'engagement', name: 'Reports.Engagement', component: () => import('@/views/reports/EngagementReport.vue'), meta: { resource: 'engagement_score' } },
       { path: 'audit',      name: 'Reports.Audit',      component: () => import('@/views/reports/AuditReport.vue'),      meta: { resource: 'engagement_score' } },
+      // Broadcast tự động (🟢 Community extension 2026-07-06)
+      { path: 'broadcast',  name: 'Reports.Broadcast',  component: () => import('@/views/reports/BroadcastReport.vue'),  meta: { resource: 'engagement_score' } },
       ...eeReportsChildren,
     ],
   },
@@ -223,6 +225,12 @@ const routes: RouteRecordRaw[] = [
           // Tệp khách hàng (Customer Lists) — open-core, dùng được ở Community.
           { path: 'lists', name: 'CE.Lists', component: () => import('@/views/marketing/ListsView.vue'), meta: { requiresAuth: true } },
           { path: 'lists/:id', name: 'CE.ListDetail', component: () => import('@/views/marketing/ListDetailView.vue'), meta: { requiresAuth: true } },
+          // Broadcast tự động — Community extension 2026-07-06.
+          { path: 'broadcasts', name: 'CE.Broadcasts', component: () => import('@/views/marketing/BroadcastsView.vue'), meta: { requiresAuth: true } },
+          // Khối nội dung — Community extension 2026-07-07.
+          { path: 'content-blocks', name: 'CE.ContentBlocks', component: () => import('@/views/marketing/ContentBlocksView.vue'), meta: { requiresAuth: true } },
+          // Mục tiêu (auto kết bạn) — Community extension 2026-07-07.
+          { path: 'targets', name: 'CE.Targets', component: () => import('@/views/marketing/TargetsView.vue'), meta: { requiresAuth: true } },
         ],
       } as RouteRecordRaw]
     : []),

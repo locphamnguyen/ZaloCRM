@@ -29,9 +29,9 @@ import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { config } from './config/index.js';
 import { prisma } from './shared/database/prisma-client.js';
+import { decryptSessionData } from './shared/crypto/session-crypto.js';
 import { logger } from './shared/utils/logger.js';
 import { authRoutes } from './modules/auth/auth-routes.js';
-import { brandingRoutes } from './modules/branding/branding-routes.js';
 import { orgBrandingRoutes } from './modules/branding/org-branding-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { customerListRoutes } from './modules/lists/list-routes.js';
@@ -259,7 +259,6 @@ async function bootstrap() {
   // ── Routes ────────────────────────────────────────────────────────────────
 
   await app.register(authRoutes);
-  await app.register(brandingRoutes);
   await app.register(orgBrandingRoutes); // public org branding cho trang /login (pre-auth)
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
@@ -331,6 +330,17 @@ async function bootstrap() {
   await app.register(groupScanRoutes); // E1 Quét group (🟢 Community)
   await app.register(customerListRoutes); // Tệp khách hàng (🟢 Community)
   await app.register(customerListEntryRoutes);
+  // Broadcast tự động (🟢 Community extension 2026-07-06)
+  const { broadcastRoutes } = await import('./modules/broadcast/broadcast-routes.js');
+  await app.register(broadcastRoutes);
+  const { broadcastReportRoutes } = await import('./modules/broadcast/broadcast-report-routes.js');
+  await app.register(broadcastReportRoutes);
+  // Khối nội dung (🟢 Community extension 2026-07-07)
+  const { contentBlockRoutes } = await import('./modules/content-blocks/content-block-routes.js');
+  await app.register(contentBlockRoutes);
+  // Mục tiêu — auto kết bạn (🟢 Community extension 2026-07-07)
+  const { targetRoutes } = await import('./modules/target/target-routes.js');
+  await app.register(targetRoutes);
   await app.register(groupModerationRoutes);
   await app.register(friendRoutes);
   await app.register(profileRoutes);
@@ -396,6 +406,14 @@ async function bootstrap() {
     // native app mà friend_event listener không bắt được (xem friend-sync-cron.ts)
     const { startFriendSyncCron } = await import('./modules/zalo/friend-sync-cron.js');
     startFriendSyncCron(io);
+    // Broadcast tự động + Mục tiêu (🟢 Community) — worker tick 30s. Guard test cho nhất
+    // quán với các worker khác (không lên lịch cron trong vitest).
+    if (config.nodeEnv !== 'test') {
+      const { startBroadcastCron } = await import('./modules/broadcast/broadcast-cron.js');
+      startBroadcastCron(io);
+      const { startTargetCron } = await import('./modules/target/target-cron.js');
+      startTargetCron();
+    }
     // Group info refresh periodic (mỗi 6h) — làm tươi avatar/tên/sĩ số nhóm chống
     // URL Zalo CDN hết hạn (nhóm im lặng lâu không có message để cập nhật thụ động).
     const { startGroupInfoSyncCron } = await import('./modules/zalo/group-info-sync-cron.js');
@@ -418,6 +436,16 @@ async function bootstrap() {
     // orphan records sau crash. Uptime accuracy = 5p resolution.
     const { backfillStatusLog } = await import('./modules/zalo/status-log-backfill.js');
     backfillStatusLog().catch((err) => logger.error('[status-log-backfill] failed:', err));
+    // P2 (H1) — hash public API key cũ (plaintext) + redact value_plain. Idempotent.
+    const { backfillApiKeyHashes } = await import('./modules/api/api-key-backfill.js');
+    backfillApiKeyHashes().catch((err) => logger.error('[api-key-backfill] failed:', err));
+    // D2 — cảnh báo vận hành: production mà không có Redis → rate-limit đếm per-process
+    // (in-memory). Chạy >1 instance sẽ vượt trần × số instance (mỗi instance đếm riêng).
+    if (config.isProduction) {
+      const { getRedis } = await import('./shared/redis-client.js');
+      const r = await getRedis().catch(() => null);
+      if (!r) logger.warn('[startup] PRODUCTION KHÔNG kết nối Redis — rate-limit đếm per-process; KHÔNG chạy >1 instance app (sẽ vượt trần chống-block). Đặt REDIS_URL.');
+    }
     const { startStatusLogCheckpointCron } = await import('./modules/zalo/status-log-checkpoint-cron.js');
     startStatusLogCheckpointCron();
     // Phase 6 — Lead Scoring background jobs (decay hourly + stuck detection 6am daily)
@@ -497,11 +525,7 @@ async function bootstrap() {
     });
     logger.info(`Attempting reconnect for ${accounts.length} Zalo account(s)`);
     for (const account of accounts) {
-      const session = account.sessionData as {
-        cookie: any;
-        imei: string;
-        userAgent: string;
-      } | null;
+      const session = decryptSessionData<{ cookie: any; imei: string; userAgent: string }>(account.sessionData);
       if (session?.imei) {
         zaloPool.reconnect(account.id, session).catch((err) => {
           logger.warn(`Auto-reconnect failed for account ${account.id}:`, err);

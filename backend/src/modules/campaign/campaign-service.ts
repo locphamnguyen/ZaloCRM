@@ -227,6 +227,49 @@ export async function attemptFriendRequest(args: {
   }
 }
 
+/**
+ * Gửi lời mời kết bạn khi ĐÃ BIẾT UID (vd nguồn Quét nhóm — GroupMember đã có memberUid
+ * sẵn, không cần findUser qua SĐT). Bỏ qua bước discovery của attemptFriendRequest,
+ * chỉ làm nửa sau: tạo FriendshipAttempt + gọi sendFriendRequest + mirror Friend.
+ * (Community extension 2026-07-07 — Mục tiêu nguồn Quét nhóm)
+ */
+type AttemptByUidOutcome =
+  | { ok: true; state: 'sent'; zaloUid: string }
+  | { ok: false; state: 'error'; errorCode: string; errorDetail: string };
+
+export async function attemptFriendRequestByUid(args: {
+  orgId: string;
+  zaloAccountId: string;
+  contactId: string;
+  zaloUid: string;
+  message: string;
+}): Promise<{ attemptId: string } & AttemptByUidOutcome> {
+  const { orgId, zaloAccountId, contactId, zaloUid, message } = args;
+
+  const attempt = await prisma.friendshipAttempt.create({
+    data: { orgId, zaloAccountId, contactId, state: 'looking_up', requestMsg: message },
+  });
+
+  try {
+    await zaloOps.sendFriendRequest(zaloAccountId, message, zaloUid);
+    await prisma.friendshipAttempt.update({
+      where: { id: attempt.id },
+      data: { state: 'sent', zaloUidFound: zaloUid, lookedUpAt: new Date(), sentAt: new Date() },
+    });
+    await markFriendRequestSent(zaloAccountId, zaloUid, contactId);
+    return { attemptId: attempt.id, ok: true, state: 'sent', zaloUid };
+  } catch (err: any) {
+    const code = err instanceof ZaloOpError ? err.code : 'SEND_FRIEND_REQ_FAILED';
+    const detail = String(err?.message ?? err);
+    logger.warn(`[campaign] sendFriendRequestByUid failed for uid=${zaloUid}: ${detail}`);
+    await prisma.friendshipAttempt.update({
+      where: { id: attempt.id },
+      data: { state: 'error', zaloUidFound: zaloUid, errorCode: code, errorDetail: detail, lookedUpAt: new Date() },
+    });
+    return { attemptId: attempt.id, ok: false, state: 'error', errorCode: code, errorDetail: detail };
+  }
+}
+
 /** Compose pick + attempt. Returns the outcome plus the picked contact's id (or null). */
 export async function executeRandomFriendRequest(args: {
   orgId: string;

@@ -47,6 +47,8 @@
             <v-list-item v-if="isExtension" to="/reports/automation"  title="Automation & Chăm sóc" prepend-icon="mdi-cog-sync-outline" />
             <v-list-item to="/reports/engagement"  title="Engagement KH"         prepend-icon="mdi-fire" />
             <v-list-item to="/reports/audit"       title="Audit & Sức khỏe HT"   prepend-icon="mdi-shield-check-outline" />
+            <!-- Broadcast tự động (🟢 Community extension 2026-07-06) -->
+            <v-list-item to="/reports/broadcast"   title="Broadcast tự động"     prepend-icon="mdi-bullhorn-outline" />
             <v-divider />
             <v-list-item to="/analytics" title="Phân tích nâng cao" prepend-icon="mdi-chart-line" />
           </v-list>
@@ -83,12 +85,6 @@
 
       <!-- Flexible spacer pushes everything after it to the right edge. -->
       <div class="topnav-spacer" />
-
-      <!--
-        ATTRIBUTION BANNER — moved into DashboardView per copyright holder
-        (locnt@locnguyendata.com). Rendering still required by Apache 2.0 §4(d);
-        see src/views/DashboardView.vue and src/composables/use-attribution.ts.
-      -->
 
       <!-- Global search trigger -->
       <GlobalSearch class="topnav-search" />
@@ -456,44 +452,6 @@ function logout() {
 }
 
 .topnav-spacer { flex: 1; min-width: 0; }
-
-.contact-marquee {
-  flex: 0 0 320px;
-  margin-right: 12px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  background: linear-gradient(90deg, rgba(0,242,255,0.12), rgba(0,119,182,0.12));
-  border: 1px solid rgba(0,242,255,0.30);
-  border-radius: 6px;
-  text-decoration: none;
-  color: #00F2FF;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  position: relative;
-}
-.contact-marquee:hover {
-  background: linear-gradient(90deg, rgba(0,242,255,0.20), rgba(0,119,182,0.20));
-  border-color: rgba(0,242,255,0.50);
-}
-.marquee-track {
-  display: inline-block;
-  white-space: nowrap;
-  animation: marquee-scroll 32s linear infinite;
-  will-change: transform;
-}
-.contact-marquee:hover .marquee-track {
-  animation-play-state: paused;
-}
-@keyframes marquee-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-@media (max-width: 1280px) {
-  .contact-marquee { display: none; }
-}
 
 .topnav-search {
   max-width: 240px;

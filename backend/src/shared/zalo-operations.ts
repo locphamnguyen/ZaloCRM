@@ -15,6 +15,7 @@ import { zaloPool } from '../modules/zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../modules/zalo/zalo-rate-limiter.js';
 import { logger } from './utils/logger.js';
 import { prisma } from './database/prisma-client.js';
+import { decryptSessionData } from './crypto/session-crypto.js';
 
 // ── Error types ─────────────────────────────────────────────────────────────
 export class ZaloOpError extends Error {
@@ -74,7 +75,7 @@ async function attemptReconnect(accountId: string): Promise<void> {
       where: { id: accountId },
       select: { sessionData: true },
     });
-    const session = account?.sessionData as ZaloCredentials | null;
+    const session = decryptSessionData<ZaloCredentials>(account?.sessionData);
     if (!session?.imei) {
       throw new ZaloOpError('No saved session for reconnect', 'SESSION_EXPIRED', 401);
     }
