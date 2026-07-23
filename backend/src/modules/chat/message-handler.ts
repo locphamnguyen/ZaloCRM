@@ -21,6 +21,7 @@ import { syncReminderFromMessage } from '../contacts/reminder-sync.js';
 import { uploadBuffer } from '../../shared/storage/minio-client.js';
 import { compressImage } from '../media/media-service.js';
 import { config } from '../../config/index.js';
+import { notifyStaffOnNewMessage } from '../notifications/zalo-notifier.js';
 // Open-core: customer-reply care-session reaction moved to extension engine
 // (emitted via the shared automation event bus below).
 
@@ -617,6 +618,15 @@ export async function handleIncomingMessage(
       contentType: msg.contentType,
       sentAt: message.sentAt,
     });
+
+    // GỬI THÔNG BÁO CHO NHÂN VIÊN PHỤ TRÁCH KHI CÓ TIN NHẮN MỚI
+    if (!msg.isSelf && contactId && msg.threadType === 'user') {
+      notifyStaffOnNewMessage(
+        contactId,
+        msg.content || '',
+        msg.senderName || 'Khách hàng'
+      ).catch((err) => logger.error('[message-handler] Lỗi gửi thông báo cho sale:', err));
+    }
 
     if (!msg.isSelf) {
       const org = await prisma.organization.findUnique({
