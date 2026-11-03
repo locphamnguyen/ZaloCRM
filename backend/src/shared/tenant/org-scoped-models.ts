@@ -18,7 +18,7 @@ export const ORG_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'SystemNotification', 'Appointment', 'Note', 'CrmTag', 'CrmTagGroup', 'Tag',
   'TagGroup', 'ZaloLabel', 'ActivityLog', 'DailyMessageStat', 'Integration',
   'AppSetting', 'DuplicateGroup', 'ParentCandidate', 'SavedReport',
-  'AutomationRule', 'MessageTemplate', 'AiConfig', 'AiSuggestionApplied',
+  'AutomationRule', 'MessageTemplate', 'AiConfig', 'AiAgentConfig', 'AiSuggestionApplied',
   'AiSuggestion', 'PinnedConversation', 'GroupPoll', 'FriendshipAttempt',
   'Friend', 'ContactAccess', 'ScoringConfig', 'ScoreSignalRule',
   'StageTransitionRule', 'StuckThreshold', 'NbaTemplate', 'AccountFolder',

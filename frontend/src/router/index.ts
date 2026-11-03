@@ -155,6 +155,8 @@ const routes: RouteRecordRaw[] = [
       // Lead Pool routes → extension bundle (eeSettingsChildren).
       // M53 2026-05-30 — Trợ Lý AI Virtual Chat
       { path: 'crm/ai-assistant',      name: 'Settings.AiAssistant',     component: () => import('@/views/settings/AiAssistantPage.vue'), meta: { resource: 'settings' } },
+      // 2026-11-03 — AI Agent 24/7 tự trả lời Zalo cá nhân
+      { path: 'crm/ai-agent',          name: 'Settings.AiAgent',         component: () => import('@/views/settings/AiAgentPage.vue'), meta: { resource: 'settings' } },
       // 🔌 Channels & Integrations
       { path: 'channels/zalo',             name: 'Settings.ZaloAccounts',    component: () => import('@/views/ZaloAccountsView.vue'), meta: { resource: 'zalo_account' } },
       // 2026-06-18 — Trần SDK dời sang Cài đặt (gate 'settings', KHÔNG 'zalo_account') → sale ko đổi được.
@@ -377,6 +379,7 @@ const ROUTE_TITLES: Record<string, string> = {
   'Settings.Templates': 'Mẫu tin',
   'Settings.LeadPool': 'Lead Pool',
   'Settings.AiAssistant': 'Trợ lý AI',
+  'Settings.AiAgent': 'AI Agent 24/7',
   'Settings.ZaloAccounts': 'Tài khoản Zalo',
   'Settings.FacebookLeadAds': 'Facebook Lead Ads',
   'Settings.ZaloAdsLeadForm': 'Zalo Ads Lead Form',

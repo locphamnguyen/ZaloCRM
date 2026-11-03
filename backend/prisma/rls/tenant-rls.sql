@@ -47,6 +47,14 @@ CREATE POLICY tenant_isolation ON "ai_configs"
   USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
   WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
 
+-- ai_agent_configs
+ALTER TABLE "ai_agent_configs" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "ai_agent_configs" FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON "ai_agent_configs";
+CREATE POLICY tenant_isolation ON "ai_agent_configs"
+  USING ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on')
+  WITH CHECK ("org_id" = current_setting('app.current_org', true) OR current_setting('app.bypass_rls', true) = 'on');
+
 -- ai_suggestions
 ALTER TABLE "ai_suggestions" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "ai_suggestions" FORCE ROW LEVEL SECURITY;
