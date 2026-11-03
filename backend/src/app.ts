@@ -90,6 +90,7 @@ import { initTelegramBridge } from './modules/integrations/providers/telegram-br
 // Telegram bridge routes (Zalo↔Telegram /link + provisioner) — core, stays outside _ee.
 import { telegramBridgeRoutes } from './modules/integrations/providers/telegram-bridge/telegram-bridge-routes.js';
 import { aiRoutes } from './modules/ai/ai-routes.js';
+import { aiAgentRoutes } from './modules/ai-agent/ai-agent-routes.js';
 import { chatOperationsRoutes, registerChatSocketHandlers } from './modules/chat/chat-operations-routes.js';
 import { groupRoutes } from './modules/zalo/group-routes.js';
 import { groupScanRoutes } from './modules/zalo/group-scan-routes.js';
@@ -326,6 +327,7 @@ async function bootstrap() {
   // lists/friend-invite + bull-board/stats/manual-control) → extension bundle.
   await app.register(telegramBridgeRoutes); // Telegram bridge (Zalo↔Telegram) — core
   await app.register(aiRoutes);
+  await app.register(aiAgentRoutes); // 2026-11-03 — AI Agent 24/7 (tự trả lời Zalo cá nhân)
   await app.register(chatOperationsRoutes);
   await app.register(groupRoutes);
   await app.register(groupScanRoutes); // E1 Quét group (🟢 Community)
@@ -406,6 +408,11 @@ async function bootstrap() {
       const { registerCustomerListEventHandlers } = await import('./modules/lists/list-event-handlers.js');
       startListEnrichmentWorker();
       registerCustomerListEventHandlers();
+    }
+    // AI Agent 24/7 — nghe message_received để tự trả lời (chỉ chạy khi admin bật trong Cài đặt).
+    if (config.nodeEnv !== 'test') {
+      const { registerAiAgent } = await import('./modules/ai-agent/ai-agent-service.js');
+      registerAiAgent();
     }
     // Contact profile enrichment (3am daily) — kéo gender + ngày sinh KH từ Zalo getUserInfo
     // cho KH đang trống. 24h/lần để tránh rate-limit (Anh chốt 2026-06-06).

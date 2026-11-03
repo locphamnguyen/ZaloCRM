@@ -51,6 +51,7 @@ model Organization {
   automationRules             AutomationRule[]
   messageTemplates            MessageTemplate[]
   aiConfig                    AiConfig?
+  aiAgentConfig               AiAgentConfig?
   aiSuggestions               AiSuggestion[]
   aiSuggestionsApplied        AiSuggestionApplied[]
   pinnedConversations         PinnedConversation[]
@@ -1679,6 +1680,40 @@ model AiConfig {
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("ai_configs")
+}
+
+// 2026-11-03 — AI Agent 24/7 (tự trả lời khách trên nick Zalo cá nhân).
+// MẶC ĐỊNH TẮT. Chỉ chạy trên các nick có trong zaloAccountIds. Có giới hạn tốc độ
+// riêng (per nick/giờ, per nick/ngày, per hội thoại/ngày) + delay ngẫu nhiên để giảm
+// rủi ro Zalo khoá nick. Tin agent gửi lưu Message.sentVia='ai_agent'.
+model AiAgentConfig {
+  id                    String   @id @default(uuid())
+  orgId                 String   @unique @map("org_id")
+  enabled               Boolean  @default(false)
+  // off_hours = tự trả lời ngoài giờ làm + trong giờ khi sale chưa trả lời sau staffGraceMinutes
+  // always    = tự trả lời mọi lúc (rủi ro khoá nick cao hơn)
+  mode                  String   @default("off_hours")
+  zaloAccountIds        Json     @default("[]") @map("zalo_account_ids")
+  workStart             String   @default("08:00") @map("work_start")
+  workEnd               String   @default("21:00") @map("work_end")
+  timezone              String   @default("Asia/Ho_Chi_Minh")
+  staffGraceMinutes     Int      @default(10) @map("staff_grace_minutes")
+  staffTakeoverMinutes  Int      @default(30) @map("staff_takeover_minutes")
+  minDelaySec           Int      @default(8) @map("min_delay_sec")
+  maxDelaySec           Int      @default(25) @map("max_delay_sec")
+  maxPerNickHour        Int      @default(15) @map("max_per_nick_hour")
+  maxPerNickDay         Int      @default(120) @map("max_per_nick_day")
+  maxPerConversationDay Int      @default(6) @map("max_per_conversation_day")
+  knowledgeBase         String?  @map("knowledge_base") @db.Text
+  handoffKeywords       String   @default("gặp người thật|nhân viên|tư vấn viên|khiếu nại|hoàn tiền|đổi trả|bị kích ứng|dị ứng") @map("handoff_keywords")
+  handoffMessage        String   @default("Dạ em đã ghi nhận, em chuyển nhân viên tư vấn hỗ trợ mình ngay khi vào ca nhé ạ. Mình chờ em một chút nha 💚") @map("handoff_message")
+  handoffPauseHours     Int      @default(24) @map("handoff_pause_hours")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("ai_agent_configs")
 }
 
 // M53 (2026-05-30): Audit log mỗi lần sale click "Áp dụng" trên AiSuggestionCard.
