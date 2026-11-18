@@ -9,6 +9,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { assertContactVisible } from './contact-scope.js';
 
 export async function contactSubResourceRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
@@ -18,6 +19,13 @@ export async function contactSubResourceRoutes(app: FastifyInstance): Promise<vo
     try {
       const user = request.user!;
       const { id } = request.params as { id: string };
+
+      // Scope gate: non-admin chỉ xem Contact trong ContactAccess của mình (khớp
+      // GET /contacts/:id + notes). Thiếu gate → member đọc lịch hẹn KH ngoài quyền.
+      const visible = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: id,
+      });
+      if (!visible) return reply.status(404).send({ error: 'Contact not found' });
 
       const appointments = await prisma.appointment.findMany({
         where: { contactId: id, orgId: user.orgId },
@@ -52,6 +60,12 @@ export async function contactSubResourceRoutes(app: FastifyInstance): Promise<vo
       });
 
       if (!contact) return reply.send({ contact: null });
+
+      // Scope gate: trả null (không lộ tồn tại) nếu KH ngoài quyền của user.
+      const visible = await assertContactVisible({
+        userId: user.id, orgId: user.orgId, legacyRole: user.role, contactId: contact.id,
+      });
+      if (!visible) return reply.send({ contact: null });
 
       // Last conversation for "Nhắn tin" deep-link
       const lastConv = await prisma.conversation.findFirst({
